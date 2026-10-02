@@ -1,0 +1,34 @@
+{
+ "result_list": [
+  {
+   "rank": "1",
+   "stex_tp": "ND",
+   "stk_cd": "GDC",
+   "stk_nm": "GD 컬처 그룹",
+   "stk_enm": "GD CULTURE GROUP LTD",
+   "cur_prc": "-0.0205",
+   "pred_pre_sig": "5",
+   "pred_pre": "-0.0004",
+   "flu_rt": "-1.91",
+   "acc_trde_qty": "137724299",
+   "pred_trde_qty": "1578612754",
+   "trde_prica": "3052"
+  },
+  {
+   "rank": "2",
+   "stex_tp": "ND",
+   "stk_cd": "ADTX",
+   "stk_nm": "애디텍스트",
+   "stk_enm": "ADITXT INC",
+   "cur_prc": "-0.0414",
+   "pred_pre_sig": "5",
+   "pred_pre": "-0.0003",
+   "flu_rt": "-0.72",
+   "acc_trde_qty": "105120821",
+   "pred_trde_qty": "4518286028",
+   "trde_prica": "4255"
+  }
+ ],
+ "return_code": 0,
+ "return_msg": "정상적으로 처리되었습니다"
+}

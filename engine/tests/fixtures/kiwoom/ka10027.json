@@ -1,0 +1,48 @@
+{
+ "pred_pre_flu_rt_upper": [
+  {
+   "stk_cls": "0",
+   "stk_cd": "005930",
+   "stk_nm": "삼성전자",
+   "cur_prc": "+74800",
+   "pred_pre_sig": "1",
+   "pred_pre": "+17200",
+   "flu_rt": "+29.86",
+   "sel_req": "207",
+   "buy_req": "3820638",
+   "now_trde_qty": "446203",
+   "cntr_str": "346.54",
+   "cnt": "4"
+  },
+  {
+   "stk_cls": "0",
+   "stk_cd": "005930",
+   "stk_nm": "삼성전자",
+   "cur_prc": "+12000",
+   "pred_pre_sig": "2",
+   "pred_pre": "+2380",
+   "flu_rt": "+24.74",
+   "sel_req": "54",
+   "buy_req": "0",
+   "now_trde_qty": "6",
+   "cntr_str": "500.00",
+   "cnt": "1"
+  },
+  {
+   "stk_cls": "0",
+   "stk_cd": "005930",
+   "stk_nm": "삼성전자",
+   "cur_prc": "+22550",
+   "pred_pre_sig": "2",
+   "pred_pre": "+2300",
+   "flu_rt": "+11.36",
+   "sel_req": "3042",
+   "buy_req": "11",
+   "now_trde_qty": "9",
+   "cntr_str": "500.00",
+   "cnt": "2"
+  }
+ ],
+ "return_code": 0,
+ "return_msg": "정상적으로 처리되었습니다"
+}

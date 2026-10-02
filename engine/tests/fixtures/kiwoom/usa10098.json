@@ -1,0 +1,15 @@
+{
+ "return_msg": "정상적으로 처리되었습니다",
+ "list": [
+  {
+   "stex_tp": "ND",
+   "stk_cd": "NVDA",
+   "stk_nm": "엔비디아",
+   "stk_enm": "NVIDIA CORP",
+   "mkgb": "NASDAQ",
+   "upgb": "반도체 및 반도체장비",
+   "isEtf": "N"
+  }
+ ],
+ "return_code": 0
+}

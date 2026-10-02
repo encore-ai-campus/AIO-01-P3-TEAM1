@@ -1,0 +1,42 @@
+# 로컬 개발용 Redis (+ 선택: PostgreSQL). 앱 컨테이너는 넣지 않는다 (Django·엔진·Vite는 로컬에서 직접 실행).
+# 로컬 개발 환경의 DB는 SQLite다 (.env의 POSTGRES_HOST를 비워 둔다). PostgreSQL은 EC2 운영용이다.
+#   docker compose -f deploy/compose.dev.yml up -d                      # Redis만
+#   docker compose -f deploy/compose.dev.yml --profile postgres up -d   # 운영과 같은 PostgreSQL로 확인할 때 (POSTGRES_HOST=127.0.0.1)
+# POSTGRES_* 값은 환경 변수나 deploy/.env에서 읽고, 없으면 paper/paper/paper를 쓴다.
+# 저장소 루트의 .env 값을 쓰려면: docker compose --env-file .env -f deploy/compose.dev.yml up -d
+name: paper-dev
+
+services:
+  db:
+    image: postgres:16
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-paper}
+      POSTGRES_USER: ${POSTGRES_USER:-paper}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-paper}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
+  redisdata:

@@ -1,0 +1,4146 @@
+{
+ "KR": [
+  {
+   "rule": "기준",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 8218576.720000001,
+   "returnPct": -17.814232799999996,
+   "mddPct": -18.090777379461198,
+   "avgExposurePct": 45.626030290303625,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 212,
+    "factRejected": 0,
+    "riskRejected": 41,
+    "approved": 171,
+    "skippedActive": 105,
+    "skippedMaxPositions": 0,
+    "placed": 66,
+    "filled": 58,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 41
+    },
+    "limitedBy": {
+     "건당 위험 한도": 142,
+     "매수 가능 금액": 29
+    }
+   },
+   "orders": 66,
+   "filled": 58,
+   "unfilled": 8,
+   "exits": {
+    "TARGET": 1,
+    "STOP": 31,
+    "EXPIRED": 19,
+    "OPEN": 7
+   },
+   "winRatePct": 21.568627450980394,
+   "profitFactor": 0.2459173005304422,
+   "realizedPnlKrw": -1830378.4400000034,
+   "openPnlKrw": 36021.94249999952,
+   "avgWinPct": 6.723687164143925,
+   "avgLossPct": -8.732930262965434,
+   "filterCheck": {
+    "approved": [
+     -0.048099019895047966,
+     157
+    ],
+    "rejected": [
+     -0.033076834587314634,
+     35
+    ],
+    "all": [
+     -0.045360600698325745,
+     192
+    ],
+    "allTargetRatePct": 1.0416666666666665
+   },
+   "label": "기준 (목표 4.0·손절 1.5, 10일)",
+   "firstHalfPct": -15.840617024999993,
+   "secondHalfPct": -2.3450929714946667,
+   "avgHoldDays": 10.96078431372549,
+   "group": "기준",
+   "targetAtr": 4.0,
+   "stopAtr": 1.5,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 8113812.777499998,
+   "returnPct": -18.86187222500002,
+   "mddPct": -21.313187600676986,
+   "avgExposurePct": 46.02016193911834,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 212,
+    "factRejected": 0,
+    "riskRejected": 53,
+    "approved": 159,
+    "skippedActive": 84,
+    "skippedMaxPositions": 0,
+    "placed": 75,
+    "filled": 67,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 53
+    },
+    "limitedBy": {
+     "건당 위험 한도": 148,
+     "매수 가능 금액": 11
+    }
+   },
+   "orders": 75,
+   "filled": 67,
+   "unfilled": 8,
+   "exits": {
+    "TARGET": 4,
+    "STOP": 47,
+    "EXPIRED": 10,
+    "OPEN": 6
+   },
+   "winRatePct": 19.672131147540984,
+   "profitFactor": 0.38060506749710343,
+   "realizedPnlKrw": -1967903.957500005,
+   "openPnlKrw": 67445.46499999953,
+   "avgWinPct": 10.030385627427757,
+   "avgLossPct": -6.418611741100669,
+   "filterCheck": {
+    "approved": [
+     -0.033709410961413354,
+     145
+    ],
+    "rejected": [
+     -0.04658513985596403,
+     47
+    ],
+    "all": [
+     -0.03686128209705857,
+     192
+    ],
+    "allTargetRatePct": 4.6875
+   },
+   "label": "격자 목표 3.0·손절 1.0",
+   "firstHalfPct": -17.05183050000001,
+   "secondHalfPct": -2.1821358276025715,
+   "avgHoldDays": 6.475409836065574,
+   "group": "격자",
+   "targetAtr": 3.0,
+   "stopAtr": 1.0,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 10000000.0,
+   "returnPct": 0.0,
+   "mddPct": 0.0,
+   "avgExposurePct": 0.0,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 212,
+    "factRejected": 0,
+    "riskRejected": 212,
+    "approved": 0,
+    "skippedActive": 0,
+    "skippedMaxPositions": 0,
+    "placed": 0,
+    "filled": 0,
+    "rejectReasons": {
+     "손익비": 212,
+     "매수 가능 수량이 1주 미만": 31
+    },
+    "limitedBy": {}
+   },
+   "orders": 0,
+   "filled": 0,
+   "unfilled": 0,
+   "exits": {
+    "TARGET": 0,
+    "STOP": 0,
+    "EXPIRED": 0,
+    "OPEN": 0
+   },
+   "winRatePct": null,
+   "profitFactor": null,
+   "realizedPnlKrw": 0.0,
+   "openPnlKrw": 0.0,
+   "avgWinPct": null,
+   "avgLossPct": null,
+   "filterCheck": {
+    "approved": [
+     null,
+     0
+    ],
+    "rejected": [
+     -0.03968770051933085,
+     192
+    ],
+    "all": [
+     -0.03968770051933085,
+     192
+    ],
+    "allTargetRatePct": 5.729166666666666
+   },
+   "label": "격자 목표 3.0·손절 1.5",
+   "firstHalfPct": 0.0,
+   "secondHalfPct": 0.0,
+   "avgHoldDays": null,
+   "group": "격자",
+   "targetAtr": 3.0,
+   "stopAtr": 1.5,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 10000000.0,
+   "returnPct": 0.0,
+   "mddPct": 0.0,
+   "avgExposurePct": 0.0,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 212,
+    "factRejected": 0,
+    "riskRejected": 212,
+    "approved": 0,
+    "skippedActive": 0,
+    "skippedMaxPositions": 0,
+    "placed": 0,
+    "filled": 0,
+    "rejectReasons": {
+     "손익비": 212,
+     "매수 가능 수량이 1주 미만": 39
+    },
+    "limitedBy": {}
+   },
+   "orders": 0,
+   "filled": 0,
+   "unfilled": 0,
+   "exits": {
+    "TARGET": 0,
+    "STOP": 0,
+    "EXPIRED": 0,
+    "OPEN": 0
+   },
+   "winRatePct": null,
+   "profitFactor": null,
+   "realizedPnlKrw": 0.0,
+   "openPnlKrw": 0.0,
+   "avgWinPct": null,
+   "avgLossPct": null,
+   "filterCheck": {
+    "approved": [
+     null,
+     0
+    ],
+    "rejected": [
+     -0.032652916969684434,
+     192
+    ],
+    "all": [
+     -0.032652916969684434,
+     192
+    ],
+    "allTargetRatePct": 6.770833333333333
+   },
+   "label": "격자 목표 3.0·손절 2.0",
+   "firstHalfPct": 0.0,
+   "secondHalfPct": 0.0,
+   "avgHoldDays": null,
+   "group": "격자",
+   "targetAtr": 3.0,
+   "stopAtr": 2.0,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 10000000.0,
+   "returnPct": 0.0,
+   "mddPct": 0.0,
+   "avgExposurePct": 0.0,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 212,
+    "factRejected": 0,
+    "riskRejected": 212,
+    "approved": 0,
+    "skippedActive": 0,
+    "skippedMaxPositions": 0,
+    "placed": 0,
+    "filled": 0,
+    "rejectReasons": {
+     "손익비": 212,
+     "비용을 반영한 기대값이 0 이하": 212,
+     "매수 가능 수량이 1주 미만": 39
+    },
+    "limitedBy": {}
+   },
+   "orders": 0,
+   "filled": 0,
+   "unfilled": 0,
+   "exits": {
+    "TARGET": 0,
+    "STOP": 0,
+    "EXPIRED": 0,
+    "OPEN": 0
+   },
+   "winRatePct": null,
+   "profitFactor": null,
+   "realizedPnlKrw": 0.0,
+   "openPnlKrw": 0.0,
+   "avgWinPct": null,
+   "avgLossPct": null,
+   "filterCheck": {
+    "approved": [
+     null,
+     0
+    ],
+    "rejected": [
+     -0.032595344134559515,
+     192
+    ],
+    "all": [
+     -0.032595344134559515,
+     192
+    ],
+    "allTargetRatePct": 7.291666666666667
+   },
+   "label": "격자 목표 3.0·손절 2.5",
+   "firstHalfPct": 0.0,
+   "secondHalfPct": 0.0,
+   "avgHoldDays": null,
+   "group": "격자",
+   "targetAtr": 3.0,
+   "stopAtr": 2.5,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 8207274.387499997,
+   "returnPct": -17.927256125000024,
+   "mddPct": -18.75675111432131,
+   "avgExposurePct": 47.607431951611474,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 212,
+    "factRejected": 0,
+    "riskRejected": 53,
+    "approved": 159,
+    "skippedActive": 90,
+    "skippedMaxPositions": 0,
+    "placed": 69,
+    "filled": 63,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 53
+    },
+    "limitedBy": {
+     "건당 위험 한도": 138,
+     "매수 가능 금액": 21
+    }
+   },
+   "orders": 69,
+   "filled": 63,
+   "unfilled": 6,
+   "exits": {
+    "TARGET": 1,
+    "STOP": 42,
+    "EXPIRED": 13,
+    "OPEN": 7
+   },
+   "winRatePct": 21.428571428571427,
+   "profitFactor": 0.35567864275617217,
+   "realizedPnlKrw": -1837039.3025000046,
+   "openPnlKrw": 27928.862499999494,
+   "avgWinPct": 7.689249660810751,
+   "avgLossPct": -6.560784924686285,
+   "filterCheck": {
+    "approved": [
+     -0.03772933614085382,
+     145
+    ],
+    "rejected": [
+     -0.05236789362817896,
+     47
+    ],
+    "all": [
+     -0.04131273302577195,
+     192
+    ],
+    "allTargetRatePct": 0.5208333333333333
+   },
+   "label": "격자 목표 4.0·손절 1.0",
+   "firstHalfPct": -15.707036225000003,
+   "secondHalfPct": -2.6339326564983168,
+   "avgHoldDays": 7.375,
+   "group": "격자",
+   "targetAtr": 4.0,
+   "stopAtr": 1.0,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 8218576.720000001,
+   "returnPct": -17.814232799999996,
+   "mddPct": -18.090777379461198,
+   "avgExposurePct": 45.626030290303625,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 212,
+    "factRejected": 0,
+    "riskRejected": 41,
+    "approved": 171,
+    "skippedActive": 105,
+    "skippedMaxPositions": 0,
+    "placed": 66,
+    "filled": 58,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 41
+    },
+    "limitedBy": {
+     "건당 위험 한도": 142,
+     "매수 가능 금액": 29
+    }
+   },
+   "orders": 66,
+   "filled": 58,
+   "unfilled": 8,
+   "exits": {
+    "TARGET": 1,
+    "STOP": 31,
+    "EXPIRED": 19,
+    "OPEN": 7
+   },
+   "winRatePct": 21.568627450980394,
+   "profitFactor": 0.2459173005304422,
+   "realizedPnlKrw": -1830378.4400000034,
+   "openPnlKrw": 36021.94249999952,
+   "avgWinPct": 6.723687164143925,
+   "avgLossPct": -8.732930262965434,
+   "filterCheck": {
+    "approved": [
+     -0.048099019895047966,
+     157
+    ],
+    "rejected": [
+     -0.033076834587314634,
+     35
+    ],
+    "all": [
+     -0.045360600698325745,
+     192
+    ],
+    "allTargetRatePct": 1.0416666666666665
+   },
+   "label": "격자 목표 4.0·손절 1.5",
+   "firstHalfPct": -15.840617024999993,
+   "secondHalfPct": -2.3450929714946667,
+   "avgHoldDays": 10.96078431372549,
+   "group": "격자",
+   "targetAtr": 4.0,
+   "stopAtr": 1.5,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 10000000.0,
+   "returnPct": 0.0,
+   "mddPct": 0.0,
+   "avgExposurePct": 0.0,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 212,
+    "factRejected": 0,
+    "riskRejected": 212,
+    "approved": 0,
+    "skippedActive": 0,
+    "skippedMaxPositions": 0,
+    "placed": 0,
+    "filled": 0,
+    "rejectReasons": {
+     "손익비": 212,
+     "매수 가능 수량이 1주 미만": 39
+    },
+    "limitedBy": {}
+   },
+   "orders": 0,
+   "filled": 0,
+   "unfilled": 0,
+   "exits": {
+    "TARGET": 0,
+    "STOP": 0,
+    "EXPIRED": 0,
+    "OPEN": 0
+   },
+   "winRatePct": null,
+   "profitFactor": null,
+   "realizedPnlKrw": 0.0,
+   "openPnlKrw": 0.0,
+   "avgWinPct": null,
+   "avgLossPct": null,
+   "filterCheck": {
+    "approved": [
+     null,
+     0
+    ],
+    "rejected": [
+     -0.03773160452815982,
+     192
+    ],
+    "all": [
+     -0.03773160452815982,
+     192
+    ],
+    "allTargetRatePct": 2.083333333333333
+   },
+   "label": "격자 목표 4.0·손절 2.0",
+   "firstHalfPct": 0.0,
+   "secondHalfPct": 0.0,
+   "avgHoldDays": null,
+   "group": "격자",
+   "targetAtr": 4.0,
+   "stopAtr": 2.0,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 10000000.0,
+   "returnPct": 0.0,
+   "mddPct": 0.0,
+   "avgExposurePct": 0.0,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 212,
+    "factRejected": 0,
+    "riskRejected": 212,
+    "approved": 0,
+    "skippedActive": 0,
+    "skippedMaxPositions": 0,
+    "placed": 0,
+    "filled": 0,
+    "rejectReasons": {
+     "손익비": 212,
+     "매수 가능 수량이 1주 미만": 39
+    },
+    "limitedBy": {}
+   },
+   "orders": 0,
+   "filled": 0,
+   "unfilled": 0,
+   "exits": {
+    "TARGET": 0,
+    "STOP": 0,
+    "EXPIRED": 0,
+    "OPEN": 0
+   },
+   "winRatePct": null,
+   "profitFactor": null,
+   "realizedPnlKrw": 0.0,
+   "openPnlKrw": 0.0,
+   "avgWinPct": null,
+   "avgLossPct": null,
+   "filterCheck": {
+    "approved": [
+     null,
+     0
+    ],
+    "rejected": [
+     -0.03751200666240375,
+     192
+    ],
+    "all": [
+     -0.03751200666240375,
+     192
+    ],
+    "allTargetRatePct": 2.604166666666667
+   },
+   "label": "격자 목표 4.0·손절 2.5",
+   "firstHalfPct": 0.0,
+   "secondHalfPct": 0.0,
+   "avgHoldDays": null,
+   "group": "격자",
+   "targetAtr": 4.0,
+   "stopAtr": 2.5,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 8225319.819999997,
+   "returnPct": -17.746801800000036,
+   "mddPct": -18.540394583184383,
+   "avgExposurePct": 47.85247502777352,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 212,
+    "factRejected": 0,
+    "riskRejected": 52,
+    "approved": 160,
+    "skippedActive": 91,
+    "skippedMaxPositions": 0,
+    "placed": 69,
+    "filled": 63,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 52
+    },
+    "limitedBy": {
+     "건당 위험 한도": 138,
+     "매수 가능 금액": 22
+    }
+   },
+   "orders": 69,
+   "filled": 63,
+   "unfilled": 6,
+   "exits": {
+    "TARGET": 0,
+    "STOP": 42,
+    "EXPIRED": 14,
+    "OPEN": 7
+   },
+   "winRatePct": 21.428571428571427,
+   "profitFactor": 0.3451217668879311,
+   "realizedPnlKrw": -1818948.5950000044,
+   "openPnlKrw": 27951.419999999496,
+   "avgWinPct": 7.361686820818256,
+   "avgLossPct": -6.577414084645031,
+   "filterCheck": {
+    "approved": [
+     -0.038150202400367615,
+     146
+    ],
+    "rejected": [
+     -0.05220484198464439,
+     46
+    ],
+    "all": [
+     -0.04151745980076726,
+     192
+    ],
+    "allTargetRatePct": 0.0
+   },
+   "label": "격자 목표 5.0·손절 1.0",
+   "firstHalfPct": -15.707036225000003,
+   "secondHalfPct": -2.4198527180094187,
+   "avgHoldDays": 7.428571428571429,
+   "group": "격자",
+   "targetAtr": 5.0,
+   "stopAtr": 1.0,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 8219685.924999999,
+   "returnPct": -17.80314075000001,
+   "mddPct": -18.07972265278869,
+   "avgExposurePct": 45.16643422671607,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 212,
+    "factRejected": 0,
+    "riskRejected": 42,
+    "approved": 170,
+    "skippedActive": 105,
+    "skippedMaxPositions": 0,
+    "placed": 65,
+    "filled": 58,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 42
+    },
+    "limitedBy": {
+     "건당 위험 한도": 147,
+     "매수 가능 금액": 23
+    }
+   },
+   "orders": 65,
+   "filled": 58,
+   "unfilled": 7,
+   "exits": {
+    "TARGET": 0,
+    "STOP": 30,
+    "EXPIRED": 21,
+    "OPEN": 7
+   },
+   "winRatePct": 23.52941176470588,
+   "profitFactor": 0.24012062374963014,
+   "realizedPnlKrw": -1804936.4900000033,
+   "openPnlKrw": 11272.097499999521,
+   "avgWinPct": 6.21747001890174,
+   "avgLossPct": -8.774245759470174,
+   "filterCheck": {
+    "approved": [
+     -0.047690746663498575,
+     157
+    ],
+    "rejected": [
+     -0.03376789205112383,
+     35
+    ],
+    "all": [
+     -0.0451527262914511,
+     192
+    ],
+    "allTargetRatePct": 0.5208333333333333
+   },
+   "label": "격자 목표 5.0·손절 1.5",
+   "firstHalfPct": -15.840617024999993,
+   "secondHalfPct": -2.3319131576606256,
+   "avgHoldDays": 11.215686274509803,
+   "group": "격자",
+   "targetAtr": 5.0,
+   "stopAtr": 1.5,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 9009523.789999995,
+   "returnPct": -9.904762100000042,
+   "mddPct": -9.939865919182333,
+   "avgExposurePct": 41.15667231506897,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 212,
+    "factRejected": 0,
+    "riskRejected": 42,
+    "approved": 170,
+    "skippedActive": 109,
+    "skippedMaxPositions": 0,
+    "placed": 61,
+    "filled": 55,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 42
+    },
+    "limitedBy": {
+     "건당 위험 한도": 159,
+     "매수 가능 금액": 11
+    }
+   },
+   "orders": 61,
+   "filled": 55,
+   "unfilled": 6,
+   "exits": {
+    "TARGET": 0,
+    "STOP": 15,
+    "EXPIRED": 31,
+    "OPEN": 9
+   },
+   "winRatePct": 34.78260869565217,
+   "profitFactor": 0.4107708130944016,
+   "realizedPnlKrw": -946606.1400000025,
+   "openPnlKrw": -59115.720000000525,
+   "avgWinPct": 6.719447038608954,
+   "avgLossPct": -8.874652043901435,
+   "filterCheck": {
+    "approved": [
+     -0.04037402419047884,
+     157
+    ],
+    "rejected": [
+     -0.02528417503990547,
+     35
+    ],
+    "all": [
+     -0.03762327043907224,
+     192
+    ],
+    "allTargetRatePct": 1.0416666666666665
+   },
+   "label": "격자 목표 5.0·손절 2.0",
+   "firstHalfPct": -8.749320200000032,
+   "secondHalfPct": -1.2662282654030355,
+   "avgHoldDays": 13.891304347826088,
+   "group": "격자",
+   "targetAtr": 5.0,
+   "stopAtr": 2.0,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 10000000.0,
+   "returnPct": 0.0,
+   "mddPct": 0.0,
+   "avgExposurePct": 0.0,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 212,
+    "factRejected": 0,
+    "riskRejected": 212,
+    "approved": 0,
+    "skippedActive": 0,
+    "skippedMaxPositions": 0,
+    "placed": 0,
+    "filled": 0,
+    "rejectReasons": {
+     "손익비": 212,
+     "매수 가능 수량이 1주 미만": 39
+    },
+    "limitedBy": {}
+   },
+   "orders": 0,
+   "filled": 0,
+   "unfilled": 0,
+   "exits": {
+    "TARGET": 0,
+    "STOP": 0,
+    "EXPIRED": 0,
+    "OPEN": 0
+   },
+   "winRatePct": null,
+   "profitFactor": null,
+   "realizedPnlKrw": 0.0,
+   "openPnlKrw": 0.0,
+   "avgWinPct": null,
+   "avgLossPct": null,
+   "filterCheck": {
+    "approved": [
+     null,
+     0
+    ],
+    "rejected": [
+     -0.03747670575460205,
+     192
+    ],
+    "all": [
+     -0.03747670575460205,
+     192
+    ],
+    "allTargetRatePct": 1.0416666666666665
+   },
+   "label": "격자 목표 5.0·손절 2.5",
+   "firstHalfPct": 0.0,
+   "secondHalfPct": 0.0,
+   "avgHoldDays": null,
+   "group": "격자",
+   "targetAtr": 5.0,
+   "stopAtr": 2.5,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 8225319.819999997,
+   "returnPct": -17.746801800000036,
+   "mddPct": -18.540394583184383,
+   "avgExposurePct": 47.85247502777352,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 212,
+    "factRejected": 0,
+    "riskRejected": 52,
+    "approved": 160,
+    "skippedActive": 91,
+    "skippedMaxPositions": 0,
+    "placed": 69,
+    "filled": 63,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 52
+    },
+    "limitedBy": {
+     "건당 위험 한도": 138,
+     "매수 가능 금액": 22
+    }
+   },
+   "orders": 69,
+   "filled": 63,
+   "unfilled": 6,
+   "exits": {
+    "TARGET": 0,
+    "STOP": 42,
+    "EXPIRED": 14,
+    "OPEN": 7
+   },
+   "winRatePct": 21.428571428571427,
+   "profitFactor": 0.3451217668879311,
+   "realizedPnlKrw": -1818948.5950000044,
+   "openPnlKrw": 27951.419999999496,
+   "avgWinPct": 7.361686820818256,
+   "avgLossPct": -6.577414084645031,
+   "filterCheck": {
+    "approved": [
+     -0.038150202400367615,
+     146
+    ],
+    "rejected": [
+     -0.05220484198464439,
+     46
+    ],
+    "all": [
+     -0.04151745980076726,
+     192
+    ],
+    "allTargetRatePct": 0.0
+   },
+   "label": "격자 목표 6.0·손절 1.0",
+   "firstHalfPct": -15.707036225000003,
+   "secondHalfPct": -2.4198527180094187,
+   "avgHoldDays": 7.428571428571429,
+   "group": "격자",
+   "targetAtr": 6.0,
+   "stopAtr": 1.0,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 8219685.924999999,
+   "returnPct": -17.80314075000001,
+   "mddPct": -18.07972265278869,
+   "avgExposurePct": 45.16643422671607,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 212,
+    "factRejected": 0,
+    "riskRejected": 42,
+    "approved": 170,
+    "skippedActive": 105,
+    "skippedMaxPositions": 0,
+    "placed": 65,
+    "filled": 58,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 42
+    },
+    "limitedBy": {
+     "건당 위험 한도": 147,
+     "매수 가능 금액": 23
+    }
+   },
+   "orders": 65,
+   "filled": 58,
+   "unfilled": 7,
+   "exits": {
+    "TARGET": 0,
+    "STOP": 30,
+    "EXPIRED": 21,
+    "OPEN": 7
+   },
+   "winRatePct": 23.52941176470588,
+   "profitFactor": 0.24012062374963014,
+   "realizedPnlKrw": -1804936.4900000033,
+   "openPnlKrw": 11272.097499999521,
+   "avgWinPct": 6.21747001890174,
+   "avgLossPct": -8.774245759470174,
+   "filterCheck": {
+    "approved": [
+     -0.047690746663498575,
+     157
+    ],
+    "rejected": [
+     -0.031489490368684286,
+     35
+    ],
+    "all": [
+     -0.044737392651423055,
+     192
+    ],
+    "allTargetRatePct": 0.5208333333333333
+   },
+   "label": "격자 목표 6.0·손절 1.5",
+   "firstHalfPct": -15.840617024999993,
+   "secondHalfPct": -2.3319131576606256,
+   "avgHoldDays": 11.215686274509803,
+   "group": "격자",
+   "targetAtr": 6.0,
+   "stopAtr": 1.5,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 9009523.789999995,
+   "returnPct": -9.904762100000042,
+   "mddPct": -9.939865919182333,
+   "avgExposurePct": 41.15667231506897,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 212,
+    "factRejected": 0,
+    "riskRejected": 42,
+    "approved": 170,
+    "skippedActive": 109,
+    "skippedMaxPositions": 0,
+    "placed": 61,
+    "filled": 55,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 42
+    },
+    "limitedBy": {
+     "건당 위험 한도": 159,
+     "매수 가능 금액": 11
+    }
+   },
+   "orders": 61,
+   "filled": 55,
+   "unfilled": 6,
+   "exits": {
+    "TARGET": 0,
+    "STOP": 15,
+    "EXPIRED": 31,
+    "OPEN": 9
+   },
+   "winRatePct": 34.78260869565217,
+   "profitFactor": 0.4107708130944016,
+   "realizedPnlKrw": -946606.1400000025,
+   "openPnlKrw": -59115.720000000525,
+   "avgWinPct": 6.719447038608954,
+   "avgLossPct": -8.874652043901435,
+   "filterCheck": {
+    "approved": [
+     -0.04037402419047884,
+     157
+    ],
+    "rejected": [
+     -0.02166546260049382,
+     35
+    ],
+    "all": [
+     -0.03696360931730449,
+     192
+    ],
+    "allTargetRatePct": 0.5208333333333333
+   },
+   "label": "격자 목표 6.0·손절 2.0",
+   "firstHalfPct": -8.749320200000032,
+   "secondHalfPct": -1.2662282654030355,
+   "avgHoldDays": 13.891304347826088,
+   "group": "격자",
+   "targetAtr": 6.0,
+   "stopAtr": 2.0,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 9135695.917499997,
+   "returnPct": -8.643040825000037,
+   "mddPct": -8.669739993554405,
+   "avgExposurePct": 35.71261718409982,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 212,
+    "factRejected": 0,
+    "riskRejected": 46,
+    "approved": 166,
+    "skippedActive": 107,
+    "skippedMaxPositions": 0,
+    "placed": 59,
+    "filled": 54,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 46
+    },
+    "limitedBy": {
+     "건당 위험 한도": 166
+    }
+   },
+   "orders": 59,
+   "filled": 54,
+   "unfilled": 5,
+   "exits": {
+    "TARGET": 0,
+    "STOP": 9,
+    "EXPIRED": 35,
+    "OPEN": 10
+   },
+   "winRatePct": 38.63636363636363,
+   "profitFactor": 0.39131256821849164,
+   "realizedPnlKrw": -773370.5525000019,
+   "openPnlKrw": -105554.17500000047,
+   "avgWinPct": 5.736390524411017,
+   "avgLossPct": -9.11934371374062,
+   "filterCheck": {
+    "approved": [
+     -0.04306539014039031,
+     154
+    ],
+    "rejected": [
+     -0.01149480231273887,
+     38
+    ],
+    "all": [
+     -0.0368170446328343,
+     192
+    ],
+    "allTargetRatePct": 0.5208333333333333
+   },
+   "label": "격자 목표 6.0·손절 2.5",
+   "firstHalfPct": -7.776026525000013,
+   "secondHalfPct": -0.940118135589818,
+   "avgHoldDays": 15.431818181818182,
+   "group": "격자",
+   "targetAtr": 6.0,
+   "stopAtr": 2.5,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "보유",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 8415323.317499995,
+   "returnPct": -15.846766825000048,
+   "mddPct": -16.12993167545461,
+   "avgExposurePct": 39.92001773010382,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 212,
+    "factRejected": 0,
+    "riskRejected": 38,
+    "approved": 174,
+    "skippedActive": 95,
+    "skippedMaxPositions": 0,
+    "placed": 79,
+    "filled": 73,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 38
+    },
+    "limitedBy": {
+     "건당 위험 한도": 172,
+     "매수 가능 금액": 2
+    }
+   },
+   "orders": 79,
+   "filled": 73,
+   "unfilled": 6,
+   "exits": {
+    "TARGET": 0,
+    "STOP": 28,
+    "EXPIRED": 39,
+    "OPEN": 6
+   },
+   "winRatePct": 31.343283582089555,
+   "profitFactor": 0.3898972154441645,
+   "realizedPnlKrw": -1508780.882500005,
+   "openPnlKrw": -88574.3500000005,
+   "avgWinPct": 6.082904212759022,
+   "avgLossPct": -6.9326517277216375,
+   "filterCheck": {
+    "approved": [
+     -0.027257489405878636,
+     160
+    ],
+    "rejected": [
+     -0.024495995267588947,
+     32
+    ],
+    "all": [
+     -0.026797240382830354,
+     192
+    ],
+    "allTargetRatePct": 0.0
+   },
+   "label": "보유 5일 (목표 4.0·손절 1.5)",
+   "firstHalfPct": -13.951979025000039,
+   "secondHalfPct": -2.2020120608590377,
+   "avgHoldDays": 7.731343283582089,
+   "group": "보유",
+   "targetAtr": 4.0,
+   "stopAtr": 1.5,
+   "holdingDays": 5,
+   "trailingAtr": null
+  },
+  {
+   "rule": "보유",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 8068662.044999997,
+   "returnPct": -19.313379550000032,
+   "mddPct": -19.58487969267304,
+   "avgExposurePct": 47.65002685108482,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 212,
+    "factRejected": 0,
+    "riskRejected": 58,
+    "approved": 154,
+    "skippedActive": 94,
+    "skippedMaxPositions": 0,
+    "placed": 60,
+    "filled": 55,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 58
+    },
+    "limitedBy": {
+     "건당 위험 한도": 138,
+     "매수 가능 금액": 16
+    }
+   },
+   "orders": 60,
+   "filled": 55,
+   "unfilled": 5,
+   "exits": {
+    "TARGET": 1,
+    "STOP": 33,
+    "EXPIRED": 13,
+    "OPEN": 8
+   },
+   "winRatePct": 19.148936170212767,
+   "profitFactor": 0.23382383356785977,
+   "realizedPnlKrw": -1853167.3450000032,
+   "openPnlKrw": -93350.25500000054,
+   "avgWinPct": 7.425944386921192,
+   "avgLossPct": -9.049966151440197,
+   "filterCheck": {
+    "approved": [
+     -0.057326393435112186,
+     142
+    ],
+    "rejected": [
+     -0.04454891016723815,
+     50
+    ],
+    "all": [
+     -0.05399892383410332,
+     192
+    ],
+    "allTargetRatePct": 1.0416666666666665
+   },
+   "label": "보유 15일 (목표 4.0·손절 1.5)",
+   "firstHalfPct": -15.529949875000003,
+   "secondHalfPct": -4.479019095408665,
+   "avgHoldDays": 12.319148936170214,
+   "group": "보유",
+   "targetAtr": 4.0,
+   "stopAtr": 1.5,
+   "holdingDays": 15,
+   "trailingAtr": null
+  },
+  {
+   "rule": "보유",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 8191710.375,
+   "returnPct": -18.08289625,
+   "mddPct": -18.3931359964718,
+   "avgExposurePct": 47.87083386398472,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 212,
+    "factRejected": 0,
+    "riskRejected": 55,
+    "approved": 157,
+    "skippedActive": 101,
+    "skippedMaxPositions": 0,
+    "placed": 56,
+    "filled": 50,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 55
+    },
+    "limitedBy": {
+     "건당 위험 한도": 137,
+     "매수 가능 금액": 20
+    }
+   },
+   "orders": 56,
+   "filled": 50,
+   "unfilled": 6,
+   "exits": {
+    "TARGET": 1,
+    "STOP": 31,
+    "EXPIRED": 11,
+    "OPEN": 7
+   },
+   "winRatePct": 18.6046511627907,
+   "profitFactor": 0.2619972039913105,
+   "realizedPnlKrw": -1771232.880000003,
+   "openPnlKrw": -46391.83000000028,
+   "avgWinPct": 8.819300360998751,
+   "avgLossPct": -9.424232496782325,
+   "filterCheck": {
+    "approved": [
+     -0.05916806529974549,
+     144
+    ],
+    "rejected": [
+     -0.03821353915403087,
+     48
+    ],
+    "all": [
+     -0.05392943376331684,
+     192
+    ],
+    "allTargetRatePct": 1.0416666666666665
+   },
+   "label": "보유 20일 (목표 4.0·손절 1.5)",
+   "firstHalfPct": -15.353873224999981,
+   "secondHalfPct": -3.2240376836781937,
+   "avgHoldDays": 13.627906976744185,
+   "group": "보유",
+   "targetAtr": 4.0,
+   "stopAtr": 1.5,
+   "holdingDays": 20,
+   "trailingAtr": null
+  },
+  {
+   "rule": "트레일링",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 8239951.189999995,
+   "returnPct": -17.600488100000057,
+   "mddPct": -17.877751902998217,
+   "avgExposurePct": 35.35316743926899,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 212,
+    "factRejected": 0,
+    "riskRejected": 37,
+    "approved": 175,
+    "skippedActive": 93,
+    "skippedMaxPositions": 0,
+    "placed": 82,
+    "filled": 74,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 37
+    },
+    "limitedBy": {
+     "건당 위험 한도": 162,
+     "매수 가능 금액": 13
+    }
+   },
+   "orders": 82,
+   "filled": 74,
+   "unfilled": 8,
+   "exits": {
+    "TARGET": 1,
+    "STOP": 62,
+    "EXPIRED": 5,
+    "OPEN": 6
+   },
+   "winRatePct": 22.058823529411764,
+   "profitFactor": 0.3078368386315969,
+   "realizedPnlKrw": -1751992.4250000042,
+   "openPnlKrw": -19598.982500000377,
+   "avgWinPct": 6.555122801275166,
+   "avgLossPct": -6.678072031649569,
+   "filterCheck": {
+    "approved": [
+     -0.03396743024536006,
+     160
+    ],
+    "rejected": [
+     -0.03239091460050029,
+     32
+    ],
+    "all": [
+     -0.03370467763788343,
+     192
+    ],
+    "allTargetRatePct": 0.5208333333333333
+   },
+   "label": "트레일링 1.5 ATR (목표 4.0·손절 1.5)",
+   "firstHalfPct": -14.163492550000045,
+   "secondHalfPct": -4.004118587888805,
+   "avgHoldDays": 6.367647058823529,
+   "group": "트레일링",
+   "targetAtr": 4.0,
+   "stopAtr": 1.5,
+   "holdingDays": 10,
+   "trailingAtr": 1.5
+  },
+  {
+   "rule": "트레일링",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 8313113.987499997,
+   "returnPct": -16.86886012500003,
+   "mddPct": -17.14858576241992,
+   "avgExposurePct": 40.769821109169456,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 212,
+    "factRejected": 0,
+    "riskRejected": 33,
+    "approved": 179,
+    "skippedActive": 104,
+    "skippedMaxPositions": 0,
+    "placed": 75,
+    "filled": 66,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 33
+    },
+    "limitedBy": {
+     "건당 위험 한도": 163,
+     "매수 가능 금액": 16
+    }
+   },
+   "orders": 75,
+   "filled": 66,
+   "unfilled": 9,
+   "exits": {
+    "TARGET": 1,
+    "STOP": 48,
+    "EXPIRED": 9,
+    "OPEN": 8
+   },
+   "winRatePct": 25.862068965517242,
+   "profitFactor": 0.27694264135169305,
+   "realizedPnlKrw": -1643060.7625000037,
+   "openPnlKrw": -58428.48000000059,
+   "avgWinPct": 5.097794855609158,
+   "avgLossPct": -7.352050072913127,
+   "filterCheck": {
+    "approved": [
+     -0.04322169825255355,
+     164
+    ],
+    "rejected": [
+     -0.0575114273355416,
+     28
+    ],
+    "all": [
+     -0.045305617077155975,
+     192
+    ],
+    "allTargetRatePct": 0.5208333333333333
+   },
+   "label": "트레일링 2.0 ATR (목표 4.0·손절 1.5)",
+   "firstHalfPct": -13.795490274999999,
+   "secondHalfPct": -3.5652077365840307,
+   "avgHoldDays": 8.551724137931034,
+   "group": "트레일링",
+   "targetAtr": 4.0,
+   "stopAtr": 1.5,
+   "holdingDays": 10,
+   "trailingAtr": 2.0
+  },
+  {
+   "rule": "트레일링",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 8281750.252499999,
+   "returnPct": -17.182497475000012,
+   "mddPct": -17.461167762910932,
+   "avgExposurePct": 43.44836235302175,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 212,
+    "factRejected": 0,
+    "riskRejected": 44,
+    "approved": 168,
+    "skippedActive": 102,
+    "skippedMaxPositions": 0,
+    "placed": 66,
+    "filled": 59,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 44
+    },
+    "limitedBy": {
+     "건당 위험 한도": 148,
+     "매수 가능 금액": 20
+    }
+   },
+   "orders": 66,
+   "filled": 59,
+   "unfilled": 7,
+   "exits": {
+    "TARGET": 1,
+    "STOP": 33,
+    "EXPIRED": 18,
+    "OPEN": 7
+   },
+   "winRatePct": 23.076923076923077,
+   "profitFactor": 0.2587145667018953,
+   "realizedPnlKrw": -1742781.6125000035,
+   "openPnlKrw": 11317.212499999529,
+   "avgWinPct": 6.379615235838894,
+   "avgLossPct": -8.258850782204721,
+   "filterCheck": {
+    "approved": [
+     -0.04821765234504943,
+     155
+    ],
+    "rejected": [
+     -0.03546809807499633,
+     37
+    ],
+    "all": [
+     -0.04576070699092462,
+     192
+    ],
+    "allTargetRatePct": 1.0416666666666665
+   },
+   "label": "트레일링 3.0 ATR (목표 4.0·손절 1.5)",
+   "firstHalfPct": -14.632985425000001,
+   "secondHalfPct": -2.986530643823926,
+   "avgHoldDays": 10.615384615384615,
+   "group": "트레일링",
+   "targetAtr": 4.0,
+   "stopAtr": 1.5,
+   "holdingDays": 10,
+   "trailingAtr": 3.0
+  },
+  {
+   "rule": "트레일링만",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 8159389.467499999,
+   "returnPct": -18.40610532500001,
+   "mddPct": -18.680658329227484,
+   "avgExposurePct": 42.68552598499038,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 212,
+    "factRejected": 0,
+    "riskRejected": 35,
+    "approved": 177,
+    "skippedActive": 106,
+    "skippedMaxPositions": 0,
+    "placed": 71,
+    "filled": 62,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 35
+    },
+    "limitedBy": {
+     "건당 위험 한도": 154,
+     "매수 가능 금액": 23
+    }
+   },
+   "orders": 71,
+   "filled": 62,
+   "unfilled": 9,
+   "exits": {
+    "TARGET": 0,
+    "STOP": 51,
+    "EXPIRED": 3,
+    "OPEN": 8
+   },
+   "winRatePct": 24.074074074074073,
+   "profitFactor": 0.21484940699220018,
+   "realizedPnlKrw": -1828209.3725000033,
+   "openPnlKrw": -24576.287500000435,
+   "avgWinPct": 4.825282763984792,
+   "avgLossPct": -7.761186728229533,
+   "filterCheck": {
+    "approved": [
+     -0.044933048363400334,
+     162
+    ],
+    "rejected": [
+     -0.053053841922025675,
+     30
+    ],
+    "all": [
+     -0.04620192235693554,
+     192
+    ],
+    "allTargetRatePct": 0.0
+   },
+   "label": "트레일링만 2.0 ATR (목표 10·손절 1.5, 20일)",
+   "firstHalfPct": -13.795490274999999,
+   "secondHalfPct": -5.348461541870931,
+   "avgHoldDays": 8.925925925925926,
+   "group": "트레일링만",
+   "targetAtr": 10.0,
+   "stopAtr": 1.5,
+   "holdingDays": 20,
+   "trailingAtr": 2.0
+  },
+  {
+   "rule": "트레일링만",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 8138881.464999997,
+   "returnPct": -18.611185350000024,
+   "mddPct": -18.885048286212058,
+   "avgExposurePct": 45.56805112007641,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 212,
+    "factRejected": 0,
+    "riskRejected": 64,
+    "approved": 148,
+    "skippedActive": 94,
+    "skippedMaxPositions": 0,
+    "placed": 54,
+    "filled": 48,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 64
+    },
+    "limitedBy": {
+     "건당 위험 한도": 132,
+     "매수 가능 금액": 16
+    }
+   },
+   "orders": 54,
+   "filled": 48,
+   "unfilled": 6,
+   "exits": {
+    "TARGET": 0,
+    "STOP": 33,
+    "EXPIRED": 8,
+    "OPEN": 7
+   },
+   "winRatePct": 14.634146341463413,
+   "profitFactor": 0.16968088056932273,
+   "realizedPnlKrw": -1833217.6350000026,
+   "openPnlKrw": -38605.42750000027,
+   "avgWinPct": 7.22076070514561,
+   "avgLossPct": -8.864904827691808,
+   "filterCheck": {
+    "approved": [
+     -0.06058056986795928,
+     135
+    ],
+    "rejected": [
+     -0.040291214996586854,
+     57
+    ],
+    "all": [
+     -0.05455716764052059,
+     192
+    ],
+    "allTargetRatePct": 0.0
+   },
+   "label": "트레일링만 3.0 ATR (목표 10·손절 1.5, 20일)",
+   "firstHalfPct": -15.755592774999993,
+   "secondHalfPct": -3.3896524043113163,
+   "avgHoldDays": 12.853658536585366,
+   "group": "트레일링만",
+   "targetAtr": 10.0,
+   "stopAtr": 1.5,
+   "holdingDays": 20,
+   "trailingAtr": 3.0
+  },
+  {
+   "rule": "구조",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 9755755.415000003,
+   "returnPct": -2.4424458499999746,
+   "mddPct": -8.47248343417485,
+   "avgExposurePct": 8.931635827253592,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 209,
+    "factRejected": 3,
+    "riskRejected": 191,
+    "approved": 18,
+    "skippedActive": 6,
+    "skippedMaxPositions": 0,
+    "placed": 12,
+    "filled": 10,
+    "rejectReasons": {
+     "손익비": 190,
+     "비용을 반영한 기대값이 0 이하": 165,
+     "매수 가능 수량이 1주 미만": 35
+    },
+    "limitedBy": {
+     "건당 위험 한도": 18
+    }
+   },
+   "orders": 12,
+   "filled": 10,
+   "unfilled": 2,
+   "exits": {
+    "TARGET": 0,
+    "STOP": 7,
+    "EXPIRED": 3,
+    "OPEN": 0
+   },
+   "winRatePct": 30.0,
+   "profitFactor": 0.5391458217590461,
+   "realizedPnlKrw": -244244.58500000197,
+   "openPnlKrw": 0.0,
+   "avgWinPct": 6.79310387450802,
+   "avgLossPct": -3.96021171151342,
+   "filterCheck": {
+    "approved": [
+     -0.013887614724010611,
+     14
+    ],
+    "rejected": [
+     -0.0170405749423048,
+     175
+    ],
+    "all": [
+     -0.016807022333542268,
+     189
+    ],
+    "allTargetRatePct": 41.7989417989418
+   },
+   "label": "구조 (목표 20일 고가·손절 10일 저가)",
+   "firstHalfPct": -1.235347149999999,
+   "secondHalfPct": -1.2221970767550494,
+   "avgHoldDays": 6.7,
+   "group": "구조",
+   "targetAtr": 0.0,
+   "stopAtr": 0.0,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "타이트",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 7967457.264999997,
+   "returnPct": -20.325427350000037,
+   "mddPct": -21.92196589822073,
+   "avgExposurePct": 46.22951270993519,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 212,
+    "factRejected": 0,
+    "riskRejected": 47,
+    "approved": 165,
+    "skippedActive": 98,
+    "skippedMaxPositions": 0,
+    "placed": 67,
+    "filled": 60,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 32,
+     "손익비": 17,
+     "비용을 반영한 기대값이 0 이하": 1
+    },
+    "limitedBy": {
+     "건당 위험 한도": 145,
+     "매수 가능 금액": 20
+    }
+   },
+   "orders": 67,
+   "filled": 60,
+   "unfilled": 7,
+   "exits": {
+    "TARGET": 1,
+    "STOP": 40,
+    "EXPIRED": 14,
+    "OPEN": 5
+   },
+   "winRatePct": 21.818181818181817,
+   "profitFactor": 0.300266196768224,
+   "realizedPnlKrw": -2089636.3250000048,
+   "openPnlKrw": 46844.10999999974,
+   "avgWinPct": 7.605826181968664,
+   "avgLossPct": -6.81807631722601,
+   "filterCheck": {
+    "approved": [
+     -0.036958865406316106,
+     149
+    ],
+    "rejected": [
+     -0.054805759800173014,
+     43
+    ],
+    "all": [
+     -0.04095582612994031,
+     192
+    ],
+    "allTargetRatePct": 0.5208333333333333
+   },
+   "label": "타이트 손절 (전일 저가 − 0.5 ATR·목표 4.0)",
+   "firstHalfPct": -12.405677100000013,
+   "secondHalfPct": -9.041396734171258,
+   "avgHoldDays": 8.6,
+   "group": "타이트",
+   "targetAtr": 4.0,
+   "stopAtr": 0.0,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "타이트+트레일링",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 7884456.544999993,
+   "returnPct": -21.155434550000063,
+   "mddPct": -22.90872458744998,
+   "avgExposurePct": 40.37775831013991,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 212,
+    "factRejected": 0,
+    "riskRejected": 44,
+    "approved": 168,
+    "skippedActive": 93,
+    "skippedMaxPositions": 0,
+    "placed": 75,
+    "filled": 66,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 29,
+     "손익비": 17,
+     "비용을 반영한 기대값이 0 이하": 1
+    },
+    "limitedBy": {
+     "건당 위험 한도": 155,
+     "매수 가능 금액": 13
+    }
+   },
+   "orders": 75,
+   "filled": 66,
+   "unfilled": 9,
+   "exits": {
+    "TARGET": 1,
+    "STOP": 54,
+    "EXPIRED": 7,
+    "OPEN": 4
+   },
+   "winRatePct": 24.193548387096776,
+   "profitFactor": 0.29396786486897214,
+   "realizedPnlKrw": -2118466.1050000056,
+   "openPnlKrw": -5360.225000000182,
+   "avgWinPct": 5.491971180883535,
+   "avgLossPct": -5.976260904425009,
+   "filterCheck": {
+    "approved": [
+     -0.03507952888020699,
+     152
+    ],
+    "rejected": [
+     -0.0443531593881986,
+     40
+    ],
+    "all": [
+     -0.037011535236038576,
+     192
+    ],
+    "allTargetRatePct": 0.5208333333333333
+   },
+   "label": "타이트 손절 + 트레일링 2.0",
+   "firstHalfPct": -12.682833350000045,
+   "secondHalfPct": -9.703247969510276,
+   "avgHoldDays": 6.612903225806452,
+   "group": "타이트+트레일링",
+   "targetAtr": 4.0,
+   "stopAtr": 0.0,
+   "holdingDays": 10,
+   "trailingAtr": 2.0
+  },
+  {
+   "rule": "분할",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 8410370.358749997,
+   "returnPct": -15.896296412500032,
+   "mddPct": -16.179294602236894,
+   "avgExposurePct": 48.56218804061102,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 212,
+    "factRejected": 0,
+    "riskRejected": 54,
+    "approved": 158,
+    "skippedActive": 103,
+    "skippedMaxPositions": 0,
+    "placed": 55,
+    "filled": 49,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 54
+    },
+    "limitedBy": {
+     "건당 위험 한도": 132,
+     "매수 가능 금액": 26
+    }
+   },
+   "orders": 55,
+   "filled": 49,
+   "unfilled": 6,
+   "exits": {
+    "TARGET": 1,
+    "STOP": 38,
+    "EXPIRED": 3,
+    "OPEN": 7
+   },
+   "winRatePct": 21.428571428571427,
+   "profitFactor": 0.24834863393550047,
+   "realizedPnlKrw": -1576510.9312500027,
+   "openPnlKrw": -23393.56000000029,
+   "avgWinPct": 6.5679787423588545,
+   "avgLossPct": -8.429558474074987,
+   "filterCheck": {
+    "approved": [
+     -0.051460819697373025,
+     145
+    ],
+    "rejected": [
+     -0.04454603227750185,
+     47
+    ],
+    "all": [
+     -0.04976813736021706,
+     192
+    ],
+    "allTargetRatePct": 1.0416666666666665
+   },
+   "label": "분할 청산 (목표 4.0 절반, 나머지 트레일링 2.0, 20일)",
+   "firstHalfPct": -13.645306299999993,
+   "secondHalfPct": -2.6066795168309898,
+   "avgHoldDays": 13.976190476190476,
+   "group": "분할",
+   "targetAtr": 4.0,
+   "stopAtr": 1.5,
+   "holdingDays": 20,
+   "trailingAtr": 2.0
+  },
+  {
+   "rule": "본전",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 82,
+   "finalEquityKrw": 8400975.140000002,
+   "returnPct": -15.99024859999998,
+   "mddPct": -16.27293065266022,
+   "avgExposurePct": 42.81283000187062,
+   "benchmarkPct": -18.36265122838269,
+   "funnel": {
+    "days": 82,
+    "regimeSkipped": 0,
+    "picks": 212,
+    "scenarios": 212,
+    "factRejected": 0,
+    "riskRejected": 38,
+    "approved": 174,
+    "skippedActive": 107,
+    "skippedMaxPositions": 0,
+    "placed": 67,
+    "filled": 60,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 38
+    },
+    "limitedBy": {
+     "건당 위험 한도": 156,
+     "매수 가능 금액": 18
+    }
+   },
+   "orders": 67,
+   "filled": 60,
+   "unfilled": 7,
+   "exits": {
+    "TARGET": 1,
+    "STOP": 33,
+    "EXPIRED": 18,
+    "OPEN": 8
+   },
+   "winRatePct": 21.153846153846153,
+   "profitFactor": 0.2735443370891031,
+   "realizedPnlKrw": -1629694.7400000035,
+   "openPnlKrw": 15119.897499999408,
+   "avgWinPct": 7.355780799661627,
+   "avgLossPct": -7.535887849429053,
+   "filterCheck": {
+    "approved": [
+     -0.04364375489692923,
+     160
+    ],
+    "rejected": [
+     -0.034075315638584396,
+     32
+    ],
+    "all": [
+     -0.04204901502053843,
+     192
+    ],
+    "allTargetRatePct": 1.0416666666666665
+   },
+   "label": "본전 손절 (+1.5 ATR 후 손절 = 진입가, 목표 4.0·손절 1.5)",
+   "firstHalfPct": -13.47596057499999,
+   "secondHalfPct": -2.9058837771662294,
+   "avgHoldDays": 10.211538461538462,
+   "group": "본전",
+   "targetAtr": 4.0,
+   "stopAtr": 1.5,
+   "holdingDays": 10,
+   "trailingAtr": null
+  }
+ ],
+ "US": [
+  {
+   "rule": "기준",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 8223511.332012409,
+   "returnPct": -17.7648866798759,
+   "mddPct": -19.84277308141824,
+   "avgExposurePct": 50.146300616618525,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 73,
+    "approved": 179,
+    "skippedActive": 92,
+    "skippedMaxPositions": 0,
+    "placed": 87,
+    "filled": 66,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 40,
+     "손익비": 33
+    },
+    "limitedBy": {
+     "건당 위험 한도": 166,
+     "매수 가능 금액": 13
+    }
+   },
+   "orders": 87,
+   "filled": 66,
+   "unfilled": 21,
+   "exits": {
+    "TARGET": 3,
+    "STOP": 41,
+    "EXPIRED": 14,
+    "OPEN": 8
+   },
+   "winRatePct": 24.137931034482758,
+   "profitFactor": 0.3991934682502401,
+   "realizedPnlKrw": -1801175.2973675935,
+   "openPnlKrw": 17537.79510000099,
+   "avgWinPct": 10.14852580336061,
+   "avgLossPct": -6.62913521598389,
+   "filterCheck": {
+    "approved": [
+     -0.018009198475341798,
+     142
+    ],
+    "rejected": [
+     -0.026876028854166907,
+     59
+    ],
+    "all": [
+     -0.0206118999298228,
+     201
+    ],
+    "allTargetRatePct": 3.482587064676617
+   },
+   "label": "기준 (목표 4.0·손절 1.5, 10일)",
+   "firstHalfPct": -15.983310459500943,
+   "secondHalfPct": -2.1205027597715365,
+   "avgHoldDays": 7.879310344827586,
+   "group": "기준",
+   "targetAtr": 4.0,
+   "stopAtr": 1.5,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 8296390.894765616,
+   "returnPct": -17.03609105234384,
+   "mddPct": -17.05122888112899,
+   "avgExposurePct": 52.444072844823,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 73,
+    "approved": 179,
+    "skippedActive": 74,
+    "skippedMaxPositions": 0,
+    "placed": 105,
+    "filled": 79,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 38,
+     "손익비": 37
+    },
+    "limitedBy": {
+     "건당 위험 한도": 154,
+     "매수 가능 금액": 25
+    }
+   },
+   "orders": 105,
+   "filled": 79,
+   "unfilled": 26,
+   "exits": {
+    "TARGET": 6,
+    "STOP": 58,
+    "EXPIRED": 9,
+    "OPEN": 6
+   },
+   "winRatePct": 21.91780821917808,
+   "profitFactor": 0.4977018156159431,
+   "realizedPnlKrw": -1775688.7820993895,
+   "openPnlKrw": 65058.80220000084,
+   "avgWinPct": 8.699343977073953,
+   "avgLossPct": -4.994832950623449,
+   "filterCheck": {
+    "approved": [
+     -0.020953360265150132,
+     141
+    ],
+    "rejected": [
+     -0.01780478063124489,
+     60
+    ],
+    "all": [
+     -0.020013485747566475,
+     201
+    ],
+    "allTargetRatePct": 5.472636815920398
+   },
+   "label": "격자 목표 3.0·손절 1.0",
+   "firstHalfPct": -14.383008266318908,
+   "secondHalfPct": -3.0987806652650995,
+   "avgHoldDays": 5.082191780821918,
+   "group": "격자",
+   "targetAtr": 3.0,
+   "stopAtr": 1.0,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 10000000.0,
+   "returnPct": 0.0,
+   "mddPct": 0.0,
+   "avgExposurePct": 0.0,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 252,
+    "approved": 0,
+    "skippedActive": 0,
+    "skippedMaxPositions": 0,
+    "placed": 0,
+    "filled": 0,
+    "rejectReasons": {
+     "손익비": 252,
+     "매수 가능 수량이 1주 미만": 23
+    },
+    "limitedBy": {}
+   },
+   "orders": 0,
+   "filled": 0,
+   "unfilled": 0,
+   "exits": {
+    "TARGET": 0,
+    "STOP": 0,
+    "EXPIRED": 0,
+    "OPEN": 0
+   },
+   "winRatePct": null,
+   "profitFactor": null,
+   "realizedPnlKrw": 0.0,
+   "openPnlKrw": 0.0,
+   "avgWinPct": null,
+   "avgLossPct": null,
+   "filterCheck": {
+    "approved": [
+     null,
+     0
+    ],
+    "rejected": [
+     -0.020239908580910678,
+     201
+    ],
+    "all": [
+     -0.020239908580910678,
+     201
+    ],
+    "allTargetRatePct": 6.467661691542288
+   },
+   "label": "격자 목표 3.0·손절 1.5",
+   "firstHalfPct": 0.0,
+   "secondHalfPct": 0.0,
+   "avgHoldDays": null,
+   "group": "격자",
+   "targetAtr": 3.0,
+   "stopAtr": 1.5,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 10000000.0,
+   "returnPct": 0.0,
+   "mddPct": 0.0,
+   "avgExposurePct": 0.0,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 252,
+    "approved": 0,
+    "skippedActive": 0,
+    "skippedMaxPositions": 0,
+    "placed": 0,
+    "filled": 0,
+    "rejectReasons": {
+     "손익비": 252,
+     "매수 가능 수량이 1주 미만": 48,
+     "비용을 반영한 기대값이 0 이하": 47
+    },
+    "limitedBy": {}
+   },
+   "orders": 0,
+   "filled": 0,
+   "unfilled": 0,
+   "exits": {
+    "TARGET": 0,
+    "STOP": 0,
+    "EXPIRED": 0,
+    "OPEN": 0
+   },
+   "winRatePct": null,
+   "profitFactor": null,
+   "realizedPnlKrw": 0.0,
+   "openPnlKrw": 0.0,
+   "avgWinPct": null,
+   "avgLossPct": null,
+   "filterCheck": {
+    "approved": [
+     null,
+     0
+    ],
+    "rejected": [
+     -0.02293236589860134,
+     201
+    ],
+    "all": [
+     -0.02293236589860134,
+     201
+    ],
+    "allTargetRatePct": 6.965174129353234
+   },
+   "label": "격자 목표 3.0·손절 2.0",
+   "firstHalfPct": 0.0,
+   "secondHalfPct": 0.0,
+   "avgHoldDays": null,
+   "group": "격자",
+   "targetAtr": 3.0,
+   "stopAtr": 2.0,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 10000000.0,
+   "returnPct": 0.0,
+   "mddPct": 0.0,
+   "avgExposurePct": 0.0,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 252,
+    "approved": 0,
+    "skippedActive": 0,
+    "skippedMaxPositions": 0,
+    "placed": 0,
+    "filled": 0,
+    "rejectReasons": {
+     "손익비": 252,
+     "비용을 반영한 기대값이 0 이하": 252,
+     "매수 가능 수량이 1주 미만": 56
+    },
+    "limitedBy": {}
+   },
+   "orders": 0,
+   "filled": 0,
+   "unfilled": 0,
+   "exits": {
+    "TARGET": 0,
+    "STOP": 0,
+    "EXPIRED": 0,
+    "OPEN": 0
+   },
+   "winRatePct": null,
+   "profitFactor": null,
+   "realizedPnlKrw": 0.0,
+   "openPnlKrw": 0.0,
+   "avgWinPct": null,
+   "avgLossPct": null,
+   "filterCheck": {
+    "approved": [
+     null,
+     0
+    ],
+    "rejected": [
+     -0.02220596605915949,
+     201
+    ],
+    "all": [
+     -0.02220596605915949,
+     201
+    ],
+    "allTargetRatePct": 6.965174129353234
+   },
+   "label": "격자 목표 3.0·손절 2.5",
+   "firstHalfPct": 0.0,
+   "secondHalfPct": 0.0,
+   "avgHoldDays": null,
+   "group": "격자",
+   "targetAtr": 3.0,
+   "stopAtr": 2.5,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 7501531.515430616,
+   "returnPct": -24.984684845693838,
+   "mddPct": -25.520660395309548,
+   "avgExposurePct": 61.12080229935254,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 60,
+    "approved": 192,
+    "skippedActive": 80,
+    "skippedMaxPositions": 0,
+    "placed": 112,
+    "filled": 84,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 60
+    },
+    "limitedBy": {
+     "건당 위험 한도": 143,
+     "매수 가능 금액": 49
+    }
+   },
+   "orders": 112,
+   "filled": 84,
+   "unfilled": 28,
+   "exits": {
+    "TARGET": 2,
+    "STOP": 61,
+    "EXPIRED": 15,
+    "OPEN": 6
+   },
+   "winRatePct": 21.794871794871796,
+   "profitFactor": 0.346027249620715,
+   "realizedPnlKrw": -2549723.577269389,
+   "openPnlKrw": 46282.89928500075,
+   "avgWinPct": 7.969169035921143,
+   "avgLossPct": -4.896294490382001,
+   "filterCheck": {
+    "approved": [
+     -0.018098681323723276,
+     152
+    ],
+    "rejected": [
+     -0.02851410470049999,
+     49
+    ],
+    "all": [
+     -0.020637764634479788,
+     201
+    ],
+    "allTargetRatePct": 2.4875621890547266
+   },
+   "label": "격자 목표 4.0·손절 1.0",
+   "firstHalfPct": -22.10767246251889,
+   "secondHalfPct": -3.6935760865414613,
+   "avgHoldDays": 5.653846153846154,
+   "group": "격자",
+   "targetAtr": 4.0,
+   "stopAtr": 1.0,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 8223511.332012409,
+   "returnPct": -17.7648866798759,
+   "mddPct": -19.84277308141824,
+   "avgExposurePct": 50.146300616618525,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 73,
+    "approved": 179,
+    "skippedActive": 92,
+    "skippedMaxPositions": 0,
+    "placed": 87,
+    "filled": 66,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 40,
+     "손익비": 33
+    },
+    "limitedBy": {
+     "건당 위험 한도": 166,
+     "매수 가능 금액": 13
+    }
+   },
+   "orders": 87,
+   "filled": 66,
+   "unfilled": 21,
+   "exits": {
+    "TARGET": 3,
+    "STOP": 41,
+    "EXPIRED": 14,
+    "OPEN": 8
+   },
+   "winRatePct": 24.137931034482758,
+   "profitFactor": 0.3991934682502401,
+   "realizedPnlKrw": -1801175.2973675935,
+   "openPnlKrw": 17537.79510000099,
+   "avgWinPct": 10.14852580336061,
+   "avgLossPct": -6.62913521598389,
+   "filterCheck": {
+    "approved": [
+     -0.018009198475341798,
+     142
+    ],
+    "rejected": [
+     -0.026876028854166907,
+     59
+    ],
+    "all": [
+     -0.0206118999298228,
+     201
+    ],
+    "allTargetRatePct": 3.482587064676617
+   },
+   "label": "격자 목표 4.0·손절 1.5",
+   "firstHalfPct": -15.983310459500943,
+   "secondHalfPct": -2.1205027597715365,
+   "avgHoldDays": 7.879310344827586,
+   "group": "격자",
+   "targetAtr": 4.0,
+   "stopAtr": 1.5,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 10000000.0,
+   "returnPct": 0.0,
+   "mddPct": 0.0,
+   "avgExposurePct": 0.0,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 252,
+    "approved": 0,
+    "skippedActive": 0,
+    "skippedMaxPositions": 0,
+    "placed": 0,
+    "filled": 0,
+    "rejectReasons": {
+     "손익비": 252,
+     "매수 가능 수량이 1주 미만": 48
+    },
+    "limitedBy": {}
+   },
+   "orders": 0,
+   "filled": 0,
+   "unfilled": 0,
+   "exits": {
+    "TARGET": 0,
+    "STOP": 0,
+    "EXPIRED": 0,
+    "OPEN": 0
+   },
+   "winRatePct": null,
+   "profitFactor": null,
+   "realizedPnlKrw": 0.0,
+   "openPnlKrw": 0.0,
+   "avgWinPct": null,
+   "avgLossPct": null,
+   "filterCheck": {
+    "approved": [
+     null,
+     0
+    ],
+    "rejected": [
+     -0.02310318817740137,
+     201
+    ],
+    "all": [
+     -0.02310318817740137,
+     201
+    ],
+    "allTargetRatePct": 3.9800995024875623
+   },
+   "label": "격자 목표 4.0·손절 2.0",
+   "firstHalfPct": 0.0,
+   "secondHalfPct": 0.0,
+   "avgHoldDays": null,
+   "group": "격자",
+   "targetAtr": 4.0,
+   "stopAtr": 2.0,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 10000000.0,
+   "returnPct": 0.0,
+   "mddPct": 0.0,
+   "avgExposurePct": 0.0,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 252,
+    "approved": 0,
+    "skippedActive": 0,
+    "skippedMaxPositions": 0,
+    "placed": 0,
+    "filled": 0,
+    "rejectReasons": {
+     "손익비": 252,
+     "매수 가능 수량이 1주 미만": 56
+    },
+    "limitedBy": {}
+   },
+   "orders": 0,
+   "filled": 0,
+   "unfilled": 0,
+   "exits": {
+    "TARGET": 0,
+    "STOP": 0,
+    "EXPIRED": 0,
+    "OPEN": 0
+   },
+   "winRatePct": null,
+   "profitFactor": null,
+   "realizedPnlKrw": 0.0,
+   "openPnlKrw": 0.0,
+   "avgWinPct": null,
+   "avgLossPct": null,
+   "filterCheck": {
+    "approved": [
+     null,
+     0
+    ],
+    "rejected": [
+     -0.02237678833795952,
+     201
+    ],
+    "all": [
+     -0.02237678833795952,
+     201
+    ],
+    "allTargetRatePct": 3.9800995024875623
+   },
+   "label": "격자 목표 4.0·손절 2.5",
+   "firstHalfPct": 0.0,
+   "secondHalfPct": 0.0,
+   "avgHoldDays": null,
+   "group": "격자",
+   "targetAtr": 4.0,
+   "stopAtr": 2.5,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 7446163.151628118,
+   "returnPct": -25.53836848371882,
+   "mddPct": -26.483648899404844,
+   "avgExposurePct": 61.30511788696978,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 66,
+    "approved": 186,
+    "skippedActive": 76,
+    "skippedMaxPositions": 0,
+    "placed": 110,
+    "filled": 82,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 66
+    },
+    "limitedBy": {
+     "건당 위험 한도": 146,
+     "매수 가능 금액": 40
+    }
+   },
+   "orders": 110,
+   "filled": 82,
+   "unfilled": 28,
+   "exits": {
+    "TARGET": 1,
+    "STOP": 61,
+    "EXPIRED": 14,
+    "OPEN": 6
+   },
+   "winRatePct": 19.736842105263158,
+   "profitFactor": 0.31728405636070645,
+   "realizedPnlKrw": -2604561.871041889,
+   "openPnlKrw": 44829.56142000072,
+   "avgWinPct": 7.553187473847163,
+   "avgLossPct": -4.85446152049088,
+   "filterCheck": {
+    "approved": [
+     -0.02029406782822101,
+     145
+    ],
+    "rejected": [
+     -0.02894488238054692,
+     56
+    ],
+    "all": [
+     -0.022704245016928727,
+     201
+    ],
+    "allTargetRatePct": 0.9950248756218906
+   },
+   "label": "격자 목표 5.0·손절 1.0",
+   "firstHalfPct": -24.254832228668878,
+   "secondHalfPct": -1.6945453984930636,
+   "avgHoldDays": 5.5131578947368425,
+   "group": "격자",
+   "targetAtr": 5.0,
+   "stopAtr": 1.0,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 8105806.89386741,
+   "returnPct": -18.9419310613259,
+   "mddPct": -22.403831539691986,
+   "avgExposurePct": 61.672912507266766,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 61,
+    "approved": 191,
+    "skippedActive": 94,
+    "skippedMaxPositions": 0,
+    "placed": 97,
+    "filled": 71,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 61
+    },
+    "limitedBy": {
+     "건당 위험 한도": 158,
+     "매수 가능 금액": 33
+    }
+   },
+   "orders": 97,
+   "filled": 71,
+   "unfilled": 26,
+   "exits": {
+    "TARGET": 1,
+    "STOP": 42,
+    "EXPIRED": 19,
+    "OPEN": 9
+   },
+   "winRatePct": 25.806451612903224,
+   "profitFactor": 0.3309280112576978,
+   "realizedPnlKrw": -1964670.409497593,
+   "openPnlKrw": 62857.387530000946,
+   "avgWinPct": 7.048585847106721,
+   "avgLossPct": -6.448771772240948,
+   "filterCheck": {
+    "approved": [
+     -0.021031700165344395,
+     148
+    ],
+    "rejected": [
+     -0.030113922821260172,
+     53
+    ],
+    "all": [
+     -0.023426515094516216,
+     201
+    ],
+    "allTargetRatePct": 0.9950248756218906
+   },
+   "label": "격자 목표 5.0·손절 1.5",
+   "firstHalfPct": -18.541255265000956,
+   "secondHalfPct": -0.49187573124090944,
+   "avgHoldDays": 8.709677419354838,
+   "group": "격자",
+   "targetAtr": 5.0,
+   "stopAtr": 1.5,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 8650731.592626406,
+   "returnPct": -13.492684073735939,
+   "mddPct": -16.199975609979433,
+   "avgExposurePct": 39.0986723070565,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 88,
+    "approved": 164,
+    "skippedActive": 92,
+    "skippedMaxPositions": 0,
+    "placed": 72,
+    "filled": 57,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 56,
+     "손익비": 32
+    },
+    "limitedBy": {
+     "건당 위험 한도": 164
+    }
+   },
+   "orders": 72,
+   "filled": 57,
+   "unfilled": 15,
+   "exits": {
+    "TARGET": 3,
+    "STOP": 30,
+    "EXPIRED": 15,
+    "OPEN": 9
+   },
+   "winRatePct": 31.25,
+   "profitFactor": 0.4203940729534881,
+   "realizedPnlKrw": -1340171.2061135964,
+   "openPnlKrw": -16431.791669999227,
+   "avgWinPct": 9.769732395728093,
+   "avgLossPct": -9.099226519012738,
+   "filterCheck": {
+    "approved": [
+     -0.025043692433994468,
+     130
+    ],
+    "rejected": [
+     -0.027271293438758757,
+     71
+    ],
+    "all": [
+     -0.025830556470503245,
+     201
+    ],
+    "allTargetRatePct": 1.4925373134328357
+   },
+   "label": "격자 목표 5.0·손절 2.0",
+   "firstHalfPct": -11.69311156001095,
+   "secondHalfPct": -2.0378619896090355,
+   "avgHoldDays": 10.3125,
+   "group": "격자",
+   "targetAtr": 5.0,
+   "stopAtr": 2.0,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 10000000.0,
+   "returnPct": 0.0,
+   "mddPct": 0.0,
+   "avgExposurePct": 0.0,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 252,
+    "approved": 0,
+    "skippedActive": 0,
+    "skippedMaxPositions": 0,
+    "placed": 0,
+    "filled": 0,
+    "rejectReasons": {
+     "손익비": 252,
+     "매수 가능 수량이 1주 미만": 56
+    },
+    "limitedBy": {}
+   },
+   "orders": 0,
+   "filled": 0,
+   "unfilled": 0,
+   "exits": {
+    "TARGET": 0,
+    "STOP": 0,
+    "EXPIRED": 0,
+    "OPEN": 0
+   },
+   "winRatePct": null,
+   "profitFactor": null,
+   "realizedPnlKrw": 0.0,
+   "openPnlKrw": 0.0,
+   "avgWinPct": null,
+   "avgLossPct": null,
+   "filterCheck": {
+    "approved": [
+     null,
+     0
+    ],
+    "rejected": [
+     -0.024887375927581973,
+     201
+    ],
+    "all": [
+     -0.024887375927581973,
+     201
+    ],
+    "allTargetRatePct": 1.4925373134328357
+   },
+   "label": "격자 목표 5.0·손절 2.5",
+   "firstHalfPct": 0.0,
+   "secondHalfPct": 0.0,
+   "avgHoldDays": null,
+   "group": "격자",
+   "targetAtr": 5.0,
+   "stopAtr": 2.5,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 7353809.874108118,
+   "returnPct": -26.461901258918818,
+   "mddPct": -26.483648899404844,
+   "avgExposurePct": 61.37126512273156,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 67,
+    "approved": 185,
+    "skippedActive": 76,
+    "skippedMaxPositions": 0,
+    "placed": 109,
+    "filled": 81,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 67
+    },
+    "limitedBy": {
+     "건당 위험 한도": 146,
+     "매수 가능 금액": 39
+    }
+   },
+   "orders": 109,
+   "filled": 81,
+   "unfilled": 28,
+   "exits": {
+    "TARGET": 0,
+    "STOP": 61,
+    "EXPIRED": 14,
+    "OPEN": 6
+   },
+   "winRatePct": 18.666666666666668,
+   "profitFactor": 0.2806012181156485,
+   "realizedPnlKrw": -2744506.928286889,
+   "openPnlKrw": 93344.60898000082,
+   "avgWinPct": 6.996638023903285,
+   "avgLossPct": -4.85446152049088,
+   "filterCheck": {
+    "approved": [
+     -0.020534075619348197,
+     144
+    ],
+    "rejected": [
+     -0.028487848496325328,
+     57
+    ],
+    "all": [
+     -0.022789623151625294,
+     201
+    ],
+    "allTargetRatePct": 0.4975124378109453
+   },
+   "label": "격자 목표 6.0·손절 1.0",
+   "firstHalfPct": -24.254832228668878,
+   "secondHalfPct": -2.9138083592512576,
+   "avgHoldDays": 5.493333333333333,
+   "group": "격자",
+   "targetAtr": 6.0,
+   "stopAtr": 1.0,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 8009610.249687411,
+   "returnPct": -19.90389750312589,
+   "mddPct": -22.403831539691986,
+   "avgExposurePct": 61.652119014519016,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 60,
+    "approved": 192,
+    "skippedActive": 96,
+    "skippedMaxPositions": 0,
+    "placed": 96,
+    "filled": 70,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 60
+    },
+    "limitedBy": {
+     "건당 위험 한도": 158,
+     "매수 가능 금액": 34
+    }
+   },
+   "orders": 96,
+   "filled": 70,
+   "unfilled": 26,
+   "exits": {
+    "TARGET": 0,
+    "STOP": 42,
+    "EXPIRED": 19,
+    "OPEN": 9
+   },
+   "winRatePct": 24.59016393442623,
+   "profitFactor": 0.2832694740735847,
+   "realizedPnlKrw": -2104615.4667425933,
+   "openPnlKrw": 107522.77000500109,
+   "avgWinPct": 6.495499585376405,
+   "avgLossPct": -6.448771772240948,
+   "filterCheck": {
+    "approved": [
+     -0.021298522223578913,
+     149
+    ],
+    "rejected": [
+     -0.029854052456894445,
+     52
+    ],
+    "all": [
+     -0.023511893229212783,
+     201
+    ],
+    "allTargetRatePct": 0.4975124378109453
+   },
+   "label": "격자 목표 6.0·손절 1.5",
+   "firstHalfPct": -18.541255265000956,
+   "secondHalfPct": -1.672800437273947,
+   "avgHoldDays": 8.737704918032787,
+   "group": "격자",
+   "targetAtr": 6.0,
+   "stopAtr": 1.5,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 8599567.79999891,
+   "returnPct": -14.004322000010905,
+   "mddPct": -16.62788827064575,
+   "avgExposurePct": 52.586714462708926,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 60,
+    "approved": 192,
+    "skippedActive": 109,
+    "skippedMaxPositions": 0,
+    "placed": 83,
+    "filled": 63,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 60
+    },
+    "limitedBy": {
+     "건당 위험 한도": 181,
+     "매수 가능 금액": 11
+    }
+   },
+   "orders": 83,
+   "filled": 63,
+   "unfilled": 20,
+   "exits": {
+    "TARGET": 2,
+    "STOP": 32,
+    "EXPIRED": 20,
+    "OPEN": 9
+   },
+   "winRatePct": 33.33333333333333,
+   "profitFactor": 0.40968589476033956,
+   "realizedPnlKrw": -1492111.5731360957,
+   "openPnlKrw": 84652.53867000078,
+   "avgWinPct": 8.316789326261755,
+   "avgLossPct": -8.782593178566113,
+   "filterCheck": {
+    "approved": [
+     -0.02279338151486118,
+     152
+    ],
+    "rejected": [
+     -0.034825485668497615,
+     49
+    ],
+    "all": [
+     -0.025726581034901903,
+     201
+    ],
+    "allTargetRatePct": 0.9950248756218906
+   },
+   "label": "격자 목표 6.0·손절 2.0",
+   "firstHalfPct": -12.292383943160946,
+   "secondHalfPct": -1.9518693288169464,
+   "avgHoldDays": 10.851851851851851,
+   "group": "격자",
+   "targetAtr": 6.0,
+   "stopAtr": 2.0,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "격자",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 9115539.53489921,
+   "returnPct": -8.844604651007892,
+   "mddPct": -11.104620284867439,
+   "avgExposurePct": 33.378076513806285,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 93,
+    "approved": 159,
+    "skippedActive": 91,
+    "skippedMaxPositions": 0,
+    "placed": 68,
+    "filled": 52,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 64,
+     "손익비": 29
+    },
+    "limitedBy": {
+     "건당 위험 한도": 159
+    }
+   },
+   "orders": 68,
+   "filled": 52,
+   "unfilled": 16,
+   "exits": {
+    "TARGET": 2,
+    "STOP": 21,
+    "EXPIRED": 22,
+    "OPEN": 7
+   },
+   "winRatePct": 28.888888888888886,
+   "profitFactor": 0.45108396569525105,
+   "realizedPnlKrw": -954861.1579457973,
+   "openPnlKrw": 66066.68565000042,
+   "avgWinPct": 10.606850029355366,
+   "avgLossPct": -8.62639790435799,
+   "filterCheck": {
+    "approved": [
+     -0.020795928976827045,
+     124
+    ],
+    "rejected": [
+     -0.031204783191708482,
+     77
+    ],
+    "all": [
+     -0.02478340049198063,
+     201
+    ],
+    "allTargetRatePct": 0.9950248756218906
+   },
+   "label": "격자 목표 6.0·손절 2.5",
+   "firstHalfPct": -8.660523834332935,
+   "secondHalfPct": -0.20153478474200792,
+   "avgHoldDays": 12.511111111111111,
+   "group": "격자",
+   "targetAtr": 6.0,
+   "stopAtr": 2.5,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "보유",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 8740522.343067408,
+   "returnPct": -12.594776569325926,
+   "mddPct": -14.68856648927488,
+   "avgExposurePct": 42.92537131173347,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 67,
+    "approved": 185,
+    "skippedActive": 91,
+    "skippedMaxPositions": 0,
+    "placed": 94,
+    "filled": 72,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 34,
+     "손익비": 33
+    },
+    "limitedBy": {
+     "건당 위험 한도": 183,
+     "매수 가능 금액": 2
+    }
+   },
+   "orders": 94,
+   "filled": 72,
+   "unfilled": 22,
+   "exits": {
+    "TARGET": 4,
+    "STOP": 36,
+    "EXPIRED": 26,
+    "OPEN": 6
+   },
+   "winRatePct": 33.33333333333333,
+   "profitFactor": 0.5799608745032766,
+   "realizedPnlKrw": -1181592.3357125924,
+   "openPnlKrw": -83761.20994499924,
+   "avgWinPct": 8.55411619481286,
+   "avgLossPct": -6.017594880205144,
+   "filterCheck": {
+    "approved": [
+     -0.00792349589832481,
+     148
+    ],
+    "rejected": [
+     -0.01904488481141103,
+     53
+    ],
+    "all": [
+     -0.010856001432621177,
+     201
+    ],
+    "allTargetRatePct": 2.9850746268656714
+   },
+   "label": "보유 5일 (목표 4.0·손절 1.5)",
+   "firstHalfPct": -12.935871906425934,
+   "secondHalfPct": 0.39177482686487686,
+   "avgHoldDays": 6.348484848484849,
+   "group": "보유",
+   "targetAtr": 4.0,
+   "stopAtr": 1.5,
+   "holdingDays": 5,
+   "trailingAtr": null
+  },
+  {
+   "rule": "보유",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 8292032.324254908,
+   "returnPct": -17.079676757450923,
+   "mddPct": -19.194572519208975,
+   "avgExposurePct": 52.86721224596448,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 71,
+    "approved": 181,
+    "skippedActive": 98,
+    "skippedMaxPositions": 0,
+    "placed": 83,
+    "filled": 62,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 38,
+     "손익비": 33
+    },
+    "limitedBy": {
+     "건당 위험 한도": 160,
+     "매수 가능 금액": 21
+    }
+   },
+   "orders": 83,
+   "filled": 62,
+   "unfilled": 21,
+   "exits": {
+    "TARGET": 4,
+    "STOP": 39,
+    "EXPIRED": 11,
+    "OPEN": 8
+   },
+   "winRatePct": 22.22222222222222,
+   "profitFactor": 0.3902560466326849,
+   "realizedPnlKrw": -1736484.6821300937,
+   "openPnlKrw": 21334.36378500099,
+   "avgWinPct": 11.523648697391684,
+   "avgLossPct": -6.613371983679073,
+   "filterCheck": {
+    "approved": [
+     -0.01968565213125796,
+     144
+    ],
+    "rejected": [
+     -0.026826319934292155,
+     57
+    ],
+    "all": [
+     -0.02171061762764079,
+     201
+    ],
+    "allTargetRatePct": 4.477611940298507
+   },
+   "label": "보유 15일 (목표 4.0·손절 1.5)",
+   "firstHalfPct": -15.494274126575947,
+   "secondHalfPct": -1.876089004015724,
+   "avgHoldDays": 9.38888888888889,
+   "group": "보유",
+   "targetAtr": 4.0,
+   "stopAtr": 1.5,
+   "holdingDays": 15,
+   "trailingAtr": null
+  },
+  {
+   "rule": "보유",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 8668700.529139908,
+   "returnPct": -13.312994708600922,
+   "mddPct": -15.266283797978698,
+   "avgExposurePct": 56.46828898481927,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 83,
+    "approved": 169,
+    "skippedActive": 88,
+    "skippedMaxPositions": 0,
+    "placed": 81,
+    "filled": 61,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 50,
+     "손익비": 33
+    },
+    "limitedBy": {
+     "건당 위험 한도": 149,
+     "매수 가능 금액": 20
+    }
+   },
+   "orders": 81,
+   "filled": 61,
+   "unfilled": 20,
+   "exits": {
+    "TARGET": 6,
+    "STOP": 38,
+    "EXPIRED": 8,
+    "OPEN": 9
+   },
+   "winRatePct": 23.076923076923077,
+   "profitFactor": 0.5121156245183422,
+   "realizedPnlKrw": -1344440.260970094,
+   "openPnlKrw": 5428.538010001058,
+   "avgWinPct": 15.416134810385989,
+   "avgLossPct": -6.773779120651715,
+   "filterCheck": {
+    "approved": [
+     -0.01485985687488928,
+     133
+    ],
+    "rejected": [
+     -0.025558715729019722,
+     68
+    ],
+    "all": [
+     -0.018479371313102563,
+     201
+    ],
+    "allTargetRatePct": 6.965174129353234
+   },
+   "label": "보유 20일 (목표 4.0·손절 1.5)",
+   "firstHalfPct": -15.113379990050957,
+   "secondHalfPct": 2.1209294011695023,
+   "avgHoldDays": 10.634615384615385,
+   "group": "보유",
+   "targetAtr": 4.0,
+   "stopAtr": 1.5,
+   "holdingDays": 20,
+   "trailingAtr": null
+  },
+  {
+   "rule": "트레일링",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 8020162.509027413,
+   "returnPct": -19.79837490972587,
+   "mddPct": -20.172921914029896,
+   "avgExposurePct": 37.865948882522794,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 66,
+    "approved": 186,
+    "skippedActive": 84,
+    "skippedMaxPositions": 0,
+    "placed": 102,
+    "filled": 79,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 33,
+     "손익비": 33
+    },
+    "limitedBy": {
+     "건당 위험 한도": 182,
+     "매수 가능 금액": 4
+    }
+   },
+   "orders": 102,
+   "filled": 79,
+   "unfilled": 23,
+   "exits": {
+    "TARGET": 2,
+    "STOP": 70,
+    "EXPIRED": 1,
+    "OPEN": 6
+   },
+   "winRatePct": 20.54794520547945,
+   "profitFactor": 0.28220622937084033,
+   "realizedPnlKrw": -2027654.4021425918,
+   "openPnlKrw": 42226.71358500061,
+   "avgWinPct": 6.371770248924537,
+   "avgLossPct": -4.907392999418027,
+   "filterCheck": {
+    "approved": [
+     -0.02089593973814131,
+     149
+    ],
+    "rejected": [
+     -0.021787813937721227,
+     52
+    ],
+    "all": [
+     -0.02112667336191323,
+     201
+    ],
+    "allTargetRatePct": 1.9900497512437811
+   },
+   "label": "트레일링 1.5 ATR (목표 4.0·손절 1.5)",
+   "firstHalfPct": -12.953590324100904,
+   "secondHalfPct": -7.863373815313269,
+   "avgHoldDays": 5.068493150684931,
+   "group": "트레일링",
+   "targetAtr": 4.0,
+   "stopAtr": 1.5,
+   "holdingDays": 10,
+   "trailingAtr": 1.5
+  },
+  {
+   "rule": "트레일링",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 8463101.976469908,
+   "returnPct": -15.368980235300922,
+   "mddPct": -17.886270832424568,
+   "avgExposurePct": 45.02329211199294,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 66,
+    "approved": 186,
+    "skippedActive": 93,
+    "skippedMaxPositions": 0,
+    "placed": 93,
+    "filled": 72,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 33,
+     "손익비": 33
+    },
+    "limitedBy": {
+     "건당 위험 한도": 180,
+     "매수 가능 금액": 6
+    }
+   },
+   "orders": 93,
+   "filled": 72,
+   "unfilled": 21,
+   "exits": {
+    "TARGET": 4,
+    "STOP": 52,
+    "EXPIRED": 8,
+    "OPEN": 8
+   },
+   "winRatePct": 29.6875,
+   "profitFactor": 0.4324492714518754,
+   "realizedPnlKrw": -1593003.4317350925,
+   "openPnlKrw": 48919.528350001056,
+   "avgWinPct": 7.361385695775658,
+   "avgLossPct": -6.237172002435251,
+   "filterCheck": {
+    "approved": [
+     -0.016495119064972044,
+     149
+    ],
+    "rejected": [
+     -0.029157735567428827,
+     52
+    ],
+    "all": [
+     -0.01977101985167728,
+     201
+    ],
+    "allTargetRatePct": 3.482587064676617
+   },
+   "label": "트레일링 2.0 ATR (목표 4.0·손절 1.5)",
+   "firstHalfPct": -14.483637316700925,
+   "secondHalfPct": -1.035290663470767,
+   "avgHoldDays": 6.421875,
+   "group": "트레일링",
+   "targetAtr": 4.0,
+   "stopAtr": 1.5,
+   "holdingDays": 10,
+   "trailingAtr": 2.0
+  },
+  {
+   "rule": "트레일링",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 8246365.959507409,
+   "returnPct": -17.53634040492591,
+   "mddPct": -19.613769502816414,
+   "avgExposurePct": 50.11259037993936,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 73,
+    "approved": 179,
+    "skippedActive": 92,
+    "skippedMaxPositions": 0,
+    "placed": 87,
+    "filled": 66,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 40,
+     "손익비": 33
+    },
+    "limitedBy": {
+     "건당 위험 한도": 166,
+     "매수 가능 금액": 13
+    }
+   },
+   "orders": 87,
+   "filled": 66,
+   "unfilled": 21,
+   "exits": {
+    "TARGET": 3,
+    "STOP": 41,
+    "EXPIRED": 14,
+    "OPEN": 8
+   },
+   "winRatePct": 24.137931034482758,
+   "profitFactor": 0.4022600867658159,
+   "realizedPnlKrw": -1778320.6698725934,
+   "openPnlKrw": 17537.79510000099,
+   "avgWinPct": 10.14852580336061,
+   "avgLossPct": -6.580289530090415,
+   "filterCheck": {
+    "approved": [
+     -0.01927121734160361,
+     142
+    ],
+    "rejected": [
+     -0.02728662867034558,
+     59
+    ],
+    "all": [
+     -0.021623999771433342,
+     201
+    ],
+    "allTargetRatePct": 3.482587064676617
+   },
+   "label": "트레일링 3.0 ATR (목표 4.0·손절 1.5)",
+   "firstHalfPct": -15.959359784150939,
+   "secondHalfPct": -1.8764500326564293,
+   "avgHoldDays": 7.879310344827586,
+   "group": "트레일링",
+   "targetAtr": 4.0,
+   "stopAtr": 1.5,
+   "holdingDays": 10,
+   "trailingAtr": 3.0
+  },
+  {
+   "rule": "트레일링만",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 8163616.012489914,
+   "returnPct": -18.36383987510086,
+   "mddPct": -19.88574052573465,
+   "avgExposurePct": 58.92954043178066,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 66,
+    "approved": 186,
+    "skippedActive": 89,
+    "skippedMaxPositions": 0,
+    "placed": 97,
+    "filled": 75,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 66
+    },
+    "limitedBy": {
+     "건당 위험 한도": 161,
+     "매수 가능 금액": 25
+    }
+   },
+   "orders": 97,
+   "filled": 75,
+   "unfilled": 22,
+   "exits": {
+    "TARGET": 0,
+    "STOP": 66,
+    "EXPIRED": 2,
+    "OPEN": 7
+   },
+   "winRatePct": 25.0,
+   "profitFactor": 0.3328890754182612,
+   "realizedPnlKrw": -1912562.706455091,
+   "openPnlKrw": 70531.61881500084,
+   "avgWinPct": 7.3536648424210025,
+   "avgLossPct": -5.697635351817171,
+   "filterCheck": {
+    "approved": [
+     -0.020652183732607993,
+     145
+    ],
+    "rejected": [
+     -0.03212632797166006,
+     56
+    ],
+    "all": [
+     -0.02384896023702051,
+     201
+    ],
+    "allTargetRatePct": 0.0
+   },
+   "label": "트레일링만 2.0 ATR (목표 10·손절 1.5, 20일)",
+   "firstHalfPct": -17.45792115335093,
+   "secondHalfPct": -1.0975235109270676,
+   "avgHoldDays": 8.014705882352942,
+   "group": "트레일링만",
+   "targetAtr": 10.0,
+   "stopAtr": 1.5,
+   "holdingDays": 20,
+   "trailingAtr": 2.0
+  },
+  {
+   "rule": "트레일링만",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 8223929.208807408,
+   "returnPct": -17.76070791192592,
+   "mddPct": -18.570511569968097,
+   "avgExposurePct": 64.57769983242976,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 71,
+    "approved": 181,
+    "skippedActive": 91,
+    "skippedMaxPositions": 0,
+    "placed": 90,
+    "filled": 66,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 71
+    },
+    "limitedBy": {
+     "건당 위험 한도": 145,
+     "매수 가능 금액": 36
+    }
+   },
+   "orders": 90,
+   "filled": 66,
+   "unfilled": 24,
+   "exits": {
+    "TARGET": 0,
+    "STOP": 46,
+    "EXPIRED": 10,
+    "OPEN": 10
+   },
+   "winRatePct": 21.428571428571427,
+   "profitFactor": 0.29177239560667084,
+   "realizedPnlKrw": -1988773.6421825935,
+   "openPnlKrw": 204509.8868400008,
+   "avgWinPct": 10.337178381797976,
+   "avgLossPct": -6.36213965787282,
+   "filterCheck": {
+    "approved": [
+     -0.018715320879476777,
+     141
+    ],
+    "rejected": [
+     -0.03928798727508397,
+     60
+    ],
+    "all": [
+     -0.024856415325926685,
+     201
+    ],
+    "allTargetRatePct": 0.0
+   },
+   "label": "트레일링만 3.0 ATR (목표 10·손절 1.5, 20일)",
+   "firstHalfPct": -17.840823674750972,
+   "secondHalfPct": 0.097512860289517,
+   "avgHoldDays": 11.196428571428571,
+   "group": "트레일링만",
+   "targetAtr": 10.0,
+   "stopAtr": 1.5,
+   "holdingDays": 20,
+   "trailingAtr": 3.0
+  },
+  {
+   "rule": "구조",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 9460804.452917507,
+   "returnPct": -5.391955470824927,
+   "mddPct": -6.029305422524944,
+   "avgExposurePct": 6.898206273131368,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 233,
+    "approved": 19,
+    "skippedActive": 5,
+    "skippedMaxPositions": 0,
+    "placed": 14,
+    "filled": 11,
+    "rejectReasons": {
+     "손익비": 233,
+     "비용을 반영한 기대값이 0 이하": 216,
+     "매수 가능 수량이 1주 미만": 59
+    },
+    "limitedBy": {
+     "건당 위험 한도": 18,
+     "매수 가능 금액": 1
+    }
+   },
+   "orders": 14,
+   "filled": 11,
+   "unfilled": 3,
+   "exits": {
+    "TARGET": 1,
+    "STOP": 10,
+    "EXPIRED": 0,
+    "OPEN": 0
+   },
+   "winRatePct": 9.090909090909092,
+   "profitFactor": 0.32995417143971395,
+   "realizedPnlKrw": -539195.5470824967,
+   "openPnlKrw": 0.0,
+   "avgWinPct": 6.805579452782445,
+   "avgLossPct": -3.334416713319139,
+   "filterCheck": {
+    "approved": [
+     -0.0035004978765693696,
+     16
+    ],
+    "rejected": [
+     -0.011624712147385838,
+     185
+    ],
+    "all": [
+     -0.01097800852383826,
+     201
+    ],
+    "allTargetRatePct": 53.233830845771145
+   },
+   "label": "구조 (목표 20일 고가·손절 10일 저가)",
+   "firstHalfPct": -3.524820767999981,
+   "secondHalfPct": -1.9353524063789873,
+   "avgHoldDays": 2.5454545454545454,
+   "group": "구조",
+   "targetAtr": 0.0,
+   "stopAtr": 0.0,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "타이트",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 7969532.365289817,
+   "returnPct": -20.304676347101836,
+   "mddPct": -21.886102478620696,
+   "avgExposurePct": 57.04591543134557,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 57,
+    "approved": 195,
+    "skippedActive": 79,
+    "skippedMaxPositions": 0,
+    "placed": 116,
+    "filled": 84,
+    "rejectReasons": {
+     "손익비": 23,
+     "매수 가능 수량이 1주 미만": 38,
+     "비용을 반영한 기대값이 0 이하": 1
+    },
+    "limitedBy": {
+     "건당 위험 한도": 135,
+     "매수 가능 금액": 60
+    }
+   },
+   "orders": 116,
+   "filled": 84,
+   "unfilled": 32,
+   "exits": {
+    "TARGET": 1,
+    "STOP": 66,
+    "EXPIRED": 10,
+    "OPEN": 7
+   },
+   "winRatePct": 15.584415584415584,
+   "profitFactor": 0.43517408912643574,
+   "realizedPnlKrw": -2102663.4057701877,
+   "openPnlKrw": 64341.892440000884,
+   "avgWinPct": 9.245915465010055,
+   "avgLossPct": -4.475401138582423,
+   "filterCheck": {
+    "approved": [
+     -0.020062252884351307,
+     154
+    ],
+    "rejected": [
+     -0.018246940495168396,
+     47
+    ],
+    "all": [
+     -0.01963777685304983,
+     201
+    ],
+    "allTargetRatePct": 2.4875621890547266
+   },
+   "label": "타이트 손절 (전일 저가 − 0.5 ATR·목표 4.0)",
+   "firstHalfPct": -16.9689342976019,
+   "secondHalfPct": -4.017462646397895,
+   "avgHoldDays": 4.402597402597403,
+   "group": "타이트",
+   "targetAtr": 4.0,
+   "stopAtr": 0.0,
+   "holdingDays": 10,
+   "trailingAtr": null
+  },
+  {
+   "rule": "타이트+트레일링",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 7460053.803232312,
+   "returnPct": -25.399461967676874,
+   "mddPct": -25.090397864550383,
+   "avgExposurePct": 54.69140417138484,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 66,
+    "approved": 186,
+    "skippedActive": 71,
+    "skippedMaxPositions": 0,
+    "placed": 115,
+    "filled": 82,
+    "rejectReasons": {
+     "손익비": 23,
+     "매수 가능 수량이 1주 미만": 48,
+     "비용을 반영한 기대값이 0 이하": 1
+    },
+    "limitedBy": {
+     "건당 위험 한도": 133,
+     "매수 가능 금액": 53
+    }
+   },
+   "orders": 115,
+   "filled": 82,
+   "unfilled": 33,
+   "exits": {
+    "TARGET": 1,
+    "STOP": 71,
+    "EXPIRED": 5,
+    "OPEN": 5
+   },
+   "winRatePct": 18.181818181818183,
+   "profitFactor": 0.3040959186279788,
+   "realizedPnlKrw": -2643164.961752688,
+   "openPnlKrw": 97616.64780000053,
+   "avgWinPct": 5.668786239623815,
+   "avgLossPct": -4.310233024709184,
+   "filterCheck": {
+    "approved": [
+     -0.018860296479177054,
+     144
+    ],
+    "rejected": [
+     -0.022268163384584875,
+     57
+    ],
+    "all": [
+     -0.019826706497128525,
+     201
+    ],
+    "allTargetRatePct": 1.9900497512437811
+   },
+   "label": "타이트 손절 + 트레일링 2.0",
+   "firstHalfPct": -17.540880117326928,
+   "secondHalfPct": -9.530276167792639,
+   "avgHoldDays": 3.9740259740259742,
+   "group": "타이트+트레일링",
+   "targetAtr": 4.0,
+   "stopAtr": 0.0,
+   "holdingDays": 10,
+   "trailingAtr": 2.0
+  },
+  {
+   "rule": "분할",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 8532331.991896154,
+   "returnPct": -14.676680081038452,
+   "mddPct": -16.168523615896248,
+   "avgExposurePct": 58.23803304539034,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 86,
+    "approved": 166,
+    "skippedActive": 84,
+    "skippedMaxPositions": 0,
+    "placed": 82,
+    "filled": 62,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 53,
+     "손익비": 33
+    },
+    "limitedBy": {
+     "건당 위험 한도": 145,
+     "매수 가능 금액": 21
+    }
+   },
+   "orders": 82,
+   "filled": 62,
+   "unfilled": 20,
+   "exits": {
+    "TARGET": 6,
+    "STOP": 46,
+    "EXPIRED": 1,
+    "OPEN": 9
+   },
+   "winRatePct": 22.641509433962266,
+   "profitFactor": 0.41974727324708183,
+   "realizedPnlKrw": -1527769.9227388436,
+   "openPnlKrw": 52546.68972000091,
+   "avgWinPct": 11.804815337507634,
+   "avgLossPct": -6.257935417726353,
+   "filterCheck": {
+    "approved": [
+     -0.01674941432896847,
+     130
+    ],
+    "rejected": [
+     -0.029117447979008105,
+     71
+    ],
+    "all": [
+     -0.021118222235201378,
+     201
+    ],
+    "allTargetRatePct": 6.965174129353234
+   },
+   "label": "분할 청산 (목표 4.0 절반, 나머지 트레일링 2.0, 20일)",
+   "firstHalfPct": -15.34887149761347,
+   "secondHalfPct": 0.7940725994646014,
+   "avgHoldDays": 10.830188679245284,
+   "group": "분할",
+   "targetAtr": 4.0,
+   "stopAtr": 1.5,
+   "holdingDays": 20,
+   "trailingAtr": 2.0
+  },
+  {
+   "rule": "본전",
+   "period": "2026-06-01 ~ 2026-09-29",
+   "tradingDays": 84,
+   "finalEquityKrw": 8100454.045317409,
+   "returnPct": -18.99545954682591,
+   "mddPct": -19.490671483087496,
+   "avgExposurePct": 49.14494256633627,
+   "benchmarkPct": 1.1703029019275668,
+   "funnel": {
+    "days": 84,
+    "regimeSkipped": 0,
+    "picks": 252,
+    "scenarios": 252,
+    "factRejected": 0,
+    "riskRejected": 69,
+    "approved": 183,
+    "skippedActive": 93,
+    "skippedMaxPositions": 0,
+    "placed": 90,
+    "filled": 69,
+    "rejectReasons": {
+     "매수 가능 수량이 1주 미만": 36,
+     "손익비": 33
+    },
+    "limitedBy": {
+     "건당 위험 한도": 170,
+     "매수 가능 금액": 13
+    }
+   },
+   "orders": 90,
+   "filled": 69,
+   "unfilled": 21,
+   "exits": {
+    "TARGET": 3,
+    "STOP": 45,
+    "EXPIRED": 13,
+    "OPEN": 8
+   },
+   "winRatePct": 21.311475409836063,
+   "profitFactor": 0.3285647059504595,
+   "realizedPnlKrw": -1992307.9932125928,
+   "openPnlKrw": 85733.18586000084,
+   "avgWinPct": 8.375967203905978,
+   "avgLossPct": -5.865810323364795,
+   "filterCheck": {
+    "approved": [
+     -0.018687586413521706,
+     146
+    ],
+    "rejected": [
+     -0.029055478658148576,
+     55
+    ],
+    "all": [
+     -0.021524571853593733,
+     201
+    ],
+    "allTargetRatePct": 3.482587064676617
+   },
+   "label": "본전 손절 (+1.5 ATR 후 손절 = 진입가, 목표 4.0·손절 1.5)",
+   "firstHalfPct": -15.609379062500949,
+   "secondHalfPct": -4.012389583947662,
+   "avgHoldDays": 7.491803278688525,
+   "group": "본전",
+   "targetAtr": 4.0,
+   "stopAtr": 1.5,
+   "holdingDays": 10,
+   "trailingAtr": null
+  }
+ ]
+}

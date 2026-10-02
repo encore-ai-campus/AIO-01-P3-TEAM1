@@ -1,0 +1,54 @@
+{
+ "return_msg": "정상적으로 처리되었습니다",
+ "return_code": 0,
+ "list": [
+  {
+   "code": "005930",
+   "name": "삼성전자",
+   "listCount": "0000000123759593",
+   "auditInfo": "투자주의환기종목",
+   "regDay": "20091204",
+   "lastPrice": "00000197",
+   "state": "관리종목",
+   "marketCode": "10",
+   "marketName": "코스닥",
+   "upName": "",
+   "upSizeName": "",
+   "companyClassName": "",
+   "orderWarning": "0",
+   "nxtEnable": "Y"
+  },
+  {
+   "code": "005930",
+   "name": "삼성전자",
+   "listCount": "0000000136637536",
+   "auditInfo": "정상",
+   "regDay": "20100423",
+   "lastPrice": "00000213",
+   "state": "증거금100%",
+   "marketCode": "10",
+   "marketName": "코스닥",
+   "upName": "",
+   "upSizeName": "",
+   "companyClassName": "외국기업",
+   "orderWarning": "0",
+   "nxtEnable": "Y"
+  },
+  {
+   "code": "005930",
+   "name": "삼성전자",
+   "listCount": "0000000080000000",
+   "auditInfo": "정상",
+   "regDay": "20160818",
+   "lastPrice": "00000614",
+   "state": "증거금100%",
+   "marketCode": "10",
+   "marketName": "코스닥",
+   "upName": "",
+   "upSizeName": "",
+   "companyClassName": "외국기업",
+   "orderWarning": "0",
+   "nxtEnable": "Y"
+  }
+ ]
+}

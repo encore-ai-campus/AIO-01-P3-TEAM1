@@ -1,0 +1,32 @@
+{
+ "result_list": [
+  {
+   "cur_prc": "201.3612",
+   "pred_pre": "+1.3212",
+   "flu_rt": "+0.66",
+   "acc_trde_qty": "431663",
+   "acc_trde_prica": "86910071",
+   "open_pric": "200.0400",
+   "high_pric": "200.0400",
+   "low_pric": "200.0400",
+   "dt": "20260624",
+   "upd_stkpc_tp": "",
+   "upd_rt": ""
+  },
+  {
+   "cur_prc": "200.0400",
+   "pred_pre": "-8.6100",
+   "flu_rt": "-4.30",
+   "acc_trde_qty": "153496196",
+   "acc_trde_prica": "39496094121",
+   "open_pric": "202.1700",
+   "high_pric": "203.7700",
+   "low_pric": "200.0000",
+   "dt": "20260623",
+   "upd_stkpc_tp": "",
+   "upd_rt": ""
+  }
+ ],
+ "return_code": 0,
+ "return_msg": "정상적으로 처리되었습니다"
+}

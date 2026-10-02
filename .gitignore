@@ -1,0 +1,26 @@
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
+
+# 원본 toss_trading 복사본 (참고용, 저장소에 넣지 않는다. 실주문 코드가 들어 있다)
+/personal_project_files/
+
+# 비밀 정보와 실행 데이터 (EC2 볼륨에만 둔다)
+.env
+/data/
+/runs/
+/reports/
+/.cache/
+/backtest/cache/
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node
+node_modules/
+frontend/dist/
+
+.DS_Store

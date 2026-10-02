@@ -1,0 +1,10 @@
+{
+ "sell_aplc_exrt": "0.00",
+ "buy_aplc_exrt": "1533.20",
+ "aplc_exrt": "1533.200000",
+ "exrt_tp_nm": "고시환율",
+ "spcl_bf_exrt": "1533.20",
+ "exrt_spcl_rt": "0.00",
+ "return_code": 0,
+ "return_msg": "조회가 완료되었습니다."
+}

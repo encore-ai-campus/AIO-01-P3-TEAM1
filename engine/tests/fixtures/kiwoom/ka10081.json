@@ -1,0 +1,31 @@
+{
+ "stk_cd": "005930",
+ "stk_dt_pole_chart_qry": [
+  {
+   "cur_prc": "70100",
+   "trde_qty": "9263135",
+   "trde_prica": "648525",
+   "dt": "20250908",
+   "open_pric": "69800",
+   "high_pric": "70500",
+   "low_pric": "69600",
+   "pred_pre": "+600",
+   "pred_pre_sig": "2",
+   "trde_tern_rt": "+0.16"
+  },
+  {
+   "cur_prc": "69500",
+   "trde_qty": "11526724",
+   "trde_prica": "804642",
+   "dt": "20250905",
+   "open_pric": "70300",
+   "high_pric": "70400",
+   "low_pric": "69500",
+   "pred_pre": "-600",
+   "pred_pre_sig": "5",
+   "trde_tern_rt": "+0.19"
+  }
+ ],
+ "return_code": 0,
+ "return_msg": "정상적으로 처리되었습니다"
+}

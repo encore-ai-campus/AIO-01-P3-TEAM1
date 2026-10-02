@@ -1,0 +1,36 @@
+{
+ "result_list": [
+  {
+   "rank": "1",
+   "stex_tp": "ND",
+   "stk_cd": "EVGOW",
+   "stk_nm": "EV GO 콜 워런트(2026-07-01)",
+   "stk_enm": "EVGO INC C/WTS 01/07/2026 (TO PUR COM)",
+   "cur_prc": "+0.0144",
+   "pred_pre_sig": "2",
+   "pred_pre": "+0.0108",
+   "flu_rt": "+300.00",
+   "sel_req": "3597",
+   "buy_req": "-3597",
+   "trde_qty": "+1",
+   "cnt": "1"
+  },
+  {
+   "rank": "2",
+   "stex_tp": "ND",
+   "stk_cd": "PLSM",
+   "stk_nm": "펄스앤모어 엘티디",
+   "stk_enm": "PULSENMORE LTD",
+   "cur_prc": "+9.2500",
+   "pred_pre_sig": "2",
+   "pred_pre": "+5.8400",
+   "flu_rt": "+171.26",
+   "sel_req": "1058",
+   "buy_req": "-1058",
+   "trde_qty": "-10",
+   "cnt": "1"
+  }
+ ],
+ "return_code": 0,
+ "return_msg": "정상적으로 처리되었습니다"
+}

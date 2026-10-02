@@ -1,0 +1,37 @@
+# 저장소 루트: uv 작업 공간. 엔진(engine/)과 백엔드(backend/)를 함께 설치하고 검사한다.
+#   uv sync                 # 엔진 + 백엔드 + 개발 도구
+#   uv run ruff check . && uv run pytest
+#   uv run pytest backtest
+[project]
+name = "paper-trading"
+version = "0.1.0"
+description = "키움 REST API 기반 팀 모의매매 웹 서비스"
+requires-python = ">=3.12"
+dependencies = ["paper-engine", "paper-backend"]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["engine", "backend"]
+
+[tool.uv.sources]
+paper-engine = { workspace = true }
+paper-backend = { workspace = true }
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-django>=4.9", "ruff>=0.6"]
+
+[tool.pytest.ini_options]
+testpaths = ["engine/tests", "backend"]
+DJANGO_SETTINGS_MODULE = "config.settings_test"
+pythonpath = ["backend"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = ["frontend", "personal_project_files", "graft"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E501"]
