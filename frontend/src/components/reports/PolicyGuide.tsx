@@ -1,4 +1,4 @@
-// 정책 안내: 부분 실패 정책 셋과 이 팀의 정책, Handoff 계약과 Guard, 함수 호출과 Handoff의 차이 (교육용문서.md 그대로).
+// 정책 안내: 부분 실패 정책 셋과 이 팀의 정책, Handoff 계약과 Guard, 함수 호출과 Handoff의 차이 (docs/교육용문서.md 그대로).
 import type { ExecutionPlan } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { HANDOFF_FIELDS, HANDOFF_GUARD_CHECKS, POLICIES, actorLabel } from "../../lib/reports";

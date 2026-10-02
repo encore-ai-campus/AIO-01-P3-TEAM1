@@ -13,7 +13,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react(), tailwindcss()],
     server: {
-      // AI 리포트 화면이 저장소 루트의 교육용문서.md를 복사하지 않고 ?raw로 읽는다 (?raw는 폴더 단위로만 허용된다).
+      // AI 리포트 화면이 저장소의 docs/교육용문서.md를 복사하지 않고 ?raw로 읽는다 (?raw는 폴더 단위로만 허용된다).
       // 대신 루트의 비밀 파일은 막는다 (앞 넷은 Vite 기본값).
       fs: {
         allow: [".", ".."],

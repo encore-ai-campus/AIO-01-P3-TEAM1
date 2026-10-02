@@ -177,7 +177,7 @@
   - 일봉 페이지 조회 → `client.candles_before(...)` (`backtest/run.py:44`)
 - **로컬 개발 전용 토스 조회 (2026-10-02 추가)**: 키움 앱키가 없어도 로컬에서 엔진을 돌려 볼 수 있게 원본의 조회 클라이언트를
   `data/toss.py`로 되살렸다. `.env`의 `BROKER=toss`(+ `CLIENT_ID`, `CLIENT_SECRET`)로 켠다. 조회만 하고(계좌·주문 API 없음),
-  운영(EC2)은 키움만 쓴다 (`POSTGRES_HOST`가 있으면 거부). 키움 코드는 그대로 둔다. 세부는 `docs/DECISIONS.md` 3-1장.
+  운영(EC2)은 키움만 쓴다 (`DJANGO_DEBUG=on`일 때만 받는다). 키움 코드는 그대로 둔다. 세부는 `docs/DECISIONS.md` 3-1장.
 - **장 달력**: 키움에는 토스 같은 달력 API가 없을 가능성이 크다. 새 `data/calendar.py`가 같은 형식을 만든다.
   - 국내: 정규장 09:00~15:30 고정 + 공휴일은 data.go.kr 특일정보 API(`DATA_GOKR_API` 이미 있음) + KRX 연말 휴장일.
   - 미국: NYSE 휴장·조기 폐장 규칙을 코드로 계산, 서머타임은 `zoneinfo`.
@@ -322,7 +322,7 @@ paper_trading/
   랭킹보드(내 정보 공개를 켠 팀원의 현재 수익률) · My Page(실시간 수익률·투자금액·공개 체크박스). API 계약은 `docs/API.md`.
   아래 표의 나머지 화면(전략, 선별 결과, 통계, 시장, 리포트, 관리)은 이후 단계.
 - **AI 리포트 (2026-10-02 추가, 구조만)**: 종목별 리포트 신청과 여러 Agent의 협업 과정(Trace)을 보는 화면 `/reports`.
-  실행 계획 그래프·Trace 타임라인·Shared State·실패 정책·Handoff 안내와 교육용 문서(`교육용문서.md`)를 담는다.
+  실행 계획 그래프·Trace 타임라인·Shared State·실패 정책·Handoff 안내와 교육용 문서(`docs/교육용문서.md`)를 담는다.
   Agent·Orchestrator 실행은 팀이 구현한다 (`docs/DECISIONS.md` 9장).
 - 개발 중에는 Vite 개발 서버가 `/api`를 로컬 Django로 넘긴다. API 완성 전에는 MSW로 가짜 응답을 써서 병렬 개발.
 - 반응형 (모바일에서도 조회·주문 가능), 다크 모드.
@@ -388,6 +388,8 @@ paper_trading/
 - push 전에 로컬에서 테스트를 돌리고, CI(`ci.yml`)는 `main` push마다 돈다. 브랜치를 쓸 때 이름은 `feat/…`, `fix/…`.
 - 로컬 개발: DB는 SQLite (`POSTGRES_HOST`를 비워 둔다) + `docker compose -f deploy/compose.dev.yml up`(Redis) + `manage.py runserver` + `npm run dev`.
   운영과 같은 PostgreSQL로 확인할 때만 `--profile postgres`로 PostgreSQL도 띄우고 `POSTGRES_HOST=127.0.0.1`을 준다.
+  (2026-10-02: 팀이 같이 보는 개발 DB로 호스트 PC의 PostgreSQL 컨테이너를 쓴다. `scripts/dev.sh`가 띄우고, 개발할 때만 같은 네트워크에 연다.
+  `docs/DECISIONS.md` 10장, `TEAM_DEV_PLAN.md` 2장.)
   `.env.example`에 개발용 기본값.
 
 ### 4-7. 팀 역할 분담 예시

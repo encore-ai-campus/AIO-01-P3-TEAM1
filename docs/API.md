@@ -281,7 +281,7 @@ interface AnalysisQuota {
 # AI 리포트 (`backend/reports`) — Agents Orchestration과 Trace
 
 작성 2026-10-02. 종목별로 AI 리포트를 신청하고, 여러 Agent가 협업하는 과정(Trace)을 화면에서 본다. 배경은 `docs/DECISIONS.md` 9장,
-개념은 저장소 루트의 `교육용문서.md`(04 Distributed Collaboration)를 그대로 따른다.
+개념은 `docs/교육용문서.md`(04 Distributed Collaboration)를 그대로 따른다.
 **Agent와 Orchestrator 실행 코드는 아직 없다** (`ExecutionPlan.implemented = false`). 지금은 신청·실행 계획·Shared State·Trace를
 담고 보여 주는 구조만 있다. 신청한 리포트는 `requested` 상태로 남는다.
 

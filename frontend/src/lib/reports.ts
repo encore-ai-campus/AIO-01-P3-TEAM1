@@ -1,4 +1,4 @@
-// AI 리포트 화면의 표시 규칙: 상태 이름·색, Trace에서 노드 상태 읽기, 실패 정책 설명 (교육용문서.md 그대로).
+// AI 리포트 화면의 표시 규칙: 상태 이름·색, Trace에서 노드 상태 읽기, 실패 정책 설명 (docs/교육용문서.md 그대로).
 import type { ExecutionPlan, FailurePolicy, ReportStatus, TraceEvent, TraceStatus } from "../api/types";
 import type { IconName } from "../components/Icon";
 
@@ -39,7 +39,7 @@ export const POLICIES: { value: FailurePolicy; name: string; behavior: string }[
 
 export const policyName = (p: FailurePolicy) => POLICIES.find((x) => x.value === p)?.name ?? p;
 
-/** Handoff 계약 필드와 Guard가 확인하는 것 (교육용문서.md "Handoff"). */
+/** Handoff 계약 필드와 Guard가 확인하는 것 (docs/교육용문서.md "Handoff"). */
 export const HANDOFF_FIELDS = ["task_id", "trace_id", "from_agent", "to_agent", "responsibility", "context", "user_id", "hop_count"];
 export const HANDOFF_GUARD_CHECKS = ["사용자", "허용 경로", "민감정보", "최대 Hop"];
 

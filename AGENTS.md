@@ -2,7 +2,7 @@
 
 키움 REST API 시세로 돌리는 **팀 모의매매 웹 서비스**다. 원본은 토스증권 실주문까지 내던 개인용 스윙 매매 자동화(`toss_trading`)이고,
 이 저장소는 그것을 복제해 실주문을 없애고 가상 현금 계좌로 체결을 흉내 내도록 바꾼 것이다.
-계획은 `TEAM_PAPER_TRADING_PLAN.md`, 작업자 간 공통 결정은 `docs/DECISIONS.md`, 웹 API 계약은 `docs/API.md`, 엔진 설계는 `docs/DESIGN.md`, 키움 API는 `docs/KIWOOM.md`.
+계획은 `docs/TEAM_PAPER_TRADING_PLAN.md`, 팀원이 이어서 개발할 일과 개발 환경 안내는 `TEAM_DEV_PLAN.md`, 클론 직후 설치·실행 절차는 `SETUP_PROMPT.md`, 작업자 간 공통 결정은 `docs/DECISIONS.md`, 웹 API 계약은 `docs/API.md`, 엔진 설계는 `docs/DESIGN.md`, 키움 API는 `docs/KIWOOM.md`.
 
 ## 안전 규칙 (반드시 준수)
 
@@ -10,7 +10,7 @@
   `orders.py`, `create_order`, `LIVE_TRADING`, `--live`, `--bypass`가 코드 검색에서 나오면 안 된다.
   `tossinvest`는 로컬 개발용 조회 클라이언트 `engine/paper_engine/data/toss.py`의 주소 한 곳에만 있어야 한다.
 - **토스 조회는 로컬 개발 환경 전용이다.** `.env`의 `BROKER=toss`(+ `CLIENT_ID`, `CLIENT_SECRET`)로 켜고, 운영(EC2)은 키움만 쓴다
-  (`POSTGRES_HOST`가 있으면 `BROKER=toss`를 거부한다). `data/toss.py`에 계좌·주문 메서드를 넣지 않는다 (토큰 발급 말고는 GET만).
+  (`DJANGO_DEBUG=on`일 때만 `BROKER=toss`를 받는다). `data/toss.py`에 계좌·주문 메서드를 넣지 않는다 (토큰 발급 말고는 GET만).
   설명은 `docs/DECISIONS.md` 3-1장.
 - **AI는 제안만 한다.** 지표 계산, 사실 검증, 수량·한도·체결 가능 여부는 결정론적 코드(리스크 엔진, 모의 체결기)가 판단한다.
   최소 손익비 2.0은 AI 프롬프트에 노출하지 않는다.
@@ -24,15 +24,16 @@
 
 ## DB
 
-- **로컬 개발 환경(이 PC)은 SQLite, EC2에 올렸을 때는 PostgreSQL을 쓴다.**
-  - Django(`backend/config/settings.py`)는 `POSTGRES_HOST`가 비어 있으면 SQLite(`backend/db.sqlite3`), 있으면 PostgreSQL을 쓴다.
-    로컬 `.env`는 `POSTGRES_HOST`를 비워 두고, EC2의 `.env`에서만 `POSTGRES_HOST=db`와 비밀번호를 채운다.
+- **DB는 `.env`의 `POSTGRES_HOST`로 고른다**: 비어 있으면 SQLite(`backend/db.sqlite3`, 혼자 개발할 때의 기본값), 있으면 PostgreSQL.
+  - 팀이 같이 보는 개발 DB: `POSTGRES_HOST=127.0.0.1`이면 `scripts/dev.sh`가 이 PC에 PostgreSQL 컨테이너(`deploy/compose.dev.yml`)를 띄운다.
+    `POSTGRES_BIND=0.0.0.0`이면 같은 네트워크에서 DB에 접속할 수 있다 (**개발할 때만**). 접속 방법은 `TEAM_DEV_PLAN.md` 2장, `scripts/dev.sh status`.
+  - EC2 운영은 `POSTGRES_HOST=db`와 비밀번호를 EC2의 `.env`에만 둔다. 운영에서는 DB 포트를 밖으로 열지 않는다.
   - 같은 Django 모델·마이그레이션을 두 DB에 쓰므로 PostgreSQL 전용 기능(JSONB 연산자, ArrayField, `DISTINCT ON` 등)은 쓰지 않는다.
-    운영과의 차이는 CI(PostgreSQL 서비스 컨테이너)에서 잡는다.
-  - 로컬에서 운영과 같은 PostgreSQL로 확인해야 할 때만 `docker compose -f deploy/compose.dev.yml --profile postgres up -d`로 띄우고
-    `POSTGRES_HOST=127.0.0.1`을 준다. 기본 `up`은 Redis만 띄운다.
+  - **테스트는 SQLite 메모리 DB에서 돈다** (`.env`가 공유 PostgreSQL을 가리켜도 그 서버를 건드리지 않는다).
+    PostgreSQL로 검사할 때만 `TEST_WITH_POSTGRES=1 uv run pytest backend` (CI).
+  - SQLite에 쌓인 데이터를 PostgreSQL로 옮길 때는 `scripts/dev.sh import-sqlite` (한 번만).
 - 엔진의 기록 저장소는 지금 SQLite 파일(`data/trading.db`, `records/store.py`)이다. 다음 단계(4C)에서 Django ORM으로 옮기면
-  위 규칙(로컬 SQLite, EC2 PostgreSQL)을 그대로 따른다. 표 이름·열은 `docs/DECISIONS.md` 4장.
+  위 규칙(`POSTGRES_HOST`로 고름)을 그대로 따른다. 표 이름·열은 `docs/DECISIONS.md` 4장.
 - 원본 DB(`data/trading.db`)에는 실포지션이 있었으므로 절대 가져오지 않는다.
 
 ## 비밀 정보
@@ -64,9 +65,11 @@ uv run pytest backtest                             # 백테스트 테스트
 uv run python -m paper_engine --help               # 엔진 CLI
 uv run python -m paper_engine serve                # 엔진 상주 루프 (모의 체결 확인, 시장·자산 기록, 리포트, 예약, 전략)
 docker compose -f deploy/compose.dev.yml up -d     # 로컬 Redis
-cd backend && uv run python manage.py migrate      # DB 표 (로컬 SQLite)
+scripts/dev.sh                                     # 웹 전부 (다시) 띄우기: (PostgreSQL 컨테이너 +) Django + run_engine + 프론트(0.0.0.0)
+scripts/dev.sh status | stop | logs | db | db-stop | import-sqlite     # 주소·DB 접속 방법 · 내리기 · 로그 · DB 셸 · DB 내리기 · SQLite→PostgreSQL
+cd backend && uv run python manage.py migrate      # DB 표. 아래는 하나씩 직접 띄울 때
 cd backend && uv run python manage.py create_team_accounts   # 팀원 계정 5개 → team_accounts.txt (git 제외)
-cd backend && uv run python manage.py runserver    # Django (로컬 SQLite, .env에 DJANGO_DEBUG=on 또는 DJANGO_SECRET_KEY)
+cd backend && uv run python manage.py runserver    # Django (.env에 DJANGO_DEBUG=on. PostgreSQL을 쓰면 DJANGO_SECRET_KEY도 필요)
 cd backend && uv run python manage.py run_engine   # 웹 엔진 루프 (지정가 체결·청산·예약·일별 자산·AI 분석 작업)
 cd frontend && npm ci && npm run dev               # Vite (/api, /admin을 127.0.0.1:8000으로 프록시. 다른 포트면 VITE_API_TARGET=..., VITE_MOCK=1이면 가짜 API)
 cd frontend && npx eslint . && npx tsc --noEmit && npx vitest run && npx vite build
@@ -87,8 +90,8 @@ uv run python -m paper_engine analyze 005930 --buy --by alice           # AI 교
 
 - 코드 변경 전 관련 파일을 먼저 읽고 기존 스타일을 따른다.
 - 키움 API 동작은 추측하지 말고 문서와 실제 응답으로 확인한다 (`docs/KIWOOM.md`, `scripts/kiwoom_check.py`).
-- AI 리포트의 Agent·Orchestrator를 구현할 때: 개념은 루트의 `교육용문서.md`, State·Trace는 `backend/reports/state.py`의 함수로만 바꾼다
+- AI 리포트의 Agent·Orchestrator를 구현할 때: 개념은 `docs/교육용문서.md`, State·Trace는 `backend/reports/state.py`의 함수로만 바꾼다
   (`docs/DECISIONS.md` 9-4). Guard 사건의 `details`에는 대상(`step`, `to`)을 넣는다 (`docs/API.md`).
 - 웹 API를 바꾸면 `docs/API.md`를 먼저 고친다 (백엔드와 프론트가 같이 따르는 계약). 테스트는 실제 증권사·AI를 부르지 않는다
   (루트 `conftest.py`가 키를 비운다. 가짜 클라이언트를 `config.engine`에 끼운다).
-- 계획이 바뀌면 `TEAM_PAPER_TRADING_PLAN.md`, `CLAUDE.md`, 이 파일을 함께 고친다.
+- 계획이 바뀌면 `docs/TEAM_PAPER_TRADING_PLAN.md`, `CLAUDE.md`, 이 파일을 함께 고친다.

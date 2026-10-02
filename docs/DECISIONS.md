@@ -1,6 +1,6 @@
 # 공통 결정 (계획서 6장 단계 2)
 
-작성 2026-10-02. 계획서 `TEAM_PAPER_TRADING_PLAN.md`를 구현하면서 여러 작업자가 같이 따라야 하는 결정을 모은다.
+작성 2026-10-02. 계획서 `docs/TEAM_PAPER_TRADING_PLAN.md`를 구현하면서 여러 작업자가 같이 따라야 하는 결정을 모은다.
 바꾸려면 이 파일을 먼저 고치고 관련 작업자에게 알린다.
 
 ## 1. 저장소 구조와 실행
@@ -18,8 +18,9 @@ docs/               DESIGN.md(엔진 설계), DECISIONS.md(이 파일), KIWOOM.m
 - 엔진 실행: `uv run python -m paper_engine <명령>` (루트에서). 테스트: `uv run pytest`, `uv run pytest backtest`.
 - 실행 데이터는 `PAPER_ROOT`(기본: 저장소 루트) 아래 `data/`(SQLite·중단 스위치·백업), `runs/`(분석 기록 JSON·PDF),
   `data/reports/`(일일 리포트), `.cache/`(토큰·종목 목록·공휴일 캐시). 모두 git에 넣지 않는다.
-- **DB: 로컬 개발 환경은 SQLite, EC2 운영은 PostgreSQL.** Django 설정이 `POSTGRES_HOST` 유무로 고른다
-  (없으면 `backend/db.sqlite3`). 같은 모델·마이그레이션을 쓰므로 PostgreSQL 전용 기능은 쓰지 않고, CI는 PostgreSQL로 검사한다.
+- **DB: Django 설정이 `POSTGRES_HOST` 유무로 고른다** — 없으면 SQLite(`backend/db.sqlite3`, 혼자 개발할 때의 기본값), 있으면 PostgreSQL
+  (EC2 운영, 그리고 팀이 같이 보는 개발 DB — 10장). 같은 모델·마이그레이션을 쓰므로 PostgreSQL 전용 기능은 쓰지 않는다.
+  테스트는 SQLite 메모리 DB에서 돌고, `TEST_WITH_POSTGRES=1`일 때만(CI) PostgreSQL로 검사한다.
 - **시간대: 엔진은 호스트 시간대가 KST라고 가정한다** (백업 06시·리포트 07시, 보유 기한 날짜, 오늘 손실·주문 수 집계).
   컨테이너(4E)는 `TZ=Asia/Seoul`(+ tzdata)로 띄운다. 장 달력과 키움 날짜 변환은 zoneinfo로 시장 시간대를 따로 쓴다.
 - 이번 단계에서 Django와 React는 **빈 페이지만** 띄운다. 엔진 저장소는 아직 SQLite(`data/trading.db`)이고,
@@ -48,7 +49,8 @@ docs/               DESIGN.md(엔진 설계), DECISIONS.md(이 파일), KIWOOM.m
 | `AI_DAILY_BUDGET_USD` | `10` | 백엔드(4C) | 하루 전체 AI 비용 한도 |
 | `AI_DAILY_ANALYSES_PER_USER` | `5` | 백엔드(4C) | 팀원별 하루 분석 요청 종목 수 |
 | `DJANGO_SECRET_KEY`, `DJANGO_DEBUG`, `DJANGO_ALLOWED_HOSTS` | | 백엔드 | `DJANGO_DEBUG`는 on/off |
-| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT` | | 백엔드 | `POSTGRES_HOST`가 없으면 SQLite (로컬 개발), 있으면 PostgreSQL (EC2) |
+| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT` | | 백엔드 | `POSTGRES_HOST`가 없으면 SQLite, 있으면 PostgreSQL (EC2 운영 `db`, 로컬 컨테이너 `127.0.0.1`, 다른 PC의 개발 DB는 그 IP) |
+| `POSTGRES_BIND` | `127.0.0.1` | 개발 compose | 로컬 PostgreSQL 컨테이너의 포트를 여는 주소. `0.0.0.0`이면 같은 네트워크에서 접속 (개발할 때만, 10장) |
 
 삭제한 키: 실주문 허용 스위치, `OPENCLAW_USER_ID`, `OPENCLAW_STATE_DIR`.
 (`CLIENT_ID`, `CLIENT_SECRET`은 지웠다가 로컬 개발용 토스 조회에 다시 쓴다 — 3장.)
@@ -90,8 +92,8 @@ config.py       Config.broker · toss_client_id · toss_client_secret · toss_to
 ```
 
 - 켜는 법: 로컬 `.env`에 `BROKER=toss`, `CLIENT_ID`, `CLIENT_SECRET`. `BROKER`를 주지 않으면 토스 키가 있어도 키움이다.
-- **운영에서는 못 켠다.** `POSTGRES_HOST`가 있으면(Django 설정이 EC2 운영을 가리는 기준) `load_config`가 `BROKER=toss`를 거부한다.
-  로컬에서 `--profile postgres`를 쓰느라 `POSTGRES_HOST`를 줄 때도 거부되니 그때는 `BROKER`를 뺀다. 4E의 운영 compose는 `BROKER`를 넘기지 않는다.
+- **운영에서는 못 켠다.** `DJANGO_DEBUG`가 켜져 있을 때만 `load_config`가 `BROKER=toss`를 받는다 (운영은 `DJANGO_DEBUG=off`).
+  처음에는 `POSTGRES_HOST` 유무로 가렸지만, 로컬에서도 PostgreSQL을 쓰게 되어 바꿨다 (2026-10-02, 10장). 4E의 운영 compose는 `BROKER`를 넘기지 않는다.
 - **조회만.** 토큰 발급 말고는 GET만 보내고 계좌 헤더를 붙이지 않는다. 계좌·주문 메서드는 없다
   (`test_toss.py`가 공개 메서드가 `KiwoomClient`와 이름·인자까지 같은지 검사한다). 주문은 계속 모의 계좌에서만 체결한다.
 - 토스 주소(`tossinvest`) 문자열은 `data/toss.py` 한 곳에만 둔다. 다른 파일에서 토스 경로를 직접 부르지 않는다.
@@ -311,7 +313,7 @@ API 계약은 `docs/API.md`. 아래는 그 배경 결정이다. 앞 장과 다�
 
 ## 9. AI 리포트: Agents Orchestration과 Trace 구조 (2026-10-02)
 
-API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 저장소 루트의 `교육용문서.md`(04 Distributed Collaboration)를 따른다.
+API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육용문서.md`(04 Distributed Collaboration)를 따른다.
 
 ### 9-1. 범위: 구조만 만들고 Agent 실행은 만들지 않는다
 
@@ -355,11 +357,26 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 저장소 �
 - Guard 사건의 `details`에는 대상을 넣는다: `join_guard`는 `{"step": <Join하는 step id>}`, `handoff_guard`는 `{"to": <넘겨받는 Worker id>}`
   (화면이 그래프의 어느 노드인지 찾는 데 쓴다). `workflow_completed`를 남긴 뒤 `finish`를 부른다 (끝난 리포트에는 Trace가 붙지 않는다).
 - 운영(4E)에서 SSE는 연결 하나가 요청 처리 스레드 하나를 60초까지 잡는다: gunicorn은 스레드 워커(gthread), nginx는 `/api/reports/*/events`에
-  `proxy_buffering off`와 60초보다 긴 read timeout. 저장소 루트의 `교육용문서.md`는 프론트 빌드에 들어가므로 저장소에 넣어야 한다.
+  `proxy_buffering off`와 60초보다 긴 read timeout. `docs/교육용문서.md`는 프론트 빌드에 들어가므로 저장소에 넣어야 한다.
 
 ### 9-5. 화면
 
 - `/reports`: 종목 검색 → 리포트 신청, 리포트 목록, 실행 계획 미리 보기. 종목 상세에도 "AI 리포트 신청" 버튼.
 - `/reports/:id`: 리포트 본문(미구현 안내) · 실행 계획 그래프(Worker별 상태·Provider·소요 시간) · Trace 타임라인 · Shared State ·
-  실패 정책과 Handoff 계약 안내 · 교육용 문서 탭(`교육용문서.md`를 그대로 렌더).
+  실패 정책과 Handoff 계약 안내 · 교육용 문서 탭(`docs/교육용문서.md`를 그대로 렌더).
 - Agent가 없어 실제 Trace가 비어 있으므로, 화면 구조를 확인할 수 있게 **예시 Trace 재생**(프론트에 든 예시 데이터, "예시"라고 표시)을 둔다.
+
+## 10. 팀이 같이 보는 개발 DB: 로컬 PostgreSQL 컨테이너 (2026-10-02)
+
+- 개발 중에 팀원이 같은 네트워크에서 DB를 직접 볼 수 있게, 호스트 PC 한 대에 PostgreSQL 16 컨테이너를 띄운다
+  (`deploy/compose.dev.yml`의 `db`, 프로젝트 이름 `paper-dev`, 데이터는 볼륨 `paper-dev_pgdata`).
+  호스트 PC의 `.env`: `POSTGRES_HOST=127.0.0.1`, `POSTGRES_PORT`(그 PC의 빈 포트), `POSTGRES_BIND=0.0.0.0`, 긴 임의 `POSTGRES_PASSWORD`,
+  `DJANGO_SECRET_KEY`. `scripts/dev.sh`가 컨테이너를 띄우고 마이그레이션을 적용한다. 접속 방법은 `scripts/dev.sh status`와 `TEAM_DEV_PLAN.md` 2장.
+- **개발할 때만 연다.** 운영(EC2)에서는 DB 포트를 밖으로 열지 않는다. 비밀번호는 저장소·문서에 적지 않고 따로 전한다.
+- 혼자 개발할 때의 기본값은 여전히 SQLite다 (`POSTGRES_HOST`를 비워 둔다). SQLite에 쌓인 데이터는 `scripts/dev.sh import-sqlite`
+  (`scripts/sqlite_to_postgres.py`)로 한 번 옮긴다: 계정(비밀번호 해시)·프로필·계좌·주문·체결·분석·리포트를 옮기고 세션·관리자 기록은 옮기지 않는다.
+- 팀원이 자기 PC의 Django를 공유 DB에 붙일 수는 있다 (`POSTGRES_HOST=<호스트 PC의 IP>`). 다만 **엔진 루프(`run_engine`)는 호스트 PC에서만** 돌린다
+  (두 곳에서 돌면 서로의 분석 작업을 실패로 정리한다 — 8-6). 모델을 바꿀 때는 마이그레이션이 공유 DB에 바로 적용되므로 팀에 먼저 알린다.
+- 이 변경으로 "PostgreSQL이면 운영"이라는 가정이 깨졌다: 토스 조회 허용은 `DJANGO_DEBUG`로 가리고 (3-1),
+  개발용 기본 비밀키는 SQLite일 때만 쓰므로 PostgreSQL을 쓰면 `DJANGO_SECRET_KEY`가 있어야 한다.
+- 테스트는 SQLite 메모리 DB에서 돈다 (공유 DB를 건드리지 않는다). `TEST_WITH_POSTGRES=1`로 PostgreSQL에서도 백엔드 테스트 전부가 통과한다 (2026-10-02 확인).

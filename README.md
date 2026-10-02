@@ -4,7 +4,7 @@
 모든 예측과 결과를 기록해 모델·규칙별 성적을 추적한다. 실제 주문은 내지 않는다.
 
 - 시작하기·규칙·명령: [AGENTS.md](AGENTS.md)
-- 계획: [TEAM_PAPER_TRADING_PLAN.md](TEAM_PAPER_TRADING_PLAN.md) · 공통 결정: [docs/DECISIONS.md](docs/DECISIONS.md)
+- 계획: [docs/TEAM_PAPER_TRADING_PLAN.md](docs/TEAM_PAPER_TRADING_PLAN.md) · 공통 결정: [docs/DECISIONS.md](docs/DECISIONS.md)
 - 엔진 설계: [docs/DESIGN.md](docs/DESIGN.md) · 키움 API: [docs/KIWOOM.md](docs/KIWOOM.md)
 
 ```bash
@@ -16,8 +16,21 @@ uv run python -m paper_engine --help
 
 ## 웹 실행 (로컬 개발)
 
+처음 클론했으면 AI 코딩 에이전트에게 "`SETUP_PROMPT.md`를 읽고 그대로 진행해 줘"라고 하면 설치부터 실행까지 안내한다
+(직접 하려면 `cp .env.example .env` → `uv sync` → `cd frontend && npm ci`). macOS·Linux·WSL2에서 돈다.
+
 ```bash
-cd backend && uv run python manage.py migrate                # DB 표 (로컬 SQLite)
+scripts/dev.sh            # Django API + 엔진 루프 + 프론트엔드를 한 번에 (다시) 띄운다. 끝나면 주소와 DB 위치를 보여 준다
+scripts/dev.sh stop       # 전부 내린다          · status · logs [backend|engine|frontend] · db (DB 셸) · import-sqlite
+```
+
+프론트엔드는 `0.0.0.0`에 떠서 같은 네트워크의 휴대폰·다른 PC에서 `http://<이 PC의 IP>:5173`으로 볼 수 있다. Django는 이 PC에서만 접근한다.
+DB는 `.env`의 `POSTGRES_HOST`가 비어 있으면 SQLite(`backend/db.sqlite3`), `127.0.0.1`이면 이 PC의 PostgreSQL 컨테이너를 띄워 쓴다
+(`POSTGRES_BIND=0.0.0.0`이면 같은 네트워크에서 DB 접속 가능, 개발할 때만). 8000 포트가 사용 중이면 다음 빈 포트를 알아서 쓴다.
+팀원이 이어서 개발할 일과 DB 접속 방법은 [TEAM_DEV_PLAN.md](TEAM_DEV_PLAN.md). 하나씩 직접 띄우려면:
+
+```bash
+cd backend && uv run python manage.py migrate                # DB 표
 cd backend && uv run python manage.py create_team_accounts   # 팀원 계정 5개 → team_accounts.txt (git 제외, 다시 실행해도 안전)
 cd backend && uv run python manage.py runserver              # Django API (기본 127.0.0.1:8000)
 cd backend && uv run python manage.py run_engine             # 지정가 체결·목표/손절 청산·예약 실행·일별 자산·AI 분석 작업
