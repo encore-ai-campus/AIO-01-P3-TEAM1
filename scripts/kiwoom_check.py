@@ -78,7 +78,9 @@ def main():
     parser.add_argument("--save-raw", type=Path, help="TR별 원본 응답을 저장할 폴더 (비밀 값 없음)")
     args = parser.parse_args()
 
-    cfg = load_config()
+    cfg = load_config(require_broker=False)  # 로컬 .env가 BROKER=toss여도 이 스크립트는 키움만 확인한다
+    if not (cfg.kiwoom_appkey and cfg.kiwoom_secretkey):
+        raise SystemExit(".env 또는 환경변수에 KIWOOM_APPKEY, KIWOOM_SECRETKEY 값이 없습니다.")
     calendar = MarketCalendar(cfg.data_gokr_api_key, ROOT / ".cache")
     client = KiwoomClient(cfg.kiwoom_appkey, cfg.kiwoom_secretkey, cfg.token_cache, calendar, cfg.kiwoom_base_url)
     raw = RawRecorder(client, args.save_raw)

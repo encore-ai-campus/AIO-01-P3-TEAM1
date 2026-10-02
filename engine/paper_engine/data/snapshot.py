@@ -7,7 +7,7 @@ from .fina_stat import FinaStatClient, history_fundamentals
 from .sec import SecClient
 from .broker_reports import stock_reports
 from .news import fetch_news
-from .kiwoom import KiwoomClient
+from .broker import BrokerClient
 
 LIQUIDITY_DAYS = 20
 
@@ -16,7 +16,7 @@ def _round(value: float | None, digits: int = 4) -> float | None:
     return None if value is None else round(value, digits)
 
 
-def build_snapshot(client: KiwoomClient, symbol: str, dart: DartClient | None = None,
+def build_snapshot(client: BrokerClient, symbol: str, dart: DartClient | None = None,
                    sec: SecClient | None = None, fina: FinaStatClient | None = None) -> dict:
     info = client.stocks([symbol])[0]
     is_kr = info["currency"] == "KRW"

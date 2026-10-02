@@ -39,7 +39,8 @@ def test_parse_limit():
 
 
 KEYS = ("KIWOOM_APPKEY", "KIWOOM_SECRETKEY", "KIWOOM_BASE_URL", "KIWOOM_TOKEN_CACHE", "MARKETS", "PAPER_CAPITAL_KRW",
-        "PAPER_COMMISSION_KR", "PAPER_COMMISSION_US", "MAX_TOTAL_INVEST_KRW", "OPENCLAW_TARGET", "OPENCLAW_BIN")
+        "PAPER_COMMISSION_KR", "PAPER_COMMISSION_US", "MAX_TOTAL_INVEST_KRW", "OPENCLAW_TARGET", "OPENCLAW_BIN",
+        "BROKER", "CLIENT_ID", "CLIENT_SECRET", "POSTGRES_HOST")
 
 
 @pytest.fixture
@@ -55,7 +56,7 @@ def test_load_config_defaults_and_kiwoom_keys(env):
     from paper_engine.config import ROOT, ConfigError, load_config
     with pytest.raises(ConfigError, match="KIWOOM_APPKEY, KIWOOM_SECRETKEY"):
         load_config()
-    cfg = load_config(require_kiwoom=False)
+    cfg = load_config(require_broker=False)
     assert cfg.kiwoom_appkey is None and cfg.markets == ("KR",) and cfg.paper_capital_krw == 10_000_000
     assert cfg.commission == {"KR": 0.00015, "US": 0.00015} and cfg.max_total_invest_krw is None
     assert cfg.kiwoom_base_url == "https://api.kiwoom.com" and cfg.token_cache == ROOT / ".cache" / "kiwoom_token.json"
@@ -83,7 +84,7 @@ def test_load_config_rejects_bad_paper_settings(env, key, value):
     from paper_engine.config import load_config
     env.setenv(key, value)
     with pytest.raises(ValueError):
-        load_config(require_kiwoom=False)
+        load_config(require_broker=False)
 
 
 def test_paper_root_moves_run_data(tmp_path):

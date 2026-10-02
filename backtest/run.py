@@ -3,7 +3,8 @@
   uv run python backtest/run.py --market KR
   uv run python backtest/run.py --market US --refresh   # 캐시를 버리고 다시 받는다
 
-키움 REST API는 조회만 한다 (랭킹, 종목 정보, 일봉, 환율). 토큰은 운영과 같은 캐시를 쓴다.
+증권사 API(운영은 키움, 로컬 개발 환경은 BROKER=toss면 토스)는 조회만 한다 (랭킹, 종목 정보, 일봉, 환율).
+토큰은 운영과 같은 캐시를 쓴다.
 수수료율은 모의 계좌와 같은 PAPER_COMMISSION_KR|US를 쓴다.
 """
 import argparse
@@ -19,8 +20,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from sim import OPEN, STOP, TARGET, EXPIRED, UNFILLED, Backtest, Rule, Settings  # noqa: E402
 from paper_engine.config import ROOT, load_config  # noqa: E402
-from paper_engine.data.calendar import MarketCalendar, drop_incomplete  # noqa: E402
-from paper_engine.data.kiwoom import KiwoomClient  # noqa: E402
+from paper_engine.data.broker import BrokerClient, make_client  # noqa: E402
+from paper_engine.data.calendar import drop_incomplete  # noqa: E402
 from paper_engine.records.market_log import AMOUNT  # noqa: E402
 from paper_engine.records.store import Store  # noqa: E402
 from paper_engine.judge import screen  # noqa: E402
@@ -40,7 +41,7 @@ RULES = [
 
 # --- 데이터 (조회만, 캐시) ---
 
-def fetch_candles(client: KiwoomClient, symbol: str, since: str) -> list[dict]:
+def fetch_candles(client: BrokerClient, symbol: str, since: str) -> list[dict]:
     """since 이후 일봉 (과거 → 최신, 수정주가). "date" 키를 붙인다."""
     bars, before, seen = {}, None, set()
     while True:
@@ -67,7 +68,7 @@ def recorded_universe(market: str, db_path: Path = DB_PATH) -> dict[str, str]:
     return out
 
 
-def load_data(client: KiwoomClient, market: str, refresh: bool) -> tuple[dict, dict]:
+def load_data(client: BrokerClient, market: str, refresh: bool) -> tuple[dict, dict]:
     """(종목별 완성된 일봉, 종목 이름). 유니버스는 여러 기간의 거래대금 상위 100의 합집합."""
     cache = HERE / "cache" / market
     (cache / "candles").mkdir(parents=True, exist_ok=True)
@@ -251,8 +252,7 @@ def main():
     args = p.parse_args()
 
     cfg = load_config()
-    client = KiwoomClient(cfg.kiwoom_appkey, cfg.kiwoom_secretkey, cfg.token_cache,
-                          MarketCalendar(cfg.data_gokr_api_key, ROOT / ".cache"), cfg.kiwoom_base_url)
+    client = make_client(cfg, ROOT / ".cache")
     print(f"[{args.market}] 데이터 준비", file=sys.stderr)
     candles, names = load_data(client, args.market, args.refresh)
     fx = 1.0 if args.market == "KR" else float(client.exchange_rate()["rate"])

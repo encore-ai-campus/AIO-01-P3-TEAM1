@@ -41,12 +41,13 @@ from pathlib import Path
 from . import daily, info, report, scheduler
 from .agents import executor as ex
 from .agents.executor import OrderRejected
-from .config import ROOT, ConfigError, load_config
+from .config import BROKER_KEYS, ROOT, ConfigError, load_config
 from .data import broker_reports
-from .data.calendar import MarketCalendar, drop_incomplete
+from .data.broker import BrokerClient, make_client
+from .data.calendar import drop_incomplete
 from .data.dart import DartClient
 from .data.fina_stat import FinaStatClient
-from .data.kiwoom import KiwoomApiError, KiwoomClient
+from .data.kiwoom import KiwoomApiError
 from .data.sec import SecClient
 from .data.snapshot import LIQUIDITY_DAYS, build_snapshot
 from .judge import screen
@@ -86,29 +87,29 @@ HALT_FILE = ROOT / "data" / "HALT"
 REPORT_DIR = ROOT / "data" / "reports"
 
 
-_CLIENTS: dict[tuple, KiwoomClient] = {}
+_CLIENTS: dict[tuple, BrokerClient] = {}
 _CLIENTS_LOCK = threading.Lock()
 
 
-def _client(cfg) -> KiwoomClient:
-    """증권사 조회 클라이언트 (docs/DECISIONS.md 3장). 엔진은 여기서만 만든다.
+def _client(cfg) -> BrokerClient:
+    """증권사 조회 클라이언트 (docs/DECISIONS.md 3장). 엔진은 여기서만 만든다. 운영은 키움, 로컬 개발은 BROKER=toss면 토스.
 
     같은 설정이면 프로세스에 하나만 만든다. 키움 호출 한도는 토큰 단위라, serve의 스레드(sync, 전략, 리포트)가
     클라이언트의 호출 간격 조절과 캐시를 같이 써야 한도를 넘지 않는다.
     """
-    if not (cfg.kiwoom_appkey and cfg.kiwoom_secretkey):
-        raise SystemExit(".env 또는 환경변수에 KIWOOM_APPKEY, KIWOOM_SECRETKEY 값이 없습니다.")
-    key = (cfg.kiwoom_appkey, cfg.kiwoom_base_url, str(cfg.token_cache), cfg.data_gokr_api_key)
+    if not cfg.broker_ready:
+        raise SystemExit(f".env 또는 환경변수에 {', '.join(BROKER_KEYS[cfg.broker])} 값이 없습니다.")
+    key = (cfg.broker, cfg.toss_client_id, str(cfg.toss_token_cache),
+           cfg.kiwoom_appkey, cfg.kiwoom_base_url, str(cfg.token_cache), cfg.data_gokr_api_key)
     with _CLIENTS_LOCK:
         if key not in _CLIENTS:
-            _CLIENTS[key] = KiwoomClient(cfg.kiwoom_appkey, cfg.kiwoom_secretkey, cfg.token_cache,
-                                         MarketCalendar(cfg.data_gokr_api_key, ROOT / ".cache"), cfg.kiwoom_base_url)
+            _CLIENTS[key] = make_client(cfg, ROOT / ".cache")
         return _CLIENTS[key]
 
 
-def _client_if_configured(cfg) -> KiwoomClient | None:
+def _client_if_configured(cfg) -> BrokerClient | None:
     """키가 있으면 클라이언트, 없으면 None (기록만 보는 명령은 키 없이도 돈다)."""
-    return _client(cfg) if cfg.kiwoom_appkey and cfg.kiwoom_secretkey else None
+    return _client(cfg) if cfg.broker_ready else None
 
 
 def _dart(cfg) -> DartClient | None:
@@ -408,7 +409,7 @@ def cmd_track(args):
 
 
 def cmd_stats(args):
-    cfg = load_config(require_kiwoom=False)
+    cfg = load_config(require_broker=False)
     store = _store(cfg)
     notifier = _notifier(cfg)
     notifier.send("AI 시나리오 예측 추적 성적 (선별 여부별)")
@@ -473,15 +474,15 @@ def format_order(r) -> str:
 
 
 def cmd_account(args):
-    cfg = load_config(require_kiwoom=False)
+    cfg = load_config(require_broker=False)
     desk = _desk(cfg, client=_client_if_configured(cfg))
     print(format_account(desk.account_summary()))
     if desk.client is None:
-        print("참고: 키움 키가 없어 현재가를 조회하지 않고 체결가로 평가함")
+        print("참고: 증권사 조회 키가 없어 현재가를 조회하지 않고 체결가로 평가함")
 
 
 def cmd_orders(args):
-    cfg = load_config(require_kiwoom=False)
+    cfg = load_config(require_broker=False)
     rows = _store(cfg).paper_orders(None if args.all else ex.ACTIVE)
     if not rows:
         print("모의 주문 없음" if args.all else "진행 중인 모의 주문 없음 (전체는 --all)")
@@ -491,7 +492,7 @@ def cmd_orders(args):
 
 
 def cmd_fills(args):
-    cfg = load_config(require_kiwoom=False)
+    cfg = load_config(require_broker=False)
     rows = _store(cfg).fills(limit=args.limit)
     if not rows:
         print("체결 내역 없음")
@@ -530,19 +531,19 @@ def cmd_sell(args):
 
 
 def cmd_cancel(args):
-    cfg = load_config(require_kiwoom=False)
+    cfg = load_config(require_broker=False)
     _order_command(lambda: _desk(cfg).cancel(args.order_id, args.by))
 
 
 def cmd_modify(args):
-    cfg = load_config(require_kiwoom=False)
+    cfg = load_config(require_broker=False)
     desk = _desk(cfg, client=_client_if_configured(cfg))
     _order_command(lambda: "수정함: " + json.dumps(desk.modify(args.order_id, args.target, args.stop, args.days),
                                                   ensure_ascii=False))
 
 
 def cmd_reservations(args):
-    cfg = load_config(require_kiwoom=False)
+    cfg = load_config(require_broker=False)
     book = _book(cfg)
     if not book:
         raise SystemExit("예약은 .env의 REDIS_URL이 있어야 쓸 수 있습니다.")
@@ -1059,7 +1060,7 @@ def cmd_scan(args):
 
 def cmd_info(args):
     """읽기 전용 조회 (JSON). 웹이 생기기 전 CLI 조회와 웹(4C)이 쓴다."""
-    cfg = load_config(require_kiwoom=False)
+    cfg = load_config(require_broker=False)
     redis = Redis(cfg.redis_url) if cfg.redis_url else None
     store = _store(cfg)
     if args.what == "strategies":
@@ -1079,7 +1080,7 @@ def cmd_info(args):
 
 def cmd_report(args):
     """실행 기록으로 리포트를 다시 만든다. --send면 요약과 함께 보낸다."""
-    cfg = load_config(require_kiwoom=False)
+    cfg = load_config(require_broker=False)
     json_path = Path(args.run_file).resolve()
     log = json.loads(json_path.read_text())
     if args.send:
@@ -1209,7 +1210,7 @@ def cmd_daily_report(args):
 
 
 def cmd_backup(args):
-    cfg = load_config(require_kiwoom=False)
+    cfg = load_config(require_broker=False)
     redis = Redis(cfg.redis_url) if cfg.redis_url else None
     if args.restore_redis:
         if not redis:

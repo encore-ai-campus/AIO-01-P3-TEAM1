@@ -9,6 +9,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 KIWOOM_BASE_URL = "https://api.kiwoom.com"
+# 증권사(BROKER) → 조회에 필요한 키. 운영은 kiwoom, toss는 로컬 개발 환경 전용이다 (docs/DECISIONS.md 3장)
+BROKER_KEYS = {"kiwoom": ("KIWOOM_APPKEY", "KIWOOM_SECRETKEY"), "toss": ("CLIENT_ID", "CLIENT_SECRET")}
 SUPPORTED_MARKETS = ("KR", "US")
 DEFAULT_COMMISSION = {"KR": 0.00015, "US": 0.00015}
 
@@ -73,7 +75,7 @@ def vote_weights(specs: tuple[ModelSpec, ...]) -> dict[str, float]:
 class Config:
     kiwoom_appkey: str | None
     kiwoom_secretkey: str | None
-    token_cache: Path | None
+    token_cache: Path | None  # 키움 토큰 캐시
     llm_api_key: str | None = None
     analysts: tuple[ModelSpec, ...] = ()
     researchers: tuple[str, ...] = ()
@@ -92,10 +94,21 @@ class Config:
     redis_url: str | None = None  # 예약 주문·전략·생존 신호. 없으면 예약과 전략이 꺼진다
     backup_dir: Path | None = None  # 없으면 data/backups
     chrome_bin: str | None = None  # 리포트 PDF를 만들 Chrome. 없으면 PATH에서 찾는다
+    broker: str = "kiwoom"  # 조회에 쓸 증권사 (BROKER_KEYS). toss는 로컬 개발 환경 전용
+    toss_client_id: str | None = None
+    toss_client_secret: str | None = None
+    toss_token_cache: Path | None = None
 
     @property
     def weights(self) -> dict[str, float]:
         return vote_weights(self.analysts)
+
+    @property
+    def broker_ready(self) -> bool:
+        """고른 증권사의 조회 키가 다 있는지."""
+        if self.broker == "toss":
+            return bool(self.toss_client_id and self.toss_client_secret)
+        return bool(self.kiwoom_appkey and self.kiwoom_secretkey)
 
 
 def parse_limit(text: str | None, default: float | None) -> float | None:
@@ -137,13 +150,31 @@ def _env() -> dict:
     return env
 
 
-def load_config(require_kiwoom: bool = True) -> Config:
-    """require_kiwoom이 False면 키움 키가 없어도 된다 (조회 없이 기록만 보는 명령: account, orders, halt 등)."""
+def parse_broker(env: dict) -> str:
+    """BROKER. 비어 있으면 kiwoom. toss는 로컬 개발 환경에서만 고를 수 있다.
+
+    운영 환경은 Django 설정과 같은 기준(POSTGRES_HOST가 있음)으로 가린다.
+    """
+    broker = (env.get("BROKER") or "kiwoom").lower()
+    if broker not in BROKER_KEYS:
+        raise ConfigError(f"BROKER는 {', '.join(BROKER_KEYS)} 중에서 고릅니다: {broker}")
+    if broker == "toss" and env.get("POSTGRES_HOST"):
+        raise ConfigError("BROKER=toss는 로컬 개발 환경 전용입니다. POSTGRES_HOST가 있는 환경(EC2 운영)은 키움만 씁니다.")
+    return broker
+
+
+def load_config(require_broker: bool = True) -> Config:
+    """require_broker가 False면 증권사 키가 없어도 된다 (조회 없이 기록만 보는 명령: account, orders, halt 등)."""
     env = _env()
-    missing = [k for k in ("KIWOOM_APPKEY", "KIWOOM_SECRETKEY") if not env.get(k)]
-    if require_kiwoom and missing:
+    broker = parse_broker(env)
+    missing = [k for k in BROKER_KEYS[broker] if not env.get(k)]
+    if require_broker and missing:
         raise ConfigError(f".env 또는 환경변수에 {', '.join(missing)} 값이 없습니다.")
     return Config(
+        broker=broker,
+        toss_client_id=env.get("CLIENT_ID") or None,
+        toss_client_secret=env.get("CLIENT_SECRET") or None,
+        toss_token_cache=ROOT / ".cache" / "toss_token.json",
         kiwoom_appkey=env.get("KIWOOM_APPKEY") or None,
         kiwoom_secretkey=env.get("KIWOOM_SECRETKEY") or None,
         token_cache=Path(env.get("KIWOOM_TOKEN_CACHE") or ROOT / ".cache" / "kiwoom_token.json"),
