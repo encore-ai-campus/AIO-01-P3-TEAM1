@@ -364,15 +364,15 @@ paper_trading/
 4. Docker 이미지 빌드 확인
 5. API 명세와 프론트엔드 타입이 맞는지 확인 (OpenAPI 생성 결과 비교)
 
-**`deploy.yml`** — `main`에 병합되고 CI가 통과하면:
+**`deploy.yml`** — `main`에 push(직접 또는 PR 병합)되고 CI가 통과하면:
 1. 이미지 빌드 (`web`/`engine` 공용 이미지, `nginx`+프론트 이미지) → GitHub Container Registry(GHCR)에 올림 (태그: 커밋 해시)
 2. EC2 접속 (SSH 키는 GitHub Secrets, 또는 AWS SSM) → `docker compose pull` → `migrate` → `docker compose up -d`
 3. 배포 후 상태 확인 (`/api/health`), 실패하면 이전 태그로 되돌림
 4. 배포 결과를 Discord 팀 채널로 알림
 
 **협업 규칙**
-- `main` 직접 push 금지, PR + 리뷰 1명 + CI 통과 필수 (브랜치 보호).
-- 브랜치 이름 `feat/…`, `fix/…`. PR 템플릿과 이슈 템플릿 제공.
+- `main` 직접 push 허용. PR·리뷰 1명 필수 규칙과 브랜치 보호는 두지 않는다 (2026-10-02 결정). 큰 변경은 필요하면 PR로 리뷰를 받는다.
+- push 전에 로컬에서 테스트를 돌리고, CI(`ci.yml`)는 `main` push마다 돈다. 브랜치를 쓸 때 이름은 `feat/…`, `fix/…`.
 - 로컬 개발: DB는 SQLite (`POSTGRES_HOST`를 비워 둔다) + `docker compose -f deploy/compose.dev.yml up`(Redis) + `manage.py runserver` + `npm run dev`.
   운영과 같은 PostgreSQL로 확인할 때만 `--profile postgres`로 PostgreSQL도 띄우고 `POSTGRES_HOST=127.0.0.1`을 준다.
   `.env.example`에 개발용 기본값.
@@ -441,7 +441,7 @@ paper_trading/
   통계·대시보드 반영 → 정규장 밖 시장가 주문이 예약으로 들어가는지.
 - **AI 분석**: 웹에서 1종목 분석 요청 → 작업 상태 → 결과 화면·PDF → 비용 한도 초과 시 거부.
 - **권한**: 팀원 계정으로 전략 변경·중단 스위치가 막히는지, 로그인 없이 API가 막히는지.
-- **배포**: `main` 병합 → 자동 배포 → `/api/health` 정상 → Discord 팀 채널 알림 수신. 일부러 실패시켜 되돌리기 확인.
+- **배포**: `main` push → 자동 배포 → `/api/health` 정상 → Discord 팀 채널 알림 수신. 일부러 실패시켜 되돌리기 확인.
 - **기존 서비스 무영향**: 이 PC의 `toss-trading` 서비스 정상, 기존 Redis·openclaw 설정 변화 없음.
 
 ---

@@ -120,7 +120,7 @@ cd frontend && npx vitest run src/<파일>.test.tsx
 - **단계 1은 클라이언트 교체 전에, 토스 상태에서 먼저 한다.** 대상: 장 달력 `market_calendar`, 전체 종목 `listed_stocks`,
   순위+기준 시각 `rankings_with_time`, 일봉 페이지 `candles_before` (원본 파일·줄 번호는 계획서 3-1).
 - 병렬 작업자에게 넘기기 전에 단계 2의 공통 결정을 메인이 확정한다. 여러 작업자가 같은 파일을 수정하지 않게 나눈다.
-- `main` 직접 push 금지. PR + 리뷰 1명 + CI 통과. 브랜치 `feat/…`, `fix/…`.
+- `main`에 직접 push해도 된다. PR·리뷰 필수 규칙과 브랜치 보호는 두지 않는다 (2026-10-02 결정). push 전에 테스트를 돌린다.
 - 배포(`deploy.yml`): GHCR 이미지(태그=커밋 해시) → EC2 `docker compose pull` → `migrate` → `up -d` → `/api/health` 확인, 실패 시 이전 태그로 되돌림.
 - EC2는 자동 할당 공인 IP라 **인스턴스를 중지하면 IP가 바뀐다** (키움 IP 등록, GitHub Secrets, 접속 주소를 다시 맞춰야 함).
 

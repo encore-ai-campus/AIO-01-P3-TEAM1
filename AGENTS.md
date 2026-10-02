@@ -14,7 +14,7 @@
 - **엔진(`engine/`)은 표준 라이브러리만 쓴다.** Django·DRF·psycopg·gunicorn 등 외부 의존성은 `backend/`에만 추가한다.
 - **운영 중인 원본 `toss_trading`에 영향을 주지 않는다.** Redis 키 접두사는 `paper:`만 쓴다 (`toss:*` 금지).
   `personal_project_files/`는 원본 복사본(참고용, git 제외)이다. 고치지 않고, 그 안의 데이터를 가져오지 않는다.
-- 커밋은 사용자가 요청할 때만 한다. `main` 직접 push 금지 (PR + 리뷰 1명 + CI 통과).
+- 커밋은 사용자가 요청할 때만 한다. `main`에 직접 push해도 된다 (PR·리뷰 필수 아님). push 전에 테스트를 돌린다.
 
 ## DB
 
