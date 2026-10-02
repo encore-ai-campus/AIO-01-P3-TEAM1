@@ -175,6 +175,9 @@
   - 전체 종목 목록 → `client.listed_stocks(market)` (`__main__.py:1389`)
   - 순위 + 기준 시각 → `client.rankings_with_time(...)` (`records/market_log.py:46`, `backtest/run.py:61`)
   - 일봉 페이지 조회 → `client.candles_before(...)` (`backtest/run.py:44`)
+- **로컬 개발 전용 토스 조회 (2026-10-02 추가)**: 키움 앱키가 없어도 로컬에서 엔진을 돌려 볼 수 있게 원본의 조회 클라이언트를
+  `data/toss.py`로 되살렸다. `.env`의 `BROKER=toss`(+ `CLIENT_ID`, `CLIENT_SECRET`)로 켠다. 조회만 하고(계좌·주문 API 없음),
+  운영(EC2)은 키움만 쓴다 (`POSTGRES_HOST`가 있으면 거부). 키움 코드는 그대로 둔다. 세부는 `docs/DECISIONS.md` 3-1장.
 - **장 달력**: 키움에는 토스 같은 달력 API가 없을 가능성이 크다. 새 `data/calendar.py`가 같은 형식을 만든다.
   - 국내: 정규장 09:00~15:30 고정 + 공휴일은 data.go.kr 특일정보 API(`DATA_GOKR_API` 이미 있음) + KRX 연말 휴장일.
   - 미국: NYSE 휴장·조기 폐장 규칙을 코드로 계산, 서머타임은 `zoneinfo`.
@@ -191,7 +194,8 @@ bypass 한도, 소수점 금액 주문 시간 제한, 실계좌 조회 전부.
 유지: 예측 추적(`trades`/`predictions`/`track`/`stats`), 리스크 엔진, 주문 계획(`make_plan`), 실행 직전 점검, 호가 단위, 예상 손익 계산.
 
 새 **모의 계좌**:
-- 팀 공용 계좌 1개, 초기 자금 `PAPER_CAPITAL_KRW` (기본 1천만원). 미국 종목은 원화 현금에서 체결 시점 환율로 환산.
+- **팀원별 계좌** (2026-10-02 확정, 처음 계획은 팀 공용 1개), 초기 자금은 각자 `PAPER_CAPITAL_KRW` (기본 1천만원).
+  미국 종목은 원화 현금에서 체결 시점 환율로 환산. 엔진 자체 SQLite 계좌는 엔진 CLI·전략(AI 자동 매수)용으로 남는다 (`docs/DECISIONS.md` 8-1).
 - 주문 상태: `대기(ENTRY_PENDING)` → `보유·감시(EXIT_WATCHING)` → `종료(CLOSED)` / `취소(CANCELED)`.
 - 체결 규칙 (엔진이 실시간 시세로 판단, 정규장 안에서만):
   - 시장가: 현재 확인 가격에 즉시 체결.
@@ -235,6 +239,8 @@ bypass 한도, 소수점 금액 주문 시간 제한, 실계좌 조회 전부.
 
 - **웹(Django)은 짧은 요청만** 처리한다 (조회, 주문 등록, 전략 수정). 시세가 필요하거나 오래 걸리는 일(AI 분석, 체결, 리포트)은
   Redis 작업 큐에 넣고 **엔진**이 처리한다. 웹은 작업 번호를 받아 상태를 확인한다.
+- 예외 (2026-10-02): **현재가·일봉 조회와 시장가 체결은 웹이 짧은 캐시(1초)로 직접** 한다. 화면이 1초마다 가격을 받고 주문 결과를
+  바로 보여 줘야 해서다. AI 분석처럼 오래 걸리는 일은 `jobs` 표에 넣고 `run_engine`이 처리한다 (`docs/DECISIONS.md` 8-2).
 - 엔진은 지금의 `serve` 루프를 Django 관리 명령으로 감싼 것이다. 엔진 로직(선별·분석·리스크·체결)은 그대로 쓰고,
   저장소 계층(`records/store.py`)만 Django ORM으로 바꾼다.
 
@@ -310,7 +316,14 @@ paper_trading/
 
 ### 4-4. 프론트엔드 (React + TypeScript + CSS)
 
-- 도구: Vite, React Router, TanStack Query(서버 데이터 캐시·새로고침), CSS Modules, 차트는 `lightweight-charts`(캔들) + `Recharts`(통계).
+- 도구: Vite, React Router, TanStack Query(서버 데이터 캐시·폴링), **Tailwind CSS**(2026-10-02 변경, 처음 계획은 CSS Modules),
+  차트는 `lightweight-charts`(캔들). 스타일은 토스증권 웹을 참고한 모바일 우선 반응형 (모바일 하단 탭, PC 왼쪽 메뉴).
+- **1차 구현 범위 (2026-10-02)**: 로그인 · 홈(내 자산 + AI 분석 종목 대시보드) · 종목 검색·상세·주문 · 내 주식 · AI 분석 상세 ·
+  랭킹보드(내 정보 공개를 켠 팀원의 현재 수익률) · My Page(실시간 수익률·투자금액·공개 체크박스). API 계약은 `docs/API.md`.
+  아래 표의 나머지 화면(전략, 선별 결과, 통계, 시장, 리포트, 관리)은 이후 단계.
+- **AI 리포트 (2026-10-02 추가, 구조만)**: 종목별 리포트 신청과 여러 Agent의 협업 과정(Trace)을 보는 화면 `/reports`.
+  실행 계획 그래프·Trace 타임라인·Shared State·실패 정책·Handoff 안내와 교육용 문서(`교육용문서.md`)를 담는다.
+  Agent·Orchestrator 실행은 팀이 구현한다 (`docs/DECISIONS.md` 9장).
 - 개발 중에는 Vite 개발 서버가 `/api`를 로컬 Django로 넘긴다. API 완성 전에는 MSW로 가짜 응답을 써서 병렬 개발.
 - 반응형 (모바일에서도 조회·주문 가능), 다크 모드.
 
@@ -401,7 +414,8 @@ paper_trading/
 
 ### 정해야 할 항목 (기본값으로 진행, 바꾸려면 알려줄 것)
 
-1. 계좌 구조: 기본 **팀 공용 계좌 1개** + 주문별 요청자 기록. (대안: 팀원별 계좌로 수익률 경쟁)
+1. 계좌 구조: **팀원별 계좌로 확정** (2026-10-02. 랭킹보드와 My Page가 팀원별 수익률을 쓴다). 팀원 계정은
+   `python manage.py create_team_accounts`로 만든다 (아이디·비밀번호 무작위, `team_accounts.txt`에 저장, git 제외).
 2. 초기 자금: 기본 1천만원.
 3. 미국 시장: 키움 확인 결과에 따라 포함 여부 결정.
 4. AI 비용 한도: 기본 하루 전체 $10, 팀원별 하루 분석 요청 5종목.
@@ -435,7 +449,9 @@ paper_trading/
 ## 7. 검증
 
 - **테스트**: GitHub Actions의 `ci.yml` 전부 통과 (엔진·백엔드 `pytest`, 백테스트, 프론트 `eslint`·`tsc`·`vitest`·빌드).
-- **주문 코드 제거 확인**: 코드 검색으로 `orders.py`, `create_order`, `LIVE_TRADING`, `--live`, `tossinvest` 0건.
+- **주문 코드 제거 확인**: 코드 검색으로 `orders.py`, `create_order`, `LIVE_TRADING`, `--live` 0건.
+  `tossinvest`는 로컬 개발용 조회 클라이언트 `engine/paper_engine/data/toss.py`의 주소 1건만 (계좌·주문 경로 없음).
+- **운영에 토스 없음 확인**: EC2의 `.env`·compose에 `BROKER`, `CLIENT_ID`, `CLIENT_SECRET`이 없고, 엔진이 키움으로 뜬다.
 - **키움 조회 실제 확인** (읽기 전용): 스냅샷 `005930`, 선별 `KR --no-ai`, 시장 기록, 백테스트 `--market KR`.
 - **모의매매 흐름** (웹에서): 로그인 → 종목 검색 → 10주 시장가 매수 → 체결·현금 감소 확인 → 목표·손절 지정 매수 → 엔진이 청산 →
   통계·대시보드 반영 → 정규장 밖 시장가 주문이 예약으로 들어가는지.

@@ -1,0 +1,35 @@
+# AI 리포트 Team 정의 (YAML Registry, docs/DECISIONS.md 9-3). registry.py가 읽고 검증해 실행 계획(ExecutionPlan)으로 낸다.
+# failure_policy: fail_fast | best_effort | required_optional
+# step: mode(parallel | sequential), workers, required(필수)·optional(선택, required를 빼면 workers 중 optional이 아닌 것 전부가 필수),
+#       depends_on(먼저 끝나야 하는 step id), join(앞 단계 결과를 Join Guard로 확인한 뒤 실행), timeout(초, 없으면 null)
+# handoffs: from Worker가 to Worker에게 책임을 넘긴다. max_hops는 한 실행에서 넘길 수 있는 최대 횟수.
+teams:
+  stock_report:
+    title: 종목 리포트
+    failure_policy: required_optional
+    steps:
+      - id: parallel_research
+        title: 조사
+        mode: parallel
+        workers: [market_agent, fundamental_agent, news_agent]
+        required: [market_agent, fundamental_agent]
+        optional: [news_agent]
+        timeout: 60
+      - id: compose
+        title: 리포트 작성
+        mode: sequential
+        workers: [report_agent]
+        depends_on: [parallel_research]
+        join: true
+        timeout: 90
+      - id: review
+        title: 검토
+        mode: sequential
+        workers: [review_agent]
+        depends_on: [compose]
+        timeout: 60
+    handoffs:
+      - from: review_agent
+        to: risk_agent
+        responsibility: 투자 유의 종목이거나 고위험 신호가 있으면 리스크 점검 책임을 넘긴다
+        max_hops: 1

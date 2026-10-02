@@ -1,0 +1,192 @@
+from datetime import UTC, datetime, timedelta
+
+import pytest
+from django.utils import timezone
+
+from analysis import quota
+from analysis.models import Job
+
+from .conftest import candidate, entry, error_entry, run_log, write_run
+
+pytestmark = pytest.mark.django_db
+
+
+def make_job(user, symbol="005930", status=Job.QUEUED, created_at=None):
+    return Job.objects.create(user=user, payload={"symbol": symbol}, status=status,
+                              created_at=created_at or timezone.now())
+
+
+# --- 로그인 ---
+
+@pytest.mark.parametrize("path", ["/api/analyses", "/api/analyses/1", "/api/analyses/quota", "/api/jobs/1"])
+def test_login_required(client, path):
+    response = client.get(path)
+    assert response.status_code == 401 and response.json() == {"detail": "로그인이 필요합니다."}
+    assert client.post("/api/analyses", {"symbol": "005930"}, content_type="application/json").status_code == 401
+
+
+# --- 목록 ---
+
+def test_list_indexes_new_runs_and_filters(api, runs):
+    write_run(runs, "20261001-090000.json", run_log(entry(candidates=[candidate()]),
+                                                     started="2026-10-01T09:00:00+09:00"))
+    write_run(runs, "20261002-090000.json", run_log(entry(candidates=[candidate(score=40.0)]), error_entry(),
+                                                     started="2026-10-02T09:00:00+09:00"))
+    body = api.get("/api/analyses").json()
+    assert body["count"] == 3
+    assert [(r["symbol"], r["analyzedAt"]) for r in body["results"]] == [  # 최신순 (같은 시각이면 나중에 색인한 것)
+        ("000660", "2026-10-02T09:00:00+09:00"), ("005930", "2026-10-02T09:00:00+09:00"),
+        ("005930", "2026-10-01T09:00:00+09:00")]
+    first = body["results"][2]
+    assert set(first) == {"id", "symbol", "name", "market", "currency", "analyzedAt", "verdict", "priceAtAnalysis",
+                          "best", "scenarioCount", "requestedBy", "costUsd"}
+    assert (first["verdict"], first["priceAtAnalysis"], first["scenarioCount"], first["requestedBy"],
+            first["costUsd"], first["best"]["score"]) == ("BUY", 100_000, 1, "alice", 0.31, 72.0)
+
+    assert [r["verdict"] for r in api.get("/api/analyses?verdict=buy").json()["results"]] == ["BUY"]
+    assert api.get("/api/analyses?symbol=005930&verdict=PASS").json()["count"] == 1
+    assert api.get("/api/analyses?symbol=035420").json() == {"count": 0, "results": []}
+    assert api.get("/api/analyses?verdict=MAYBE").status_code == 400
+
+    page = api.get("/api/analyses?limit=1&offset=1").json()
+    assert page["count"] == 3 and [r["symbol"] for r in page["results"]] == ["005930"]
+
+    write_run(runs, "20261002-100000.json", run_log(entry(symbol="035420", name="NAVER"),
+                                                     started="2026-10-02T10:00:00+09:00"))
+    assert api.get("/api/analyses").json()["results"][0]["symbol"] == "035420"  # 새 기록은 다음 목록 요청에 보인다
+
+
+# --- 상세 ---
+
+def test_detail_reads_run_file(api, runs):
+    write_run(runs, "a.json", run_log(entry(candidates=[candidate("S1", score=40.0), candidate("S2", "claude")]),
+                                       error_entry()))
+    results = api.get("/api/analyses?symbol=005930").json()["results"]
+    detail = api.get(f"/api/analyses/{results[0]['id']}").json()
+    assert {k: detail[k] for k in results[0]} == results[0]
+    assert [(s["proposer"], s["selected"]) for s in detail["scenarios"]] == [("gpt", False), ("claude", True)]
+    assert detail["best"]["proposer"] == "claude"
+    assert detail["news"] == ["수주 공시", "실적 전망"]
+    assert detail["research"] == [{"researcher": "gpt-research", "findings": [
+        {"claim": "수주 공시", "direction": "POSITIVE", "date": "2026-09-28", "sourceTitle": "출처"}]}]
+    assert detail["indicators"] == {"rsi14": 55.0, "sma20": 98_000.5, "change5d": None}
+    assert detail["errors"] == ["검증 누락: S7"]
+
+    hynix = api.get("/api/analyses?symbol=000660").json()["results"][0]
+    detail = api.get(f"/api/analyses/{hynix['id']}").json()
+    assert detail["errors"] == ["모델 응답 에러: gpt 시간 초과"] and detail["scenarios"] == []
+
+
+def test_detail_without_run_file_uses_summary_only(api, runs):
+    write_run(runs, "a.json", run_log(entry(candidates=[candidate()])))
+    summary = api.get("/api/analyses").json()["results"][0]
+    (runs / "a.json").unlink()
+    detail = api.get(f"/api/analyses/{summary['id']}").json()
+    assert detail == summary | {"scenarios": [], "news": [], "research": [], "indicators": {}, "errors": []}
+    assert api.get("/api/analyses/999").status_code == 404
+
+
+# --- 한도 ---
+
+def test_quota(api, user, ai, limits, django_user_model, monkeypatch):
+    other = django_user_model.objects.create_user(username="bob", password="pw-bob-123")
+    make_job(user, status=Job.DONE)
+    make_job(user, status=Job.FAILED)                                          # 실패는 세지 않는다
+    make_job(user, created_at=quota.today_start() - timedelta(seconds=1))     # 어제(KST)
+    make_job(other)
+    assert api.get("/api/analyses/quota").json() == {
+        "usedToday": 1, "limitPerUser": 5, "remaining": 4, "estimatedCostUsd": 0.3, "enabled": True}
+
+    monkeypatch.setenv("AI_DAILY_BUDGET_USD", "0.9")  # 전체 3회, 이미 2회 → 1회 남음
+    assert api.get("/api/analyses/quota").json()["remaining"] == 1
+    monkeypatch.setenv("AI_DAILY_BUDGET_USD", "2.4")  # 2.4 ÷ 0.3 = 8 (소수 오차 없이)
+    assert quota.total_limit() == 8
+
+    ai(llm_api_key=None)
+    assert api.get("/api/analyses/quota").json()["enabled"] is False
+
+
+def test_today_start_is_kst_midnight():
+    now = datetime(2026, 10, 1, 15, 30, tzinfo=UTC)  # KST 10-02 00:30
+    assert quota.today_start(now).isoformat() == "2026-10-02T00:00:00+09:00"
+
+
+# --- 분석 요청 ---
+
+def test_request_creates_queued_job(api, user, ai, limits):
+    response = api.post("/api/analyses", {"symbol": " 005930 "}, content_type="application/json")
+    assert response.status_code == 202
+    job = Job.objects.get(id=response.json()["jobId"])
+    assert (job.user, job.type, job.payload, job.status) == (user, "analyze", {"symbol": "005930"}, "QUEUED")
+    for symbol in ("aapl", "BRK.B", "BF-B", "0001A0"):
+        assert api.post("/api/analyses", {"symbol": symbol}, content_type="application/json").status_code == 202
+
+
+@pytest.mark.parametrize("body", [{}, {"symbol": ""}, {"symbol": 5930}, {"symbol": "12345"}, {"symbol": "-x"},
+                                  {"symbol": "ABCDEFG"}, {"symbol": "005930; rm"}, {"symbol": ".A"}])
+def test_request_rejects_bad_symbols(api, ai, limits, body):
+    response = api.post("/api/analyses", body, content_type="application/json")
+    assert response.status_code == 400 and "종목코드" in response.json()["detail"]
+    assert not Job.objects.exists()
+
+
+@pytest.mark.parametrize("changes", [{"llm_api_key": None}, {"analysts": ()}, {"kiwoom_appkey": None}])
+def test_request_unavailable_without_keys(api, ai, limits, changes):
+    ai(**changes)
+    response = api.post("/api/analyses", {"symbol": "005930"}, content_type="application/json")
+    assert response.status_code == 503 and response.json()["detail"]
+    assert not Job.objects.exists()
+
+
+def test_duplicate_request_returns_same_job(api, user, ai, limits):
+    first = api.post("/api/analyses", {"symbol": "005930"}, content_type="application/json").json()["jobId"]
+    assert api.post("/api/analyses", {"symbol": "005930"}, content_type="application/json").json()["jobId"] == first
+    Job.objects.filter(id=first).update(status=Job.RUNNING)
+    assert api.post("/api/analyses", {"symbol": "005930"}, content_type="application/json").json()["jobId"] == first
+    Job.objects.filter(id=first).update(status=Job.DONE)
+    assert api.post("/api/analyses", {"symbol": "005930"}, content_type="application/json").json()["jobId"] != first
+
+
+def test_per_user_limit(api, user, ai, limits, monkeypatch, django_user_model):
+    monkeypatch.setenv("AI_DAILY_ANALYSES_PER_USER", "2")
+    make_job(user, "000660", status=Job.DONE)
+    make_job(user, "035420", status=Job.FAILED)                                # 실패는 세지 않는다
+    make_job(user, "035720", created_at=quota.today_start() - timedelta(hours=1))  # 어제
+    assert api.post("/api/analyses", {"symbol": "005930"}, content_type="application/json").status_code == 202
+    response = api.post("/api/analyses", {"symbol": "005380"}, content_type="application/json")
+    assert response.status_code == 429 and response.json() == {"detail": "오늘 분석 요청 한도(2회)를 다 썼습니다."}
+    # 이미 기다리는 종목은 한도와 상관없이 같은 작업 번호
+    assert api.post("/api/analyses", {"symbol": "005930"}, content_type="application/json").status_code == 202
+    other = django_user_model.objects.create_user(username="bob", password="pw-bob-123")
+    api.force_login(other)
+    assert api.post("/api/analyses", {"symbol": "005380"}, content_type="application/json").status_code == 202
+
+
+def test_team_limit(api, user, ai, limits, monkeypatch, django_user_model):
+    monkeypatch.setenv("AI_DAILY_BUDGET_USD", "0.6")  # 하루 전체 2회
+    other = django_user_model.objects.create_user(username="bob", password="pw-bob-123")
+    make_job(other, "000660", status=Job.DONE)
+    make_job(other, "035420", status=Job.FAILED)
+    assert api.post("/api/analyses", {"symbol": "005930"}, content_type="application/json").status_code == 202
+    response = api.post("/api/analyses", {"symbol": "005380"}, content_type="application/json")
+    assert response.status_code == 429 and "팀 전체" in response.json()["detail"]
+    assert api.get("/api/analyses/quota").json()["remaining"] == 0
+
+
+# --- 작업 상태 ---
+
+def test_job_status_only_for_owner(api, user, django_user_model):
+    job = make_job(user)
+    Job.objects.filter(id=job.id).update(status=Job.DONE, result={"analysisIds": [3]},
+                                         started_at=job.created_at, finished_at=job.created_at)
+    body = api.get(f"/api/jobs/{job.id}").json()
+    assert body == {"id": job.id, "type": "analyze", "status": "DONE", "result": {"analysisIds": [3]}, "error": None,
+                    "createdAt": body["createdAt"], "startedAt": body["createdAt"], "finishedAt": body["createdAt"]}
+    assert body["createdAt"].endswith("+09:00")
+
+    queued = api.get(f"/api/jobs/{make_job(user).id}").json()
+    assert (queued["status"], queued["result"], queued["startedAt"], queued["finishedAt"]) == ("QUEUED", None, None,
+                                                                                              None)
+    other = make_job(django_user_model.objects.create_user(username="bob", password="pw-bob-123"))
+    assert api.get(f"/api/jobs/{other.id}").status_code == 404
+    assert api.get("/api/jobs/999").status_code == 404

@@ -37,6 +37,8 @@ INSTALLED_APPS = [
     "drf_spectacular",
     "accounts",
     "trading",
+    "analysis",
+    "reports",
 ]
 
 MIDDLEWARE = [
@@ -106,11 +108,29 @@ USE_TZ = True
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
+# API 공통 규칙은 docs/API.md. 세션 로그인 + CSRF, JSON만, 오류는 {"detail": ...} (config/api.py).
 REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework.authentication.SessionAuthentication"],
+    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
+    "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
+    "DEFAULT_PARSER_CLASSES": ["rest_framework.parsers.JSONParser"],
+    "EXCEPTION_HANDLER": "config.api.exception_handler",
+    "DEFAULT_THROTTLE_RATES": {"login": "10/min"},  # 로그인 시도 (주소별)
 }
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "Paper Trading API",
     "VERSION": "0.1.0",
+    # 로그인 없이 되는 것은 로그인·csrf·health뿐이다 (docs/API.md). CI는 `manage.py spectacular`로 만든다.
+    "SERVE_PERMISSIONS": ["rest_framework.permissions.IsAuthenticated"],
+}
+
+# 시세 캐시(trading/market.py)와 로그인 시도 제한이 쓴다. 프로세스별 메모리 캐시라 웹 프로세스와 run_engine이 값을 같이 쓰지 않는다.
+# 기본 300개는 종목이 수십 개만 돼도 밀려나므로 늘린다. 운영에서 프로세스를 여럿 띄우면 Redis 캐시로 바꾼다 (4E).
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "OPTIONS": {"MAX_ENTRIES": 20000},
+    }
 }

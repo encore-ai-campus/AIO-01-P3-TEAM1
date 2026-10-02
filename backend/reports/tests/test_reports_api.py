@@ -1,0 +1,170 @@
+"""AI 리포트 API: 실행 계획, 신청, 목록, 상세(Snapshot). 종목 확인은 가짜 (증권사를 부르지 않는다)."""
+from datetime import timedelta
+
+import pytest
+from django.utils import timezone
+
+from reports import registry, state
+from reports.models import Report
+
+from .conftest import make_report
+
+pytestmark = pytest.mark.django_db
+
+SUMMARY_KEYS = {"id", "symbol", "name", "market", "status", "currentStep", "requestedBy", "createdAt", "startedAt",
+                "finishedAt"}
+
+
+def post(client, body):
+    return client.post("/api/reports", body, content_type="application/json")
+
+
+@pytest.mark.parametrize("path", ["/api/reports/plan", "/api/reports", "/api/reports/1"])
+def test_login_required(client, path):
+    response = client.get(path)
+    assert response.status_code == 401 and response.json() == {"detail": "로그인이 필요합니다."}
+
+
+def test_post_login_required(client, stocks):
+    response = post(client, {"symbol": "005930"})
+    assert response.status_code == 401 and response.json() == {"detail": "로그인이 필요합니다."}
+    assert stocks["calls"] == [] and not Report.objects.exists()
+
+
+def test_plan(api):
+    assert api.get("/api/reports/plan").json() == registry.execution_plan()
+
+
+def test_plan_error_is_json_500(api, monkeypatch):
+    def broken():
+        raise registry.PlanError("step id가 겹칩니다: x")
+    monkeypatch.setattr(registry, "execution_plan", broken)
+    response = api.get("/api/reports/plan")
+    assert response.status_code == 500
+    assert response.json() == {"detail": "실행 계획이 잘못되었습니다: step id가 겹칩니다: x"}
+
+
+# --- 신청 ---
+
+def test_create_report(api, user, stocks):
+    response = post(api, {"symbol": " 005930 "})
+    assert response.status_code == 201
+    body = response.json()
+    assert set(body) == SUMMARY_KEYS | {"content", "state", "trace", "plan"}
+    assert (body["symbol"], body["name"], body["market"], body["status"], body["currentStep"], body["requestedBy"]) == (
+        "005930", "삼성전자", "KR", "requested", None, "앨리스")
+    assert body["startedAt"] is None and body["finishedAt"] is None and body["createdAt"].endswith("+09:00")
+    assert body["content"] is None and body["trace"] == []
+    assert body["state"] == {"taskId": f"report-{body['id']}", "status": "requested", "currentStep": None,
+                             "results": {}, "errors": {}, "completedAgents": [], "failedAgents": []}
+    assert body["plan"] == registry.execution_plan() and body["plan"]["implemented"] is False
+    report = Report.objects.get(pk=body["id"])
+    assert (report.user, report.status, report.started_at) == (user, "requested", None)  # 실행은 시작하지 않는다
+
+
+def test_create_returns_active_report_of_same_user(api, user, other, stocks):
+    first = post(api, {"symbol": "005930"}).json()
+    again = post(api, {"symbol": "005930"})
+    assert again.status_code == 200 and again.json()["id"] == first["id"]
+
+    state.start(Report.objects.get(pk=first["id"]))  # 실행 중이어도 같은 리포트
+    assert post(api, {"symbol": "005930"}).json()["id"] == first["id"]
+
+    make_report(other)  # 다른 사람의 리포트는 상관없다
+    assert post(api, {"symbol": "005930"}).json()["id"] == first["id"]
+    assert post(api, {"symbol": "AAPL"}).status_code == 201  # 다른 종목은 새로
+
+    state.finish(Report.objects.get(pk=first["id"]), "completed")  # 끝났으면 새로 만든다
+    fresh = post(api, {"symbol": "005930"})
+    assert fresh.status_code == 201 and fresh.json()["id"] != first["id"]
+    assert Report.objects.filter(user=user, symbol="005930").count() == 2
+
+
+@pytest.mark.parametrize("body, message", [
+    ({"symbol": "999999"}, "종목을 찾을 수 없습니다."),
+    ({"symbol": ""}, "종목코드를 입력하세요."),
+    ({"symbol": 5930}, "종목코드를 입력하세요."),
+    ({}, "종목코드를 입력하세요."),
+])
+def test_create_rejects_bad_symbol(api, stocks, body, message):
+    response = post(api, body)
+    assert response.status_code == 400 and response.json() == {"detail": message}
+    assert not Report.objects.exists()
+
+
+def test_create_without_broker_is_503(api, stocks):
+    stocks["broker_ready"] = False
+    response = post(api, {"symbol": "005930"})
+    assert response.status_code == 503 and "증권사" in response.json()["detail"]
+    assert not Report.objects.exists()
+
+
+# --- 목록 ---
+
+def test_list_filter_page_and_nickname(api, user, other):
+    now = timezone.now()
+    old = make_report(user, created_at=now - timedelta(hours=2))
+    apple = make_report(other, "AAPL", created_at=now - timedelta(hours=1))
+    new = make_report(user, created_at=now)
+    state.start(new)
+    state.set_step(new, "parallel_research")
+
+    body = api.get("/api/reports").json()
+    assert body["count"] == 3
+    assert [r["id"] for r in body["results"]] == [new.id, apple.id, old.id]  # 팀 공용, 최신순
+    first = body["results"][0]
+    assert set(first) == SUMMARY_KEYS
+    assert (first["status"], first["currentStep"], first["requestedBy"]) == ("running", "parallel_research", "앨리스")
+    assert first["startedAt"] is not None
+    assert body["results"][1]["requestedBy"] == "bob"  # 닉네임 기본값은 아이디
+
+    assert [r["id"] for r in api.get("/api/reports?symbol=aapl").json()["results"]] == [apple.id]
+    assert api.get("/api/reports?symbol=000660").json() == {"count": 0, "results": []}
+    page = api.get("/api/reports?limit=1&offset=1").json()
+    assert page["count"] == 3 and [r["id"] for r in page["results"]] == [apple.id]
+
+
+# --- 상세 (Snapshot) ---
+
+def test_detail_snapshot(api, user):
+    report = make_report(user)
+    state.start(report)
+    state.set_step(report, "parallel_research")
+    state.record(report, "orchestrator", "workflow_started", "started")
+    state.record(report, "market_agent", "agent_completed", "completed", provider="openai", model="gpt-x",
+                 latency_ms=850, details={"note": "ok"})
+    state.add_result(report, "market_agent", {"trend": "up"})
+    state.record(report, "news_agent", "agent_failed", "failed", details={"error": "시간 초과"})
+    state.add_error(report, "news_agent", "시간 초과")
+
+    body = api.get(f"/api/reports/{report.id}").json()
+    assert (body["status"], body["currentStep"], body["content"]) == ("running", "parallel_research", None)
+    assert body["state"] == {"taskId": f"report-{report.id}", "status": "running", "currentStep": "parallel_research",
+                             "results": {"market_agent": {"trend": "up"}}, "errors": {"news_agent": "시간 초과"},
+                             "completedAgents": ["market_agent"], "failedAgents": ["news_agent"]}
+    assert [e["step"] for e in body["trace"]] == [1, 2, 3]
+    event = body["trace"][1]
+    assert set(event) == {"step", "actor", "action", "status", "provider", "model", "latencyMs", "details", "at"}
+    assert (event["actor"], event["action"], event["status"], event["provider"], event["model"], event["latencyMs"],
+            event["details"]) == ("market_agent", "agent_completed", "completed", "openai", "gpt-x", 850, {"note": "ok"})
+    assert body["trace"][0]["provider"] is None and body["trace"][0]["at"].endswith("+09:00")
+    assert body["plan"]["team"] == "stock_report"
+
+    state.finish(report, "completed", content="# 삼성전자 리포트")
+    done = api.get(f"/api/reports/{report.id}").json()
+    assert (done["status"], done["currentStep"], done["content"]) == ("completed", None, "# 삼성전자 리포트")
+    assert done["finishedAt"] is not None and done["state"]["currentStep"] is None
+
+
+def test_detail_not_found(api):
+    response = api.get("/api/reports/999")
+    assert response.status_code == 404 and response.json() == {"detail": "리포트를 찾을 수 없습니다."}
+
+
+def test_admin_pages(client, django_user_model, user):
+    report = state.start(make_report(user))
+    state.record(report, "orchestrator", "workflow_started", "started")
+    client.force_login(django_user_model.objects.create_superuser("root", password="pw-root-123"))
+    for path in ("/admin/reports/report/", f"/admin/reports/report/{report.id}/change/", "/admin/reports/traceevent/",
+                 f"/admin/reports/traceevent/{report.trace_events.get().id}/change/"):
+        assert client.get(path).status_code == 200, path

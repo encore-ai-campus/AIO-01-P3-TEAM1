@@ -1,0 +1,102 @@
+@import "tailwindcss";
+@import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
+
+/* 토스증권 웹을 참고한 색. 상승 빨강, 하락 파랑 (한국 관례) */
+@theme {
+  --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, "Apple SD Gothic Neo",
+    "Noto Sans KR", "Malgun Gothic", sans-serif;
+
+  --color-bg: #f2f4f6;
+  --color-card: #ffffff;
+  --color-ink: #191f28;
+  --color-sub: #4e5968;
+  --color-mute: #8b95a1;
+  --color-line: #e5e8eb;
+  --color-fill: #f2f4f6;
+  --color-brand: #3182f6;
+  --color-brand-dark: #1b64da;
+  --color-brand-soft: #e8f3ff;
+  --color-up: #f04452;
+  --color-up-soft: #ffeeee;
+  --color-down: #3182f6;
+  --color-down-soft: #e8f3ff;
+  --color-warn: #ff9f00;
+  --color-warn-soft: #fff6e5;
+  --color-ok: #03a463;
+  --color-ok-soft: #e6f8f0;
+
+  --animate-flash-up: flash-up 0.8s ease-out;
+  --animate-flash-down: flash-down 0.8s ease-out;
+  --animate-sheet-up: sheet-up 0.22s ease-out;
+  --animate-toast-in: toast-in 0.2s ease-out;
+
+  @keyframes flash-up {
+    from {
+      background-color: rgb(240 68 82 / 0.18);
+    }
+    to {
+      background-color: transparent;
+    }
+  }
+  @keyframes flash-down {
+    from {
+      background-color: rgb(49 130 246 / 0.18);
+    }
+    to {
+      background-color: transparent;
+    }
+  }
+  @keyframes sheet-up {
+    from {
+      transform: translateY(100%);
+    }
+    to {
+      transform: translateY(0);
+    }
+  }
+  @keyframes toast-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply bg-bg font-sans text-ink antialiased;
+    min-width: 320px;
+    word-break: keep-all;
+    overflow-wrap: break-word;
+  }
+  /* 키보드 포커스 표시 */
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+  }
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

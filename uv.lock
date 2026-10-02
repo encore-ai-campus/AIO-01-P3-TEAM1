@@ -153,6 +153,7 @@ dependencies = [
     { name = "gunicorn" },
     { name = "paper-engine" },
     { name = "psycopg", extra = ["binary"] },
+    { name = "pyyaml" },
 ]
 
 [package.metadata]
@@ -163,6 +164,7 @@ requires-dist = [
     { name = "gunicorn" },
     { name = "paper-engine", editable = "engine" },
     { name = "psycopg", extras = ["binary"] },
+    { name = "pyyaml" },
 ]
 
 [[package]]
