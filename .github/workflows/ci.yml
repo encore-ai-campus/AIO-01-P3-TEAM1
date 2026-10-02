@@ -40,7 +40,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.2.0   # 이 액션은 v8부터 major 태그(v10)를 내지 않는다. 정확한 버전을 적는다
         with:
           python-version: "3.12"   # 이미지(deploy/Dockerfile)와 같은 버전
           enable-cache: true
