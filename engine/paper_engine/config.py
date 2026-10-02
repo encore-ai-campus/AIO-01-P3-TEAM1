@@ -9,7 +9,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 KIWOOM_BASE_URL = "https://api.kiwoom.com"
-# 증권사(BROKER) → 조회에 필요한 키. 운영은 kiwoom, toss는 로컬 개발 환경 전용이다 (docs/DECISIONS.md 3장)
+# 증권사(BROKER) → 조회에 필요한 키. 운영은 kiwoom, toss는 로컬 개발 환경(DJANGO_DEBUG=on) 전용이다 (docs/DECISIONS.md 3장)
 BROKER_KEYS = {"kiwoom": ("KIWOOM_APPKEY", "KIWOOM_SECRETKEY"), "toss": ("CLIENT_ID", "CLIENT_SECRET")}
 SUPPORTED_MARKETS = ("KR", "US")
 DEFAULT_COMMISSION = {"KR": 0.00015, "US": 0.00015}
@@ -153,13 +153,14 @@ def _env() -> dict:
 def parse_broker(env: dict) -> str:
     """BROKER. 비어 있으면 kiwoom. toss는 로컬 개발 환경에서만 고를 수 있다.
 
-    운영 환경은 Django 설정과 같은 기준(POSTGRES_HOST가 있음)으로 가린다.
+    개발 환경은 DJANGO_DEBUG가 켜져 있는지로 가린다 (운영은 DJANGO_DEBUG=off다). 로컬에서도 PostgreSQL을 쓸 수 있어서
+    DB 종류로는 가리지 않는다.
     """
     broker = (env.get("BROKER") or "kiwoom").lower()
     if broker not in BROKER_KEYS:
         raise ConfigError(f"BROKER는 {', '.join(BROKER_KEYS)} 중에서 고릅니다: {broker}")
-    if broker == "toss" and env.get("POSTGRES_HOST"):
-        raise ConfigError("BROKER=toss는 로컬 개발 환경 전용입니다. POSTGRES_HOST가 있는 환경(EC2 운영)은 키움만 씁니다.")
+    if broker == "toss" and (env.get("DJANGO_DEBUG") or "").lower() not in ("on", "true", "1", "yes"):
+        raise ConfigError("BROKER=toss는 로컬 개발 환경 전용입니다 (DJANGO_DEBUG=on일 때만). 운영은 키움만 씁니다.")
     return broker
 
 

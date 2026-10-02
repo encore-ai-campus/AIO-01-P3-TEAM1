@@ -1,9 +1,11 @@
-# 로컬 개발용 Redis (+ 선택: PostgreSQL). 앱 컨테이너는 넣지 않는다 (Django·엔진·Vite는 로컬에서 직접 실행).
-# 로컬 개발 환경의 DB는 SQLite다 (.env의 POSTGRES_HOST를 비워 둔다). PostgreSQL은 EC2 운영용이다.
-#   docker compose -f deploy/compose.dev.yml up -d                      # Redis만
-#   docker compose -f deploy/compose.dev.yml --profile postgres up -d   # 운영과 같은 PostgreSQL로 확인할 때 (POSTGRES_HOST=127.0.0.1)
-# POSTGRES_* 값은 환경 변수나 deploy/.env에서 읽고, 없으면 paper/paper/paper를 쓴다.
-# 저장소 루트의 .env 값을 쓰려면: docker compose --env-file .env -f deploy/compose.dev.yml up -d
+# 로컬 개발용 Redis와 PostgreSQL. 앱 컨테이너는 넣지 않는다 (Django·엔진·Vite는 로컬에서 직접 실행. scripts/dev.sh).
+# 로컬 개발 DB의 기본은 SQLite다 (.env의 POSTGRES_HOST가 비어 있을 때). 팀이 같이 보는 개발 DB가 필요하면 이 PostgreSQL을 쓴다:
+# .env에 POSTGRES_HOST=127.0.0.1, POSTGRES_PORT(이 PC에서 빈 포트), POSTGRES_PASSWORD(긴 임의 값)를 넣으면 scripts/dev.sh가 띄운다.
+#   docker compose --env-file .env -f deploy/compose.dev.yml --profile postgres up -d db   # 직접 띄울 때
+#   docker compose --env-file .env -f deploy/compose.dev.yml up -d redis                   # Redis만
+# POSTGRES_BIND: DB 포트를 여는 주소. 기본 127.0.0.1(이 PC에서만). **개발할 때만** 0.0.0.0으로 두면 같은 네트워크의 팀원이 접속한다.
+#   운영(EC2)에서는 DB 포트를 밖으로 열지 않는다 (이 파일은 운영에 쓰지 않는다).
+# POSTGRES_* 값은 --env-file로 준 저장소 루트의 .env에서 읽고, 없으면 paper/paper/paper·5432를 쓴다.
 name: paper-dev
 
 services:
@@ -15,7 +17,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-paper}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-paper}
     ports:
-      - "127.0.0.1:5432:5432"
+      - "${POSTGRES_BIND:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

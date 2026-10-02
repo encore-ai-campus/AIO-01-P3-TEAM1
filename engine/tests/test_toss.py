@@ -321,6 +321,7 @@ def env(monkeypatch):
     monkeypatch.setattr(config, "REPO_ROOT", config.REPO_ROOT / "no-such-dir")  # 저장소 .env를 읽지 않는다
     for key in ("BROKER", "CLIENT_ID", "CLIENT_SECRET", "KIWOOM_APPKEY", "KIWOOM_SECRETKEY", "POSTGRES_HOST"):
         monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("DJANGO_DEBUG", "on")  # 로컬 개발 환경
     return monkeypatch
 
 
@@ -351,16 +352,31 @@ def test_broker_toss_needs_only_toss_keys(env):
     assert isinstance(make_client(cfg, ROOT / ".cache"), TossClient)
 
 
-def test_broker_toss_is_refused_outside_local_dev(env):
+@pytest.mark.parametrize("debug", ["off", "", None])
+def test_broker_toss_is_refused_outside_local_dev(env, debug):
+    """운영(DJANGO_DEBUG가 꺼져 있거나 없음)에서는 토스를 고를 수 없다."""
     from paper_engine.config import ConfigError, load_config
-    for key, value in (("BROKER", "toss"), ("CLIENT_ID", "id"), ("CLIENT_SECRET", "secret"), ("POSTGRES_HOST", "db")):
+    for key, value in (("BROKER", "toss"), ("CLIENT_ID", "id"), ("CLIENT_SECRET", "secret")):
         env.setenv(key, value)
+    if debug is None:
+        env.delenv("DJANGO_DEBUG")
+    else:
+        env.setenv("DJANGO_DEBUG", debug)
     with pytest.raises(ConfigError, match="로컬 개발 환경 전용"):
         load_config()
     with pytest.raises(ConfigError, match="로컬 개발 환경 전용"):
         load_config(require_broker=False)
     env.setenv("BROKER", "kiwoom")
     assert load_config(require_broker=False).broker == "kiwoom"
+
+
+def test_broker_toss_works_with_local_postgres(env):
+    """로컬 개발에서도 PostgreSQL을 쓸 수 있다. DB 종류로 운영을 가리지 않는다."""
+    from paper_engine.config import load_config
+    for key, value in (("BROKER", "toss"), ("CLIENT_ID", "id"), ("CLIENT_SECRET", "secret"),
+                       ("POSTGRES_HOST", "127.0.0.1")):
+        env.setenv(key, value)
+    assert load_config().broker == "toss"
 
 
 def test_unknown_broker_is_rejected(env):

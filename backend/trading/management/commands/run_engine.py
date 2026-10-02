@@ -32,7 +32,8 @@ class Command(BaseCommand):
                 self.log(f"이전 실행이 남긴 분석 작업 {recovered}개를 실패로 정리함")
         try:
             while True:
-                close_old_connections()
+                if not once:  # 오래 도는 루프는 끊긴 DB 연결을 버리고 다시 붙는다 (한 번만 돌 때는 필요 없다)
+                    close_old_connections()
                 self.tick()
                 if once:
                     break

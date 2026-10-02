@@ -1,6 +1,6 @@
 """증권사 조회 클라이언트를 설정(BROKER)에 따라 만든다 (docs/DECISIONS.md 3장).
 
-운영은 키움(KiwoomClient)이다. 토스(TossClient)는 로컬 개발 환경에서만 고를 수 있다 (config.load_config가 막는다).
+운영은 키움(KiwoomClient)이다. 토스(TossClient)는 로컬 개발 환경(DJANGO_DEBUG=on)에서만 고를 수 있다 (config.load_config가 막는다).
 두 클라이언트의 공개 메서드 이름·인자·반환 형식은 같다.
 """
 from pathlib import Path
