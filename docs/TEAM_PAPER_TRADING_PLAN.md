@@ -389,7 +389,7 @@ paper_trading/
 - 로컬 개발: DB는 SQLite (`POSTGRES_HOST`를 비워 둔다) + `docker compose -f deploy/compose.dev.yml up`(Redis) + `manage.py runserver` + `npm run dev`.
   운영과 같은 PostgreSQL로 확인할 때만 `--profile postgres`로 PostgreSQL도 띄우고 `POSTGRES_HOST=127.0.0.1`을 준다.
   (2026-10-02: 팀이 같이 보는 개발 DB로 호스트 PC의 PostgreSQL 컨테이너를 쓴다. `scripts/dev.sh`가 띄우고, 개발할 때만 같은 네트워크에 연다.
-  `docs/DECISIONS.md` 10장, `TEAM_DEV_PLAN.md` 2장.)
+  `docs/DECISIONS.md` 10장, `TEAM_DEV_PLAN.md` 12장.)
   `.env.example`에 개발용 기본값.
 
 ### 4-7. 팀 역할 분담 예시

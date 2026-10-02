@@ -5,7 +5,7 @@
 
 - 시작하기·규칙·명령: [AGENTS.md](AGENTS.md)
 - 계획: [docs/TEAM_PAPER_TRADING_PLAN.md](docs/TEAM_PAPER_TRADING_PLAN.md) · 공통 결정: [docs/DECISIONS.md](docs/DECISIONS.md)
-- 엔진 설계: [docs/DESIGN.md](docs/DESIGN.md) · 키움 API: [docs/KIWOOM.md](docs/KIWOOM.md)
+- 엔진 설계: [docs/DESIGN.md](docs/DESIGN.md) · 키움 API: [docs/KIWOOM.md](docs/KIWOOM.md) · 배포와 CI/CD: [docs/DEPLOY.md](docs/DEPLOY.md)
 
 ```bash
 cp .env.example .env      # 키를 채운다 (커밋하지 않는다)
@@ -42,3 +42,14 @@ cd frontend && npm ci && npm run dev                         # 화면 (http://lo
 - 백엔드 없이 화면만 볼 때는 `VITE_MOCK=1 npm run dev` (가짜 API).
 - 휴대폰에서 볼 때는 `npm run dev -- --host`로 띄우고 `.env`의 `DJANGO_ALLOWED_HOSTS`에 PC의 IP를 더한다.
 - API 계약은 [docs/API.md](docs/API.md), 결정은 [docs/DECISIONS.md](docs/DECISIONS.md) 8장.
+
+## 배포와 CI/CD (Docker)
+
+push하면 GitHub Actions가 검사한다 (린트 → 테스트 → 프론트 빌드 → 이미지 빌드와 기동 확인). `main`은 검사를 통과하면 이미지를 올리고
+서버에 배포하며, 새 버전이 뜨지 않으면 직전 버전으로 되돌린다. 서버를 연결하기 전에는 검사만 돈다. 설정과 동작은 [docs/DEPLOY.md](docs/DEPLOY.md).
+
+```bash
+cd deploy && cp .env.docker.example .env.docker      # 값을 채운다 (커밋하지 않는다)
+docker compose --env-file .env.docker up -d --build   # nginx · web · engine · db · redis
+./smoke_test.sh                                       # 띄운 스택 확인
+```

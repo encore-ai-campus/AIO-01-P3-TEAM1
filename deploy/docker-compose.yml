@@ -1,0 +1,136 @@
+# 운영(EC2)과 CI 확인용 구성. 로컬 개발은 scripts/dev.sh와 deploy/compose.dev.yml을 쓴다.
+#
+#   cd deploy
+#   cp .env.docker.example .env.docker        # 값을 채운다 (비밀 값은 이 파일에만. git 제외)
+#   docker compose --env-file .env.docker up -d --build      # 이 PC에서 빌드해 띄울 때
+#   IMAGE_TAG=<커밋> docker compose --env-file .env.docker up -d --no-build   # 올려 둔 이미지를 받아 띄울 때 (배포)
+#
+# 브라우저 → nginx(HTTP_PORT) ─┬─ /            React 빌드 파일
+#                              └─ /api, /admin  web(Django + gunicorn) ─┬─ db (PostgreSQL)
+#                engine(run_engine: 체결·청산·예약·일별 자산·AI 작업) ──┴─ redis
+# DB와 Redis 포트는 밖으로 열지 않는다. 밖에서 들어오는 길은 nginx 하나뿐이다.
+name: paper-trading
+
+x-app: &app
+  env_file:
+    - .env.docker
+  environment:
+    # 컨테이너 안에서 정해지는 값 (.env.docker에 적은 값보다 우선한다)
+    POSTGRES_HOST: db
+    POSTGRES_PORT: "5432"
+    REDIS_URL: redis://redis:6379/0
+    PAPER_ROOT: /data
+    TZ: Asia/Seoul
+  restart: unless-stopped
+  read_only: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  nginx:
+    image: ${IMAGE_PREFIX:-ghcr.io/shs5029/paper-trading}-nginx:${IMAGE_TAG:-local}
+    build:
+      context: ..
+      dockerfile: deploy/nginx/Dockerfile
+    ports:
+      - "${HTTP_PORT:-80}:8080"
+    volumes:
+      - static:/var/www/static:ro
+    tmpfs:
+      - /tmp
+    depends_on:
+      web:
+        condition: service_healthy
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  web:
+    <<: *app
+    image: ${IMAGE_PREFIX:-ghcr.io/shs5029/paper-trading}-web:${IMAGE_TAG:-local}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      target: web
+    volumes:
+      - appdata:/data
+      - static:/app/backend/staticfiles
+    tmpfs:
+      - /tmp
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  engine:
+    <<: *app
+    image: ${IMAGE_PREFIX:-ghcr.io/shs5029/paper-trading}-engine:${IMAGE_TAG:-local}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      target: engine
+    volumes:
+      - appdata:/data
+    tmpfs:
+      - /tmp:size=512m   # Chromium(리포트 PDF)이 쓴다
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # 띄울 때마다 한 번 돌고 끝난다. web과 engine은 이것이 성공한 뒤에 뜬다.
+  migrate:
+    <<: *app
+    image: ${IMAGE_PREFIX:-ghcr.io/shs5029/paper-trading}-web:${IMAGE_TAG:-local}
+    command: ["python", "manage.py", "migrate", "--noinput"]
+    restart: "no"
+    healthcheck:
+      disable: true
+    volumes:
+      - appdata:/data
+    tmpfs:
+      - /tmp
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-paper}
+      POSTGRES_USER: ${POSTGRES_USER:-paper}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?.env.docker에 POSTGRES_PASSWORD가 필요합니다}
+      TZ: Asia/Seoul
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  redis:
+    image: redis:7
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  pgdata:       # DB
+  redisdata:
+  appdata:      # 실행 데이터: 중단 스위치·주문 잠금(data/), AI 실행 기록·리포트(runs/), 캐시(.cache/). web과 engine이 같이 쓴다
+  static:       # Django 관리자 화면의 정적 파일 (web이 채우고 nginx가 내준다)

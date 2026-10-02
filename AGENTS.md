@@ -2,7 +2,7 @@
 
 키움 REST API 시세로 돌리는 **팀 모의매매 웹 서비스**다. 원본은 토스증권 실주문까지 내던 개인용 스윙 매매 자동화(`toss_trading`)이고,
 이 저장소는 그것을 복제해 실주문을 없애고 가상 현금 계좌로 체결을 흉내 내도록 바꾼 것이다.
-계획은 `docs/TEAM_PAPER_TRADING_PLAN.md`, 팀원이 이어서 개발할 일과 개발 환경 안내는 `TEAM_DEV_PLAN.md`, 클론 직후 설치·실행 절차는 `SETUP_PROMPT.md`, 작업자 간 공통 결정은 `docs/DECISIONS.md`, 웹 API 계약은 `docs/API.md`, 엔진 설계는 `docs/DESIGN.md`, 키움 API는 `docs/KIWOOM.md`.
+계획은 `docs/TEAM_PAPER_TRADING_PLAN.md`, 팀원이 이어서 개발할 일과 개발 환경 안내는 `TEAM_DEV_PLAN.md`, 과제 평가 기준은 `docs/프로젝트평가기준.md`, 클론 직후 설치·실행 절차는 `SETUP_PROMPT.md`, 작업자 간 공통 결정은 `docs/DECISIONS.md`, 웹 API 계약은 `docs/API.md`, 배포와 CI/CD는 `docs/DEPLOY.md`, 엔진 설계는 `docs/DESIGN.md`, 키움 API는 `docs/KIWOOM.md`.
 
 ## 안전 규칙 (반드시 준수)
 
@@ -21,12 +21,13 @@
   토스 토큰은 client당 1개만 유효하다. 원본과 같은 `CLIENT_ID`로 토큰을 받으면 원본의 토큰이 무효가 되므로 개발용 client를 따로 쓴다.
   `personal_project_files/`는 원본 복사본(참고용, git 제외)이다. 고치지 않고, 그 안의 데이터를 가져오지 않는다.
 - 커밋은 사용자가 요청할 때만 한다. `main`에 직접 push해도 된다 (PR·리뷰 필수 아님). push 전에 테스트를 돌린다.
+  push하면 GitHub Actions가 같은 검사를 돌리고(`ci.yml`), `main`은 검사를 통과해야 배포된다 (`deploy.yml`, `docs/DEPLOY.md`).
 
 ## DB
 
 - **DB는 `.env`의 `POSTGRES_HOST`로 고른다**: 비어 있으면 SQLite(`backend/db.sqlite3`, 혼자 개발할 때의 기본값), 있으면 PostgreSQL.
   - 팀이 같이 보는 개발 DB: `POSTGRES_HOST=127.0.0.1`이면 `scripts/dev.sh`가 이 PC에 PostgreSQL 컨테이너(`deploy/compose.dev.yml`)를 띄운다.
-    `POSTGRES_BIND=0.0.0.0`이면 같은 네트워크에서 DB에 접속할 수 있다 (**개발할 때만**). 접속 방법은 `TEAM_DEV_PLAN.md` 2장, `scripts/dev.sh status`.
+    `POSTGRES_BIND=0.0.0.0`이면 같은 네트워크에서 DB에 접속할 수 있다 (**개발할 때만**). 접속 방법은 `TEAM_DEV_PLAN.md` 12장, `scripts/dev.sh status`.
   - EC2 운영은 `POSTGRES_HOST=db`와 비밀번호를 EC2의 `.env`에만 둔다. 운영에서는 DB 포트를 밖으로 열지 않는다.
   - 같은 Django 모델·마이그레이션을 두 DB에 쓰므로 PostgreSQL 전용 기능(JSONB 연산자, ArrayField, `DISTINCT ON` 등)은 쓰지 않는다.
   - **테스트는 SQLite 메모리 DB에서 돈다** (`.env`가 공유 PostgreSQL을 가리켜도 그 서버를 건드리지 않는다).
@@ -52,8 +53,10 @@ backend/               Django: config/(설정, engine.py 엔진 접점, api.py �
                        reports/(AI 리포트 구조: YAML Registry·Shared State·Trace·SSE. Agent·Orchestrator는 미구현). 테스트는 backend/<앱>/tests/
 frontend/              React + TypeScript + Vite + Tailwind CSS (로그인·홈·종목·내 주식·AI 분석·AI 리포트·랭킹·My Page)
 backtest/              백테스트 (AI 없음, DB 없이 단독 실행)
-deploy/compose.dev.yml 로컬 Redis (+ 선택 PostgreSQL)
-docs/                  DESIGN.md, DECISIONS.md, API.md, KIWOOM.md
+deploy/                compose.dev.yml(로컬 Redis + 선택 PostgreSQL), docker-compose.yml(운영: nginx·web·engine·db·redis),
+                       Dockerfile(web·engine), nginx/, .env.docker.example, remote_deploy.sh(서버 배포·되돌리기), smoke_test.sh
+.github/workflows/     ci.yml(검사), deploy.yml(main: 검사 → 이미지 → 서버 배포 → 알림)
+docs/                  DESIGN.md, DECISIONS.md, API.md, KIWOOM.md, DEPLOY.md
 ```
 
 ## 실행
@@ -73,6 +76,7 @@ cd backend && uv run python manage.py runserver    # Django (.env에 DJANGO_DEBU
 cd backend && uv run python manage.py run_engine   # 웹 엔진 루프 (지정가 체결·청산·예약·일별 자산·AI 분석 작업)
 cd frontend && npm ci && npm run dev               # Vite (/api, /admin을 127.0.0.1:8000으로 프록시. 다른 포트면 VITE_API_TARGET=..., VITE_MOCK=1이면 가짜 API)
 cd frontend && npx eslint . && npx tsc --noEmit && npx vitest run && npx vite build
+cd deploy && docker compose --env-file .env.docker up -d --build && ./smoke_test.sh   # 운영 구성을 이 PC에서 (docs/DEPLOY.md 3장)
 ```
 
 웹(팀원별 계좌)과 별개로, 엔진 자체 계좌(전략·AI 자동 매수용)는 엔진 CLI로 조작한다 (요청자는 `--by 이름`):
@@ -94,4 +98,6 @@ uv run python -m paper_engine analyze 005930 --buy --by alice           # AI 교
   (`docs/DECISIONS.md` 9-4). Guard 사건의 `details`에는 대상(`step`, `to`)을 넣는다 (`docs/API.md`).
 - 웹 API를 바꾸면 `docs/API.md`를 먼저 고친다 (백엔드와 프론트가 같이 따르는 계약). 테스트는 실제 증권사·AI를 부르지 않는다
   (루트 `conftest.py`가 키를 비운다. 가짜 클라이언트를 `config.engine`에 끼운다).
+- 검사 명령이나 실행에 필요한 설정 키를 바꾸면 `.github/workflows/ci.yml`, `deploy/.env.docker.example`도 같이 고친다.
+  새 파일·폴더가 이미지에 들어가야 하면 루트 `.dockerignore`와 `deploy/Dockerfile`의 `COPY`를 확인한다.
 - 계획이 바뀌면 `docs/TEAM_PAPER_TRADING_PLAN.md`, `CLAUDE.md`, 이 파일을 함께 고친다.

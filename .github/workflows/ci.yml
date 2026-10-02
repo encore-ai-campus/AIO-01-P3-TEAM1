@@ -1,0 +1,195 @@
+# 검사: 린트 → 테스트(SQLite, PostgreSQL) → 프론트 검사·빌드 → 컨테이너 이미지 빌드와 기동 확인.
+# 외부 API(증권사·AI)와 저장소 비밀 값을 쓰지 않는다. 테스트는 전부 가짜 객체로 돈다.
+# main에 push하면 deploy.yml이 이 워크플로를 불러 검사하고, 통과했을 때만 배포한다.
+name: CI
+
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: 파이썬 (린트·테스트)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:   # 이 작업 안에서만 쓰고 버리는 DB (운영과 같은 PostgreSQL 16)
+        image: postgres:16
+        env:
+          POSTGRES_DB: paper
+          POSTGRES_USER: paper
+          POSTGRES_PASSWORD: ci-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U paper -d paper"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DJANGO_DEBUG: "on"   # .env 없이 돈다 (개발용 기본 비밀키)
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: "3.12"   # 이미지(deploy/Dockerfile)와 같은 버전
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: 의존성 설치
+        run: uv sync --frozen
+
+      - name: 린트
+        run: uv run ruff check .
+
+      - name: 실주문 코드 0건 확인
+        # 모의매매 전용이다. 주문·계좌 API를 부르는 코드가 들어오면 막는다 (토스 조회 클라이언트의 주소만 예외).
+        run: |
+          if git ls-files -- engine backend backtest scripts frontend/src deploy \
+              | grep -v '^engine/paper_engine/data/toss\.py$' \
+              | xargs -d '\n' grep -nIE 'create_order|LIVE_TRADING|--live\b|--bypass\b|tossinvest'; then
+            echo "::error::실주문과 관련된 코드가 있습니다 (AGENTS.md의 규칙)"; exit 1
+          fi
+          if git ls-files | grep -E '(^|/)orders\.py$'; then
+            echo "::error::orders.py는 두지 않습니다 (AGENTS.md의 규칙)"; exit 1
+          fi
+
+      - name: 테스트 (엔진 + 백엔드, SQLite)
+        run: uv run pytest -q
+
+      - name: 백테스트 테스트
+        run: uv run pytest backtest -q
+
+      - name: 빠진 마이그레이션 확인
+        run: uv run python backend/manage.py makemigrations --check --dry-run --settings config.settings_test
+
+      - name: 백엔드 테스트 (PostgreSQL)
+        env:
+          TEST_WITH_POSTGRES: "1"
+          POSTGRES_HOST: 127.0.0.1
+          POSTGRES_PORT: "5432"
+          POSTGRES_DB: paper
+          POSTGRES_USER: paper
+          POSTGRES_PASSWORD: ci-only
+          DJANGO_SECRET_KEY: ci-only-not-a-secret
+        run: uv run pytest backend -q
+
+  frontend:
+    name: 프론트엔드 (린트·타입·테스트·빌드)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22   # 이미지(deploy/nginx/Dockerfile)와 같은 버전
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 의존성 설치
+        run: npm ci
+
+      - name: 린트
+        run: npx eslint .
+
+      - name: 타입 검사
+        run: npx tsc --noEmit
+
+      - name: 테스트
+        run: npx vitest run
+
+      - name: 빌드
+        run: npx vite build
+
+  docker:
+    name: 컨테이너 (빌드·기동 확인)
+    needs: [python, frontend]   # 검사가 실패하면 이미지를 만들지 않는다
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      IMAGE_PREFIX: ci.local/paper-trading   # 이 작업에서만 쓰는 이름 (레지스트리에 올리지 않는다)
+      IMAGE_TAG: ci
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: 환경 파일 만들기 (비밀 값 없이, 이 작업용 임의 값)
+        run: |
+          sed -e "s|^DJANGO_SECRET_KEY=.*|DJANGO_SECRET_KEY=$(openssl rand -hex 32)|" \
+              -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(openssl rand -hex 16)|" \
+              -e "s|^HTTP_PORT=.*|HTTP_PORT=8080|" \
+              deploy/.env.docker.example > deploy/.env.docker
+
+      - name: compose 파일 검사
+        run: |
+          docker compose --env-file deploy/.env.docker -f deploy/docker-compose.yml config --quiet
+          docker compose -f deploy/compose.dev.yml --profile postgres config --quiet
+
+      - uses: docker/setup-buildx-action@v4
+
+      # 캐시(scope)는 deploy.yml의 이미지 올리기와 같이 쓴다: 여기서 만든 층을 그대로 받아 올린다
+      - name: 이미지 빌드 (web)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/Dockerfile
+          target: web
+          load: true
+          tags: ${{ env.IMAGE_PREFIX }}-web:${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+      - name: 이미지 빌드 (engine)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/Dockerfile
+          target: engine
+          load: true
+          tags: ${{ env.IMAGE_PREFIX }}-engine:${{ env.IMAGE_TAG }}
+          cache-from: |
+            type=gha,scope=engine
+            type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=engine
+
+      - name: 이미지 빌드 (nginx + 프론트엔드)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/nginx/Dockerfile
+          load: true
+          tags: ${{ env.IMAGE_PREFIX }}-nginx:${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=nginx
+          cache-to: type=gha,mode=max,scope=nginx
+
+      - name: 스택 띄우기
+        working-directory: deploy
+        run: docker compose --env-file .env.docker -f docker-compose.yml up -d --no-build
+
+      - name: 기동 확인 (상태 확인, 화면, 로그인, PDF)
+        run: bash deploy/smoke_test.sh
+
+      - name: 실패 시 로그
+        if: failure()
+        working-directory: deploy
+        run: |
+          docker compose --env-file .env.docker -f docker-compose.yml ps -a
+          docker compose --env-file .env.docker -f docker-compose.yml logs --tail 80
+
+      - name: 정리
+        if: always()
+        working-directory: deploy
+        run: docker compose --env-file .env.docker -f docker-compose.yml down -v --remove-orphans

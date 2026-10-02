@@ -371,7 +371,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 - 개발 중에 팀원이 같은 네트워크에서 DB를 직접 볼 수 있게, 호스트 PC 한 대에 PostgreSQL 16 컨테이너를 띄운다
   (`deploy/compose.dev.yml`의 `db`, 프로젝트 이름 `paper-dev`, 데이터는 볼륨 `paper-dev_pgdata`).
   호스트 PC의 `.env`: `POSTGRES_HOST=127.0.0.1`, `POSTGRES_PORT`(그 PC의 빈 포트), `POSTGRES_BIND=0.0.0.0`, 긴 임의 `POSTGRES_PASSWORD`,
-  `DJANGO_SECRET_KEY`. `scripts/dev.sh`가 컨테이너를 띄우고 마이그레이션을 적용한다. 접속 방법은 `scripts/dev.sh status`와 `TEAM_DEV_PLAN.md` 2장.
+  `DJANGO_SECRET_KEY`. `scripts/dev.sh`가 컨테이너를 띄우고 마이그레이션을 적용한다. 접속 방법은 `scripts/dev.sh status`와 `TEAM_DEV_PLAN.md` 12장.
 - **개발할 때만 연다.** 운영(EC2)에서는 DB 포트를 밖으로 열지 않는다. 비밀번호는 저장소·문서에 적지 않고 따로 전한다.
 - 혼자 개발할 때의 기본값은 여전히 SQLite다 (`POSTGRES_HOST`를 비워 둔다). SQLite에 쌓인 데이터는 `scripts/dev.sh import-sqlite`
   (`scripts/sqlite_to_postgres.py`)로 한 번 옮긴다: 계정(비밀번호 해시)·프로필·계좌·주문·체결·분석·리포트를 옮기고 세션·관리자 기록은 옮기지 않는다.
@@ -380,3 +380,27 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 - 이 변경으로 "PostgreSQL이면 운영"이라는 가정이 깨졌다: 토스 조회 허용은 `DJANGO_DEBUG`로 가리고 (3-1),
   개발용 기본 비밀키는 SQLite일 때만 쓰므로 PostgreSQL을 쓰면 `DJANGO_SECRET_KEY`가 있어야 한다.
 - 테스트는 SQLite 메모리 DB에서 돈다 (공유 DB를 건드리지 않는다). `TEST_WITH_POSTGRES=1`로 PostgreSQL에서도 백엔드 테스트 전부가 통과한다 (2026-10-02 확인).
+
+## 11. 컨테이너와 CI/CD (2026-10-02)
+
+설정 방법과 동작은 `docs/DEPLOY.md`. 여기에는 정한 것과 이유만 적는다.
+
+- **이미지 3개**: `web`과 `engine`은 같은 Dockerfile(`deploy/Dockerfile`)의 두 대상이다 (코드는 같고, engine에만 리포트 PDF용 Chromium과
+  한글 글꼴이 들어간다). `nginx`는 프론트 빌드 파일을 담는다. 빌드 컨텍스트는 저장소 루트 하나, `.dockerignore`도 루트에 하나.
+- **컨테이너 권한**: root가 아닌 사용자(uid 10001), 읽기 전용 파일 시스템, 권한(capability) 전부 제거. 쓰는 곳은 `/data` 볼륨
+  (`PAPER_ROOT`: 중단 스위치·실행 기록·캐시. web과 engine이 같이 쓴다)과 `/tmp`뿐이다. Chromium은 자체 샌드박스를 끄고(`--no-sandbox`) 돈다 —
+  컨테이너 격리에 맡기며, 여는 것은 엔진이 만든 리포트 HTML뿐이다.
+- **web은 gunicorn 프로세스 1개 + 스레드 16개**: 시세 캐시와 증권사 호출 간격 조절이 프로세스별이고(8-6) SSE가 스레드를 잡기 때문이다(9-4).
+- **마이그레이션은 `migrate` 서비스가 한 번 돌린다.** web과 engine은 그것이 성공해야 뜬다. 띄울 때마다 돌므로 배포 절차에 따로 넣지 않는다.
+- **DB·Redis 포트는 밖으로 열지 않는다.** 설정은 `deploy/.env.docker`(서버에만, git 제외)에 두고 `POSTGRES_HOST`, `REDIS_URL`, `PAPER_ROOT`는
+  compose가 컨테이너에 맞게 넣는다. 토스 조회 키는 운영 파일에 넣지 않는다 (3-1).
+- **CI는 비밀 값 없이 돈다.** 테스트는 `.env` 없이 `DJANGO_DEBUG=on`으로 돌고, PostgreSQL 검사는 작업 안에서 띄운 DB를 쓴다.
+  컨테이너 작업은 검사 두 개가 통과해야 돈다 (실패한 코드로 이미지를 만들지 않는다).
+- **배포는 `main`의 검사가 통과했을 때만**, 그리고 저장소 변수 `DEPLOY_ENABLED=true`일 때만 돈다 (서버를 준비하기 전에 미리 만들어 둔 파이프라인이라 스위치를 둔다).
+  이미지는 GHCR에 커밋 해시 태그로 올린다 (`latest`를 쓰지 않는다 — 무엇이 떠 있는지와 되돌릴 대상이 분명해야 한다).
+- **되돌리기는 서버의 스크립트(`deploy/remote_deploy.sh`)가 한다.** 새 버전이 뜨지 않으면 직전에 성공한 태그로 다시 띄우고 실패로 끝난다.
+  DB 마이그레이션은 되돌리지 않으므로, 되돌릴 수 없는 모델 변경은 두 번에 나눠 배포한다.
+- **서버 접속**: 배포 전용 SSH 키(비밀 값)와, 저장소 변수에 적어 둔 서버 호스트 키로만 접속한다 (접속하면서 호스트 키를 받아 믿지 않는다).
+  호스트 키는 별칭으로 맞춰 보므로 서버 IP가 바뀌어도 `DEPLOY_HOST`만 고치면 된다. 레지스트리 로그인은 작업이 끝나면 못 쓰게 되는 토큰으로 하고 끝나면 지운다.
+- **macOS에서 빌드할 때의 한글 파일 이름**: `docs/교육용문서.md`가 분해형(NFD) 이름으로 빌드에 들어가 프론트의 import 경로(NFC)와 어긋난다.
+  nginx 이미지 빌드가 `docs/`의 파일 이름을 NFC로 맞춘 뒤 빌드한다. `docs/`에 한글 이름 파일을 더해 import할 때도 그대로 된다.

@@ -1,0 +1,53 @@
+# Docker 빌드 컨텍스트(저장소 루트)에서 뺄 것. deploy/Dockerfile과 deploy/nginx/Dockerfile이 이 컨텍스트를 같이 쓴다.
+# 이미지에 필요한 것: pyproject.toml, uv.lock, engine/, backend/, frontend/, docs/(프론트 빌드가 교육용 문서를 읽는다), deploy/nginx/
+
+# 비밀 값과 로컬 전용 파일 (이미지에 절대 넣지 않는다)
+.env
+.env.*
+**/.env
+**/.env.*
+team_accounts.txt
+*.pem
+*.key
+
+# 버전 관리·CI·편집기
+.git
+.gitignore
+.github
+.DS_Store
+**/.DS_Store
+.vscode
+.idea
+
+# 실행 데이터와 캐시
+data
+runs
+reports
+.cache
+backtest
+**/*.sqlite3
+**/*.db
+*.log
+
+# Python
+.venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.ruff_cache
+**/*.egg-info
+**/tests
+conftest.py
+
+# Node
+**/node_modules
+frontend/dist
+
+# 이미지에 필요 없는 것
+graft
+personal_project_files
+scripts
+*.md
+!docs/*.md
+deploy/*
+!deploy/nginx

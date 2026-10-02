@@ -1,0 +1,202 @@
+# 배포: main에 push → 검사(ci.yml) → 이미지 올리기(GHCR, 태그 = 커밋 해시) → 서버에서 받아 띄우기 → 상태 확인.
+# 검사가 실패하면 뒤 단계는 돌지 않는다 (배포 차단). 서버에서 새 버전이 뜨지 않으면 직전 버전으로 되돌린다 (deploy/remote_deploy.sh).
+#
+# 서버를 준비하기 전에는 검사만 돈다. 준비가 끝나면 저장소 변수 DEPLOY_ENABLED를 true로 바꾼다. 설정 방법은 docs/DEPLOY.md.
+#   변수(Settings → Secrets and variables → Actions → Variables): DEPLOY_ENABLED, DEPLOY_HOST, DEPLOY_USER, DEPLOY_DIR,
+#     DEPLOY_HOST_KEY, DEPLOY_PORT(선택, 기본 22)
+#   비밀 값(Secrets): DEPLOY_SSH_KEY, DISCORD_WEBHOOK_URL(선택)
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:   # 같은 커밋을 다시 배포할 때 (Actions 화면에서 실행)
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: 검사
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: 이미지 올리기 (GHCR)
+    needs: ci
+    if: vars.DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_prefix: ${{ steps.names.outputs.image_prefix }}
+      image_tag: ${{ steps.names.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: 이미지 이름 정하기
+        id: names
+        run: |
+          # 레지스트리 경로는 소문자여야 한다
+          echo "image_prefix=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/paper-trading" >> "$GITHUB_OUTPUT"
+          echo "image_tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ci.yml의 컨테이너 작업이 만든 캐시를 그대로 받아 올린다 (같은 커밋이라 다시 만드는 층이 없다)
+      - name: 올리기 (web)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/Dockerfile
+          target: web
+          push: true
+          tags: ${{ steps.names.outputs.image_prefix }}-web:${{ steps.names.outputs.image_tag }}
+          cache-from: type=gha,scope=web
+
+      - name: 올리기 (engine)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/Dockerfile
+          target: engine
+          push: true
+          tags: ${{ steps.names.outputs.image_prefix }}-engine:${{ steps.names.outputs.image_tag }}
+          cache-from: |
+            type=gha,scope=engine
+            type=gha,scope=web
+
+      - name: 올리기 (nginx + 프론트엔드)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/nginx/Dockerfile
+          push: true
+          tags: ${{ steps.names.outputs.image_prefix }}-nginx:${{ steps.names.outputs.image_tag }}
+          cache-from: type=gha,scope=nginx
+
+  deploy:
+    name: 서버 배포
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    concurrency:   # 배포는 한 번에 하나만. 도는 중인 배포를 끊지 않는다
+      group: deploy-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: read
+    env:
+      DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+      DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
+      DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
+      DEPLOY_HOST_KEY: ${{ vars.DEPLOY_HOST_KEY }}
+      IMAGE_PREFIX: ${{ needs.publish.outputs.image_prefix }}
+      IMAGE_TAG: ${{ needs.publish.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: SSH 준비
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          missing=""
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_DIR DEPLOY_HOST_KEY DEPLOY_SSH_KEY; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          [ -z "$missing" ] || { echo "::error::설정이 비어 있습니다:$missing (docs/DEPLOY.md)"; exit 1; }
+          case "$DEPLOY_DIR" in
+            *[!A-Za-z0-9_./-]*|-*) echo "::error::DEPLOY_DIR에는 영문·숫자·_ . / - 만 쓴다 (~ 대신 /home/... 전체 경로)"; exit 1 ;;
+          esac
+
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # 서버의 호스트 키는 저장소 변수에 적어 둔 것만 믿는다 (접속하면서 받아 오지 않는다).
+          # 별칭으로 맞춰 보므로 서버 IP가 바뀌어도 DEPLOY_HOST만 고치면 된다.
+          # (키 종류와 키 본문만 뽑는다: "ssh-ed25519 AAAA..." 앞뒤에 주소나 설명이 붙어 있어도 된다)
+          printf '%s\n' "$DEPLOY_HOST_KEY" \
+            | sed -nE 's/^.*((ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp[0-9]+) [A-Za-z0-9+\/=]+).*$/paper-trading-server \1/p' \
+            > ~/.ssh/known_hosts
+          [ -s ~/.ssh/known_hosts ] || { echo "::error::DEPLOY_HOST_KEY에서 호스트 키를 읽지 못했습니다 (docs/DEPLOY.md)"; exit 1; }
+          cat > ~/.ssh/config <<EOF
+          Host deploy-target
+            HostName $DEPLOY_HOST
+            User $DEPLOY_USER
+            Port ${DEPLOY_PORT:-22}
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            HostKeyAlias paper-trading-server
+            StrictHostKeyChecking yes
+            UserKnownHostsFile ~/.ssh/known_hosts
+            BatchMode yes
+            ConnectTimeout 20
+            ServerAliveInterval 30
+          EOF
+          chmod 600 ~/.ssh/config ~/.ssh/known_hosts
+
+      - name: 배포 파일 올리기
+        run: |
+          ssh deploy-target "mkdir -p '$DEPLOY_DIR'"
+          scp deploy/docker-compose.yml deploy/remote_deploy.sh "deploy-target:$DEPLOY_DIR/"
+
+      - name: 서버에서 이미지 받아 띄우기
+        env:
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # 이 작업이 끝나면 못 쓰게 되는 토큰 (읽기 전용)
+        run: |
+          printf '%s' "$REGISTRY_TOKEN" | ssh deploy-target "docker login ghcr.io -u '$REGISTRY_USER' --password-stdin"
+          ssh deploy-target "cd '$DEPLOY_DIR' && IMAGE_PREFIX='$IMAGE_PREFIX' IMAGE_TAG='$IMAGE_TAG' bash remote_deploy.sh"
+
+      - name: 서버의 레지스트리 로그인 지우기
+        if: always()
+        run: ssh deploy-target "docker logout ghcr.io" || true
+
+      - name: SSH 키 지우기
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
+
+  notify:
+    name: Discord 알림
+    needs: [ci, publish, deploy]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: 결과 보내기
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          CI_RESULT: ${{ needs.ci.result }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          ACTOR: ${{ github.actor }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+            echo "DISCORD_WEBHOOK_URL이 없어 알림을 건너뜁니다"; exit 0
+          fi
+          if [ "$CI_RESULT" = cancelled ] || [ "$DEPLOY_RESULT" = cancelled ]; then
+            title="⏹ 취소됨"
+          elif [ "$CI_RESULT" != success ]; then
+            title="❌ 검사 실패 — 배포하지 않았습니다"
+          elif [ "$DEPLOY_RESULT" = success ]; then
+            title="✅ 배포 성공"
+          elif [ "$PUBLISH_RESULT" = skipped ]; then
+            title="✅ 검사 통과 (배포는 꺼져 있습니다)"
+          else
+            title="❌ 배포 실패 — 서버는 직전 버전으로 되돌렸거나 그대로입니다 (로그 확인)"
+          fi
+          subject="$(printf '%s' "$COMMIT_MESSAGE" | head -n 1 | cut -c1-120)"
+          text="$(printf '%s\n`%s` %s — %s\n검사: %s · 이미지: %s · 배포: %s\n%s' \
+            "$title" "${GITHUB_SHA:0:7}" "$subject" "$ACTOR" "$CI_RESULT" "$PUBLISH_RESULT" "$DEPLOY_RESULT" "$RUN_URL")"
+          jq -n --arg content "$text" '{content: $content, allowed_mentions: {parse: []}}' \
+            | curl -fsS -m 20 -H 'Content-Type: application/json' -d @- "$DISCORD_WEBHOOK_URL" > /dev/null
