@@ -532,7 +532,7 @@ type PlanEventKind =
   | "activated"        // 사용자가 활성화 (details: {via, budgetKrw})
   | "risk_checked"     // 리스크 엔진 점검 (details: {approved, quantity, limitedBy, rewardRisk, reasons})
   | "order_placed"     // 진입 지정가 주문 접수 (details: {orderId, limitPrice, quantity})
-  | "order_requeued"   // 지정가가 그날 체결되지 않아 다음 정규장에 다시 주문 (details: {orderId, previousOrderId})
+  | "order_requeued"   // 지정가가 그날 체결되지 않아 다음 정규장에 다시 주문 (details: {orderId, previousOrderId}, 수량이 줄었으면 + {quantity, previousQuantity})
   | "filled"           // 진입 체결 (details: {orderId, fillPrice, quantity})
   | "exit_requested"   // 사용자가 보유 중 계획을 중단 → 전량 매도 요청·예약 (details: {orderId, reservationId})
   | "closed"           // 청산 (details: {orderId, exitReason, exitPrice, pnlKrw})
@@ -590,7 +590,7 @@ interface NotificationSettings {
 | `POST /api/notifications/read` | `{"ids"?: number[], "all"?: boolean}` (둘 중 하나) | `204` (남의 알림 id는 무시) |
 | `GET /api/notification-settings` | – | `200 NotificationSettings` |
 | `PATCH /api/notification-settings` | `{"discordUserId"?: string \| null, "discordEnabled"?: boolean}` | `200 NotificationSettings` · `discordUserId`가 숫자 17~20자리가 아니면 `400` (빈 문자열·null이면 지운다) |
-| `POST /api/notification-settings/test` | – | `202 {"detail": string, "discord": "queued" \| "not_configured" \| "disabled"}` (웹 알림 하나를 만들고, 가능하면 Discord로도 보낸다) |
+| `POST /api/notification-settings/test` | – | `202 {"detail": string, "discord": "queued" \| "not_configured" \| "disabled"}` (웹 알림 하나를 만들고, 가능하면 Discord로도 보낸다) · 1분에 한 번만 (넘으면 `429`) |
 
 규칙:
 - **활성화** = 그 순간 리스크 엔진으로 수량을 정하고(`RiskPreview`와 같은 계산) 계획을 `active`로 만든 뒤, 바로 한 번 진행해
@@ -599,13 +599,17 @@ interface NotificationSettings {
 - 엔진 루프(`run_engine`)가 진행 중 계획을 계속 진행한다: 체결되면 `holding`, 지정가가 그날 정규장에 체결되지 않아 취소되면 진입 기한 안에서
   다음 정규장에 **다시 주문**(`order_requeued`), 기한이 지나면 주문을 취소하고 `expired`, 보유 중 목표·손절·기한으로 청산되면 `closed`.
   모의 주문을 "내 주식"에서 직접 취소하면 계획은 `cancelled`, 직접 매도하면 `closed`(`MANUAL`)가 된다.
+  재주문 때는 리스크 엔진을 다시 돌려 **수량을 새 계산값 이하로 줄여** 낸다(늘리지 않는다). 그때 막히면(지금 가격이 목표가 이상·손절가 이하, 매수 가능 금액 부족 등)
+  계획은 `failed`로 끝난다. 엔진이 체결 시점에 취소한 진입 주문(현금 부족 등)도 `failed`다 (`cancelled`는 사용자가 멈춘 경우만).
 - **중단**(`cancel`): `active`·`entry_pending`이면 주문을 취소하고 `cancelled`. `holding`이면 전량 매도를 요청하고(정규장 밖이면 매도 예약)
-  `exit_requested`를 남긴다 — 계획은 매도가 끝나면 `closed`(`MANUAL`)가 된다.
+  `exit_requested`를 남긴다 — 계획은 매도가 끝나면 `closed`(`MANUAL`)가 된다. 이미 매도 예약이 있으면 사건을 다시 남기지 않고 지금 계획을 `200`으로 돌려준다.
+- AI가 준 진입·목표·손절은 추천을 만들 때 **호가 단위로 내려** 맞춘다 (모의 주문에 들어가는 값과 같게). 미국 종목의 예산 제한은 소수점(금액) 기준이다.
 - 같은 종목에는 진행 중 계획이 **하나만** 있다 (모의 계좌의 "같은 종목은 포지션 하나만" 규칙과 같다).
 - **Discord 활성화 링크** = `{PUBLIC_BASE_URL}/recommendations/{id}?t=<token>`. 웹 화면이 `t`를 읽어 활성화 요청의 `token`으로 보낸다.
   token은 서버가 서명한 값(추천 id + 만료 = `validUntil`)이고, 맞으면 `via: "discord"`로 기록한다. **로그인은 링크로도 필요하다**
   (링크는 팀 채널에 올라가므로 링크만으로 남의 계좌에 계획을 만들 수 없게 한다).
 - 알림: 추천이 생기면 신청한 팀원(없으면 팀 전체)에게, 계획의 상태가 바뀌면 그 계획의 주인에게 웹 알림을 만든다. Discord는 서버의
-  `DISCORD_WEBHOOK_URL` 채널 하나로 보내고, 주인의 `discordUserId`가 있으면 멘션한다. Discord 전송은 엔진 루프가 보낸다
-  (실패하면 1회 재시도 → 첨부 없이 글만 → 그래도 안 되면 실패로 기록. 웹 알림은 그대로 남는다).
+  `DISCORD_WEBHOOK_URL` 채널 하나로 보내고(없고 `OPENCLAW_TARGET`이 있으면 openclaw로), 주인의 `discordUserId`가 있으면 멘션한다. Discord 전송은 엔진 루프가 보낸다
+  (실패하면 1회 재시도 → 첨부 없이 글만 → 그래도 안 되면 실패로 기록. 웹 알림은 그대로 남는다. 한 바퀴에 15초까지만 보내고 나머지는 다음 바퀴로).
+  AI가 쓴 글 속의 멘션(`<@…>`·`@everyone`)은 무력화하고, 우리가 붙인 받는 사람 멘션만 울린다. 시험 API의 `not_configured`는 Webhook·openclaw가 모두 없다는 뜻이다.
 - 프론트 폴링: 알림 개수 15초, 진행 중 계획 5초, 추천 목록 30초.

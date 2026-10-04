@@ -3,7 +3,7 @@
 #
 #   cd deploy && docker compose --env-file .env.docker up -d && ./smoke_test.sh
 #
-# 확인하는 것: 상태 확인 주소, 화면(SPA)과 정적 파일, 로그인 없이는 401, CSRF + 로그인 + 내 정보 + 로그아웃,
+# 확인하는 것: 상태 확인 주소, 화면(SPA)과 정적 파일, 로그인 없이는 401, CSRF + 로그인 + 내 정보 + 추천·계획·알림 표 + 로그아웃,
 # 엔진 컨테이너의 리포트 PDF 생성(Chromium). 증권사·AI 키가 없어도 통과한다 (외부 호출을 하지 않는다).
 # 시험용 계정을 하나 만들었다가 끝나면 지운다.
 set -euo pipefail
@@ -47,6 +47,7 @@ expect "빌드 파일 $asset" 200 "$BASE$asset"
 expect "관리자 화면 정적 파일" 200 "$BASE/static/admin/css/base.css"
 expect "로그인 없이 /api/auth/me" 401 "$BASE/api/auth/me"
 expect "로그인 없이 /api/account" 401 "$BASE/api/account"
+expect "로그인 없이 /api/recommendations" 401 "$BASE/api/recommendations"
 
 compose exec -T -e SMOKE_USER="$user" -e SMOKE_PASSWORD="$password" web python manage.py shell -c \
   "import os; from django.contrib.auth import get_user_model; get_user_model().objects.create_user(os.environ['SMOKE_USER'], password=os.environ['SMOKE_PASSWORD'])" \
@@ -62,6 +63,9 @@ expect "로그인" 200 -b "$jar" -c "$jar" -H "Origin: $BASE" -H "X-CSRFToken: $
   -d "$body" "$BASE/api/auth/login"
 expect "로그인 후 /api/auth/me" 200 -b "$jar" "$BASE/api/auth/me"
 expect "로그인 후 /api/reports/plan (DB + 리포트 구성 파일)" 200 -b "$jar" "$BASE/api/reports/plan"
+expect "로그인 후 /api/recommendations (AI 추천 표)" 200 -b "$jar" "$BASE/api/recommendations"
+expect "로그인 후 /api/trade-plans (매매 계획 표)" 200 -b "$jar" "$BASE/api/trade-plans"
+expect "로그인 후 /api/notifications (알림 표)" 200 -b "$jar" "$BASE/api/notifications"
 token="$(awk '$6 == "csrftoken" {print $7}' "$jar")"
 expect "로그아웃" 204 -b "$jar" -c "$jar" -H "Origin: $BASE" -H "X-CSRFToken: $token" -X POST "$BASE/api/auth/logout"
 
@@ -70,7 +74,7 @@ compose exec -T engine python -c "
 import os, subprocess
 from pathlib import Path
 from paper_engine import report
-out = report._render_pdf('<html><body><h1>리포트 확인</h1></body></html>', Path('/tmp/smoke.pdf'), os.environ.get('CHROME_BIN'), subprocess.run)
+out = report.render_pdf('<html><body><h1>리포트 확인</h1></body></html>', Path('/tmp/smoke.pdf'), os.environ.get('CHROME_BIN'), subprocess.run)
 assert out.suffix == '.pdf' and out.read_bytes()[:4] == b'%PDF', out
 " || fail "엔진 컨테이너에서 PDF를 만들지 못했다"
 echo "통과: 엔진 컨테이너 PDF 생성"
