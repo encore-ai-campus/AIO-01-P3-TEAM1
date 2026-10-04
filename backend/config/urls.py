@@ -24,5 +24,7 @@ urlpatterns = [
     path("api/", include("trading.urls")),
     path("api/", include("analysis.urls")),
     path("api/", include("reports.urls")),
+    path("api/", include("autotrade.urls")),
+    path("api/", include("notifications.urls")),
     path("admin/", admin.site.urls),
 ]

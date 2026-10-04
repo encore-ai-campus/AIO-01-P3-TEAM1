@@ -438,3 +438,172 @@ SSE 형식 (실행 Event를 발생 즉시 한 방향으로 전달):
 - 15초마다 `: keep-alive` 주석 줄. 서버는 한 연결을 60초 뒤 닫는다 (브라우저 `EventSource`가 `Last-Event-ID`로 다시 붙는다).
 - **SSE가 실행 상태의 유일한 저장소가 되면 안 된다.** 상태와 Trace는 DB에 있고, 프론트는 먼저 Snapshot을 받은 뒤 SSE로 이어 받는다.
   SSE가 끊기거나 안 되면 Snapshot을 3초 간격으로 다시 받는다 (폴링). `plan.implemented`가 false이고 status가 `requested`면 SSE를 열지 않는다.
+
+---
+
+# AI 추천 · 매매 계획 · 자동매매 · 알림 (`backend/autotrade`, `backend/notifications`)
+
+작성 2026-10-04. 서비스의 최종 흐름: **AI가 종목·진입가·목표가·손절가·기대수익을 추천 → 사용자가 웹이나 Discord 링크로 "계획 활성화"
+→ 엔진 루프가 계획대로 모의 주문·체결 대기·보유 감시·청산을 자동으로 하고 → 단계마다 웹 알림과 Discord로 알린다.**
+배경과 결정은 `docs/DECISIONS.md` 12장, 담당과 남은 일은 `docs/tasks/06-추천·자동매매.md`.
+
+- **AI는 제안만 한다.** 수량·한도·활성화 가능 여부·체결은 결정론적 코드(엔진 리스크 엔진 `judge/risk.py`, 모의 체결기)가 정한다.
+  최소 손익비 기준(2.0)은 AI 프롬프트에 넣지 않는다 (리스크 엔진이 거른다).
+- 추천의 출처는 셋이다: `report`(AI 리포트 Agent 워크플로우의 `report_agent` 결과 — 담당 2·3·4가 구현), `analysis`(지금 있는 AI 교차검증 분석의
+  BUY 판정), `demo`(**시연용 규칙 추천, AI 아님** — 일봉 ATR로 목표·손절을 정한다. 화면에 "시연용"을 표시한다).
+- 추천은 팀 전체가 같이 보고, **활성화는 팀원마다 자기 모의 계좌에** 한다 (같은 추천을 여러 명이 각자 활성화할 수 있다).
+
+## 타입
+
+```ts
+type RecommendationSource = "report" | "analysis" | "demo";
+type RecommendationStatus = "open" | "expired";   // open: validUntil 전이라 활성화할 수 있음
+
+interface Recommendation {
+  id: number;
+  source: RecommendationSource;
+  sourceId: number | null;        // report면 리포트 id, analysis면 분석 id, demo면 null
+  requestedBy: string | null;     // 리포트·분석을 신청한(또는 시연 추천을 만든) 팀원의 닉네임. 자동이면 null
+  symbol: string; name: string; market: Market; currency: Currency;
+  priceAtCreation: number | null; // 추천을 만들 때의 가격
+  entryPrice: number;             // AI가 제안한 진입가 (지정가로 주문한다)
+  targetPrice: number;            // 목표가
+  stopPrice: number;              // 손절가. 0 < stopPrice < entryPrice < targetPrice
+  holdingDays: number;            // 보유 기간 (거래일, 1~20)
+  targetReturn: number;           // 목표가 도달 시 수익률 = targetPrice / entryPrice - 1 (비용 전)
+  stopLossRate: number;           // 손절 시 손실률 = stopPrice / entryPrice - 1 (음수, 비용 전)
+  rewardRisk: number;             // 손익비 (수수료·세금·손절 미끄러짐 반영. 리스크 엔진과 같은 계산)
+  probability: number;            // 손절 전에 목표가에 도달할 확률 (0~1)
+  probabilityAssumed: boolean;    // AI가 확률을 주지 않아 0.5로 둔 경우 true
+  expectedReturn: number;         // 기대수익률 = (확률×1주 이익 − (1−확률)×1주 손실) ÷ 진입가 (비용 반영)
+  confidence: number | null;      // 0~100 (AI의 확신도. 없으면 null)
+  summary: string;                // 한 줄 결론
+  reasons: string[];              // 근거 (최대 3)
+  risks: string[];                // 리스크 (최대 3)
+  riskLevel: "low" | "medium" | "high" | null;   // 리스크 점검 Agent 결과 (없으면 null)
+  status: RecommendationStatus;
+  validUntil: string;             // 이 시각까지 활성화할 수 있고, 계획의 진입 기한도 이 시각이다
+  createdAt: string;
+  myPlan: { id: number; status: TradePlanStatus } | null;   // 내가 활성화한 계획 (진행 중인 것, 없으면 가장 최근 것)
+  planCount: number;              // 이 추천으로 활성화한 계획 수 (팀 전체)
+}
+
+interface RiskPreview {           // 리스크 엔진이 "내 계좌"로 계산한 결과 (활성화 전 확인용)
+  approved: boolean;              // 리스크 엔진 통과
+  activatable: boolean;           // approved && 추천이 open && 같은 종목의 진행 중 계획·주문 없음 && 중단 스위치 꺼짐
+  reasons: string[];              // 활성화할 수 없는 사유 (activatable이면 [])
+  quantity: number;               // 주문할 수량 (국내는 정수 주)
+  amountKrw: number;              // 매수 금액 (원화 환산)
+  expectedProfitKrw: number;      // 목표가 도달 시 이익 (비용 반영)
+  maxLossKrw: number;             // 손절 시 손실 (비용 반영, 양수)
+  limitedBy: string;              // 수량을 정한 제약: "건당 위험 한도" | "매수 가능 금액" | "총 금액 한도" | "유동성 한도" | "예산"
+  budgetKrw: number | null;       // 요청한 예산 (없으면 null)
+  lastPrice: number | null;       // 지금 가격 (못 받으면 null)
+}
+
+type TradePlanStatus = "active" | "entry_pending" | "holding" | "closed" | "cancelled" | "expired" | "failed";
+// active 활성화됨(주문 전) · entry_pending 진입 지정가 주문 체결 대기 · holding 보유 중(목표·손절·기한 자동 감시)
+// closed 청산 완료 · cancelled 사용자가 중단 · expired 진입 기한까지 체결되지 않음 · failed 주문할 수 없음(사유)
+// 진행 중 = active · entry_pending · holding. 나머지는 끝난 상태다 (다시 바뀌지 않는다).
+
+interface TradePlan {
+  id: number;
+  recommendationId: number;
+  symbol: string; name: string; market: Market; currency: Currency;
+  source: RecommendationSource;
+  status: TradePlanStatus;
+  via: "web" | "discord";         // 어디서 활성화했나 (Discord 링크의 token으로 판단)
+  quantity: number;
+  budgetKrw: number | null;
+  entryPrice: number; targetPrice: number; stopPrice: number; holdingDays: number;   // 활성화 때 추천에서 복사
+  entryDeadline: string;          // 진입 기한 (= 추천의 validUntil)
+  orderId: number | null;         // 지금 연결된 모의 주문 (Order). 재주문하면 바뀐다
+  fillPrice: number | null; filledAt: string | null;
+  exitPrice: number | null; exitReason: "TARGET" | "STOP" | "EXPIRED" | "MANUAL" | null; closedAt: string | null;
+  pnlKrw: number | null;          // 실현 손익 (청산 뒤)
+  failureReason: string | null;   // failed·expired·cancelled의 사유 (사람이 읽는 말)
+  activatedAt: string;
+  updatedAt: string;
+}
+
+type PlanEventKind =
+  | "activated"        // 사용자가 활성화 (details: {via, budgetKrw})
+  | "risk_checked"     // 리스크 엔진 점검 (details: {approved, quantity, limitedBy, rewardRisk, reasons})
+  | "order_placed"     // 진입 지정가 주문 접수 (details: {orderId, limitPrice, quantity})
+  | "order_requeued"   // 지정가가 그날 체결되지 않아 다음 정규장에 다시 주문 (details: {orderId, previousOrderId})
+  | "filled"           // 진입 체결 (details: {orderId, fillPrice, quantity})
+  | "exit_requested"   // 사용자가 보유 중 계획을 중단 → 전량 매도 요청·예약 (details: {orderId, reservationId})
+  | "closed"           // 청산 (details: {orderId, exitReason, exitPrice, pnlKrw})
+  | "cancelled"        // 중단 (details: {reason})
+  | "expired"          // 진입 기한 지남 (details: {orderId})
+  | "failed";          // 주문할 수 없음 (details: {reason})
+
+interface PlanEvent {
+  step: number;                   // 계획별 1부터
+  kind: PlanEventKind | string;   // 모르는 값도 그대로 보여 준다
+  message: string;                // 사람이 읽는 한 줄 ("삼성전자 28주 71,000원 지정가 매수 주문 접수")
+  details: Record<string, unknown>;
+  at: string;
+}
+
+interface TradePlanDetail extends TradePlan {
+  recommendation: Recommendation;
+  events: PlanEvent[];            // step 오름차순
+}
+
+type NotificationKind =
+  | "recommendation" | "plan_activated" | "order_placed" | "order_requeued" | "filled" | "closed"
+  | "cancelled" | "expired" | "failed" | "system";
+
+interface Notification {
+  id: number;
+  kind: NotificationKind | string;
+  title: string;                  // "삼성전자 진입 체결"
+  body: string;                   // 한두 줄
+  link: string | null;            // 웹 경로 ("/plans/3"). 프론트는 그대로 이동한다
+  createdAt: string;
+  readAt: string | null;
+}
+
+interface NotificationSettings {
+  discordUserId: string | null;   // Discord 사용자 ID (숫자 17~20자리). 있으면 Discord 알림에 @멘션한다
+  discordEnabled: boolean;        // 내 알림을 Discord로도 보낼지 (기본 true). 웹 알림은 항상 남는다
+  webhookConfigured: boolean;     // 서버에 DISCORD_WEBHOOK_URL이 있는지 (없으면 Discord로는 아무것도 가지 않는다)
+}
+```
+
+## 엔드포인트
+
+| 메서드·경로 | 요청 | 응답 |
+|---|---|---|
+| `GET /api/recommendations?status=open\|all&source=&sourceId=&symbol=` | 페이지. `status` 기본 `open`. `sourceId`는 `source`와 같이 (리포트·분석 화면이 자기 추천을 찾는다) | `200 {"count", "results": Recommendation[]}` (최신순, 팀 전체 공용) |
+| `GET /api/recommendations/{id}` | – | `200 Recommendation` · `404` |
+| `GET /api/recommendations/{id}/preview?budgetKrw=` | `budgetKrw` 선택 (양수, 원) | `200 RiskPreview` · `budgetKrw`가 숫자가 아니거나 0 이하 `400` · 증권사 조회 불가 `503` |
+| `POST /api/recommendations/{id}/activate` | `{"budgetKrw"?: number, "token"?: string}` | `201 TradePlanDetail` · 활성화할 수 없으면 `400 {"detail": 사유들을 "; "로 이은 것}` · `token`이 만료·위조면 `400` · `404` · 증권사 조회 불가 `503` |
+| `POST /api/recommendations/demo` | `{"symbol"?: string}` (없으면 시연 종목 목록에서 고른다) | `201 Recommendation` (source `demo`) · 시연 추천이 꺼져 있으면(`AUTOTRADE_DEMO=off`) `403` · 하루 한도(`AUTOTRADE_DEMO_PER_USER`, 기본 5) 초과 `429` · 없는 종목·일봉 부족 `400` · 증권사 조회 불가 `503` |
+| `GET /api/trade-plans?status=active\|all` | 페이지. 기본 `active`(진행 중 셋) | `200 {"count", "results": TradePlan[]}` (**내 것만**, 최신순) |
+| `GET /api/trade-plans/{id}` | – | `200 TradePlanDetail` · 남의 계획 `404` |
+| `POST /api/trade-plans/{id}/cancel` | – | `200 TradePlanDetail` · 이미 끝난 계획 `400` · 남의 계획 `404` |
+| `GET /api/notifications?unread=1` | 페이지. `unread=1`이면 안 읽은 것만 | `200 {"count", "unreadCount", "results": Notification[]}` (내 것만, 최신순) |
+| `POST /api/notifications/read` | `{"ids"?: number[], "all"?: boolean}` (둘 중 하나) | `204` (남의 알림 id는 무시) |
+| `GET /api/notification-settings` | – | `200 NotificationSettings` |
+| `PATCH /api/notification-settings` | `{"discordUserId"?: string \| null, "discordEnabled"?: boolean}` | `200 NotificationSettings` · `discordUserId`가 숫자 17~20자리가 아니면 `400` (빈 문자열·null이면 지운다) |
+| `POST /api/notification-settings/test` | – | `202 {"detail": string, "discord": "queued" \| "not_configured" \| "disabled"}` (웹 알림 하나를 만들고, 가능하면 Discord로도 보낸다) |
+
+규칙:
+- **활성화** = 그 순간 리스크 엔진으로 수량을 정하고(`RiskPreview`와 같은 계산) 계획을 `active`로 만든 뒤, 바로 한 번 진행해
+  **진입 지정가 주문**(가격 = `entryPrice`, 목표·손절 = 추천 값, 기한 = `holdingDays`를 달력 일수로 바꾼 값)을 낸다. 주문은 기존 모의 주문
+  (`POST /api/orders`와 같은 `trading.service.buy`, 요청자 `plan:<계획 id>`)이라 "내 주식"·주문 목록에도 보인다.
+- 엔진 루프(`run_engine`)가 진행 중 계획을 계속 진행한다: 체결되면 `holding`, 지정가가 그날 정규장에 체결되지 않아 취소되면 진입 기한 안에서
+  다음 정규장에 **다시 주문**(`order_requeued`), 기한이 지나면 주문을 취소하고 `expired`, 보유 중 목표·손절·기한으로 청산되면 `closed`.
+  모의 주문을 "내 주식"에서 직접 취소하면 계획은 `cancelled`, 직접 매도하면 `closed`(`MANUAL`)가 된다.
+- **중단**(`cancel`): `active`·`entry_pending`이면 주문을 취소하고 `cancelled`. `holding`이면 전량 매도를 요청하고(정규장 밖이면 매도 예약)
+  `exit_requested`를 남긴다 — 계획은 매도가 끝나면 `closed`(`MANUAL`)가 된다.
+- 같은 종목에는 진행 중 계획이 **하나만** 있다 (모의 계좌의 "같은 종목은 포지션 하나만" 규칙과 같다).
+- **Discord 활성화 링크** = `{PUBLIC_BASE_URL}/recommendations/{id}?t=<token>`. 웹 화면이 `t`를 읽어 활성화 요청의 `token`으로 보낸다.
+  token은 서버가 서명한 값(추천 id + 만료 = `validUntil`)이고, 맞으면 `via: "discord"`로 기록한다. **로그인은 링크로도 필요하다**
+  (링크는 팀 채널에 올라가므로 링크만으로 남의 계좌에 계획을 만들 수 없게 한다).
+- 알림: 추천이 생기면 신청한 팀원(없으면 팀 전체)에게, 계획의 상태가 바뀌면 그 계획의 주인에게 웹 알림을 만든다. Discord는 서버의
+  `DISCORD_WEBHOOK_URL` 채널 하나로 보내고, 주인의 `discordUserId`가 있으면 멘션한다. Discord 전송은 엔진 루프가 보낸다
+  (실패하면 1회 재시도 → 첨부 없이 글만 → 그래도 안 되면 실패로 기록. 웹 알림은 그대로 남는다).
+- 프론트 폴링: 알림 개수 15초, 진행 중 계획 5초, 추천 목록 30초.

@@ -310,6 +310,8 @@ API 계약은 `docs/API.md`. 아래는 그 배경 결정이다. 앞 장과 다�
 | `backend/trading/` | 계좌·주문·시세·랭킹·`run_engine` |
 | `backend/analysis/` | 분석 색인·분석 작업 |
 | `frontend/` | 화면 전체 |
+| `backend/reports/` | AI 리포트 (담당별 파일은 `docs/tasks/00-공통.md` 2절) |
+| `backend/autotrade/`, `backend/notifications/` | AI 추천·매매 계획·자동매매·알림 (12-6) |
 
 ## 9. AI 리포트: Agents Orchestration과 Trace 구조 (2026-10-02)
 
@@ -404,3 +406,70 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
   호스트 키는 별칭으로 맞춰 보므로 서버 IP가 바뀌어도 `DEPLOY_HOST`만 고치면 된다. 레지스트리 로그인은 작업이 끝나면 못 쓰게 되는 토큰으로 하고 끝나면 지운다.
 - **macOS에서 빌드할 때의 한글 파일 이름**: `docs/교육용문서.md`가 분해형(NFD) 이름으로 빌드에 들어가 프론트의 import 경로(NFC)와 어긋난다.
   nginx 이미지 빌드가 `docs/`의 파일 이름을 NFC로 맞춘 뒤 빌드한다. `docs/`에 한글 이름 파일을 더해 import할 때도 그대로 된다.
+
+## 12. AI 추천 → 계획 활성화 → 자동매매 → 알림 (2026-10-04)
+
+서비스의 최종 목표: **AI Agent가 추천 종목과 진입가·목표가·손절가·기대수익을 알려 주면, 사용자가 Discord나 웹에서 "계획 활성화"를 누르고,
+그 뒤로는 계획대로 모의 자동매매가 진행되며 단계마다 사용자에게 알림이 간다.** API 계약은 `docs/API.md` "AI 추천 · 매매 계획 · 자동매매 · 알림",
+담당과 남은 일은 `docs/tasks/06-추천·자동매매.md`.
+
+### 12-1. 범위: 핵심 Agent 워크플로우는 팀원 몫, 나머지는 시연 가능한 버전
+
+- **핵심 Agentic 워크플로우**(AI 리포트의 Worker·Orchestrator·AutoHealing — `docs/tasks/02~04`)는 담당 2·3·4가 구현한다. 이 기능은 그 코드를 고치지 않고
+  **결과(`Report.results["report_agent"]`)를 읽기만** 한다. 리포트가 끝나면 엔진 루프가 알아서 추천을 만든다 (담당 3이 따로 부를 함수가 없다).
+- 그 전에도 끝까지 시연할 수 있게 추천 출처를 셋으로 둔다: `report`(리포트 Agent 워크플로우), `analysis`(지금 있는 AI 교차검증 분석의 BUY),
+  `demo`(**시연용 규칙 추천, AI 아님**). 화면·Discord에 출처를 늘 표시한다 (평가 가이드: 문서와 화면에 실제 구현한 것만).
+- 리포트의 출력 계약 `ReportDraft.targets`에 `holdingDays`(보유 거래일)와 `probability`(목표가 도달 확률)를 더했다 (`docs/tasks/00-공통.md` 10절).
+  둘 다 null 허용이고, 없으면 보유 10거래일·확률 0.5(`probabilityAssumed`)로 본다.
+
+### 12-2. 추천(Recommendation)과 계획(TradePlan)을 나눈다
+
+- **추천**은 AI(또는 시연 규칙)의 제안 하나다. 팀 전체가 같이 보고 `validUntil`(기본 만든 때부터 `RECOMMENDATION_VALID_DAYS`=3일)까지 활성화할 수 있다.
+  출처마다 하나만 만든다 (리포트 하나 → 추천 하나, 분석 하나 → 추천 하나). 판정이 buy/BUY이고 `0 < 손절 < 진입 < 목표`일 때만 만든다.
+- **계획**은 팀원 한 명이 자기 모의 계좌에 활성화한 것이다. 활성화 때 추천의 가격·기간을 **복사**해 둔다 (추천이 바뀌거나 만료돼도 진행 중 계획은 그대로).
+- 계획의 사건(`PlanEvent`)은 리포트의 Trace처럼 순서 번호(step)를 붙여 남긴다. 화면은 이 사건으로 "자동매매 워크플로우"를 그린다:
+  활성화 → 리스크 점검 → 진입 주문 → 체결 대기(날마다 재주문) → 보유 감시(목표·손절·기한) → 청산 → 알림.
+
+### 12-3. 판단은 결정론적 코드가 한다
+
+- 수량과 활성화 가능 여부는 **엔진 리스크 엔진 `judge/risk.py`의 `assess`를 그대로** 쓴다 (건당 위험 1%, 최소 손익비 2.0, 매수 가능 금액,
+  총 금액 한도 `MAX_TOTAL_INVEST_KRW`, 매수 유의 종목). 사용자가 예산(`budgetKrw`)을 주면 수량을 그만큼 더 줄인다 (늘리지는 않는다).
+- 추천의 `rewardRisk`·`expectedReturn`도 같은 비용 계산(수수료·거래세·손절 미끄러짐 1%)으로 만든다. 화면의 숫자와 리스크 엔진의 판단이 어긋나지 않게.
+- 진입은 **지정가(= 추천 진입가)**로 한다. 모의 체결 규칙상 지정가는 그날 정규장이 끝나면 취소되므로, 진입 기한(`validUntil`) 안에서는
+  엔진 루프가 다음 정규장에 다시 주문한다. 지금 가격이 이미 목표가 이상이거나 손절가 이하면 활성화하지 않는다.
+- 주문은 기존 웹 주문과 같은 `trading.service`(잠금·중복 방지·예약 규칙 그대로)로 내고, 요청자는 `plan:<계획 id>`다. 그래서 "같은 종목은 포지션 하나만"
+  규칙이 계획에도 그대로 걸리고, 사용자가 "내 주식"에서 직접 매도·취소해도 계획이 그 결과를 따라간다.
+- 진행은 엔진 루프(`run_engine`)의 "자동매매" 단계가 한다. 활성화 요청은 그 자리에서 한 번 진행해(첫 주문) 사용자가 결과를 바로 본다.
+  웹 요청과 엔진 루프가 같은 계획을 동시에 진행해도 주문이 두 번 나가지 않게, 상태를 바꿀 때 "지금 상태가 X일 때만 Y로"(조건부 UPDATE)로 바꾼다.
+
+### 12-4. 알림: 웹 알림 + Discord Webhook (보낼 편지함)
+
+- 알림 하나 = 받는 사람별 웹 알림 행(`notifications`) + Discord로 보낼 메시지 하나(`notification_outbox`). Discord 전송은 엔진 루프의 "알림 발송" 단계가 한다
+  (웹 요청이 Discord 응답을 기다리지 않게. 엔진이 잠깐 멈춰도 메시지가 사라지지 않게).
+- Discord는 서버 `.env`의 `DISCORD_WEBHOOK_URL` 채널 하나로 보낸다 (팀 채널. 배포 파이프라인 알림과 같은 채널을 써도 된다). 받는 사람이
+  My Page에 Discord 사용자 ID를 넣어 두면 `<@ID>`로 멘션한다. Webhook 주소는 **비밀 값**이다 (`.env`에만, 로그·문서·화면에 넣지 않는다).
+- 전송 실패: 1회 재시도 → 첨부가 있으면 첨부 없이 글만 → 그래도 안 되면 실패로 기록하고 콘솔에 남긴다 (`TEAM_DEV_PLAN.md` 5-1의 "알림 실패", DR-NOTI-01).
+  웹 알림은 Discord와 무관하게 남는다.
+- **Discord에서 활성화**: Webhook은 보내기만 되므로(버튼을 눌러 서버로 돌아오는 상호작용은 봇이 있어야 한다) 추천 메시지에 **서명된 활성화 링크**를 넣는다.
+  링크를 누르면 웹의 추천 화면이 열리고, 로그인한 사용자가 확인을 누르면 활성화된다 (`via: "discord"`). 봇(버튼·명령) 방식은 하지 않는다 —
+  봇 토큰·계정 연결·상시 접속이 필요하고, 시연에는 링크로 충분하다. 링크 주소의 앞부분은 `PUBLIC_BASE_URL`(개발: 프론트 주소, 운영: 배포 주소).
+
+### 12-5. 설정 키 (`.env`. `.env.example`·`deploy/.env.docker.example`에 같이)
+
+| 키 | 기본 | 뜻 |
+|---|---|---|
+| `DISCORD_WEBHOOK_URL` | (없음) | 팀 Discord 채널 Webhook. 없으면 Discord로는 보내지 않고 콘솔에만 남긴다 (비밀 값) |
+| `PUBLIC_BASE_URL` | `http://localhost:5173` | Discord 메시지의 링크 앞부분 (웹 화면 주소) |
+| `RECOMMENDATION_VALID_DAYS` | `3` | 추천을 활성화할 수 있는 기간이자 진입 기한 (달력 일수) |
+| `AUTOTRADE_DEMO` | `on` | 시연용 규칙 추천을 웹에서 만들 수 있게 할지 |
+| `AUTOTRADE_DEMO_PER_USER` | `5` | 팀원별 하루 시연 추천 수 |
+
+### 12-6. 파일 소유
+
+| 범위 | 내용 |
+|---|---|
+| `backend/autotrade/` | 추천·계획·사건 모델, 추천 만들기(리포트·분석·시연), 리스크 미리 보기, 계획 진행(executor), API |
+| `backend/notifications/` | 웹 알림·알림 설정·보낼 편지함 모델, `service.notify`, Discord 발송(`dispatch.tick`), API |
+| `engine/paper_engine/notify.py` | `WebhookNotifier`(표준 라이브러리 multipart), `make_notifier` (Webhook > openclaw > 콘솔) |
+| `backend/config/engine.py` | `notifier()` 접점 |
+| `backend/trading/management/commands/run_engine.py` | 단계 한 줄씩: 추천 수집 · 자동매매 · 알림 발송 |
