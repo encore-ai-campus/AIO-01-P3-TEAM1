@@ -1,29 +1,34 @@
-// /reports/:id: 리포트 본문, 실행 계획 그래프, Trace 타임라인, Shared State, 정책 안내, 개념 문서 탭, 예시 Trace 재생.
+// /reports/:id: 머리 카드 → 실행 요약 띠 → 탭 3개 (리포트 / 실행 과정 / 자세히). 구성은 docs/tasks/05-프론트.md "화면 구성".
 // Snapshot을 먼저 받고 SSE로 이어 받는다 (api/reports.ts). 예시 재생은 화면 안에서만 바뀌고 서버에는 아무것도 보내지 않는다.
-import { Suspense, lazy } from "react";
-import { useParams, useSearchParams } from "react-router";
+import { Suspense, lazy, useState } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 import { ApiError, errorMessage } from "../api/client";
-import { useReportLive } from "../api/reports";
-import { LazyEduDoc } from "../components/reports/EduDocSection";
+import { isFinished, useReportLive, useRequestReport } from "../api/reports";
+import type { ReportDetail, SharedState, TraceEvent } from "../api/types";
+import { Icon } from "../components/Icon";
+import { EduDocSection } from "../components/reports/EduDocSection";
 import { PlanGraph } from "../components/reports/PlanGraph";
 import { PolicyGuide } from "../components/reports/PolicyGuide";
-import { ExampleBanner, ReplayControls } from "../components/reports/ReplayControls";
+import { ReplayBar, ScenarioPicker } from "../components/reports/ReplayControls";
+import { RunSummary } from "../components/reports/RunSummary";
 import { SharedStatePanel } from "../components/reports/SharedStatePanel";
-import { DeliveryBadge, ExampleTag, ReportStatusBadge } from "../components/reports/StatusChip";
+import { AutoBadge, DeliveryBadge, ExampleTag, InjectedBadge, ReportStatusBadge } from "../components/reports/StatusChip";
 import { TraceTimeline } from "../components/reports/TraceTimeline";
-import { Card, ErrorState, Notice, PageHeader, Skeleton, SkeletonCard } from "../components/ui";
+import { Card, ErrorState, Notice, PageHeader, Skeleton, SkeletonCard, Spinner } from "../components/ui";
 import { cn } from "../lib/cn";
 import { formatDateTime } from "../lib/format";
 import { useReplay } from "../lib/reportExamples";
-import { NOT_IMPLEMENTED, policyName } from "../lib/reports";
+import { ERROR_LABEL, NOT_IMPLEMENTED, actorLabel, policyName } from "../lib/reports";
 
 const Markdown = lazy(() => import("../components/reports/Markdown").then((m) => ({ default: m.Markdown })));
 
-type Tab = "report" | "doc";
+type Tab = "report" | "run" | "more";
 const TABS: { value: Tab; label: string }[] = [
-  { value: "report", label: "리포트·Trace" },
-  { value: "doc", label: "개념 문서" },
+  { value: "report", label: "리포트" },
+  { value: "run", label: "실행 과정" },
+  { value: "more", label: "자세히" },
 ];
+const isTab = (v: string | null): v is Tab => TABS.some((t) => t.value === v);
 
 function CardTitle({ id, title, sub, example }: { id: string; title: string; sub?: string; example?: boolean }) {
   return (
@@ -37,11 +42,53 @@ function CardTitle({ id, title, sub, example }: { id: string; title: string; sub
   );
 }
 
+/** 실패한 리포트: 왜 실패했는지 사람이 읽을 말로 + 다시 신청 (같은 종목, 같은 장애 주입 설정). */
+function FailureCard({ r, trace, state }: { r: ReportDetail; trace: TraceEvent[]; state: SharedState }) {
+  const navigate = useNavigate();
+  const request = useRequestReport();
+  const last = [...trace].reverse().find((e) => e.action === "workflow_failed");
+  const reason = typeof last?.details.reason === "string" ? last.details.reason : "";
+  const errors = Object.entries(state.errors);
+  return (
+    <Card aria-labelledby="failure-title" className="border-2 border-up/40">
+      <h2 id="failure-title" className="flex items-center gap-1.5 text-[17px] font-bold text-up">
+        <Icon name="alert" className="size-5" />
+        리포트를 만들지 못했습니다
+      </h2>
+      {reason && <p className="mt-1.5 text-[14px] leading-snug text-sub">{reason}</p>}
+      {errors.length > 0 && (
+        <ul aria-label="실패한 Agent" className="mt-2 space-y-1 text-[14px]">
+          {errors.map(([id, msg]) => (
+            <li key={id}>
+              <b>{actorLabel(r.plan, id)}</b> <span className="text-sub">{ERROR_LABEL[msg as keyof typeof ERROR_LABEL] ?? msg}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="mt-2 text-[13px] text-mute">재시도와 대체 모델로도 복구하지 못했습니다. 어느 모델이 실패했는지는 &ldquo;실행 과정&rdquo; 탭에서 볼 수 있습니다.</p>
+      <button
+        type="button"
+        disabled={request.isPending}
+        onClick={() => request.mutate({ symbol: r.symbol, chaos: r.chaos }, { onSuccess: (n) => navigate(`/reports/${n.id}`) })}
+        className="mt-3 flex h-11 items-center gap-1.5 rounded-xl bg-brand px-4 text-[15px] font-semibold text-white hover:bg-brand-dark disabled:opacity-40"
+      >
+        {request.isPending ? <Spinner /> : <Icon name="restart" className="size-4" />}
+        다시 신청{r.chaos?.enabled ? " (같은 장애 주입 설정)" : ""}
+      </button>
+      {request.isError && (
+        <Notice tone="error" className="mt-3">
+          {errorMessage(request.error)}
+        </Notice>
+      )}
+    </Card>
+  );
+}
+
 export function ReportPage() {
   const { id } = useParams();
   const rid = Number(id);
   const [params, setParams] = useSearchParams();
-  const tab: Tab = params.get("tab") === "doc" ? "doc" : "report";
+  const [first, setFirst] = useState<{ id: number; tab: Tab } | null>(null);
   const { data: r, isPending, isError, error, refetch, delivery } = useReportLive(rid);
   const replay = useReplay(r?.state.taskId ?? `report-${id}`);
 
@@ -67,10 +114,18 @@ export function ReportPage() {
     );
   }
 
-  // 예시 재생 중이면 그래프·타임라인·State에 예시 사건을 보인다 (실행 계획은 실제 Registry 그대로)
+  // 예시 재생 중이면 그래프·타임라인·요약·State에 예시 사건을 보인다 (실행 계획은 실제 Registry 그대로)
   const ex = replay.active;
   const trace = ex ? replay.trace : r.trace;
   const state = ex ? replay.state : r.state;
+  const finished = isFinished(r.status);
+  // 기본 탭은 처음 받았을 때의 상태로 정한다: 끝났으면 리포트, 아니면 실행 과정. 보는 중에 끝나도 탭을 바꾸지 않는다.
+  // 주소에 tab이 있으면 그것
+  if (first?.id !== rid) setFirst({ id: rid, tab: finished ? "report" : "run" });
+  const param = params.get("tab");
+  const tab: Tab = isTab(param) ? param : (first?.id === rid ? first.tab : finished ? "report" : "run");
+  const setTab = (t: Tab) => setParams({ tab: t }, { replace: true });
+  const startExample = () => setTab("run");
 
   return (
     <>
@@ -82,7 +137,11 @@ export function ReportPage() {
               <p className="text-[14px] text-mute">
                 {r.symbol} · {r.market === "KR" ? "국내" : "미국"} · 리포트 #{r.id}
               </p>
-              <p className="mt-0.5 text-[22px] font-bold tracking-tight">{r.name}</p>
+              <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[22px] font-bold tracking-tight">
+                {r.name}
+                {r.source === "auto" && <AutoBadge />}
+                {r.chaosEnabled && <InjectedBadge />}
+              </p>
             </div>
             <ReportStatusBadge status={r.status} className="h-8 px-2.5 text-[14px]" />
           </div>
@@ -96,12 +155,21 @@ export function ReportPage() {
           </div>
           {!r.plan.implemented && (
             <Notice tone="warn" className="mt-3">
-              {NOT_IMPLEMENTED} 아래 &ldquo;예시 Trace 재생&rdquo;으로 흐름을 확인할 수 있습니다.
+              {NOT_IMPLEMENTED} &ldquo;예시 Trace 재생&rdquo;으로 흐름을 확인할 수 있습니다.
             </Notice>
           )}
         </Card>
 
-        <div role="tablist" aria-label="리포트 화면" className="flex gap-1 overflow-x-auto">
+        <RunSummary
+          plan={r.plan}
+          trace={trace}
+          state={state}
+          costUsd={r.costUsd}
+          example={ex}
+          onShowReport={!ex && r.status === "completed" && tab !== "report" ? () => setTab("report") : undefined}
+        />
+
+        <div role="tablist" aria-label="리포트 화면" className="flex gap-1">
           {TABS.map((t) => (
             <button
               key={t.value}
@@ -110,9 +178,9 @@ export function ReportPage() {
               aria-selected={tab === t.value}
               aria-controls={`panel-${t.value}`}
               id={`tab-${t.value}`}
-              onClick={() => setParams(t.value === "report" ? {} : { tab: t.value }, { replace: true })}
+              onClick={() => setTab(t.value)}
               className={cn(
-                "h-11 shrink-0 rounded-full px-4 text-[15px] font-semibold transition-colors",
+                "h-11 min-w-0 flex-1 rounded-full px-3 text-[15px] font-semibold transition-colors sm:flex-none sm:px-5",
                 tab === t.value ? "bg-ink text-white" : "bg-card text-sub hover:bg-line",
               )}
             >
@@ -121,57 +189,78 @@ export function ReportPage() {
           ))}
         </div>
 
-        {tab === "doc" ? (
-          <div role="tabpanel" id="panel-doc" aria-labelledby="tab-doc">
-            <Card>
-              <LazyEduDoc />
-            </Card>
-          </div>
-        ) : (
+        {tab === "report" && (
           <div role="tabpanel" id="panel-report" aria-labelledby="tab-report" className="space-y-3 lg:space-y-4">
-            <Card aria-label="예시 Trace 재생">
-              <ReplayControls replay={replay} />
-            </Card>
-            {ex && <ExampleBanner />}
-
+            {r.status === "failed" && <FailureCard r={r} trace={r.trace} state={r.state} />}
             <Card aria-labelledby="content-title">
-              <CardTitle id="content-title" title="리포트 본문" />
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <CardTitle id="content-title" title="리포트 본문" />
+                {r.hasPdf && (
+                  <a
+                    href={`/api/reports/${r.id}/pdf`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex h-9 items-center gap-1 rounded-xl bg-fill px-3 text-[14px] font-semibold text-ink hover:bg-line"
+                  >
+                    <Icon name="download" className="size-4" />
+                    PDF 내려받기
+                  </a>
+                )}
+              </div>
               {r.content ? (
                 <Suspense fallback={<SkeletonCard lines={4} className="px-0" />}>
                   <Markdown>{r.content}</Markdown>
                 </Suspense>
               ) : (
-                <p className="rounded-xl bg-fill px-4 py-6 text-center text-[15px] text-mute">
-                  리포트 본문은 Agent 구현 뒤에 표시됩니다 (미구현)
-                </p>
+                <div className="rounded-xl bg-fill px-4 py-6 text-center">
+                  <p className="text-[15px] text-mute">
+                    {r.plan.implemented ? (finished ? "본문이 없습니다." : "리포트를 쓰는 중입니다.") : "리포트 본문은 Agent 구현 뒤에 표시됩니다 (미구현)"}
+                  </p>
+                  <button type="button" onClick={() => setTab("run")} className="mt-2 h-9 rounded-xl bg-card px-3 text-[14px] font-semibold text-brand hover:bg-line">
+                    실행 과정 보기
+                  </button>
+                </div>
               )}
             </Card>
+          </div>
+        )}
 
+        {tab === "run" && (
+          <div role="tabpanel" id="panel-run" aria-labelledby="tab-run" className="space-y-3 lg:space-y-4">
+            {ex ? (
+              <ReplayBar replay={replay} />
+            ) : (
+              r.trace.length === 0 && (
+                <Card aria-label="예시 Trace 재생">
+                  <ScenarioPicker replay={replay} onStart={startExample} />
+                </Card>
+              )
+            )}
             <Card aria-labelledby="plan-title">
-              <CardTitle
-                id="plan-title"
-                title="실행 계획"
-                sub={`${r.plan.title} · 실패 정책 ${policyName(r.plan.failurePolicy)} · 노드 상태는 Trace에서 그 Agent의 마지막 사건으로 정합니다`}
-                example={ex}
-              />
+              <CardTitle id="plan-title" title="실행 계획" sub={`${r.plan.title} · 실패 정책 ${policyName(r.plan.failurePolicy)} · 노드를 누르면 자세히`} example={ex} />
               <PlanGraph plan={r.plan} trace={trace} currentStep={state.currentStep} />
             </Card>
+            <Card aria-labelledby="trace-title">
+              <CardTitle id="trace-title" title="Trace 타임라인" sub="새 사건은 아래에 붙습니다." example={ex} />
+              <TraceTimeline trace={trace} plan={r.plan} />
+            </Card>
+          </div>
+        )}
 
-            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-4">
-              <Card aria-labelledby="trace-title">
-                <CardTitle id="trace-title" title="Trace 타임라인" sub="모든 실행 사건을 step 순서로 남깁니다. 새 사건은 아래에 붙습니다." example={ex} />
-                <TraceTimeline trace={trace} plan={r.plan} />
-              </Card>
-              <Card aria-labelledby="state-title">
-                <CardTitle id="state-title" title="Shared State" example={ex} />
-                <SharedStatePanel state={state} plan={r.plan} />
-              </Card>
-            </div>
-
+        {tab === "more" && (
+          <div role="tabpanel" id="panel-more" aria-labelledby="tab-more" className="space-y-3 lg:space-y-4">
+            <Card aria-label="예시 Trace 재생">
+              <ScenarioPicker replay={replay} onStart={startExample} />
+            </Card>
+            <Card aria-labelledby="state-title">
+              <CardTitle id="state-title" title="Shared State" example={ex} />
+              <SharedStatePanel state={state} plan={r.plan} />
+            </Card>
             <Card aria-labelledby="policy-title">
               <CardTitle id="policy-title" title="정책 안내" sub="부분 실패 정책과 Handoff 계약 (교육용 문서 04 Distributed Collaboration)" />
               <PolicyGuide plan={r.plan} />
             </Card>
+            <EduDocSection />
           </div>
         )}
       </div>

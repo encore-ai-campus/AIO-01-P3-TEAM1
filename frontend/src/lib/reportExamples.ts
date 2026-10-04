@@ -9,7 +9,7 @@ export interface ExampleFrame {
   state: Partial<SharedState>; // 이 사건 뒤 Orchestrator가 바꾼 State 항목
 }
 
-export type ScenarioId = "normal" | "required_fail";
+export type ScenarioId = "normal" | "required_fail" | "recovery";
 
 export interface ExampleScenario {
   id: ScenarioId;
@@ -40,9 +40,10 @@ function ev(
   ms: number,
   details: Record<string, unknown> = {},
   latencyMs: number | null = null,
+  override?: { provider: string; model: string }, // 대체 모델이 답했을 때
 ): Omit<TraceEvent, "step"> {
   // 건너뛴 Agent는 실행하지 않았으므로 실행 정보가 없다
-  const llm = status === "skipped" ? undefined : LLM[actor];
+  const llm = status === "skipped" ? undefined : (override ?? LLM[actor]);
   return { actor, action, status, provider: llm?.provider ?? null, model: llm?.model ?? null, latencyMs, details, at: at(ms) };
 }
 
@@ -54,6 +55,10 @@ const FUNDAMENTAL = { per: 11.2, note: "최근 분기 영업이익 증가, 특�
 const NEWS = { sentiment: "중립", headlines: 3 };
 const REPORT = { sections: ["요약", "가격 흐름", "재무·공시", "리스크"], excluded: ["news_agent"] };
 const REVIEW = { verdict: "통과", issues: [] };
+const REPORT_FULL = { sections: ["요약", "가격 흐름", "재무·공시", "뉴스·심리", "리스크"], excluded: [] };
+const ALL3 = { fundamental_agent: FUNDAMENTAL, market_agent: MARKET, news_agent: NEWS };
+/** 뉴스 Agent의 대체 모델 (예시 ③). */
+const FALLBACK = { provider: "openai", model: "gpt-4.1-mini" };
 
 export const SCENARIOS: ExampleScenario[] = [
   {
@@ -142,6 +147,82 @@ export const SCENARIOS: ExampleScenario[] = [
       [
         ev("orchestrator", "workflow_failed", "failed", 4380, { reason: "필수 Worker(fundamental_agent) 실패 — Required/Optional 정책에 따라 중단" }),
         { status: "failed", currentStep: null },
+      ],
+    ]),
+  },
+  {
+    // details는 docs/tasks/00-공통.md 9절 그대로 (백엔드와 같은 모양)
+    id: "recovery",
+    title: "③ 모델 실패 → 대체 모델로 복구",
+    description: "뉴스 Agent에 시간 초과 주입 → 같은 모델 재시도 → 대체 모델로 전환해 완료(자동 복구) → 검토 RETRY 1회 → 다시 작성 → 완료",
+    frames: numbered([
+      [ev("orchestrator", "workflow_started", "started", 0, { chaos: true, source: "user" }), { status: "running", currentStep: "parallel_research" }],
+      [ev("market_agent", "agent_started", "started", 40, { attempt: 1, step: "parallel_research" }), {}],
+      [ev("fundamental_agent", "agent_started", "started", 45, { attempt: 1, step: "parallel_research" }), {}],
+      [ev("news_agent", "agent_started", "started", 50, { attempt: 1, step: "parallel_research" }), {}],
+      [ev("news_agent", "agent_failed", "failed", 1250, { errorType: "timeout", attempt: 1, injected: true, final: false }, 1200), {}],
+      [ev("news_agent", "agent_retry", "started", 1260, { attempt: 2, reason: "timeout" }), {}],
+      [
+        ev("fundamental_agent", "agent_completed", "completed", 2185, { attempts: 1, recovered: false, recoveryMs: null, costUsd: 0.004, guarded: [] }, 2140),
+        { results: { fundamental_agent: FUNDAMENTAL }, completedAgents: ["fundamental_agent"] },
+      ],
+      [ev("news_agent", "agent_failed", "failed", 2470, { errorType: "timeout", attempt: 2, injected: true, final: false }, 1200), {}],
+      [ev("news_agent", "agent_failover", "started", 2480, { from: "llama3.2", to: "gpt-4.1-mini", reason: "timeout" }, null, FALLBACK), {}],
+      [
+        ev("market_agent", "agent_completed", "completed", 3520, { attempts: 1, recovered: false, recoveryMs: null, costUsd: 0.003, guarded: [] }, 3480),
+        { results: { fundamental_agent: FUNDAMENTAL, market_agent: MARKET }, completedAgents: ["fundamental_agent", "market_agent"] },
+      ],
+      [
+        ev("news_agent", "agent_completed", "completed", 4390, { attempts: 3, recovered: true, recoveryMs: 3140, costUsd: 0.005, guarded: [] }, 1900, FALLBACK),
+        {
+          results: { fundamental_agent: FUNDAMENTAL, market_agent: MARKET, news_agent: NEWS },
+          completedAgents: ["fundamental_agent", "market_agent", "news_agent"],
+        },
+      ],
+      [
+        ev("join_guard", "join_completed", "completed", 4400, {
+          step: "compose",
+          required: ["market_agent", "fundamental_agent"],
+          missing: [],
+          inputs: ["market_agent", "fundamental_agent", "news_agent"],
+        }),
+        { currentStep: "compose" },
+      ],
+      [ev("report_agent", "agent_started", "started", 4430, { attempt: 1, step: "compose" }), {}],
+      [
+        ev("report_agent", "agent_completed", "completed", 9550, { attempts: 1, recovered: false, recoveryMs: null, costUsd: 0.012, guarded: [] }, 5120),
+        { results: { ...ALL3, report_agent: REPORT_FULL }, completedAgents: ["fundamental_agent", "market_agent", "news_agent", "report_agent"] },
+      ],
+      [ev("review_agent", "agent_started", "started", 9570, { attempt: 1, step: "review" }), { currentStep: "review" }],
+      [
+        ev("review_agent", "agent_completed", "completed", 11400, { attempts: 1, recovered: false, recoveryMs: null, costUsd: 0.004, guarded: [], verdict: "RETRY", score: 62 }, 1830),
+        {},
+      ],
+      [
+        ev("orchestrator", "review_retry", "started", 11410, {
+          round: 1,
+          target: "report_agent",
+          issues: ["목표가의 근거가 조사 결과에 없음"],
+          instructions: "목표가 근거를 시세·차트 Agent의 결과에서 인용하고, 근거가 없는 수치는 지우세요. (예시)",
+        }),
+        { currentStep: "compose" },
+      ],
+      [ev("report_agent", "agent_started", "started", 11440, { attempt: 2, step: "compose" }), {}],
+      [
+        ev("report_agent", "agent_completed", "completed", 15900, { attempts: 1, recovered: false, recoveryMs: null, costUsd: 0.011, guarded: [] }, 4460),
+        {},
+      ],
+      [ev("review_agent", "agent_started", "started", 15920, { attempt: 2, step: "review" }), { currentStep: "review" }],
+      [
+        ev("review_agent", "agent_completed", "completed", 17600, { attempts: 1, recovered: false, recoveryMs: null, costUsd: 0.004, guarded: [], verdict: "PASS", score: 84 }, 1680),
+        {
+          results: { ...ALL3, report_agent: REPORT_FULL, review_agent: REVIEW },
+          completedAgents: ["fundamental_agent", "market_agent", "news_agent", "report_agent", "review_agent"],
+        },
+      ],
+      [
+        ev("orchestrator", "workflow_completed", "completed", 17610, { reason: "completed", costUsd: 0.043, durationMs: 17610 }),
+        { status: "completed", currentStep: null },
       ],
     ]),
   },

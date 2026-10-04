@@ -254,8 +254,9 @@ export interface EquityPoint {
 // ---------------------------------------------------------------- AI 리포트 (Agents Orchestration과 Trace)
 
 export type TraceStatus = "started" | "completed" | "failed" | "blocked" | "skipped";
-// 주요 action: agent_started · agent_completed · agent_failed · join_completed · join_blocked · workflow_completed
-// (그 밖에 workflow_started · workflow_failed · handoff_completed · handoff_blocked 등이 올 수 있다. 모르는 값도 그대로 보여 준다)
+// action과 details는 docs/tasks/00-공통.md 9절. 모르는 값도 그대로 보여 준다.
+// agent_failed는 두 가지: details.final = false 는 LLM 호출 한 번의 실패(재시도·전환으로 이어진다), 그 밖은 그 Worker를 포기한 것.
+export type ErrorType = "timeout" | "server_error" | "bad_output" | "unknown";
 
 export interface TraceEvent {
   step: number; // 전체 실행에서의 사건 순서 (1부터)
@@ -288,6 +289,7 @@ export interface Worker {
   goal: string;
   provider: string | null; // 아직 정하지 않았으면 null
   model: string | null;
+  fallbacks?: string[]; // 주 모델이 실패하면 차례로 쓰는 대체 모델 (서버가 아직 안 낼 수 있다)
   outputContract: string; // 역할별 출력 계약 이름
 }
 
@@ -301,6 +303,67 @@ export interface PlanStep {
   dependsOn: string[]; // 먼저 끝나야 하는 step id
   join: boolean; // 앞 단계 결과를 Join Guard로 확인한 뒤 실행하는지
   timeoutSec: number | null;
+  retry?: { target: string; maxRounds: number } | null; // 검토 단계: RETRY 판정이면 target Worker를 다시 실행
+}
+
+/** 장애 주입 설정 (docs/tasks/00-공통.md 5절). 리포트 워크플로우에만 적용된다. */
+export interface ChaosConfig {
+  enabled: boolean;
+  probability: number; // 0~1. 호출 하나가 실패할 확률
+  errorTypes: ErrorType[]; // unknown 제외
+  workers: string[] | null; // 대상 Worker (null이면 전부)
+  scope: "primary" | "all"; // primary: 주 모델 호출만 실패 · all: 대체 모델까지 실패
+  seed: number;
+}
+/** POST /api/reports의 chaos: enabled만 필수, 나머지는 서버 기본값. */
+export type ChaosRequest = Pick<ChaosConfig, "enabled"> & Partial<Omit<ChaosConfig, "enabled">>;
+
+/** 한 리포트의 장애·복구 요약 (셈법은 00-공통.md 9절. 화면은 src/lib/recovery.ts로 Trace에서도 센다). */
+export interface RecoverySummary {
+  failures: number;
+  recovered: number;
+  unrecovered: number;
+  injected: number;
+  recoveryMs: number | null; // 복구된 건의 복구 시간 합
+  models: Record<string, string>; // Worker id → 최종적으로 답한 모델
+}
+
+export interface RecoveryStats {
+  from: string;
+  to: string;
+  days: number;
+  reports: number;
+  reportsWithFailures: number;
+  failures: number;
+  recovered: number;
+  unrecovered: number;
+  injected: number;
+  autoRecoveryRate: number | null; // recovered ÷ failures × 100
+  meanRecoveryMs: number | null;
+  byErrorType: { errorType: ErrorType; failures: number; recovered: number }[];
+  byWorker: { worker: string; failures: number; recovered: number }[];
+  recent: {
+    reportId: number;
+    symbol: string;
+    worker: string;
+    errorType: ErrorType;
+    injected: boolean;
+    recovered: boolean;
+    recoveryMs: number | null;
+    at: string;
+  }[];
+}
+
+export interface ScreeningResult {
+  market: Market;
+  at: string;
+  rankCount: number;
+  eligibleCount: number;
+  checked: number;
+  picks: Record<string, unknown>[]; // 점수 순. symbol · name · score · tradingAmountRank 등
+  dropped: Record<string, unknown>[];
+  excluded: Record<string, unknown>[];
+  reportIds: number[];
 }
 
 export interface Handoff {
@@ -329,7 +392,12 @@ export interface ReportSummary {
   market: Market;
   status: ReportStatus;
   currentStep: string | null;
-  requestedBy: string; // 신청한 팀원의 닉네임
+  requestedBy: string; // 신청한 팀원의 닉네임. 자동 리포트는 "자동"
+  // 아래 넷은 docs/API.md "(추가)" 항목: 서버가 아직 안 낼 수 있다
+  source?: "user" | "auto";
+  chaosEnabled?: boolean;
+  costUsd?: number | null;
+  hasPdf?: boolean;
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
@@ -341,4 +409,6 @@ export interface ReportDetail extends ReportSummary {
   state: SharedState;
   trace: TraceEvent[]; // step 오름차순
   plan: ExecutionPlan;
+  chaos?: ChaosConfig | null; // (추가)
+  recovery?: RecoverySummary; // (추가)
 }

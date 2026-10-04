@@ -12,6 +12,7 @@ import { MyPage } from "./pages/MyPage";
 import { PortfolioPage } from "./pages/PortfolioPage";
 import { RankingPage } from "./pages/RankingPage";
 import { ReportPage } from "./pages/ReportPage";
+import { ReportsHealthPage } from "./pages/ReportsHealthPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { SearchPage } from "./pages/SearchPage";
 import { StockPage } from "./pages/StockPage";
@@ -56,6 +57,7 @@ export default function App() {
           <Route path="portfolio" element={<PortfolioPage />} />
           <Route path="analyses/:id" element={<AnalysisPage />} />
           <Route path="reports" element={<ReportsPage />} />
+          <Route path="reports/health" element={<ReportsHealthPage />} />
           <Route path="reports/:id" element={<ReportPage />} />
           <Route path="ranking" element={<RankingPage />} />
           <Route path="my" element={<MyPage />} />

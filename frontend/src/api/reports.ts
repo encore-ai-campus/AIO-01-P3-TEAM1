@@ -3,9 +3,10 @@
 // SSE가 끊기거나 안 되면 Snapshot을 3초 간격으로 다시 받는다. SSE는 상태의 저장소가 아니다 (DB가 원본).
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { api } from "./client";
+import { ApiError, api } from "./client";
 import { keys, POLL } from "./queries";
-import type { ReportDetail, ReportStatus, SharedState, TraceEvent } from "./types";
+import { sampleRecoveryStats, sampleScreening } from "../lib/reportSamples";
+import type { ChaosRequest, RecoveryStats, ReportDetail, ReportStatus, ScreeningResult, SharedState, TraceEvent } from "./types";
 
 /** 화면에 보이는 전달 방식: 실시간 SSE / Snapshot(폴링·완료된 기록) / 대기(실행 전이라 연결하지 않음). */
 export type Delivery = "sse" | "snapshot" | "idle";
@@ -110,10 +111,37 @@ export function useReportLive(id: number) {
 export function useRequestReport() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (symbol: string) => api.post<ReportDetail>("/api/reports", { symbol }),
+    mutationFn: ({ symbol, chaos }: { symbol: string; chaos?: ChaosRequest | null }) =>
+      api.post<ReportDetail>("/api/reports", chaos?.enabled ? { symbol, chaos } : { symbol }),
     onSuccess: (r) => {
       qc.setQueryData(keys.report(r.id), r);
       void qc.invalidateQueries({ queryKey: ["reports"] });
     },
+  });
+}
+
+/** 서버에 그 API가 아직 없으면(404) 예시 데이터를 돌려준다. example이면 화면이 "예시" 표시를 붙인다. */
+async function orSample<T>(path: string, sample: () => T): Promise<{ data: T; example: boolean }> {
+  try {
+    return { data: await api.get<T>(path), example: false };
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return { data: sample(), example: true };
+    throw e;
+  }
+}
+
+/** 복구 지표 (GET /api/reports/recovery-stats). */
+export function useRecoveryStats(days: number) {
+  return useQuery({
+    queryKey: ["reports", "recovery-stats", days],
+    queryFn: () => orSample<RecoveryStats>(`/api/reports/recovery-stats?days=${days}`, () => sampleRecoveryStats(days)),
+  });
+}
+
+/** 오늘의 선별 결과 (GET /api/reports/screening). */
+export function useScreening() {
+  return useQuery({
+    queryKey: ["reports", "screening"],
+    queryFn: () => orSample<ScreeningResult>("/api/reports/screening?market=KR", sampleScreening),
   });
 }

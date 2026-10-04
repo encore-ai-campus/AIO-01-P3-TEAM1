@@ -51,3 +51,28 @@ export function DeliveryBadge({ delivery }: { delivery: Delivery }) {
 export function ExampleTag({ className }: { className?: string }) {
   return <span className={cn(chip, "bg-warn text-white", className)}>예시</span>;
 }
+
+/** 자동 리포트(거래대금 상위 선별) 표시. */
+export function AutoBadge({ className }: { className?: string }) {
+  return <span className={cn(chip, "bg-ink text-white", className)}>자동</span>;
+}
+
+/** 장애 주입 표시 (신청 때 켰거나, 그 실패가 주입된 것). */
+export function InjectedBadge({ className }: { className?: string }) {
+  return (
+    <span className={cn(chip, "bg-warn-soft text-[#9a5b00]", className)}>
+      <Icon name="bolt" className="size-3.5" />
+      주입
+    </span>
+  );
+}
+
+/** 실패가 있었지만 재시도·대체 모델로 끝까지 답함. */
+export function RecoveredBadge({ className }: { className?: string }) {
+  return (
+    <span className={cn(chip, "bg-ok text-white", className)}>
+      <Icon name="shield" className="size-3.5" />
+      자동 복구
+    </span>
+  );
+}

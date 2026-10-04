@@ -1,7 +1,8 @@
 // docs/API.md의 모든 엔드포인트를 흉내 내는 MSW 핸들러.
 import { delay, http, HttpResponse, type DefaultBodyType, type StrictRequest } from "msw";
-import type { OrderRequest } from "../api/types";
+import type { ChaosRequest, OrderRequest } from "../api/types";
 import * as db from "./db";
+import { sampleRecoveryStats, sampleScreening } from "../lib/reportSamples";
 import { reportPlan, type MockUser } from "./seed";
 
 const CSRF = "mock-csrf-token";
@@ -197,6 +198,14 @@ export const handlers = [
     route(() => reportPlan()),
   ),
   http.get(
+    "*/api/reports/recovery-stats",
+    route((_u, ctx) => sampleRecoveryStats(Number(urlOf(ctx).searchParams.get("days")) || 7)),
+  ),
+  http.get(
+    "*/api/reports/screening",
+    route(() => sampleScreening()),
+  ),
+  http.get(
     "*/api/reports",
     route((_u, ctx) => {
       const url = urlOf(ctx);
@@ -206,7 +215,8 @@ export const handlers = [
   http.post(
     "*/api/reports",
     route(async (u, { request }) => {
-      const { report, created } = db.requestReport(u, String((await json<{ symbol?: string }>(request)).symbol ?? ""));
+      const body = await json<{ symbol?: string; chaos?: ChaosRequest }>(request);
+      const { report, created } = db.requestReport(u, String(body.symbol ?? ""), body.chaos);
       return HttpResponse.json(report, { status: created ? 201 : 200 });
     }),
   ),

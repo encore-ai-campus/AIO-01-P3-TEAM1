@@ -16,6 +16,8 @@ import type {
   Position,
   Quote,
   Ranking,
+  ChaosConfig,
+  ChaosRequest,
   ReportDetail,
   ReportSummary,
   Reservation,
@@ -758,7 +760,8 @@ export function getJob(user: MockUser, id: number): Job {
 
 function toReportSummary(r: MockReport): ReportSummary {
   const { id, symbol, name, market, status, currentStep, requestedBy, createdAt, startedAt, finishedAt } = r;
-  return { id, symbol, name, market, status, currentStep, requestedBy, createdAt, startedAt, finishedAt };
+  const { source, chaosEnabled, costUsd, hasPdf } = r;
+  return { id, symbol, name, market, status, currentStep, requestedBy, createdAt, startedAt, finishedAt, source, chaosEnabled, costUsd, hasPdf };
 }
 
 export function listReports(symbol: string | null): ReportSummary[] {
@@ -774,7 +777,18 @@ export function getReport(id: number): ReportDetail {
   return strip(r);
 }
 
-function newReport(id: number, user: MockUser, s: MockStock, createdAt: string): MockReport {
+function newReport(id: number, user: MockUser, s: MockStock, createdAt: string, chaos?: ChaosRequest): MockReport {
+  // 서버가 기본값과 seed를 채운다 (docs/tasks/00-공통.md 5절)
+  const filled: ChaosConfig | null = chaos?.enabled
+    ? {
+        enabled: true,
+        probability: chaos.probability ?? 0.5,
+        errorTypes: chaos.errorTypes ?? ["timeout", "server_error", "bad_output"],
+        workers: chaos.workers ?? null,
+        scope: chaos.scope ?? "primary",
+        seed: chaos.seed ?? 123456,
+      }
+    : null;
   return {
     id,
     userId: user.id,
@@ -784,6 +798,12 @@ function newReport(id: number, user: MockUser, s: MockStock, createdAt: string):
     status: "requested",
     currentStep: null,
     requestedBy: user.nickname,
+    source: "user",
+    chaosEnabled: filled !== null,
+    costUsd: null,
+    hasPdf: false,
+    chaos: filled,
+    recovery: { failures: 0, recovered: 0, unrecovered: 0, injected: 0, recoveryMs: null, models: {} },
     createdAt,
     startedAt: null,
     finishedAt: null,
@@ -803,14 +823,14 @@ function newReport(id: number, user: MockUser, s: MockStock, createdAt: string):
 }
 
 /** 리포트 신청. 같은 사람이 같은 종목으로 신청해 아직 끝나지 않은 리포트가 있으면 그것을 돌려준다 (created=false → 200). */
-export function requestReport(user: MockUser, symbol: string): { report: ReportDetail; created: boolean } {
+export function requestReport(user: MockUser, symbol: string, chaos?: ChaosRequest): { report: ReportDetail; created: boolean } {
   const s = state.stocks.find((x) => x.symbol === symbol.trim().toUpperCase());
   if (!s) throw new MockError(400, "종목을 찾을 수 없습니다.");
   const open = state.reports.find(
     (r) => r.userId === user.id && r.symbol === s.symbol && r.status !== "completed" && r.status !== "failed",
   );
   if (open) return { report: strip(open), created: false };
-  const r = newReport(nextId(), user, s, kstIso());
+  const r = newReport(nextId(), user, s, kstIso(), chaos);
   state.reports.push(r);
   return { report: strip(r), created: true };
 }

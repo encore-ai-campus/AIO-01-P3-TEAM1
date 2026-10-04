@@ -61,7 +61,7 @@ export const keys = {
   quota: ["quota"] as const,
   job: (id: number) => ["job", id] as const,
   reportPlan: ["reportPlan"] as const,
-  reports: (params: { symbol?: string; limit?: number }) => ["reports", params] as const,
+  reports: (params: { symbol?: string; source?: string; limit?: number }) => ["reports", params] as const,
   report: (id: number) => ["report", id] as const,
 };
 
@@ -203,10 +203,10 @@ export function useReportPlan() {
 }
 
 /** 리포트 목록 (팀 전체 공용, 최신순). 상세 Snapshot·SSE는 api/reports.ts의 useReportLive. */
-export function useReports(params: { symbol?: string; limit?: number } = {}) {
+export function useReports(params: { symbol?: string; source?: "user" | "auto"; limit?: number } = {}) {
   return useQuery({
     queryKey: keys.reports(params),
-    queryFn: () => api.get<Page<ReportSummary>>(`/api/reports${qs({ symbol: params.symbol, limit: params.limit ?? 50 })}`),
+    queryFn: () => api.get<Page<ReportSummary>>(`/api/reports${qs({ symbol: params.symbol, source: params.source, limit: params.limit ?? 50 })}`),
     ...live(POLL.reports),
   });
 }

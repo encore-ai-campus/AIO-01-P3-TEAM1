@@ -21,6 +21,9 @@ const PATHS = {
   restart: "M4 12a8 8 0 1 0 2.4-5.7L4 8.5M4 4v4.5h4.5",
   next: "M5 5l9 7-9 7zM19 5v14",
   shield: "M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z",
+  download: "M12 4v11M7 10l5 5 5-5M5 20h14",
+  swap: "M4 8h13l-3-3M20 16H7l3 3",
+  chart: "M5 20V11M12 20V4M19 20v-6",
   bolt: "M13 3 5 13.5h6L10 21l8-10.5h-6z",
 } as const;
 
