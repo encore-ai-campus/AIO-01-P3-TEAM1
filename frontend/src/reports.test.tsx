@@ -124,7 +124,7 @@ describe("리포트 목록·신청", () => {
   it("하단 탭과 왼쪽 메뉴에 리포트가 있다", async () => {
     renderApp("/reports");
     const tabs = await screen.findByRole("navigation", { name: "하단 탭" });
-    expect(within(tabs).getAllByRole("link").map((a) => a.textContent)).toEqual(["홈", "내 주식", "리포트", "랭킹", "마이"]);
+    expect(within(tabs).getAllByRole("link").map((a) => a.textContent)).toEqual(["홈", "추천", "내 주식", "리포트", "랭킹", "마이"]);
     expect(within(screen.getByRole("navigation", { name: "주 메뉴" })).getByRole("link", { name: "리포트" })).toBeTruthy();
   });
 });

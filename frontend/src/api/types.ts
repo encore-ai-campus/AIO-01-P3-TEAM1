@@ -412,3 +412,147 @@ export interface ReportDetail extends ReportSummary {
   chaos?: ChaosConfig | null; // (추가)
   recovery?: RecoverySummary; // (추가)
 }
+
+// ---------------------------------------------------------------- AI 추천 · 매매 계획 · 자동매매 · 알림 (docs/API.md 끝 절)
+
+export type RecommendationSource = "report" | "analysis" | "demo";
+export type RecommendationStatus = "open" | "expired"; // open: validUntil 전이라 활성화할 수 있음
+export type RiskLevel = "low" | "medium" | "high";
+
+export interface Recommendation {
+  id: number;
+  source: RecommendationSource;
+  sourceId: number | null; // report면 리포트 id, analysis면 분석 id, demo면 null
+  requestedBy: string | null; // 신청한(또는 시연 추천을 만든) 팀원의 닉네임. 자동이면 null
+  symbol: string;
+  name: string;
+  market: Market;
+  currency: Currency;
+  priceAtCreation: number | null;
+  entryPrice: number; // 지정가로 주문한다
+  targetPrice: number;
+  stopPrice: number; // 0 < stopPrice < entryPrice < targetPrice
+  holdingDays: number; // 거래일 1~20
+  targetReturn: number; // targetPrice / entryPrice - 1 (비용 전)
+  stopLossRate: number; // stopPrice / entryPrice - 1 (음수, 비용 전)
+  rewardRisk: number; // 손익비 (비용 반영, 리스크 엔진과 같은 계산)
+  probability: number; // 0~1
+  probabilityAssumed: boolean; // AI가 확률을 주지 않아 0.5로 둔 경우
+  expectedReturn: number; // 기대수익률 (비용 반영)
+  confidence: number | null; // 0~100
+  summary: string;
+  reasons: string[];
+  risks: string[];
+  riskLevel: RiskLevel | null;
+  status: RecommendationStatus;
+  validUntil: string;
+  createdAt: string;
+  myPlan: { id: number; status: TradePlanStatus } | null;
+  planCount: number;
+}
+
+export interface RiskPreview {
+  approved: boolean;
+  activatable: boolean;
+  reasons: string[];
+  quantity: number;
+  amountKrw: number;
+  expectedProfitKrw: number;
+  maxLossKrw: number; // 양수
+  limitedBy: string; // "건당 위험 한도" | "매수 가능 금액" | "총 금액 한도" | "유동성 한도" | "예산"
+  budgetKrw: number | null;
+  lastPrice: number | null;
+}
+
+export type TradePlanStatus = "active" | "entry_pending" | "holding" | "closed" | "cancelled" | "expired" | "failed";
+
+export interface TradePlan {
+  id: number;
+  recommendationId: number;
+  symbol: string;
+  name: string;
+  market: Market;
+  currency: Currency;
+  source: RecommendationSource;
+  status: TradePlanStatus;
+  via: "web" | "discord";
+  quantity: number;
+  budgetKrw: number | null;
+  entryPrice: number;
+  targetPrice: number;
+  stopPrice: number;
+  holdingDays: number;
+  entryDeadline: string;
+  orderId: number | null;
+  fillPrice: number | null;
+  filledAt: string | null;
+  exitPrice: number | null;
+  exitReason: "TARGET" | "STOP" | "EXPIRED" | "MANUAL" | null;
+  closedAt: string | null;
+  pnlKrw: number | null;
+  failureReason: string | null;
+  activatedAt: string;
+  updatedAt: string;
+}
+
+export type PlanEventKind =
+  | "activated"
+  | "risk_checked"
+  | "order_placed"
+  | "order_requeued"
+  | "filled"
+  | "exit_requested"
+  | "closed"
+  | "cancelled"
+  | "expired"
+  | "failed";
+
+export interface PlanEvent {
+  step: number; // 계획별 1부터
+  kind: PlanEventKind | (string & {}); // 모르는 값도 그대로 보여 준다
+  message: string;
+  details: Record<string, unknown>;
+  at: string;
+}
+
+export interface TradePlanDetail extends TradePlan {
+  recommendation: Recommendation;
+  events: PlanEvent[]; // step 오름차순
+}
+
+export type NotificationKind =
+  | "recommendation"
+  | "plan_activated"
+  | "order_placed"
+  | "order_requeued"
+  | "filled"
+  | "closed"
+  | "cancelled"
+  | "expired"
+  | "failed"
+  | "system";
+
+export interface Notification {
+  id: number;
+  kind: NotificationKind | (string & {});
+  title: string;
+  body: string;
+  link: string | null; // 웹 경로 ("/plans/3")
+  createdAt: string;
+  readAt: string | null;
+}
+
+export interface NotificationPage extends Page<Notification> {
+  unreadCount: number;
+}
+
+export interface NotificationSettings {
+  discordUserId: string | null; // 숫자 17~20자리
+  discordEnabled: boolean;
+  webhookConfigured: boolean;
+}
+
+export interface NotificationTestResult {
+  detail: string;
+  discord: "queued" | "not_configured" | "disabled";
+}

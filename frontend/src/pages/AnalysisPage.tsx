@@ -2,6 +2,7 @@ import { Link, useParams } from "react-router";
 import { ApiError, errorMessage } from "../api/client";
 import { useAnalysis, useQuotes } from "../api/queries";
 import type { Currency, Scenario } from "../api/types";
+import { SourceRecommendations } from "../components/autotrade/SourceRecommendations";
 import { Card, ErrorState, Flash, PageHeader, PriceChange, Skeleton, SkeletonCard, VerdictBadge } from "../components/ui";
 import { cn } from "../lib/cn";
 import { formatDate, formatDateTime, formatPercent, formatPrice, formatRate, formatRequester, formatUsd } from "../lib/format";
@@ -146,6 +147,8 @@ export function AnalysisPage() {
               이 종목 주문하기
             </Link>
           </Card>
+
+          <SourceRecommendations source="analysis" sourceId={a.id} />
 
           <h2 className="px-1 pt-2 text-[17px] font-bold">시나리오 {a.scenarioCount}개</h2>
           {scenarios.length === 0 ? (

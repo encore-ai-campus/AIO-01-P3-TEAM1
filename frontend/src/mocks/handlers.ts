@@ -224,5 +224,74 @@ export const handlers = [
     "*/api/reports/:id",
     route((_u, { params }) => db.getReport(num(params.id))),
   ),
+  // AI 추천 · 매매 계획 · 알림 (시연용 진행: 주문 접수 → 몇 초 뒤 체결 → 몇 초 뒤 목표가 청산)
+  http.post(
+    "*/api/recommendations/demo",
+    route(async (u, { request }) => db.createDemo(u, await json(request)), { status: 201 }),
+  ),
+  http.get(
+    "*/api/recommendations",
+    route((u, ctx) => {
+      const sp = urlOf(ctx).searchParams;
+      const rows = db.listRecommendations(u.id, {
+        status: sp.get("status"),
+        source: sp.get("source"),
+        sourceId: sp.get("sourceId"),
+        symbol: sp.get("symbol"),
+      });
+      return page(urlOf(ctx), rows);
+    }),
+  ),
+  http.get(
+    "*/api/recommendations/:id/preview",
+    route((u, ctx) => db.riskPreview(u.id, num(ctx.params.id), urlOf(ctx).searchParams.get("budgetKrw"))),
+  ),
+  http.get(
+    "*/api/recommendations/:id",
+    route((u, { params }) => db.getRecommendation(u.id, num(params.id))),
+  ),
+  http.post(
+    "*/api/recommendations/:id/activate",
+    route(async (u, { request, params }) => db.activate(u, num(params.id), await json(request)), { status: 201 }),
+  ),
+  http.get(
+    "*/api/trade-plans",
+    route((u, ctx) => page(urlOf(ctx), db.listPlans(u.id, urlOf(ctx).searchParams.get("status")))),
+  ),
+  http.get(
+    "*/api/trade-plans/:id",
+    route((u, { params }) => db.getPlan(u.id, num(params.id))),
+  ),
+  http.post(
+    "*/api/trade-plans/:id/cancel",
+    route((u, { params }) => db.cancelPlan(u.id, num(params.id))),
+  ),
+  http.get(
+    "*/api/notifications",
+    route((u, ctx) => {
+      const url = urlOf(ctx);
+      const { rows, unreadCount } = db.listNotifications(u.id, url.searchParams.get("unread") === "1");
+      return { ...page(url, rows), unreadCount };
+    }),
+  ),
+  http.post(
+    "*/api/notifications/read",
+    route(async (u, { request }) => {
+      db.markRead(u.id, await json(request));
+      return undefined;
+    }),
+  ),
+  http.get(
+    "*/api/notification-settings",
+    route((u) => db.notificationSettings(u.id)),
+  ),
+  http.patch(
+    "*/api/notification-settings",
+    route(async (u, { request }) => db.updateNotificationSettings(u.id, await json(request))),
+  ),
+  http.post(
+    "*/api/notification-settings/test",
+    route((u) => db.testNotification(u.id), { status: 202 }),
+  ),
   http.get("*/api/health", () => HttpResponse.json({ status: "ok" })),
 ];

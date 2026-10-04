@@ -5,6 +5,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router";
 import { ApiError, errorMessage } from "../api/client";
 import { isFinished, useReportLive, useRequestReport } from "../api/reports";
 import type { ReportDetail, SharedState, TraceEvent } from "../api/types";
+import { SourceRecommendations } from "../components/autotrade/SourceRecommendations";
 import { Icon } from "../components/Icon";
 import { EduDocSection } from "../components/reports/EduDocSection";
 import { PlanGraph } from "../components/reports/PlanGraph";
@@ -192,10 +193,11 @@ export function ReportPage() {
         {tab === "report" && (
           <div role="tabpanel" id="panel-report" aria-labelledby="tab-report" className="space-y-3 lg:space-y-4">
             {r.status === "failed" && <FailureCard r={r} trace={r.trace} state={r.state} />}
+            <SourceRecommendations source="report" sourceId={r.id} />
             <Card aria-labelledby="content-title">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <CardTitle id="content-title" title="리포트 본문" />
-                {r.hasPdf && (
+                {(r.hasPdf || r.status === "completed") && (
                   <a
                     href={`/api/reports/${r.id}/pdf`}
                     target="_blank"

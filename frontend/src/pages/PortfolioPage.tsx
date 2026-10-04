@@ -1,9 +1,10 @@
 import { useMutation } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router";
 import { api, errorMessage } from "../api/client";
-import { useAccount, useFills, useOrders, useReservations } from "../api/queries";
+import { useAccount, useFills, useOrders, usePlans, useReservations } from "../api/queries";
 import { useRefreshTrading } from "../api/trading";
 import type { Fill, Order, Reservation } from "../api/types";
+import { Icon } from "../components/Icon";
 import { useToast } from "../components/toast";
 import { Card, EmptyState, ErrorState, Flash, PageHeader, SkeletonCard } from "../components/ui";
 import { cn } from "../lib/cn";
@@ -256,12 +257,30 @@ function FillsTab() {
   );
 }
 
+/** 위쪽 링크: 내 자동매매 (진행 중 계획 수). */
+function PlansLink() {
+  const { data } = usePlans("active");
+  const n = data?.count ?? 0;
+  return (
+    <Link
+      to="/plans"
+      className="mb-3 flex h-12 items-center gap-2 rounded-2xl bg-card px-4 text-[15px] font-semibold hover:bg-fill/60"
+    >
+      <Icon name="flow" className="size-5 text-brand" />
+      내 자동매매
+      <span className="text-[14px] font-medium text-mute">{n > 0 ? `진행 중 ${n}건` : "AI 추천을 활성화한 계획"}</span>
+      <Icon name="chevron" className="ml-auto size-4 text-mute" />
+    </Link>
+  );
+}
+
 export function PortfolioPage() {
   const [params, setParams] = useSearchParams();
   const tab = (TABS.find((t) => t.value === params.get("tab"))?.value ?? "holdings") as Tab;
   return (
     <>
       <PageHeader title="내 주식" />
+      <PlansLink />
       <div role="tablist" aria-label="내 주식" className="mb-3 flex gap-1 overflow-x-auto">
         {TABS.map((t) => (
           <button

@@ -1,17 +1,30 @@
 import { NavLink, Outlet, useMatch } from "react-router";
 import { useMe } from "../api/queries";
 import { cn } from "../lib/cn";
+import { NotificationMenuItem } from "./autotrade/NotificationBell";
 import { Icon, type IconName } from "./Icon";
 
-const TABS: { to: string; label: string; icon: IconName; end?: boolean }[] = [
-  { to: "/", label: "홈", icon: "home", end: true },
-  { to: "/portfolio", label: "내 주식", icon: "pie" },
-  { to: "/reports", label: "리포트", icon: "doc" },
-  { to: "/ranking", label: "랭킹", icon: "trophy" },
-  { to: "/my", label: "마이", icon: "user" },
-];
+type Tab = { to: string; label: string; icon: IconName; end?: boolean };
 
-const SIDE: typeof TABS = [TABS[0], { to: "/search", label: "종목 검색", icon: "search" }, ...TABS.slice(1)];
+const HOME: Tab = { to: "/", label: "홈", icon: "home", end: true };
+const RECS: Tab = { to: "/recommendations", label: "추천", icon: "sparkle" };
+const PORTFOLIO: Tab = { to: "/portfolio", label: "내 주식", icon: "pie" };
+const REPORTS: Tab = { to: "/reports", label: "리포트", icon: "doc" };
+const RANKING: Tab = { to: "/ranking", label: "랭킹", icon: "trophy" };
+const MY: Tab = { to: "/my", label: "마이", icon: "user" };
+
+// 하단 탭 6개 (360px에서 칸마다 60px). 내 자동매매·알림·종목 검색은 왼쪽 메뉴와 각 화면의 링크로 간다.
+const TABS: Tab[] = [HOME, RECS, PORTFOLIO, REPORTS, RANKING, MY];
+
+const SIDE_TOP: Tab[] = [
+  HOME,
+  { to: "/search", label: "종목 검색", icon: "search" },
+  { ...RECS, label: "AI 추천" },
+  PORTFOLIO,
+  { to: "/plans", label: "내 자동매매", icon: "flow" },
+  REPORTS,
+  RANKING,
+];
 
 /** 모바일: 한 열 + 하단 탭. PC(lg 이상): 왼쪽 메뉴 + 넓은 본문. */
 export function Layout() {
@@ -27,7 +40,7 @@ export function Layout() {
           모의매매
         </NavLink>
         <nav aria-label="주 메뉴" className="flex flex-col gap-1">
-          {SIDE.map((t) => (
+          {SIDE_TOP.map((t) => (
             <NavLink
               key={t.to}
               to={t.to}
@@ -43,6 +56,19 @@ export function Layout() {
               {t.label}
             </NavLink>
           ))}
+          <NotificationMenuItem />
+          <NavLink
+            to={MY.to}
+            className={({ isActive }) =>
+              cn(
+                "flex h-12 items-center gap-3 rounded-xl px-3 text-[16px] font-semibold transition-colors",
+                isActive ? "bg-fill text-ink" : "text-mute hover:bg-fill/60 hover:text-sub",
+              )
+            }
+          >
+            <Icon name={MY.icon} className="size-5" />
+            {MY.label}
+          </NavLink>
         </nav>
         {me && (
           <NavLink to="/my" className="mt-auto rounded-xl px-3 py-3 hover:bg-fill">
@@ -63,7 +89,7 @@ export function Layout() {
           aria-label="하단 탭"
           className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden"
         >
-          <ul className="mx-auto grid max-w-[640px] grid-cols-5">
+          <ul className="mx-auto grid max-w-[640px] grid-cols-6">
             {TABS.map((t) => (
               <li key={t.to}>
                 <NavLink
@@ -71,7 +97,7 @@ export function Layout() {
                   end={t.end}
                   className={({ isActive }) =>
                     cn(
-                      "flex h-16 flex-col items-center justify-center gap-1 text-[11px] font-semibold",
+                      "flex h-16 flex-col items-center justify-center gap-1 text-[11px] font-semibold whitespace-nowrap",
                       isActive ? "text-ink" : "text-mute",
                     )
                   }

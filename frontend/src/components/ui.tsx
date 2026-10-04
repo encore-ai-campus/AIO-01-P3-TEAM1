@@ -4,6 +4,7 @@ import { useNavigate } from "react-router";
 import type { Currency, Verdict } from "../api/types";
 import { cn } from "../lib/cn";
 import { formatPrice, formatRate, formatSignedPrice, trendClass } from "../lib/format";
+import { NotificationBell } from "./autotrade/NotificationBell";
 import { Icon } from "./Icon";
 
 export function Card({ children, className, as: Tag = "section", ...rest }: {
@@ -138,7 +139,7 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
   );
 }
 
-/** 화면 제목. 모바일은 상단에 붙고, back이면 뒤로 가기 버튼을 둔다. */
+/** 화면 제목. 모바일은 상단에 붙고, back이면 뒤로 가기 버튼을 둔다. 모바일은 오른쪽에 알림 종을 둔다 (PC는 왼쪽 메뉴). */
 export function PageHeader({ title, back, right }: { title: ReactNode; back?: boolean; right?: ReactNode }) {
   const navigate = useNavigate();
   return (
@@ -155,6 +156,7 @@ export function PageHeader({ title, back, right }: { title: ReactNode; back?: bo
       )}
       <h1 className={cn("min-w-0 flex-1 truncate text-[20px] font-bold lg:text-[26px]", !back && "px-2 lg:px-0")}>{title}</h1>
       {right}
+      <NotificationBell className="lg:hidden" />
     </header>
   );
 }

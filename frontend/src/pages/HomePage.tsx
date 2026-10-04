@@ -5,6 +5,7 @@ import { useAnalyses, useMarket, useQuotes } from "../api/queries";
 import type { MarketStatus } from "../api/types";
 import { AnalysisCard } from "../components/AnalysisCard";
 import { AssetCard } from "../components/AssetCard";
+import { HomePlans, HomeRecommendations } from "../components/autotrade/HomeSummaries";
 import { Icon } from "../components/Icon";
 import { EmptyState, ErrorState, PageHeader, Segmented, SkeletonCard } from "../components/ui";
 import { cn } from "../lib/cn";
@@ -107,7 +108,11 @@ export function HomePage() {
           </Link>
           <MarketChips market={market} />
         </div>
-        <Dashboard />
+        <div className="min-w-0 space-y-6">
+          <HomePlans />
+          <HomeRecommendations />
+          <Dashboard />
+        </div>
       </div>
     </>
   );

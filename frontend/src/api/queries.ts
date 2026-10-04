@@ -11,14 +11,22 @@ import type {
   Job,
   MarketStatus,
   Me,
+  NotificationPage,
+  NotificationSettings,
   Order,
   Page,
   Quote,
   Ranking,
+  Recommendation,
+  RecommendationSource,
   ReportSummary,
   Reservation,
+  RiskPreview,
   StockDetail,
   StockItem,
+  TradePlan,
+  TradePlanDetail,
+  TradePlanStatus,
   Verdict,
 } from "./types";
 
@@ -38,6 +46,9 @@ export const POLL = {
   analyses: 30000,
   reports: 30000,
   report: 3000, // SSE가 없거나 끊겼을 때 리포트 Snapshot 다시 받기
+  notifications: 15000, // 안 읽은 알림 수
+  plan: 5000, // 진행 중 계획
+  recommendations: 30000,
 };
 
 const live = (ms: number) => ({ refetchInterval: ms, refetchIntervalInBackground: false });
@@ -63,7 +74,22 @@ export const keys = {
   reportPlan: ["reportPlan"] as const,
   reports: (params: { symbol?: string; source?: string; limit?: number }) => ["reports", params] as const,
   report: (id: number) => ["report", id] as const,
+  recommendations: (params: RecommendationParams) => ["recommendations", params] as const,
+  recommendation: (id: number) => ["recommendation", id] as const,
+  preview: (id: number, budgetKrw: number | null) => ["recommendation", id, "preview", budgetKrw] as const,
+  plans: (status: "active" | "all") => ["plans", status] as const,
+  plan: (id: number) => ["plan", id] as const,
+  notifications: (unread: boolean) => ["notifications", unread] as const,
+  notificationSettings: ["notificationSettings"] as const,
 };
+
+export interface RecommendationParams {
+  status?: "open" | "all";
+  source?: RecommendationSource;
+  sourceId?: number;
+  symbol?: string;
+  limit?: number;
+}
 
 export function useMe() {
   return useQuery({
@@ -208,5 +234,86 @@ export function useReports(params: { symbol?: string; source?: "user" | "auto"; 
     queryKey: keys.reports(params),
     queryFn: () => api.get<Page<ReportSummary>>(`/api/reports${qs({ symbol: params.symbol, source: params.source, limit: params.limit ?? 50 })}`),
     ...live(POLL.reports),
+  });
+}
+
+// ---------------------------------------------------------------- AI 추천 · 매매 계획 · 알림 (변경 요청은 api/autotrade.ts)
+
+/** 진행 중 계획 = active · entry_pending · holding. 나머지는 끝난 상태 (다시 바뀌지 않는다). */
+export const isPlanLive = (status: TradePlanStatus) => status === "active" || status === "entry_pending" || status === "holding";
+
+/** 추천 목록 (팀 전체 공용, 최신순). 리포트·분석 화면은 source·sourceId로 자기 추천을 찾는다. */
+export function useRecommendations(params: RecommendationParams = {}, enabled = true) {
+  return useQuery({
+    queryKey: keys.recommendations(params),
+    queryFn: () =>
+      api.get<Page<Recommendation>>(
+        `/api/recommendations${qs({
+          status: params.status ?? "open",
+          source: params.source,
+          sourceId: params.sourceId,
+          symbol: params.symbol,
+          limit: params.limit ?? 50,
+        })}`,
+      ),
+    enabled,
+    ...live(POLL.recommendations),
+  });
+}
+
+export function useRecommendation(id: number) {
+  return useQuery({
+    queryKey: keys.recommendation(id),
+    queryFn: () => api.get<Recommendation>(`/api/recommendations/${id}`),
+    enabled: Number.isFinite(id),
+    ...live(POLL.recommendations),
+  });
+}
+
+/** 리스크 엔진이 내 계좌로 계산한 활성화 미리 보기. 예산은 원 (null이면 보내지 않는다). */
+export function useRiskPreview(id: number, budgetKrw: number | null, enabled = true) {
+  return useQuery({
+    queryKey: keys.preview(id, budgetKrw),
+    queryFn: () => api.get<RiskPreview>(`/api/recommendations/${id}/preview${qs({ budgetKrw })}`),
+    enabled: enabled && Number.isFinite(id),
+    placeholderData: (prev) => prev,
+  });
+}
+
+export function usePlans(status: "active" | "all" = "active") {
+  return useQuery({
+    queryKey: keys.plans(status),
+    queryFn: () => api.get<Page<TradePlan>>(`/api/trade-plans${qs({ status, limit: 50 })}`),
+    ...live(POLL.plan),
+  });
+}
+
+/** 계획 상세. 진행 중이면 5초마다, 끝났으면 멈춘다. */
+export function usePlan(id: number) {
+  return useQuery({
+    queryKey: keys.plan(id),
+    queryFn: () => api.get<TradePlanDetail>(`/api/trade-plans/${id}`),
+    enabled: Number.isFinite(id),
+    refetchInterval: (q) => {
+      const status = q.state.data?.status;
+      return status && !isPlanLive(status) ? false : POLL.plan;
+    },
+    refetchIntervalInBackground: false,
+  });
+}
+
+/** 알림 목록. unread면 안 읽은 것만 (헤더 배지는 unreadCount만 쓴다). */
+export function useNotifications(unread = false) {
+  return useQuery({
+    queryKey: keys.notifications(unread),
+    queryFn: () => api.get<NotificationPage>(`/api/notifications${qs({ unread: unread ? 1 : null, limit: unread ? 1 : 50 })}`),
+    ...live(POLL.notifications),
+  });
+}
+
+export function useNotificationSettings() {
+  return useQuery({
+    queryKey: keys.notificationSettings,
+    queryFn: () => api.get<NotificationSettings>("/api/notification-settings"),
   });
 }

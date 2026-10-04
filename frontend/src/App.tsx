@@ -9,8 +9,13 @@ import { AnalysisPage } from "./pages/AnalysisPage";
 import { HomePage } from "./pages/HomePage";
 import { LoginPage } from "./pages/LoginPage";
 import { MyPage } from "./pages/MyPage";
+import { NotificationsPage } from "./pages/NotificationsPage";
+import { PlanPage } from "./pages/PlanPage";
+import { PlansPage } from "./pages/PlansPage";
 import { PortfolioPage } from "./pages/PortfolioPage";
 import { RankingPage } from "./pages/RankingPage";
+import { RecommendationPage } from "./pages/RecommendationPage";
+import { RecommendationsPage } from "./pages/RecommendationsPage";
 import { ReportPage } from "./pages/ReportPage";
 import { ReportsHealthPage } from "./pages/ReportsHealthPage";
 import { ReportsPage } from "./pages/ReportsPage";
@@ -59,6 +64,11 @@ export default function App() {
           <Route path="reports" element={<ReportsPage />} />
           <Route path="reports/health" element={<ReportsHealthPage />} />
           <Route path="reports/:id" element={<ReportPage />} />
+          <Route path="recommendations" element={<RecommendationsPage />} />
+          <Route path="recommendations/:id" element={<RecommendationPage />} />
+          <Route path="plans" element={<PlansPage />} />
+          <Route path="plans/:id" element={<PlanPage />} />
+          <Route path="notifications" element={<NotificationsPage />} />
           <Route path="ranking" element={<RankingPage />} />
           <Route path="my" element={<MyPage />} />
           <Route path="*" element={<NotFound />} />

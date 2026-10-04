@@ -25,6 +25,8 @@ const PATHS = {
   swap: "M4 8h13l-3-3M20 16H7l3 3",
   chart: "M5 20V11M12 20V4M19 20v-6",
   bolt: "M13 3 5 13.5h6L10 21l8-10.5h-6z",
+  bell: "M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15zM10 20.5a2 2 0 0 0 4 0",
+  flow: "M5 6h4v4H5zM15 14h4v4h-4zM7 10v4a2 2 0 0 0 2 2h6M17 14v-4a2 2 0 0 0-2-2h-6",
 } as const;
 
 export type IconName = keyof typeof PATHS;

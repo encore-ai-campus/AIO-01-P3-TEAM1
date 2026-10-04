@@ -4,6 +4,7 @@ import { useNavigate } from "react-router";
 import { api, errorMessage } from "../api/client";
 import { keys, useAccount, useEquity, useMe } from "../api/queries";
 import type { Me } from "../api/types";
+import { NotificationSettingsCard } from "../components/autotrade/NotificationSettingsCard";
 import { Icon } from "../components/Icon";
 import { LineChart } from "../components/LineChart";
 import { useToast } from "../components/toast";
@@ -187,6 +188,7 @@ export function MyPage() {
               <NicknameForm key={me.nickname} me={me} />
             </div>
           </Card>
+          <NotificationSettingsCard />
           <button
             type="button"
             onClick={() => logout.mutate()}
