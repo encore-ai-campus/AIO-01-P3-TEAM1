@@ -285,12 +285,23 @@ interface AnalysisQuota {
 **Agent와 Orchestrator 실행 코드는 아직 없다** (`ExecutionPlan.implemented = false`). 지금은 신청·실행 계획·Shared State·Trace를
 담고 보여 주는 구조만 있다. 신청한 리포트는 `requested` 상태로 남는다.
 
+**2026-10-04 추가 (구현 전 계약)**: 장애 주입(`chaos`), 복구 요약(`recovery`), 자동 리포트(`source`), PDF, 복구 지표, 복구 Trace 사건.
+담당별 할 일은 `docs/tasks/`, 셈법과 모듈 경계는 `docs/tasks/00-공통.md`. 아래에서 "(추가)"로 표시한 것은 아직 서버가 내지 않는다.
+
 ## 타입
 
 ```ts
 type TraceStatus = "started" | "completed" | "failed" | "blocked" | "skipped";
-// 주요 action: agent_started · agent_completed · agent_failed · join_completed · join_blocked · workflow_completed
-// (그 밖에 workflow_started · workflow_failed · handoff_completed · handoff_blocked 등이 올 수 있다. 모르는 값도 그대로 보여 준다)
+// action (누가 남기는지와 details는 docs/tasks/00-공통.md 9절). 모르는 값도 그대로 보여 준다.
+//   workflow_started · workflow_completed · workflow_failed                      actor "orchestrator"
+//   agent_started · agent_completed · agent_failed · agent_skipped               actor = Worker id
+//   agent_retry · agent_failover  (추가: 복구 과정. 같은 모델 재시도 / 대체 모델 전환)  actor = Worker id
+//   review_retry                  (추가: 검토 RETRY → 다시 작성)                   actor "orchestrator"
+//   join_completed · join_blocked                                                actor "join_guard", details.step
+//   handoff_started · handoff_completed · handoff_blocked                        actor "handoff_guard", details.to
+// agent_failed는 두 가지다: details.final = false 는 LLM 호출 한 번의 실패(재시도·전환으로 이어진다),
+// details.final = true 는 그 Worker를 포기한 것. details.injected = true 는 장애 주입으로 일으킨 실패.
+type ErrorType = "timeout" | "server_error" | "bad_output" | "unknown";
 
 interface TraceEvent {            // 구조화된 Trace의 사건 하나
   step: number;                 // 전체 실행에서의 사건 순서 (1부터)
@@ -318,6 +329,7 @@ interface SharedState {           // Orchestrator만 갱신한다
 interface Worker {
   id: string; title: string; goal: string;
   provider: string | null; model: string | null;   // 아직 정하지 않았으면 null
+  fallbacks: string[];          // (추가) 주 모델이 실패하면 차례로 쓰는 대체 모델
   outputContract: string;       // 역할별 출력 계약 이름
 }
 
@@ -330,6 +342,25 @@ interface PlanStep {
   dependsOn: string[];          // 먼저 끝나야 하는 step id
   join: boolean;                // 앞 단계 결과를 Join Guard로 확인한 뒤 실행하는지
   timeoutSec: number | null;
+  retry: { target: string; maxRounds: number } | null;   // (추가) 검토 단계: RETRY 판정이면 target Worker를 다시 실행 (최대 maxRounds번)
+}
+
+interface ChaosConfig {           // (추가) 장애 주입 설정 (docs/tasks/00-공통.md 5절). 리포트 워크플로우에만 적용된다
+  enabled: boolean;
+  probability: number;          // 0~1. 호출 하나가 실패할 확률
+  errorTypes: ErrorType[];      // 일으킬 실패 종류 (unknown 제외)
+  workers: string[] | null;     // 대상 Worker (null이면 전부)
+  scope: "primary" | "all";     // primary: 주 모델 호출만 실패 (대체 모델로 복구를 보인다) · all: 대체 모델까지 실패
+  seed: number;                 // 같은 시험을 다시 돌릴 수 있게 서버가 정해 저장한다
+}
+
+interface RecoverySummary {       // (추가) 이 리포트의 장애·복구 요약 (Trace에서 계산. 셈법은 00-공통.md 9절)
+  failures: number;             // 장애 건수 (Worker 실행마다 첫 실패를 1건으로)
+  recovered: number;            // 자동 복구된 건수
+  unrecovered: number;          // 포기한 건수
+  injected: number;             // 장애 건 중 주입된 것
+  recoveryMs: number | null;    // 복구된 건의 복구 시간 합 (없으면 null)
+  models: Record<string, string>;   // Worker id → 최종적으로 답한 모델
 }
 
 interface Handoff { from: string; to: string; responsibility: string; maxHops: number; }
@@ -348,8 +379,32 @@ interface ReportSummary {
   symbol: string; name: string; market: Market;
   status: SharedState["status"];
   currentStep: string | null;
-  requestedBy: string;          // 신청한 팀원의 닉네임
+  source: "user" | "auto";      // (추가) 팀원 신청 / 자동 리포트(거래대금 상위 선별)
+  requestedBy: string;          // 신청한 팀원의 닉네임. 자동 리포트는 "자동"
+  chaosEnabled: boolean;        // (추가) 장애 주입을 켜고 신청했는지
+  costUsd: number | null;       // (추가) LLM 비용 (끝나기 전엔 지금까지의 합)
+  hasPdf: boolean;              // (추가) GET /api/reports/{id}/pdf 가 되는지
   createdAt: string; startedAt: string | null; finishedAt: string | null;
+}
+
+interface RecoveryStats {         // (추가) GET /api/reports/recovery-stats
+  from: string; to: string; days: number;
+  reports: number; reportsWithFailures: number;
+  failures: number; recovered: number; unrecovered: number; injected: number;
+  autoRecoveryRate: number | null;   // recovered ÷ failures × 100 (장애가 없으면 null)
+  meanRecoveryMs: number | null;
+  byErrorType: { errorType: ErrorType; failures: number; recovered: number }[];
+  byWorker: { worker: string; failures: number; recovered: number }[];
+  recent: { reportId: number; symbol: string; worker: string; errorType: ErrorType; injected: boolean;
+            recovered: boolean; recoveryMs: number | null; at: string }[];   // 최근 20건, 최신순
+}
+
+interface ScreeningResult {       // (추가) 자동 리포트의 그날 선별 결과 (엔진 screen_market 결과를 그대로)
+  market: Market; at: string; rankCount: number; eligibleCount: number; checked: number;
+  picks: Record<string, unknown>[];     // 점수 순. symbol · name · score · tradingAmountRank 등
+  dropped: Record<string, unknown>[];   // 규칙에서 떨어진 종목과 사유
+  excluded: Record<string, unknown>[];  // ETF 등 제외 종목과 사유
+  reportIds: number[];                  // 그날 만든 리포트
 }
 
 interface ReportDetail extends ReportSummary {   // Snapshot
@@ -357,6 +412,8 @@ interface ReportDetail extends ReportSummary {   // Snapshot
   state: SharedState;
   trace: TraceEvent[];          // step 오름차순
   plan: ExecutionPlan;
+  chaos: ChaosConfig | null;    // (추가) 신청 때의 장애 주입 설정 (서버가 채운 기본값·seed 포함)
+  recovery: RecoverySummary;    // (추가)
 }
 ```
 
@@ -366,9 +423,13 @@ interface ReportDetail extends ReportSummary {   // Snapshot
 |---|---|---|
 | `GET /api/reports/plan` | – | `200 ExecutionPlan` (YAML Registry에서 읽은 실행 계획) |
 | `GET /api/reports?symbol=` | 페이지, `symbol` 선택 | `200 {"count", "results": ReportSummary[]}` (팀 전체 공용, 최신순) |
-| `POST /api/reports` | `{"symbol"}` | `201 ReportDetail` · 같은 사람이 같은 종목으로 신청해 아직 끝나지 않은 리포트가 있으면 그것을 `200`으로 · 없는 종목 `400` · 증권사 조회 불가 `503` |
+| `POST /api/reports` | `{"symbol", "chaos"?: {"enabled", "probability"?, "errorTypes"?, "workers"?, "scope"?, "seed"?}}` | `201 ReportDetail` · 같은 사람이 같은 종목으로 신청해 아직 끝나지 않은 리포트가 있으면 그것을 `200`으로 · 없는 종목·잘못된 `chaos` `400` · (추가) 하루 한도 초과 `429 {"detail", "limit", "used"}` · (추가) AI 설정 없음 `503` · 증권사 조회 불가 `503` |
+| `GET /api/reports?symbol=&source=` | 페이지, `symbol`·`source`(`user`\|`auto`) 선택 | (추가 `source`) |
 | `GET /api/reports/{id}` | – | `200 ReportDetail` · `404` (**Snapshot API**: 새로고침·연결 복구에 쓴다) |
 | `GET /api/reports/{id}/events` | 헤더 `Last-Event-ID` 또는 `?after=<step>` | `200 text/event-stream` (**SSE**) · 미로그인 `401` JSON · `404` |
+| (추가) `GET /api/reports/{id}/pdf` | – | `200 application/pdf` (A4. 처음 부르면 만들어 저장하고 다음부터 그 파일) · 완성 전 `409 {"detail"}` · `404` · Chrome이 없으면 `200 text/html`(같은 내용) |
+| (추가) `GET /api/reports/recovery-stats?days=7` | `days` 1~90, 기본 7 | `200 RecoveryStats` |
+| (추가) `GET /api/reports/screening?market=KR&date=` | `date` 기본 오늘 | `200 ScreeningResult` · 그날 선별이 없으면 `404` |
 
 SSE 형식 (실행 Event를 발생 즉시 한 방향으로 전달):
 - `event: trace` / `id: <step>` / `data: <TraceEvent JSON>` — `after`(또는 `Last-Event-ID`)보다 큰 step만, 순서대로.

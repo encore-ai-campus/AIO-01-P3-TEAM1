@@ -223,14 +223,18 @@ API 키·비밀번호·개인 정보는 메시지와 Trace에 넣지 않는다. 
   4. 대체 모델도 모두 실패하면 Worker 실패 → Orchestrator가 필수/선택 정책대로 처리
 - 시도 횟수와 전체 제한 시간에 상한을 둔다 (무한 재시도 금지). 복구에 쓴 시간과 비용을 기록한다.
 
-Trace에 남길 사건 (계약에 추가할 것 — `docs/API.md`를 먼저 고친다):
+Trace에 남길 사건 (`docs/API.md`와 `docs/tasks/00-공통.md` 9절에 확정했다. 누가 남기는지와 셈법은 9절이 원본):
 
-| action | status | details |
-|---|---|---|
-| `agent_failed` | `failed` | `{"errorType": "timeout"\|"server_error"\|"bad_output"\|..., "attempt": 1, "injected": true\|false}` + 그때의 `provider`·`model` |
-| `agent_retry` | `started` | `{"attempt": 2, "reason": ...}` (같은 모델로 다시) |
-| `agent_failover` | `started` | `{"from": "모델 A", "to": "모델 B", "reason": ...}` |
-| `agent_completed` | `completed` | `{"attempts": 3, "recovered": true, "recoveryMs": 4200}` + 실제로 답한 `model` |
+| action | status | 남기는 쪽 | details |
+|---|---|---|---|
+| `agent_failed` | `failed` | 호출기(4) — LLM 호출 **한 번**의 실패마다 | `{"errorType": "timeout"\|"server_error"\|"bad_output"\|"unknown", "attempt": 전체 시도 번호, "injected": true\|false, "final": false}` + 그때의 `provider`·`model`·`latency_ms` |
+| `agent_retry` | `started` | 호출기(4) | `{"attempt": 2, "reason": ...}` (같은 모델로 다시) |
+| `agent_failover` | `started` | 호출기(4) | `{"from": "모델 A", "to": "모델 B", "reason": errorType 또는 "circuit_open"}` |
+| `agent_completed` | `completed` | Orchestrator(3) | `{"attempts": 3, "recovered": true, "recoveryMs": 4200, "costUsd": ...}` + 실제로 답한 `provider`·`model` |
+| `agent_failed` | `failed` | Orchestrator(3) — 그 Worker를 **포기**할 때 | `{"errorType": 마지막 실패, "attempts": n, "final": true, "message": ...}` |
+
+`final: false`(호출 한 번의 실패)와 `final: true`(포기)를 구분한다. **장애 1건** = Worker 실행(`agent_started`부터)의 첫 `agent_failed(final: false)`,
+**복구됨** = 그 실행이 `agent_completed`로 끝남, **복구 시간** = `agent_completed.at − 첫 agent_failed.at`. 화면·지표 API·PDF가 모두 이 셈법을 쓴다.
 
 ### 5-3. 장애 주입 체크박스 (시연과 시험용)
 
@@ -442,7 +446,8 @@ Trace에 남길 사건 (계약에 추가할 것 — `docs/API.md`를 먼저 고�
 
 ## 11. 역할 분담 (5명)
 
-출력 계약(4-2 A), 복구 정책 표(5-1), 추가되는 Trace 사건과 API(5-2, `docs/API.md`)를 **10/4까지 전원이 먼저 같이 정한다.** 그래야 2~5번이 서로 기다리지 않고 병렬로 간다.
+**담당별 세부 작업은 `docs/tasks/`에 있다**: `00-공통.md`(파일 소유, 함수 서명, Trace 규칙, 출력 계약 — 모두가 지키는 약속), `01-인프라.md` ~ `05-프론트.md`(담당별 할 일·순서·완료 기준).
+출력 계약(4-2 A), 복구 정책 표(5-1), 추가되는 Trace 사건과 API는 `00-공통.md`와 `docs/API.md`에 **초안으로 적어 두었다** (2026-10-04). 10/5 오전에 같이 훑고 바꿀 것만 고친 뒤 시작한다.
 
 | 담당 | 만들 것 | 주로 건드리는 곳 | 산출물 책임 |
 |---|---|---|---|
