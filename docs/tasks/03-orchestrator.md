@@ -21,6 +21,17 @@
 | `runner.tick/recover/shutdown`, `run_engine` 연결, 끝난 뒤 `auto.after_finish` 호출 | 1 |
 | Trace 사건 전부 (9절) | 4 (지표), 5 (화면) |
 
+## 2026-10-04 바뀐 것 — 리포트 다음 단계(AI 추천)는 이미 연결돼 있다
+
+서비스 최종 흐름(`06-추천·자동매매.md`)에서 리포트는 **AI 추천의 출처**다. 담당 3이 할 일은 늘지 않는다:
+`finish(completed, content)`로 끝내고 `results["report_agent"]`에 계약을 통과한 `ReportDraft`가 있으면, 엔진 루프의 "추천 수집" 단계
+(`autotrade.sources.collect`, 최근 7일 안에 끝난 리포트를 본다)가 추천을 만들고 신청자에게 웹·Discord로 알린다. 따로 부를 함수가 없다.
+
+- `run_engine.py`에는 이미 단계가 넷 더 있다: … 분석 작업 → 추천 수집 → 자동 추천 → 자동매매 → 알림 발송 (커밋 `09a9ada`).
+  T3-4의 `runner.tick()`은 **"분석 작업" 다음, "추천 수집" 앞**에 한 줄로 넣는다 ("알림 발송"이 마지막이게).
+- `failed`로 끝난 리포트·`verdict`가 buy가 아닌 리포트는 추천이 생기지 않는다 (정상).
+- 실패 알림(담당 4의 T4-8)도 같은 알림 통로(`notifications.service.notify`)를 쓰면 웹과 Discord에 같이 남는다.
+
 ## 작업
 
 | # | 할 일 | 파일 | 완료 기준 |

@@ -463,6 +463,9 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 | `RECOMMENDATION_VALID_DAYS` | `3` | 추천을 활성화할 수 있는 기간이자 진입 기한 (달력 일수) |
 | `AUTOTRADE_DEMO` | `on` | 시연용 규칙 추천을 웹에서 만들 수 있게 할지 |
 | `AUTOTRADE_DEMO_PER_USER` | `5` | 팀원별 하루 시연 추천 수 |
+| `AUTO_RECOMMEND` | `off` | `demo`면 국내 거래일마다 선별(거래대금 상위 → 규칙 점수) 상위 종목으로 시연 추천을 만들어 팀 전체에 알린다. 선별이 증권사 조회를 100번 넘게 하므로 기본은 끔 |
+| `AUTO_RECOMMEND_TOP` | `3` | 매일 자동 추천할 종목 수 |
+| `AUTO_RECOMMEND_AT` | `08:00` | 이 시각(KST) 이후 하루 한 번 (시도 표시 파일 `runs/autotrade/recommend-<날짜>-<시장>.json`으로 하루 한 번을 지킨다. 선별이 실패해도 그날은 다시 하지 않는다) |
 
 ### 12-6. 파일 소유
 

@@ -18,6 +18,19 @@
 | `worker_definitions.yaml`의 `provider`·`model`·`fallbacks` 값 | 4 (대체 모델 순서), 5 (화면의 모델 이름) |
 | `reports/quota.py` | 4 (`ReportsView.post`에서 같이 부른다) |
 
+## 2026-10-04 바뀐 것 — 리포트가 "AI 추천"으로 이어진다
+
+서비스 최종 흐름(`06-추천·자동매매.md`): 리포트가 `completed`로 끝나면 엔진 루프가 **`report_agent` 결과(ReportDraft)로 AI 추천**을 만들고,
+팀원이 그 추천을 웹·Discord에서 활성화하면 모의 자동매매가 진행된다. 그래서 담당 2의 출력이 사용자의 실제 매매 계획 숫자가 된다.
+
+| 바뀐 곳 | 내용 |
+|---|---|
+| 출력 계약 `ReportDraft.targets` (T2-1) | `{entry, target, stop, holdingDays, probability}`로 두 필드를 더했다 (`00-공통.md` 10절). `holdingDays`: 보유 거래일 1~20(없으면 10), `probability`: 손절 전에 목표가에 도달할 확률 0~1(없으면 0.5로 보고 화면에 "가정"). 둘 다 null 허용 |
+| `report_agent` 프롬프트 (T2-7) | `verdict`가 `"buy"`(소문자)이고 `targets`가 `0 < stop < entry < target`일 때만 추천이 생긴다. 진입·목표·손절은 조사 결과의 가격·지지·저항에 근거해서. **손익비 기준(2.0)은 프롬프트에 넣지 않는다** (리스크 엔진이 거른다). `oneLiner`는 추천 카드·Discord 제목 아래 한 줄로, `reasons`·`risks` 3개씩은 추천 화면에 그대로 나온다 |
+| `risk_agent` (T2-7) | 결과의 `level`(`low`·`medium`·`high`)이 추천의 "리스크 단계" 배지가 된다 |
+| 비용·한도 (T2-9) | 추천·계획·시연 추천은 AI를 부르지 않는다 (비용 0). 한도 계산에 넣지 않는다 |
+| 시험 (T2-10) | 실제 모델로 한 번 돌릴 때 `targets`의 네 숫자가 늘 채워지는지도 본다. 리포트가 끝나고 5초 안에 `/recommendations`에 추천이 뜨면 연결 확인 끝 |
+
 ## 작업
 
 | # | 할 일 | 파일 | 완료 기준 |

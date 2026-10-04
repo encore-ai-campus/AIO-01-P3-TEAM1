@@ -19,6 +19,16 @@
 | `stats.report_recovery(events) -> RecoverySummary`, `stats.recovery_stats(days)`, `GET /api/reports/recovery-stats` | 5 (화면), 1 (PDF 꼬리의 복구 요약) |
 | 복구 Trace 사건 (`agent_failed(final:false)`, `agent_retry`, `agent_failover`) | 5 |
 
+## 2026-10-04 바뀐 것 — 알림 통로와 PDF 경로가 먼저 생겼다
+
+| 관련 작업 | 지금 있는 것 | 담당 4가 할 일 |
+|---|---|---|
+| T4-8 담당자 알림 | `notifications.service.notify(users, kind, title, body, link=…)` (웹 알림 + Discord 보낼 편지함 → 엔진 루프가 발송, 실패 시 재시도 → 글만), `config.engine.notifier()` | `healing.notify_failure(report, reason)`는 `notices.notify(report.user 또는 None, "system", "리포트 실패: 종목", 사유, link=f"/reports/{id}")`로. Webhook이 없어도 웹 알림은 남는다 |
+| T4-1 `hasPdf`·`pdf_path` | PDF API가 먼저 생겼다: `reports/pdf.py`의 `ensure_report_file`이 `PAPER_ROOT/reports/<id>.pdf`(Chrome이 없으면 `.html`)에 저장 | 마이그레이션 0002에 `pdf_path`를 넣으면 담당 5와 `ensure_report_file`이 그 열을 쓰게 맞춘다. `hasPdf`는 그 파일이 있는지로 |
+| T4-6 `ReportsView.post` | 변경 없음 | – |
+
+복구 로직은 리포트 워크플로우에만 해당한다. 추천·자동매매(`backend/autotrade`)는 LLM을 부르지 않으므로 장애 주입과 무관하다.
+
 ## 작업
 
 | # | 할 일 | 파일 | 완료 기준 |

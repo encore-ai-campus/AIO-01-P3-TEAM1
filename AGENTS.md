@@ -2,7 +2,7 @@
 
 키움 REST API 시세로 돌리는 **팀 모의매매 웹 서비스**다. 원본은 토스증권 실주문까지 내던 개인용 스윙 매매 자동화(`toss_trading`)이고,
 이 저장소는 그것을 복제해 실주문을 없애고 가상 현금 계좌로 체결을 흉내 내도록 바꾼 것이다.
-계획은 `docs/TEAM_PAPER_TRADING_PLAN.md`, 팀원이 이어서 개발할 일과 개발 환경 안내는 `TEAM_DEV_PLAN.md`, 과제 평가 기준은 `docs/프로젝트평가기준.md`, 클론 직후 설치·실행 절차는 `SETUP_PROMPT.md`, 작업자 간 공통 결정은 `docs/DECISIONS.md`, 웹 API 계약은 `docs/API.md`, 담당별 세부 작업과 담당 간 약속은 `docs/tasks/`, 배포와 CI/CD는 `docs/DEPLOY.md`, 엔진 설계는 `docs/DESIGN.md`, 키움 API는 `docs/KIWOOM.md`.
+계획은 `docs/TEAM_PAPER_TRADING_PLAN.md`, 팀원이 이어서 개발할 일과 개발 환경 안내는 `TEAM_DEV_PLAN.md`, 과제 평가 기준은 `docs/프로젝트평가기준.md`, 클론 직후 설치·실행 절차는 `SETUP_PROMPT.md`, 작업자 간 공통 결정은 `docs/DECISIONS.md`, 웹 API 계약은 `docs/API.md`, 담당별 세부 작업과 담당 간 약속은 `docs/tasks/`(서비스 최종 흐름 AI 추천 → 계획 활성화 → 자동매매 → 알림은 `06-추천·자동매매.md`), 배포와 CI/CD는 `docs/DEPLOY.md`, 엔진 설계는 `docs/DESIGN.md`, 키움 API는 `docs/KIWOOM.md`.
 
 ## 안전 규칙 (반드시 준수)
 
@@ -13,6 +13,7 @@
   (`DJANGO_DEBUG=on`일 때만 `BROKER=toss`를 받는다). `data/toss.py`에 계좌·주문 메서드를 넣지 않는다 (토큰 발급 말고는 GET만).
   설명은 `docs/DECISIONS.md` 3-1장.
 - **AI는 제안만 한다.** 지표 계산, 사실 검증, 수량·한도·체결 가능 여부는 결정론적 코드(리스크 엔진, 모의 체결기)가 판단한다.
+  AI 추천을 활성화한 매매 계획(`backend/autotrade`)도 같다: 수량·활성화 여부는 리스크 엔진, 주문·체결은 `trading.service`와 모의 체결기.
   최소 손익비 2.0은 AI 프롬프트에 노출하지 않는다.
 - **엔진 내부 데이터 형식은 토스 형식을 유지한다.** 키움 응답 → 내부 형식 변환은 `engine/paper_engine/data/kiwoom.py` 안에서만 한다.
   조회 클라이언트는 `data/broker.make_client`로만 만들고, `KiwoomClient`와 `TossClient`의 공개 메서드 이름·인자·반환 형식은 같게 둔다.
@@ -50,7 +51,8 @@
 engine/paper_engine/   매매 엔진 (선별, AI 교차검증, 리스크 엔진, 모의 체결, 기록, 리포트). engine/tests/
 backend/               Django: config/(설정, engine.py 엔진 접점, api.py 공통), accounts/(로그인·프로필·팀 계정),
                        trading/(팀원별 계좌·주문·시세·랭킹·run_engine), analysis/(AI 분석 색인·작업),
-                       reports/(AI 리포트 구조: YAML Registry·Shared State·Trace·SSE. Agent·Orchestrator는 미구현). 테스트는 backend/<앱>/tests/
+                       reports/(AI 리포트 구조: YAML Registry·Shared State·Trace·SSE·A4 PDF·선별. Agent·Orchestrator는 미구현),
+                       autotrade/(AI 추천·리스크 미리 보기·계획 활성화·자동매매 진행), notifications/(웹 알림·Discord Webhook 보낼 편지함). 테스트는 backend/<앱>/tests/
 frontend/              React + TypeScript + Vite + Tailwind CSS (로그인·홈·종목·내 주식·AI 분석·AI 리포트·랭킹·My Page)
 backtest/              백테스트 (AI 없음, DB 없이 단독 실행)
 deploy/                compose.dev.yml(로컬 Redis + 선택 PostgreSQL), docker-compose.yml(운영: nginx·web·engine·db·redis),
@@ -73,7 +75,8 @@ scripts/dev.sh status | stop | logs | db | db-stop | import-sqlite     # 주소�
 cd backend && uv run python manage.py migrate      # DB 표. 아래는 하나씩 직접 띄울 때
 cd backend && uv run python manage.py create_team_accounts   # 팀원 계정 5개 → team_accounts.txt (git 제외)
 cd backend && uv run python manage.py runserver    # Django (.env에 DJANGO_DEBUG=on. PostgreSQL을 쓰면 DJANGO_SECRET_KEY도 필요)
-cd backend && uv run python manage.py run_engine   # 웹 엔진 루프 (지정가 체결·청산·예약·일별 자산·AI 분석 작업)
+cd backend && uv run python manage.py run_engine   # 웹 엔진 루프 (지정가 체결·청산·예약·일별 자산·AI 분석 작업·추천 수집·자동매매·알림 발송)
+cd backend && uv run python manage.py demo_recommend --symbol 005930   # 시연용 규칙 추천 (AI 아님). auto_recommend --force는 선별 상위로
 cd frontend && npm ci && npm run dev               # Vite (/api, /admin을 127.0.0.1:8000으로 프록시. 다른 포트면 VITE_API_TARGET=..., VITE_MOCK=1이면 가짜 API)
 cd frontend && npx eslint . && npx tsc --noEmit && npx vitest run && npx vite build
 cd deploy && docker compose --env-file .env.docker up -d --build && ./smoke_test.sh   # 운영 구성을 이 PC에서 (docs/DEPLOY.md 3장)
