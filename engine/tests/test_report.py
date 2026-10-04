@@ -127,6 +127,30 @@ def test_write_report_uses_chrome_and_falls_back_to_html(tmp_path, monkeypatch):
     assert report.write_report(as_log(), tmp_path / "z.pdf").name == "z.html"
 
 
+def test_render_pdf_is_public_wrapper(tmp_path, monkeypatch):
+    html = "<html><body>직접 만든 HTML</body></html>"
+    monkeypatch.setattr(report, "find_chrome", lambda configured=None: "/usr/bin/chrome")
+    seen = []
+
+    def ok(args, **kw):
+        seen.append(args)
+        out = next(a for a in args if a.startswith("--print-to-pdf=")).split("=", 1)[1]
+        open(out, "wb").write(b"%PDF")
+        return subprocess.CompletedProcess(args, 0)
+
+    path = report.render_pdf(html, tmp_path / "r" / "1.pdf", run=ok)
+    assert path.name == "1.pdf" and path.exists() and not path.with_suffix(".html").exists()
+    assert seen[0][0] == "/usr/bin/chrome"
+
+    def fail(args, **kw):
+        raise subprocess.CalledProcessError(1, args)
+
+    fallback = report.render_pdf(html, tmp_path / "r" / "2.pdf", run=fail)  # PDF 실패 → HTML 경로
+    assert fallback.name == "2.html" and "직접 만든 HTML" in fallback.read_text(encoding="utf-8")
+    monkeypatch.setattr(report, "find_chrome", lambda configured=None: None)
+    assert report.render_pdf(html, tmp_path / "r" / "3.pdf").name == "3.html"  # Chrome 없음 → HTML
+
+
 # --- 파일 첨부와 결과 알림 ---
 
 class Notes:

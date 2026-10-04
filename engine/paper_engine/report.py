@@ -604,6 +604,14 @@ def find_chrome(configured: str | None = None) -> str | None:
     return None
 
 
+def render_pdf(html: str, pdf_path: Path, chrome_bin: str | None = None, run=subprocess.run) -> Path:
+    """완성된 HTML을 PDF로 만들어 그 경로를 돌려준다. PDF를 만들지 못하면 HTML 파일 경로를 돌려준다.
+
+    웹의 리포트 PDF(backend/reports/pdf.py)처럼 HTML을 직접 만든 쪽이 쓴다.
+    """
+    return _render_pdf(html, pdf_path, chrome_bin, run)
+
+
 def _render_pdf(html: str, pdf_path: Path, chrome_bin: str | None, run) -> Path:
     """HTML을 Chrome(headless)으로 PDF로 바꾼다. 만들지 못하면 HTML 파일 경로를 돌려준다."""
     html_path = pdf_path.with_suffix(".html")

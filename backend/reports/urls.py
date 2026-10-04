@@ -7,5 +7,6 @@ urlpatterns = [
     path("reports/plan", views.PlanView.as_view()),
     path("reports", views.ReportsView.as_view()),
     path("reports/<int:pk>", views.ReportDetailView.as_view()),
+    path("reports/<int:pk>/pdf", views.PdfView.as_view()),
     path("reports/<int:pk>/events", sse.events),  # SSE (일반 Django 뷰)
 ]

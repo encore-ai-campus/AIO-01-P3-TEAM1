@@ -4,6 +4,7 @@
 """
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.http import FileResponse
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
@@ -16,6 +17,7 @@ from config.api import Rejected, page
 
 from .models import Report
 from .payloads import detail, nicknames, plan, summary
+from .pdf import ensure_report_file
 
 
 class PlanView(APIView):
@@ -65,3 +67,21 @@ class ReportDetailView(APIView):
         if report is None:
             raise NotFound("리포트를 찾을 수 없습니다.")
         return Response(detail(report))
+
+
+class PdfView(APIView):
+    @extend_schema(responses=OpenApiTypes.BINARY)
+    def get(self, request, pk: int):
+        """A4 PDF. 처음 부르면 만들어 PAPER_ROOT/reports/<id>.pdf에 두고 다음부터 그 파일을 준다.
+        Chrome이 없으면 같은 내용의 HTML(text/html). 완성 전(completed가 아님)이면 409.
+
+        (Report.pdf_path 열이 생기면 고정 경로 대신 그 열을 쓴다 — docs/tasks/05-프론트.md T5-14)
+        """
+        report = Report.objects.filter(pk=pk).first()
+        if report is None:
+            raise NotFound("리포트를 찾을 수 없습니다.")
+        if report.status != Report.COMPLETED:
+            return Response({"detail": "리포트가 아직 완성되지 않았습니다."}, status=status.HTTP_409_CONFLICT)
+        path = ensure_report_file(report, list(report.trace_events.order_by("step")))
+        content_type = "application/pdf" if path.suffix == ".pdf" else "text/html; charset=utf-8"
+        return FileResponse(open(path, "rb"), content_type=content_type)
