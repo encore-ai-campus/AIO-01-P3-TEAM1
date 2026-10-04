@@ -111,7 +111,8 @@ launch() { # 이름, 작업 폴더, 명령... → 로그로 내보내며 백그�
   local name="$1" dir="$2"; shift 2
   local log="$RUN_DIR/$name.log"
   : > "$log"
-  ( cd "$dir" && exec nohup "$@" >> "$log" 2>&1 < /dev/null ) &
+  # PYTHONUNBUFFERED: 파이썬 출력이 파일로 갈 때 버퍼에 쌓이지 않고 바로 로그에 남게 (엔진 루프의 체결·청산 기록을 바로 본다)
+  ( cd "$dir" && PYTHONUNBUFFERED=1 exec nohup "$@" >> "$log" 2>&1 < /dev/null ) &
   printf '%s\n' "$!" > "$RUN_DIR/$name.pid"
 }
 
