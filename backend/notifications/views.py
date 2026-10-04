@@ -1,5 +1,6 @@
 """알림 API (docs/API.md "AI 추천 · 매매 계획 · 자동매매 · 알림"): 내 웹 알림, 읽음 표시, 알림 설정, 시험 알림."""
 import re
+from datetime import timedelta
 
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, inline_serializer
@@ -7,19 +8,21 @@ from rest_framework import serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from config.api import Rejected, page
+from config.api import LimitExceeded, Rejected, page
 
 from . import payloads, service
 from .models import Notification
 
 SETTINGS_KEYS = ("discordUserId", "discordEnabled")
-DISCORD_USER_ID = re.compile(r"\d{17,20}")
+DISCORD_USER_ID = re.compile(r"[0-9]{17,20}")  # ASCII 숫자만 (\d는 다른 문자의 숫자도 받는다)
 MAX_READ_IDS = 500
 TEST_TITLE = "알림 시험"
 TEST_BODY = "알림이 잘 도착하는지 확인하는 시험 알림입니다."
+TEST_INTERVAL = timedelta(minutes=1)  # 팀원별 시험 알림 간격 (팀 Discord 채널 도배 방지)
+TEST_TOO_SOON = "시험 알림은 1분에 한 번만 보낼 수 있습니다. 잠시 뒤에 다시 시도하세요."
 TEST_DETAIL = {
     "queued": "웹 알림을 만들고 Discord로 보낼 메시지를 넣었습니다. 엔진 루프가 곧 보냅니다.",
-    "not_configured": "웹 알림을 만들었습니다. 서버에 Discord Webhook이 없어 Discord로는 보내지 않습니다.",
+    "not_configured": "웹 알림을 만들었습니다. 서버에 Discord 설정(Webhook)이 없어 Discord로는 보내지 않습니다.",
     "disabled": "웹 알림을 만들었습니다. Discord 알림을 꺼 두어 Discord로는 보내지 않습니다.",
 }
 
@@ -120,9 +123,13 @@ class NotificationSettingsView(APIView):
 class NotificationTestView(APIView):
     @extend_schema(request=None, responses={202: TEST_SCHEMA})
     def post(self, request):
-        """시험 알림: 웹 알림 하나를 만들고, 가능하면 Discord로도 보낸다 (엔진 루프가 보낸다)."""
+        """시험 알림: 웹 알림 하나를 만들고, 가능하면 Discord로도 보낸다 (엔진 루프가 보낸다). 팀원별 1분에 한 번 (넘으면 429)."""
+        recent = Notification.objects.filter(user=request.user, kind="system", title=TEST_TITLE,
+                                             created_at__gt=timezone.now() - TEST_INTERVAL)
+        if recent.exists():
+            raise LimitExceeded(TEST_TOO_SOON)
         setting = service.settings_of(request.user)
-        if not service.webhook_configured():
+        if not service.discord_configured():
             discord = "not_configured"
         elif not setting.discord_enabled:
             discord = "disabled"

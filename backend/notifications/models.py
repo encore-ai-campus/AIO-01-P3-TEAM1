@@ -43,10 +43,11 @@ class NotificationSetting(models.Model):
 class OutboxMessage(models.Model):
     """Discord로 보낼 메시지 하나. 웹 요청이 pending으로 넣고 엔진 루프의 dispatch.tick()이 보낸다.
 
-    skipped: 보내지 않음 (Webhook이 없어 콘솔에만 남김). last_error에는 Webhook 주소를 넣지 않는다.
+    sending: dispatch.tick이 보내려고 잡았음 (claimed_at). 오래 남아 있으면(엔진이 죽음) pending으로 되돌린다.
+    skipped: 보내지 않음 (Discord 설정이 없어 콘솔에만 남김). last_error에는 Webhook 주소를 넣지 않는다.
     """
-    PENDING, SENT, FAILED, SKIPPED = "pending", "sent", "failed", "skipped"
-    STATUSES = [(s, s) for s in (PENDING, SENT, FAILED, SKIPPED)]
+    PENDING, SENDING, SENT, FAILED, SKIPPED = "pending", "sending", "sent", "failed", "skipped"
+    STATUSES = [(s, s) for s in (PENDING, SENDING, SENT, FAILED, SKIPPED)]
 
     kind = models.CharField(max_length=30)
     content = models.TextField()                          # 멘션 + 제목 + 본문 + 링크 (2,000자를 넘으면 보낼 때 나눈다)
@@ -56,6 +57,7 @@ class OutboxMessage(models.Model):
     attempts = models.IntegerField(default=0)
     last_error = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
+    claimed_at = models.DateTimeField(null=True, blank=True)  # sending으로 잡은 시각
     sent_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:

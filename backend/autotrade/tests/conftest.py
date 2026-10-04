@@ -4,6 +4,7 @@
 from datetime import datetime, timedelta
 
 import pytest
+from django.db import connection
 from notifications import service as notices
 from trading.tests.conftest import KST, FakeClient, api, engine_setup, login, set_price, switch, user  # noqa: F401
 
@@ -41,14 +42,33 @@ def fake(monkeypatch):
 
 
 class Notices:
-    """notifications.service.notify 기록기."""
+    """notifications.service.notify 기록기.
+
+    executor는 알림을 트랜잭션 커밋 뒤(on_commit)에 보낸다. 테스트는 트랜잭션 안에서 돌아 커밋되지 않으므로,
+    기록을 읽을 때 지금까지 커밋을 기다리는 콜백을 (한 번씩) 실행한다. 롤백된 트랜잭션의 콜백은 Django가 이미 지웠다.
+    """
 
     def __init__(self):
-        self.calls: list[dict] = []
+        self._calls: list[dict] = []
+        self._ran: list = []
 
     def __call__(self, users, kind, title, body, **options):
-        self.calls.append({"users": users, "kind": kind, "title": title, "body": body, **options})
+        self._calls.append({"users": users, "kind": kind, "title": title, "body": body, **options})
         return []
+
+    def flush(self) -> None:
+        while True:
+            waiting = [f for _, f, _ in connection.run_on_commit if not any(f is done for done in self._ran)]
+            if not waiting:
+                return
+            for callback in waiting:
+                self._ran.append(callback)
+                callback()
+
+    @property
+    def calls(self) -> list[dict]:
+        self.flush()
+        return self._calls
 
     @property
     def kinds(self) -> list[str]:

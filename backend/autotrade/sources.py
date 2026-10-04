@@ -12,6 +12,7 @@ from django.db import IntegrityError
 from django.db.models import Q
 from django.utils import timezone
 from notifications import service as notices
+from paper_engine.data.ticks import round_price
 from reports.models import Report
 from trading import market
 
@@ -94,6 +95,9 @@ def create(source: str, *, symbol: str, name: str, market_: str, entry, target, 
     if market_ not in market.CURRENCY:
         raise ValueError(f"시장이 KR·US가 아님: {market_}")
     entry, target, stop = _price(entry, "entry"), _price(target, "target"), _price(stop, "stop")
+    # 호가 단위로 맞춘다 (모의 주문과 같은 내림, 엔진 PaperExecutor.buy). 순서·수치는 맞춘 값으로 본다
+    currency = market.CURRENCY[market_]
+    entry, target, stop = (float(round_price(v, currency)) if v > 0 else v for v in (entry, target, stop))
     if not 0 < stop < entry < target:
         raise ValueError(f"가격은 0 < 손절가 < 진입가 < 목표가 순서여야 함: {stop}, {entry}, {target}")
     p, assumed = _probability(probability)
@@ -104,7 +108,7 @@ def create(source: str, *, symbol: str, name: str, market_: str, entry, target, 
     m = risk.metrics(entry, target, stop, p, market_)
     rec = Recommendation.objects.create(
         source=source, report=report, analysis=analysis, requested_by=requested_by, symbol=symbol, name=name,
-        market=market_, currency=market.CURRENCY[market_], price_at_creation=price_at_creation, entry_price=entry,
+        market=market_, currency=currency, price_at_creation=price_at_creation, entry_price=entry,
         target_price=target, stop_price=stop, holding_days=_holding_days(holding_days), probability=p,
         probability_assumed=assumed, confidence=_confidence(confidence), target_return=m["targetReturn"],
         stop_loss_rate=m["stopLossRate"], reward_risk=m["rewardRisk"], expected_return=m["expectedReturn"],

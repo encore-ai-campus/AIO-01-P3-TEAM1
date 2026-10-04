@@ -103,3 +103,64 @@ def test_public_url_and_settings_of(alice, monkeypatch):
     setting = service.settings_of(alice)
     assert (setting.discord_user_id, setting.discord_enabled) == (None, True)
     assert service.settings_of(alice).pk == setting.pk  # 한 번만 만든다
+
+
+def test_notify_recipient_lookup_error_keeps_outer_transaction(webhook, alice, monkeypatch, capsys):
+    from django.db import connection
+
+    def bad_sql(users):
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT * FROM no_such_table")
+
+    monkeypatch.setattr(service, "_recipients", bad_sql)
+    with transaction.atomic():  # PostgreSQL에서는 savepoint가 없으면 바깥 트랜잭션이 깨져 다음 쿼리가 실패한다
+        assert service.notify(alice, "system", "제목", "본문") == []
+        assert Notification.objects.count() == 0
+    assert "알림 받는 사람을 정하지 못함" in capsys.readouterr().err
+
+
+def test_notify_defuses_mentions_in_text_and_embed(webhook, alice):
+    discord(alice, ALICE_ID)
+    embed = {"title": "@here 급등", "description": "<@111111111111111111> 보세요",
+             "fields": [{"name": "근거", "value": "@everyone <@&222> <@!333333333333333333>", "inline": True}]}
+    service.notify(alice, "recommendation", "AI 추천 @everyone", "요약 <@111111111111111111> @here",
+                   embed=embed)
+    (m,) = OutboxMessage.objects.all()
+    zw = service.ZERO_WIDTH_SPACE
+    first, *rest = m.content.split("\n")
+    assert first == f"<@{ALICE_ID}>"  # 우리가 붙인 멘션 줄만 울린다
+    assert rest == [f"**AI 추천 @{zw}everyone**", f"요약 <@{zw}111111111111111111> @{zw}here"]
+    assert m.embed["title"] == f"@{zw}here 급등" and m.embed["description"] == f"<@{zw}111111111111111111> 보세요"
+    assert m.embed["fields"][0]["value"] == f"@{zw}everyone <@{zw}&222> <@{zw}!333333333333333333>"
+    assert m.embed["fields"][0]["inline"] is True
+    assert service.defuse("메일 a@b.com, 가격 @ 70,000") == "메일 a@b.com, 가격 @ 70,000"  # 멘션이 아니면 그대로
+
+
+def test_fit_embed_respects_discord_limits():
+    fields = [{"name": "n" * 300, "value": "v" * 2000, "inline": True} for _ in range(30)]
+    e = service.fit_embed({"title": "t" * 300, "description": "d" * 5000, "color": 1, "fields": fields,
+                           "footer": {"text": "f" * 3000}})
+    assert len(e["title"]) == 256 and e["title"].endswith("…") and e["color"] == 1
+    assert len(e["footer"]["text"]) == 2048
+    assert len(e["fields"]) <= 25 and all(len(f["name"]) <= 256 and len(f["value"]) <= 1024 for f in e["fields"])
+    total = (len(e["title"]) + len(e["description"]) + len(e["footer"]["text"])
+             + sum(len(f["name"]) + len(f["value"]) for f in e["fields"]))
+    assert total <= 6000 and e["description"]
+    small = {"title": "삼성전자", "description": "요약", "fields": [{"name": "진입가", "value": "69,000원"}]}
+    assert service.fit_embed(small) == small  # 제한 안이면 그대로
+
+
+def test_notify_trims_long_embed(webhook, alice):
+    service.notify(alice, "recommendation", "추천", "본문", embed={"title": "삼성전자", "description": "가" * 5000})
+    (m,) = OutboxMessage.objects.all()
+    assert len(m.embed["description"]) == 4096
+
+
+def test_notify_with_openclaw_only_is_pending(alice, monkeypatch):
+    from paper_engine.config import Config
+
+    from config import engine
+    monkeypatch.setattr(engine, "engine_config", lambda: Config(None, None, None, openclaw_target="channel:1"))
+    assert not service.webhook_configured() and service.discord_configured()
+    service.notify(alice, "system", "제목", "본문")
+    assert OutboxMessage.objects.get().status == "pending"  # 엔진 루프가 openclaw로 보낸다

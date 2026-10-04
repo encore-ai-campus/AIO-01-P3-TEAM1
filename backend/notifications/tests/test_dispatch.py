@@ -140,3 +140,71 @@ def test_tick_without_pending_does_not_build_notifier(monkeypatch):
     monkeypatch.setattr(engine, "notifier", lambda: pytest.fail("만들면 안 된다"))
     queue(status="sent")
     assert dispatch.tick(NOW, print) == 0
+
+
+def test_tick_stops_at_time_budget(use, monkeypatch):
+    fake = use(FakeWebhook())
+    monkeypatch.setattr(dispatch, "TIME_BUDGET_SEC", 0)  # 메시지 하나를 보내면 예산을 넘는다
+    for i in range(3):
+        queue(str(i))
+    logs = []
+    assert dispatch.tick(NOW, logs.append) == 1
+    assert len(fake.calls) == 1 and OutboxMessage.objects.filter(status="pending").count() == 2
+    assert logs == ["Discord 알림 발송 시간 0초를 넘어 남은 2개는 다음 바퀴에 보냄"]
+    assert dispatch.tick(NOW, print) == 1 and dispatch.tick(NOW, print) == 1
+    assert OutboxMessage.objects.filter(status="sent").count() == 3
+
+
+def test_tick_slow_webhook_defers_rest(use, monkeypatch):
+    clock = [100.0]
+    monkeypatch.setattr(dispatch.time, "monotonic", lambda: clock[0])
+
+    class Slow(FakeWebhook):
+        def deliver(self, text, **kw):
+            clock[0] += 8  # Discord가 느리다
+            return super().deliver(text, **kw)
+
+    fake = use(Slow())
+    for i in range(5):
+        queue(str(i))
+    assert dispatch.tick(NOW, print) == 2  # 8초 + 8초 = 16초 ≥ 15초에서 멈춘다
+    assert [c[0] for c in fake.calls] == ["0", "1"]
+
+
+def test_tick_claims_before_sending(use):
+    """다른 엔진 루프가 먼저 잡은(sending) 메시지는 보내지 않는다. 보내는 동안은 sending이다."""
+    seen = []
+
+    class Watching(FakeWebhook):
+        def deliver(self, text, **kw):
+            seen.append(OutboxMessage.objects.get(content=text).status)
+            return super().deliver(text, **kw)
+
+    fake = use(Watching())
+    mine, taken = queue("mine"), queue("taken")
+    original = OutboxMessage.objects.filter
+
+    def racing_filter(*args, **kwargs):  # 내가 잡기 직전에 다른 루프가 taken을 잡는다
+        if kwargs.get("pk") == taken.pk and kwargs.get("status") == "pending":
+            OutboxMessage.objects.filter(pk=taken.pk).update(status="sending", claimed_at=NOW)
+        return original(*args, **kwargs)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(OutboxMessage.objects, "filter", racing_filter)
+        assert dispatch.tick(NOW, print) == 1
+    assert [c[0] for c in fake.calls] == ["mine"] and seen == ["sending"]
+    mine.refresh_from_db()
+    taken.refresh_from_db()
+    assert (mine.status, mine.attempts, mine.claimed_at) == ("sent", 1, NOW)
+    assert (taken.status, taken.attempts) == ("sending", 0)
+
+
+def test_tick_releases_stale_sending(use):
+    fake = use(FakeWebhook())
+    dead = queue("dead", status="sending", claimed_at=NOW - timedelta(minutes=11), attempts=1)
+    busy = queue("busy", status="sending", claimed_at=NOW - timedelta(minutes=5), attempts=1)
+    assert dispatch.tick(NOW, print) == 1
+    dead.refresh_from_db()
+    busy.refresh_from_db()
+    assert (dead.status, dead.attempts) == ("sent", 2) and busy.status == "sending"
+    assert [c[0] for c in fake.calls] == ["dead"]

@@ -6,7 +6,8 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from trading import service
-from trading.models import PaperOrder, Reservation
+from trading.models import PaperAccount, PaperOrder, Reservation
+from trading.store import account_for
 
 from autotrade import executor, risk
 from autotrade.models import PlanEvent, Recommendation, TradePlan
@@ -28,6 +29,16 @@ def activate(api, rec, **body):
 
 def kinds(plan) -> list[str]:
     return list(PlanEvent.objects.filter(plan=plan).order_by("step").values_list("kind", flat=True))
+
+
+def day_end(plan, fake):
+    """연결된 진입 주문을 3시간 전 접수로 돌리고 정규장을 끝내 체결 확인 → 그날 미체결로 취소 (DAY_END)."""
+    PaperOrder.objects.filter(pk=plan.order_id).update(created_at=timezone.now() - timedelta(hours=3))
+    fake.ended.add("KR")
+    switch(fake)  # 캐시 비우기
+    fake.ended.add("KR")
+    sync()
+    assert PaperOrder.objects.get(pk=plan.order_id).note == executor.DAY_END
 
 
 def plan_in(status, rec, user, **fields) -> TradePlan:
@@ -436,3 +447,146 @@ def test_preview_us_converts_to_krw(api, fake):
     p = api.get(f"/api/recommendations/{rec.id}/preview").json()
     assert p["activatable"], p["reasons"]
     assert p["quantity"] == 5 and p["amountKrw"] == pytest.approx(5 * 190 * 1400)
+
+
+# --- 경합 · 재주문 수량 · 엔진 취소 · 트랜잭션 ---
+
+def test_cancel_racing_requeue_leaves_no_live_order(api, fake, monkeypatch):
+    """웹 중단이 앞 주문(그날 미체결 취소)을 읽은 뒤 엔진이 다시 주문하면, 중단은 새 주문까지 취소하고 끝낸다."""
+    plan = TradePlan.objects.get(pk=activate(api, make_rec()).json()["id"])
+    first = plan.order_id
+    day_end(plan, fake)
+    original = executor._end
+
+    def requeue_first(p, frm, to, reason, details=None, match=None):
+        if to == TradePlan.CANCELLED and match == {"order_id": first}:
+            monkeypatch.setattr(executor, "_end", original)
+            executor.step(TradePlan.objects.get(pk=p.pk), timezone.now())  # 엔진 루프가 끼어든다
+        return original(p, frm, to, reason, details, match)
+    monkeypatch.setattr(executor, "_end", requeue_first)
+    body = api.post(f"/api/trade-plans/{plan.id}/cancel")
+    assert body.status_code == 200 and body.json()["status"] == "cancelled"
+    plan.refresh_from_db()
+    assert plan.order_id != first and PaperOrder.objects.get(pk=plan.order_id).status == "CANCELED"
+    assert not PaperOrder.objects.filter(requested_by=f"plan:{plan.id}", status="ENTRY_PENDING").exists()
+    assert kinds(plan)[-2:] == ["order_requeued", "cancelled"]
+
+
+def test_place_cancels_order_when_plan_ended_meanwhile(fake, user, monkeypatch, sent):
+    plan = plan_in("active", make_rec(), user)
+    real_buy = service.buy
+
+    def buy_then_cancelled(*args, **kwargs):
+        result = real_buy(*args, **kwargs)
+        TradePlan.objects.filter(pk=plan.pk).update(status="cancelled")  # 주문을 내는 사이 중단됐다
+        return result
+    monkeypatch.setattr(service, "buy", buy_then_cancelled)
+    logs = []
+    executor.step(plan, timezone.now(), logs.append)
+    plan.refresh_from_db()
+    order = PaperOrder.objects.get(requested_by=f"plan:{plan.id}")
+    assert plan.status == "cancelled" and plan.order_id is None and order.status == "CANCELED"
+    assert kinds(plan) == [] and "order_placed" not in sent.kinds  # 사건·알림을 남기지 않는다
+    assert any("방금 낸 주문" in line for line in logs)
+
+
+def test_place_sells_order_that_filled_before_it_was_linked(fake, user, monkeypatch):
+    plan = plan_in("active", make_rec(entry=70000, target=82000, stop=67000), user)  # 지금 가격 = 진입가: 바로 체결
+    real_buy = service.buy
+
+    def buy_then_linked_elsewhere(*args, **kwargs):
+        result = real_buy(*args, **kwargs)
+        TradePlan.objects.filter(pk=plan.pk).update(status="cancelled")
+        return result
+    monkeypatch.setattr(service, "buy", buy_then_linked_elsewhere)
+    executor.step(plan, timezone.now())
+    order = PaperOrder.objects.get(requested_by=f"plan:{plan.id}")
+    assert order.status == "CLOSED" and order.exit_reason == "MANUAL"  # 어떤 계획도 따라가지 않는 포지션을 남기지 않는다
+
+
+def test_requeue_shrinks_quantity_when_risk_shrinks(api, fake, sent):
+    plan = TradePlan.objects.get(pk=activate(api, make_rec()).json()["id"])
+    first = plan.order_id
+    assert plan.quantity == 25
+    day_end(plan, fake)
+    account = account_for(plan.user)
+    PaperAccount.objects.filter(pk=account.pk).update(cash_krw=account.cash_krw * 0.5)  # 자산이 줄었다
+    expected = risk.preview(plan.recommendation, plan.user, None, timezone.now(), plan=plan)["quantity"]
+    assert expected < 25
+    executor.step(plan, timezone.now())
+    plan.refresh_from_db()
+    new = PaperOrder.objects.get(pk=plan.order_id)
+    assert plan.status == "entry_pending" and plan.quantity == expected and new.quantity == expected
+    event = PlanEvent.objects.get(plan=plan, kind="order_requeued")
+    assert event.details == {"orderId": new.id, "previousOrderId": first, "quantity": expected,
+                             "previousQuantity": 25}
+    assert f"25주 → {expected}주" in event.message and sent.calls[-1]["kind"] == "order_requeued"
+
+
+def test_requeue_never_grows_quantity(api, fake):
+    plan = TradePlan.objects.get(pk=activate(api, make_rec(), budgetKrw=700000).json()["id"])
+    assert plan.quantity == 10
+    day_end(plan, fake)
+    executor.step(plan, timezone.now())
+    plan.refresh_from_db()
+    assert plan.quantity == 10 and PaperOrder.objects.get(pk=plan.order_id).quantity == 10
+    assert PlanEvent.objects.get(plan=plan, kind="order_requeued").details.keys() == {"orderId", "previousOrderId"}
+
+
+def test_engine_cancel_makes_plan_failed(api, fake, sent):
+    """사용자가 하지 않은 취소(체결 시점 현금 부족 등)는 cancelled가 아니라 failed."""
+    plan = TradePlan.objects.get(pk=activate(api, make_rec()).json()["id"])
+    note = "체결 시점 현금 부족 (필요 1,726,725원, 가능 1,000원)"
+    PaperOrder.objects.filter(pk=plan.order_id).update(status="CANCELED", note=note)
+    executor.step(plan, timezone.now())
+    plan.refresh_from_db()
+    assert plan.status == "failed" and plan.failure_reason == f"모의 주문이 취소됨: {note}"
+    assert kinds(plan)[-1] == "failed" and sent.kinds[-1] == "failed"
+
+
+def test_cancel_holding_twice_outside_hours(api, fake):
+    plan = activate(api, make_rec(entry=70000, target=82000, stop=67000)).json()
+    switch(fake, KR=False)
+    first = api.post(f"/api/trade-plans/{plan['id']}/cancel").json()
+    again = api.post(f"/api/trade-plans/{plan['id']}/cancel")
+    assert again.status_code == 200 and again.json()["status"] == "holding"
+    assert again.json()["events"] == first["events"]  # 사건을 다시 남기지 않는다
+    assert Reservation.objects.count() == 1
+
+
+def test_transition_and_event_roll_back_together(fake, user, monkeypatch, sent):
+    plan = plan_in("active", make_rec(), user)
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("database is locked")
+    monkeypatch.setattr(executor, "_event", broken)
+    with pytest.raises(RuntimeError):
+        executor._end(plan, TradePlan.ACTIVE, TradePlan.FAILED, "실패")
+    plan.refresh_from_db()
+    assert plan.status == "active" and plan.failure_reason is None  # 상태도 사건도 남지 않는다
+    assert "failed" not in sent.kinds  # 롤백되면 알림도 없다
+
+
+def test_recover_relinks_order_and_records_missing_event(fake, user, sent):
+    """주문을 낸 뒤 계획에 잇기 전에 멈췄으면, 다음 진행이 그 주문을 다시 잇고 order_placed를 남긴다 (한 번만)."""
+    plan = plan_in("entry_pending", make_rec(), user)
+    result = service.buy(account_for(user), f"plan:{plan.id}", "005930", 10, service.LIMIT, 69000, 80000, 66000, 14,
+                         timezone.now())
+    executor.step(plan, timezone.now())
+    plan.refresh_from_db()
+    assert plan.order_id == result["order"]["id"] and plan.status == "entry_pending"
+    assert kinds(plan) == ["order_placed"] and sent.kinds[-1] == "order_placed"
+    executor.step(plan, timezone.now())
+    assert kinds(plan) == ["order_placed"]
+
+
+def test_preview_us_budget_is_fractional_amount(api, fake):
+    rec = make_rec(symbol="AAPL", name="Apple", market_="US", entry=190, target=230, stop=180, price_at_creation=200)
+    p = api.get(f"/api/recommendations/{rec.id}/preview?budgetKrw=600000").json()
+    assert p["activatable"], p["reasons"]
+    assert p["limitedBy"] == "예산" and 2 < p["quantity"] < 3  # 정수 주로 내리지 않는다 (소수점 매수)
+    assert p["quantity"] * 190 == pytest.approx(round(p["quantity"] * 190, 2))  # 금액은 센트 단위
+    small = api.get(f"/api/recommendations/{rec.id}/preview?budgetKrw=100000").json()  # 1주($190)보다 적다
+    assert small["activatable"] and 0 < small["quantity"] < 1
+    tiny = api.get(f"/api/recommendations/{rec.id}/preview?budgetKrw=1000").json()  # 약 $0.71
+    assert not tiny["activatable"] and any("최소 주문 금액" in r for r in tiny["reasons"])

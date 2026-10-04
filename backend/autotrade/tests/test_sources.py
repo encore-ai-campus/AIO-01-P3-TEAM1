@@ -202,3 +202,17 @@ def test_demo_command(fake, sent):
     call_command("demo_recommend", "--symbol", "005930", stdout=out)
     assert "시연 추천 #" in out.getvalue()
     assert Recommendation.objects.get().requested_by is None and sent.calls[0]["users"] is None
+
+
+def test_create_rounds_prices_to_ticks_like_paper_orders(user):
+    """AI 가격은 모의 주문처럼 호가 단위로 내린 뒤 순서·수치를 계산한다."""
+    rec = make_rec(entry=69050, target=80070, stop=66010)
+    same = make_rec(symbol="005935", name="삼성전자우")
+    assert (rec.entry_price, rec.target_price, rec.stop_price) == (69000, 80000, 66000)
+    assert rec.reward_risk == pytest.approx(same.reward_risk) and rec.expected_return == pytest.approx(
+        same.expected_return)
+    us = make_rec(symbol="AAPL", name="Apple", market_="US", entry=190.567, target=230.999, stop=180.001,
+                  price_at_creation=200)
+    assert (us.entry_price, us.target_price, us.stop_price) == (190.56, 230.99, 180.0)
+    with pytest.raises(ValueError):  # 맞추면 진입가 = 손절가
+        make_rec(entry=69050, stop=69010)

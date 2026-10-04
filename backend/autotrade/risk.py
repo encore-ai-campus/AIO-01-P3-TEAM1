@@ -6,7 +6,7 @@ import math
 from datetime import datetime
 
 from django.utils import timezone
-from paper_engine.judge.risk import SELL_TAX_RATE, STOP_LIMIT_BUFFER, AccountContext, assess
+from paper_engine.judge.risk import MIN_FRACTIONAL_AMOUNT, SELL_TAX_RATE, STOP_LIMIT_BUFFER, AccountContext, assess
 from paper_engine.judge.scenario import Scenario
 from paper_engine.records import account as paper_account
 from paper_engine.records.account import FxUnavailable
@@ -101,13 +101,15 @@ def preview(rec: Recommendation, user, budget_krw: float | None = None, now: dat
     quantity, limited_by = a.quantity, a.limited_by
     if budget_krw is not None:
         unit = rec.entry_price * (1 + cfg.commission[rec.market]) * fx  # 1주 매수 비용 (원화)
-        if a.fractional:
-            cap = math.floor(budget_krw / unit * rec.entry_price * 100) / 100 / rec.entry_price
-        else:
-            cap = math.floor(budget_krw / unit)
+        us = rec.market == "US"  # 미국 종목은 소수점 매수: 예산을 금액(센트 내림)으로 바꿔 수량을 정한다
+        amount = math.floor(budget_krw / unit * rec.entry_price * 100) / 100 if us else None
+        cap = amount / rec.entry_price if us else math.floor(budget_krw / unit)
         if cap < quantity:
             quantity, limited_by = cap, BUDGET
-            if quantity <= 0 or (not a.fractional and quantity < 1):
+            if us and amount < MIN_FRACTIONAL_AMOUNT:
+                reasons.append(f"예산 {budget_krw:,.0f}원으로 줄인 매수 금액 ${amount:,.2f}이(가) "
+                               f"최소 주문 금액 ${MIN_FRACTIONAL_AMOUNT:g}보다 적음")
+            elif not us and quantity < 1:
                 reasons.append(f"예산 {budget_krw:,.0f}원으로는 1주도 살 수 없음")
     ratio = quantity / a.quantity if a.quantity else 0.0
 

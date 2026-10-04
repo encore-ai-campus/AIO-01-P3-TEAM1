@@ -34,6 +34,11 @@ def patch(client, data):
     return client.patch("/api/notification-settings", data, content_type="application/json")
 
 
+def age_test_notifications():
+    """시험 알림은 1분에 한 번: 앞서 보낸 것을 2분 전으로 돌린다."""
+    Notification.objects.update(created_at=datetime.now(timezone.utc) - timedelta(minutes=2))
+
+
 def test_login_required():
     c = Client()
     assert c.get("/api/notifications").status_code == 401
@@ -92,7 +97,8 @@ def test_settings_patch_validates_discord_user_id(client, alice):
     assert response.json() == {"discordUserId": "123456789012345678", "discordEnabled": False,
                                "webhookConfigured": False}
     assert NotificationSetting.objects.get(user=alice).discord_user_id == "123456789012345678"
-    for bad in ("1234", "12345678901234567890123", "12345678901234567a", 123456789012345678, ["1"]):
+    arabic, fullwidth = "\u0661" * 18, "\uff11" * 18  # 유니코드 숫자(아랍·전각)는 받지 않는다
+    for bad in ("1234", "12345678901234567890123", "12345678901234567a", 123456789012345678, ["1"], arabic, fullwidth):
         response = patch(client, {"discordUserId": bad})
         assert response.status_code == 400, bad
         assert "숫자 17~20자리" in response.json()["detail"]
@@ -114,6 +120,7 @@ def test_settings_test_endpoint_states(client, alice, config):
 
     config("https://discord.com/api/webhooks/1/" + SECRET)
     patch(client, {"discordUserId": "123456789012345678"})
+    age_test_notifications()
     response = post(client, "/api/notification-settings/test")
     assert response.status_code == 202 and response.json()["discord"] == "queued"
     (m,) = OutboxMessage.objects.all()
@@ -121,6 +128,31 @@ def test_settings_test_endpoint_states(client, alice, config):
     assert SECRET not in response.content.decode() and SECRET not in m.content
 
     patch(client, {"discordEnabled": False})
+    age_test_notifications()
     response = post(client, "/api/notification-settings/test")
     assert response.json()["discord"] == "disabled" and OutboxMessage.objects.count() == 1
     assert Notification.objects.filter(user=alice).count() == 3
+
+
+def test_settings_test_endpoint_is_limited_per_user(client, alice, bob):
+    assert post(client, "/api/notification-settings/test").status_code == 202
+    response = post(client, "/api/notification-settings/test")
+    assert response.status_code == 429 and "1분에 한 번" in response.json()["detail"]
+    assert Notification.objects.filter(user=alice).count() == 1  # 막힌 요청은 알림을 만들지 않는다
+    other = Client()
+    other.force_login(bob)
+    assert post(other, "/api/notification-settings/test").status_code == 202  # 팀원별로 센다
+    Notification.objects.filter(user=alice, kind="system").update(read_at=T0)  # 읽음 여부와 상관없이 시각으로 센다
+    assert post(client, "/api/notification-settings/test").status_code == 429
+    age_test_notifications()
+    assert post(client, "/api/notification-settings/test").status_code == 202
+
+
+def test_settings_test_endpoint_uses_openclaw(client, monkeypatch):
+    from paper_engine.config import Config
+
+    from config import engine
+    monkeypatch.setattr(engine, "engine_config", lambda: Config(None, None, None, openclaw_target="channel:1"))
+    response = post(client, "/api/notification-settings/test")
+    assert response.json()["discord"] == "queued" and OutboxMessage.objects.get().status == "pending"
+    assert client.get("/api/notification-settings").json()["webhookConfigured"] is False  # 뜻은 그대로 (Webhook 여부)
