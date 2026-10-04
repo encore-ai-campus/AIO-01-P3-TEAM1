@@ -1,12 +1,34 @@
 import { Link } from "react-router";
 import { errorMessage } from "../api/client";
 import { useAccount } from "../api/queries";
+import type { Market, PricesAsOf } from "../api/types";
 import { formatKrw, formatRate, formatSignedKrw, trendClass } from "../lib/format";
 import { Icon } from "./Icon";
-import { Card, ErrorState, Flash, Row, SkeletonCard } from "./ui";
+import { AsOf, Card, ErrorState, Flash, Row, SkeletonCard } from "./ui";
 
-/** 홈의 내 자산 카드: 총자산, 손익·수익률(실시간), 투자금액·현금. */
-export function AssetCard() {
+const MARKETS: Market[] = ["KR", "US"];
+
+/** 평가에 쓴 종가의 기준 시각 (보유가 있는 시장만, 국내 → 미국, 한 줄에 하나). 보유가 없으면 아무것도 그리지 않는다. */
+export function PricesAsOfLine({ pricesAsOf, className }: { pricesAsOf: PricesAsOf | undefined; className?: string }) {
+  const markets = MARKETS.filter((m) => pricesAsOf?.[m]);
+  if (markets.length === 0) return null;
+  return (
+    <p className={className}>
+      {markets.map((m) => (
+        <span key={m} className="block">
+          {markets.length > 1 && <span className="text-[12px] text-mute">{m === "KR" ? "국내 " : "미국 "}</span>}
+          <AsOf at={pricesAsOf?.[m]} market={m} />
+        </span>
+      ))}
+    </p>
+  );
+}
+
+/**
+ * 홈의 내 자산 카드: 총자산, 손익·수익률, 투자금액·현금 (보유는 직전 장마감 종가로 평가).
+ * easy(주린이모드)는 처음 자금 대비 손익과 현금·주식 평가액만 쉬운 이름으로 보인다.
+ */
+export function AssetCard({ easy = false }: { easy?: boolean }) {
   const { data: acc, isPending, isError, error, refetch } = useAccount();
   if (isPending) return <SkeletonCard lines={4} />;
   if (isError) {
@@ -24,21 +46,31 @@ export function AssetCard() {
         </h2>
         <Icon name="chevron" className="size-5 text-mute" />
       </Link>
-      <p className="mt-1 text-[13px] text-mute">총자산</p>
+      <p className="mt-1 text-[13px] text-mute">{easy ? "모의 계좌 총자산" : "총자산"}</p>
       <p className="text-[28px] leading-tight font-bold tracking-tight tabular-nums">
         <Flash value={acc.equityKrw}>{formatKrw(acc.equityKrw)}</Flash>
       </p>
       <p className={`mt-1 text-[15px] font-semibold tabular-nums ${trendClass(acc.profitKrw)}`}>
         <Flash value={acc.profitRate}>
+          {easy && <span className="font-medium text-sub">처음 자금보다 </span>}
           {formatSignedKrw(acc.profitKrw)} ({formatRate(acc.profitRate)})
         </Flash>
       </p>
-      <dl className="mt-4 border-t border-line pt-3">
-        <Row label="투자금액">{formatKrw(acc.investedKrw)}</Row>
-        <Row label="보유 평가액">{formatKrw(acc.holdingsValueKrw)}</Row>
-        <Row label="현금">{formatKrw(acc.cashKrw)}</Row>
-        {acc.buyingPowerKrw !== null && <Row label="매수 가능액">{formatKrw(acc.buyingPowerKrw)}</Row>}
-      </dl>
+      <PricesAsOfLine pricesAsOf={acc.pricesAsOf} className="mt-1" />
+      {easy ? (
+        <dl className="mt-4 border-t border-line pt-3">
+          <Row label="처음 자금">{formatKrw(acc.initialCapitalKrw)}</Row>
+          <Row label="현금">{formatKrw(acc.cashKrw)}</Row>
+          <Row label="주식 평가액">{formatKrw(acc.holdingsValueKrw)}</Row>
+        </dl>
+      ) : (
+        <dl className="mt-4 border-t border-line pt-3">
+          <Row label="투자금액">{formatKrw(acc.investedKrw)}</Row>
+          <Row label="보유 평가액">{formatKrw(acc.holdingsValueKrw)}</Row>
+          <Row label="현금">{formatKrw(acc.cashKrw)}</Row>
+          {acc.buyingPowerKrw !== null && <Row label="매수 가능액">{formatKrw(acc.buyingPowerKrw)}</Row>}
+        </dl>
+      )}
       {acc.notes.length > 0 && (
         <ul className="mt-2 space-y-1 text-[13px] text-mute">
           {acc.notes.map((n) => (

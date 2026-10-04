@@ -1,8 +1,9 @@
-// AI 리포트 화면: 신청·목록·실행 계획 그래프·예시 Trace 재생·교육용 문서·Snapshot+SSE 합치기.
+// AI 리포트 화면: 신청·목록·작업 계획 그래프·예시 Trace 재생·교육용 문서·Snapshot+SSE 합치기.
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReportDetail, TraceEvent } from "./api/types";
+import { DISCLAIMER } from "./lib/plainText";
 import * as db from "./mocks/db";
 import { server } from "./mocks/server";
 import { renderApp } from "./test/render";
@@ -43,7 +44,7 @@ afterEach(() => {
 });
 
 const region = (name: string | RegExp) => screen.getByRole("region", { name });
-const node = (title: string) => within(region(/^실행 계획/)).getByRole("article", { name: title });
+const node = (title: string) => within(region(/^작업 계획/)).getByRole("article", { name: title });
 const traceItems = () => within(screen.getByRole("list", { name: "Trace 사건" })).getAllByRole("listitem");
 const click = (name: string | RegExp) => fireEvent.click(screen.getByRole("button", { name }));
 const tab = (name: string) => fireEvent.click(screen.getByRole("tab", { name }));
@@ -55,7 +56,7 @@ function ev(step: number, actor: string, action: string, status: TraceEvent["sta
 }
 
 describe("리포트 목록·신청", () => {
-  it("팀 리포트 목록과 미구현 안내, 실행 계획 미리 보기를 보인다", async () => {
+  it("팀 리포트 목록과 미구현 안내, 작업 계획(Planner) 미리 보기를 보인다", async () => {
     renderApp("/reports");
     const list = await screen.findByRole("list", { name: "리포트 목록" });
     const rows = within(list).getAllByRole("listitem");
@@ -70,23 +71,28 @@ describe("리포트 목록·신청", () => {
 
     expect(await screen.findByText("Agent 실행은 아직 구현되지 않았습니다. 신청은 기록되고 구조만 볼 수 있습니다.")).toBeTruthy();
     // 미리 보기는 접혀 있다
-    click(/실행 계획 미리 보기/);
-    const preview = await screen.findByRole("region", { name: /^실행 계획 미리 보기/ });
+    click(/작업 계획\(Planner\) 미리 보기/);
+    const preview = await screen.findByRole("region", { name: /^작업 계획\(Planner\) 미리 보기/ });
     expect(await within(preview).findByRole("region", { name: "Join Guard" })).toBeTruthy();
     // 미리 보기는 모두 대기
     expect(within(within(preview).getByRole("article", { name: "시세·차트 Agent" })).getByText("대기")).toBeTruthy();
   });
 
-  it("종목을 검색해 골라 신청하면 만들어진 리포트 상세로 간다", async () => {
+  it("종목을 검색해 골라 만들면 만들어진 리포트 상세로 간다", async () => {
     renderApp("/reports");
     fireEvent.change(await screen.findByLabelText("종목 검색"), { target: { value: "현대" } });
     fireEvent.click(await screen.findByRole("button", { name: /현대차/ }));
     expect(screen.getByText("현대차", { selector: "b" })).toBeTruthy();
-    click("리포트 신청");
+    click("AI 리포트 만들기");
     expect(await screen.findByRole("heading", { name: "현대차 AI 리포트" })).toBeTruthy();
-    // 실행 전이라 "실행 과정" 탭이 기본
-    expect(screen.getByRole("tab", { name: "실행 과정" }).getAttribute("aria-selected")).toBe("true");
+    // 실행 전이라 "진행 기록" 탭이 기본 (과제 용어는 사용자 용어 "실행 준비·실행 확인"과 겹치지 않게 — 컨셉 4-3)
+    expect(screen.getByRole("tab", { name: "진행 기록" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.queryByRole("tab", { name: /실행/ })).toBeNull();
+    expect(screen.getByRole("region", { name: /^작업 계획\(Planner\)/ })).toBeTruthy();
+    // 전문가 보기에도 통일 면책 문장 (탭과 상관없이)
+    expect(screen.getByText(DISCLAIMER)).toBeTruthy();
     tab("리포트");
+    expect(screen.getByText(DISCLAIMER)).toBeTruthy();
     expect(screen.getByText("리포트 본문은 Agent 구현 뒤에 표시됩니다 (미구현)")).toBeTruthy();
     expect(db.listReports("005380")).toHaveLength(1);
     expect(db.listReports("005380")[0].chaosEnabled).toBe(false);
@@ -98,7 +104,7 @@ describe("리포트 목록·신청", () => {
     fireEvent.click(await screen.findByRole("button", { name: /현대차/ }));
     fireEvent.click(screen.getByRole("switch", { name: /장애 주입/ }));
     expect(screen.getByRole("button", { name: /복구 시연/ }).getAttribute("aria-pressed")).toBe("true");
-    click("리포트 신청");
+    click("AI 리포트 만들기");
     expect(await screen.findByRole("heading", { name: "현대차 AI 리포트" })).toBeTruthy();
     const made = db.getReport(db.listReports("005380")[0].id);
     expect(made.chaos).toMatchObject({ enabled: true, scope: "primary", probability: 0.8 });
@@ -110,30 +116,59 @@ describe("리포트 목록·신청", () => {
     await waitFor(() => expect(within(lists.at(-1)!).getAllByRole("listitem")).toHaveLength(1));
   });
 
-  it("종목 상세의 AI 리포트 신청 버튼도 리포트 상세로 간다 (AI 분석 요청과 별개)", async () => {
+  it("종목 상세의 AI 리포트 만들기 버튼도 리포트 상세로 간다 (AI 교차검증 분석과 별개)", async () => {
     renderApp("/stocks/005380");
-    await screen.findByRole("button", { name: "AI 분석 요청" });
-    click("AI 리포트 신청");
-    // 바텀시트에서 신청한다
-    const sheet = screen.getByRole("dialog", { name: "AI 리포트 신청" });
-    expect(within(sheet).getByRole("switch", { name: /장애 주입/ })).toBeTruthy();
-    fireEvent.click(within(sheet).getByRole("button", { name: "신청하기" }));
+    await screen.findByRole("button", { name: /AI 교차검증 분석/ });
+    fireEvent.click(await screen.findByRole("button", { name: "AI 리포트 만들기" }));
     expect(await screen.findByRole("heading", { name: "현대차 AI 리포트" })).toBeTruthy();
+    expect(db.listReports("005380")).toHaveLength(1);
+  });
+
+  it("전문가 목록: 칩(내·팀·교차검증), 완성 리포트에 의견(전문가 용어)·한 줄 요약, 교차검증은 점수·분석 시각 가격과 분석 상세 링크", async () => {
+    db.addSampleReports();
+    renderApp("/reports");
+    const list = await screen.findByRole("list", { name: "리포트 목록" });
+    await waitFor(() => expect(within(list).getAllByRole("listitem")).toHaveLength(5));
+    const naver = within(list)
+      .getAllByRole("listitem")
+      .find((li) => li.textContent?.includes("NAVER"));
+    expect(naver).toBeTruthy();
+    expect(within(naver as HTMLElement).getByText("AI 의견 매수")).toBeTruthy();
+    expect(within(naver as HTMLElement).getByText("완료")).toBeTruthy();
+    expect(within(naver as HTMLElement).getByText(/오를 근거가 더 많다고 봤다/)).toBeTruthy();
+    // 만드는 중·실패에는 의견이 없다
+    const failed = within(list)
+      .getAllByRole("listitem")
+      .find((li) => li.textContent?.includes("에코프로"));
+    expect(within(failed as HTMLElement).queryByText(/AI 의견/)).toBeNull();
+    expect(within(failed as HTMLElement).getByText("실패")).toBeTruthy();
+
+    click("내 리포트");
+    await waitFor(() => expect(within(screen.getByRole("list", { name: "리포트 목록" })).getAllByRole("listitem")).toHaveLength(1));
+    expect(screen.getByRole("heading", { name: "내 리포트" })).toBeTruthy();
+
+    click("교차검증 분석");
+    const rows = within(await screen.findByRole("list", { name: "교차검증 분석 목록" })).getAllByRole("listitem");
+    const first = db.listAnalyses(null, null)[0];
+    expect(rows[0].querySelector("a")?.getAttribute("href")).toBe(`/analyses/${first.id}`);
+    expect(within(rows[0]).getByText(first.verdict)).toBeTruthy();
+    if (first.best) expect(within(rows[0]).getByText(/점수/)).toBeTruthy();
+    if (first.priceAtAnalysis !== null) expect(within(rows[0]).getByText(/분석 시각 가격/)).toBeTruthy();
   });
 
   it("하단 탭과 왼쪽 메뉴에 리포트가 있다", async () => {
     renderApp("/reports");
     const tabs = await screen.findByRole("navigation", { name: "하단 탭" });
-    expect(within(tabs).getAllByRole("link").map((a) => a.textContent)).toEqual(["홈", "추천", "내 주식", "리포트", "랭킹", "마이"]);
+    expect(within(tabs).getAllByRole("link").map((a) => a.textContent)).toEqual(["홈", "종목", "리포트", "모의투자", "마이"]);
     expect(within(screen.getByRole("navigation", { name: "주 메뉴" })).getByRole("link", { name: "리포트" })).toBeTruthy();
   });
 });
 
 describe("리포트 상세", () => {
-  it("실행 계획 그래프가 Worker·필수/선택·병렬·Join Guard·Handoff를 그린다", async () => {
+  it("작업 계획 그래프가 Worker·필수/선택·병렬·Join Guard·Handoff를 그린다", async () => {
     renderApp("/reports/2");
     await screen.findByRole("heading", { name: "삼성전자 AI 리포트" });
-    const graph = region(/^실행 계획/);
+    const graph = region(/^작업 계획/);
     expect(within(graph).getByRole("region", { name: "단계 조사" })).toBeTruthy();
     expect(within(graph).getByText("병렬")).toBeTruthy();
     expect(within(node("시세·차트 Agent")).getByText("필수")).toBeTruthy();
@@ -182,7 +217,7 @@ describe("리포트 상세", () => {
     const state = region(/^Shared State/);
     expect(within(state).getByText("뉴스·심리 Agent")).toBeTruthy();
     expect(within(state).getByText("parallel_research")).toBeTruthy();
-    tab("실행 과정");
+    tab("진행 기록");
     showAll();
 
     for (let i = 0; i < 7; i++) click("다음 사건");
@@ -236,9 +271,9 @@ describe("리포트 상세", () => {
   it("예시 ③ 모델 실패 → 대체 모델로 복구: 시도 이력·자동 복구·요약·검토 반복", async () => {
     renderApp("/reports/2?tab=more");
     await screen.findByRole("heading", { name: "삼성전자 AI 리포트" });
-    // "자세히" 탭에서 고르면 "실행 과정" 탭으로 옮긴다
+    // "자세히" 탭에서 고르면 "진행 기록" 탭으로 옮긴다
     click(/③ 모델 실패/);
-    expect(screen.getByRole("tab", { name: "실행 과정" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: "진행 기록" }).getAttribute("aria-selected")).toBe("true");
     click("멈춤");
     for (let i = 0; i < 9; i++) click("다음 사건");
 
@@ -356,7 +391,7 @@ describe("Snapshot + SSE", () => {
     const state = region("Shared State");
     expect(await within(state).findByText("시세·차트 Agent")).toBeTruthy();
     expect(within(state).getByText("market_agent")).toBeTruthy();
-    tab("실행 과정");
+    tab("진행 기록");
 
     // 끊기면 Snapshot 폴링으로 바뀐다
     es.emit("error");
@@ -376,7 +411,7 @@ describe("Snapshot + SSE", () => {
     // 보던 탭을 강제로 바꾸지 않고 요약 띠에 버튼을 띄운다
     fireEvent.click(await screen.findByRole("button", { name: "리포트 완성 · 보기" }));
     expect(await screen.findByText("삼성전자 리포트 본문")).toBeTruthy();
-    tab("실행 과정");
+    tab("진행 기록");
     showAll();
     expect(traceItems()).toHaveLength(3);
     expect(FakeEventSource.instances).toHaveLength(1);

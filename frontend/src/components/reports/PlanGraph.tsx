@@ -1,4 +1,4 @@
-// 실행 계획 그래프 (Execution Plan): step을 PC는 왼쪽→오른쪽, 모바일은 위→아래로 그린다.
+// 작업 계획(Planner) 그래프 (Execution Plan): step을 PC는 왼쪽→오른쪽, 모바일은 위→아래로 그린다.
 // 병렬 step은 Worker 노드를 점선 묶음으로 쌓고, join step 앞에는 Join Guard 노드, Handoff는 점선 화살표로 대상 Worker에 잇는다.
 // 노드 상태는 Trace에서 그 actor의 마지막 사건으로 정한다 (사건이 없으면 대기).
 import { Fragment } from "react";
@@ -291,7 +291,7 @@ export function PlanGraph({ plan, trace, currentStep }: { plan: ExecutionPlan; t
   );
   return (
     <div>
-      <ol aria-label="실행 계획 그래프" className="flex flex-col lg:flex-row lg:items-stretch lg:overflow-x-auto lg:pb-2">
+      <ol aria-label="작업 계획 그래프" className="flex flex-col lg:flex-row lg:items-stretch lg:overflow-x-auto lg:pb-2">
         {cols.map((c, i) => (
           <Fragment key={`${c.kind}-${c.step.id}`}>
             {i > 0 && <Arrow />}

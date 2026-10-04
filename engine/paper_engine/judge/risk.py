@@ -1,6 +1,8 @@
 """리스크 엔진. AI 판단과 무관하게 결정론적으로 수량과 통과 여부를 정한다.
 
 금액은 시나리오 통화 기준으로 계산하고, 자산 대비 한도는 환율로 환산해 비교한다.
+탈락 사유(reasons)마다 같은 자리에 사유 코드(codes)를 둔다 — 화면이 코드로 쉬운 문장을 고른다
+(docs/API.md "실행 불가 사유 코드"). 새 사유를 더하면 그 표를 먼저 고친다.
 """
 import math
 from dataclasses import dataclass, field
@@ -24,13 +26,17 @@ class RiskLimits:
     max_daily_trades: int | None = None
 
 
-# 종목당 비중 한도는 두지 않는다. 대신 자동 관리하는 포지션 전체에 총 금액 한도를 건다
+# 스윙·단타는 종목당 비중 한도를 두지 않는다. 대신 자동 관리하는 포지션 전체에 총 금액 한도를 건다
 # (AccountContext.max_total_krw, .env의 MAX_TOTAL_INVEST_KRW). 한 종목의 크기는 건당 위험 한도가 정한다.
+# LONG_TERM의 비중 한도 100%는 손절 없는 장기 보유 매수 점검(assess_position)에 쓴다 (docs/DECISIONS.md 14-3, E-4).
+# DAY는 단타 연습 계획 (14-4, E-6): 하루 거래 수·손실은 style day 주문만 센다 (records.store.paper_today의 style).
 LIMITS = {
     "SWING": RiskLimits(risk_per_trade=0.01, max_position=None, min_reward_risk=2.0,
                         max_daily_loss=0.03),
-    "LONG_TERM": RiskLimits(risk_per_trade=0.02, max_position=None, min_reward_risk=2.5,
+    "LONG_TERM": RiskLimits(risk_per_trade=0.02, max_position=1.0, min_reward_risk=2.5,
                             max_daily_loss=0.03),
+    "DAY": RiskLimits(risk_per_trade=0.005, max_position=None, min_reward_risk=2.0,
+                      max_daily_loss=0.02, max_daily_trades=10),
 }
 MIN_FRACTIONAL_AMOUNT = 1.0  # 소수점(금액) 매수의 최소 금액 (달러)
 
@@ -63,6 +69,7 @@ class RiskAssessment:
     expected_return: float  # 기대값 / 매수 금액
     limited_by: str  # 수량을 결정한 제약
     fractional: bool = False  # 소수점 방식 (금액 ÷ 진입가만큼 소수점 수량으로 모의 매수)
+    codes: list[str] = field(default_factory=list)  # reasons[i]의 사유 코드 (같은 길이·같은 순서)
 
 
 def assess(scenario: Scenario, account: AccountContext, fractional: bool = False) -> RiskAssessment:
@@ -74,7 +81,11 @@ def assess(scenario: Scenario, account: AccountContext, fractional: bool = False
     # 손익비 기준은 AI에 알려주지 않는다. 기준에 맞춰 목표가를 부풀리는 것을 막기 위해서다.
     limits = LIMITS[scenario.horizon]
     s = scenario
-    reasons = []
+    reasons, codes = [], []
+
+    def reject(code: str, reason: str) -> None:
+        codes.append(code)
+        reasons.append(reason)
 
     buy_cost = account.commission_rate
     sell_cost = account.commission_rate + SELL_TAX_RATE[s.market_country]
@@ -85,15 +96,15 @@ def assess(scenario: Scenario, account: AccountContext, fractional: bool = False
     ev_per_share = s.probability * gain - (1 - s.probability) * loss
 
     if reward_risk < limits.min_reward_risk:
-        reasons.append(f"손익비 {reward_risk:.2f}가 최소 기준 {limits.min_reward_risk:.1f}보다 낮음")
+        reject("reward_risk_low", f"손익비 {reward_risk:.2f}가 최소 기준 {limits.min_reward_risk:.1f}보다 낮음")
     if ev_per_share <= 0:
-        reasons.append("비용을 반영한 기대값이 0 이하")
+        reject("ev_negative", "비용을 반영한 기대값이 0 이하")
     if account.warnings:
-        reasons.append(f"매수 유의 종목: {', '.join(account.warnings)}")
+        reject("warning_stock", f"매수 유의 종목: {', '.join(account.warnings)}")
     if account.daily_loss_krw >= account.equity_krw * limits.max_daily_loss:
-        reasons.append("일일 손실 한도 도달")
+        reject("daily_loss_limit", "일일 손실 한도 도달")
     if limits.max_daily_trades is not None and account.daily_trades >= limits.max_daily_trades:
-        reasons.append(f"일일 매매 건수 한도({limits.max_daily_trades}건) 도달")
+        reject("daily_trades_limit", f"일일 매매 건수 한도({limits.max_daily_trades}건) 도달")
 
     equity = account.equity_krw / account.fx_rate  # 시나리오 통화로 환산
     unit_cost = s.entry_price * (1 + buy_cost)
@@ -114,12 +125,12 @@ def assess(scenario: Scenario, account: AccountContext, fractional: bool = False
         amount = max(math.floor(caps[limited_by] * s.entry_price * 100) / 100, 0.0)
         quantity = amount / s.entry_price
         if amount < MIN_FRACTIONAL_AMOUNT:
-            reasons.append(f"매수 금액이 최소 주문 금액 {MIN_FRACTIONAL_AMOUNT:g}보다 적음 ({limited_by})")
+            reject("size_too_small", f"매수 금액이 최소 주문 금액 {MIN_FRACTIONAL_AMOUNT:g}보다 적음 ({limited_by})")
     else:
         quantity = max(math.floor(caps[limited_by]), 0)
         amount = quantity * s.entry_price
         if quantity < 1:
-            reasons.append(f"매수 가능 수량이 1주 미만 ({limited_by})")
+            reject("size_too_small", f"매수 가능 수량이 1주 미만 ({limited_by})")
 
     return RiskAssessment(
         approved=not reasons,
@@ -133,4 +144,40 @@ def assess(scenario: Scenario, account: AccountContext, fractional: bool = False
         expected_return=ev_per_share / s.entry_price,
         limited_by=limited_by,
         fractional=fractional,
+        codes=codes,
     )
+
+
+def _money(value: float) -> str:
+    """금액 표시: 천 단위 쉼표, 소수 둘째 자리까지 (".00"은 뗀다. 통화 기호 없음)."""
+    return f"{value:,.2f}".removesuffix(".00")
+
+
+def assess_position(price: float, quantity: float, account: AccountContext,
+                    limits: RiskLimits) -> tuple[bool, list[str], list[str]]:
+    """손절가가 없는 장기 보유 매수의 점검 (docs/API.md "보유 방식"). 수량은 사용자가 정하고, 이 점검은 줄이지 않는다.
+
+    price는 종목 통화의 1주 가격 (지정가, 시장가면 직전 종가 — 장마감 기준), quantity는 매수 수량.
+    매수 금액은 수수료를 포함한다. 반환: (통과 여부, 사유, 사유 코드) — 사유와 코드는 같은 길이·같은 순서다.
+      cash_short      매수 금액이 매수 가능 금액(account.buying_power)보다 큼
+      position_limit  기존 보유 평가액 + 매수 금액이 자산 × limits.max_position을 넘음 (max_position이 있을 때만)
+      total_limit     자동 관리 투자 금액 + 매수 금액(원화)이 총 금액 한도(account.max_total_krw)를 넘음 (한도가 있을 때만)
+    """
+    if price <= 0 or quantity <= 0:
+        raise ValueError(f"가격과 수량은 0보다 커야 합니다: {price}, {quantity}")
+    reasons, codes = [], []
+    cost = price * quantity * (1 + account.commission_rate)  # 종목 통화
+    if cost > account.buying_power:
+        codes.append("cash_short")
+        reasons.append(f"매수 금액 {_money(cost)}이 매수 가능 금액 {_money(account.buying_power)}보다 큼")
+    if limits.max_position is not None:
+        equity = account.equity_krw / account.fx_rate  # 종목 통화로 환산
+        if account.position_value + cost > equity * limits.max_position:
+            codes.append("position_limit")
+            reasons.append(f"종목당 비중 한도({limits.max_position:.0%})를 넘음")
+    if account.max_total_krw is not None:
+        room = account.max_total_krw - account.invested_krw
+        if cost * account.fx_rate > room:
+            codes.append("total_limit")
+            reasons.append(f"총 금액 한도 {_money(account.max_total_krw)}원을 넘음 (남은 한도 {_money(max(room, 0))}원)")
+    return not reasons, reasons, codes

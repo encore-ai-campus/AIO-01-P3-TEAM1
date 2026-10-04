@@ -5,6 +5,7 @@ import { api, errorMessage } from "../api/client";
 import { keys, useMe } from "../api/queries";
 import type { Me } from "../api/types";
 import { Spinner } from "../components/ui";
+import { SERVICE_NAME } from "../lib/plainText";
 
 const input =
   "h-14 w-full rounded-2xl bg-fill px-4 text-[17px] outline-none placeholder:text-mute focus:ring-2 focus:ring-brand";
@@ -34,13 +35,13 @@ export function LoginPage() {
     <main className="grid min-h-dvh place-items-center bg-card px-4 py-10 lg:bg-bg">
       <div className="w-full max-w-[400px] lg:rounded-3xl lg:bg-card lg:p-10">
         <div className="mb-8">
-          <span className="grid size-12 place-items-center rounded-2xl bg-brand text-[22px] font-extrabold text-white">모</span>
-          <h1 className="mt-5 text-[26px] leading-snug font-bold">
-            팀 모의매매에
-            <br />
-            로그인하세요
-          </h1>
-          <p className="mt-2 text-[15px] text-sub">팀원 계정 아이디와 비밀번호를 입력해 주세요.</p>
+          <span aria-hidden="true" className="grid size-12 place-items-center rounded-2xl bg-brand text-[19px] font-extrabold text-white">
+            AI
+          </span>
+          <h1 className="mt-5 text-[26px] leading-snug font-bold">{SERVICE_NAME}</h1>
+          <p className="mt-2 text-[15px] leading-relaxed text-sub">
+            AI가 만든 리포트를 읽고 모의 계좌로 연습하는 팀 서비스예요. 팀원 계정 아이디와 비밀번호를 입력해 주세요.
+          </p>
         </div>
         <form
           className="space-y-3"
@@ -86,9 +87,11 @@ export function LoginPage() {
             로그인
           </button>
         </form>
+        <p className="mt-6 text-[13px] leading-relaxed text-mute">실제 주문은 나가지 않아요. 모든 매매는 모의 계좌에서만 이뤄집니다.</p>
         {import.meta.env.VITE_MOCK === "1" && (
           <p className="mt-6 rounded-xl bg-fill p-3 text-[13px] text-sub">
-            가짜 API 모드입니다. <b>alice / alice1234</b> (비공개 계정은 <b>carol / carol1234</b>)
+            가짜 API 모드입니다. <b>alice / alice1234</b> (주린이모드 끔) · <b>bob / bob1234</b> (주린이모드 켬) · 비공개 계정{" "}
+            <b>carol / carol1234</b>
           </p>
         )}
       </div>

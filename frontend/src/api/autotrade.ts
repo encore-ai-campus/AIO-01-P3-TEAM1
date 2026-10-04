@@ -4,15 +4,15 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { api } from "./client";
 import { keys } from "./queries";
-import type { NotificationSettings, NotificationTestResult, Recommendation, TradePlanDetail } from "./types";
+import type { ActivateRequest, NotificationSettings, NotificationTestResult, Recommendation, TradePlanDetail } from "./types";
 
-/** 계획이 바뀌면 다시 받아야 하는 것들 (추천의 myPlan·planCount, 계획, 알림, 모의 계좌·주문). */
-function useRefreshAutotrade() {
+/** 계획이 바뀌면 다시 받아야 하는 것들 (추천의 myPlan·planCount, 계획, 알림, 모의 계좌·주문, 단타 상태·계획). */
+export function useRefreshAutotrade() {
   const qc = useQueryClient();
   return useCallback(
     () =>
       Promise.all(
-        ["recommendations", "recommendation", "plans", "plan", "notifications", "account", "orders", "reservations", "fills"].map((k) =>
+        ["recommendations", "recommendation", "plans", "plan", "notifications", "account", "orders", "reservations", "fills", "day"].map((k) =>
           qc.invalidateQueries({ queryKey: [k] }),
         ),
       ),
@@ -20,12 +20,17 @@ function useRefreshAutotrade() {
   );
 }
 
-/** 계획 활성화. token은 Discord 활성화 링크의 ?t= (있으면 via=discord). */
+/**
+ * 계획 활성화 ("모의 자동매매 시작"). token은 Discord 활성화 링크의 ?t= (있으면 via=discord).
+ * acknowledged: 실행 확인 체크리스트를 모두 켰는지 (서버는 activated 사건에 남기기만 한다 — 화면이 버튼을 막는다).
+ * 막히면 400 {detail, reasonCodes} → ApiError.reasonCodes (lib/plainText.ts의 rejectionSentences로 쉬운 문장).
+ * 201이어도 status가 "failed"일 수 있다 (점검과 접수 사이의 드문 경합).
+ */
 export function useActivate(id: number) {
   const qc = useQueryClient();
   const refresh = useRefreshAutotrade();
   return useMutation({
-    mutationFn: (body: { budgetKrw?: number; token?: string }) => api.post<TradePlanDetail>(`/api/recommendations/${id}/activate`, body),
+    mutationFn: (body: ActivateRequest) => api.post<TradePlanDetail>(`/api/recommendations/${id}/activate`, body),
     onSuccess: (plan) => {
       qc.setQueryData(keys.plan(plan.id), plan);
       void refresh();

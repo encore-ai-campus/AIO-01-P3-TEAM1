@@ -20,6 +20,7 @@ from .jobs import SYMBOL
 from .models import AnalysisRun, Job
 
 KST = ZoneInfo("Asia/Seoul")
+MINE = ("1", "true")  # ?mine= 의 참 값
 
 
 def iso(value: datetime | None) -> str | None:
@@ -32,7 +33,11 @@ def nicknames() -> dict[str, str]:
 
 
 def summary(run: AnalysisRun, names: dict[str, str] | None = None) -> dict:
-    """AnalysisSummary. requestedBy는 팀원이면 닉네임, 그 밖("cli", "strategy:<번호>")은 그대로."""
+    """AnalysisSummary. requestedBy는 팀원이면 닉네임, 그 밖("cli", "strategy:<번호>")은 그대로.
+
+    priceAtAnalysis는 분석 시각의 가격(엔진 스냅숏의 그때 가격)이다 — 장마감 기준이 아닌 일부러 둔 예외라
+    화면이 "분석 시각 가격"으로 적는다 (docs/API.md 공통 규칙 "장마감 기준"). 지표의 기준일은 상세의 dataAsOf.
+    """
     names = nicknames() if names is None else names
     return {
         "id": run.id, "symbol": run.symbol, "name": run.name, "market": run.market, "currency": run.currency,
@@ -63,6 +68,9 @@ class AnalysesView(APIView):
             if verdict not in (AnalysisRun.BUY, AnalysisRun.PASS):
                 raise Rejected("verdict는 BUY 또는 PASS입니다.")
             runs = runs.filter(verdict=verdict)
+        if (request.query_params.get("mine") or "").strip().lower() in MINE:
+            # 내가 요청한 분석만: 실행 기록에는 요청자의 로그인 아이디가 남는다 (전략·CLI 실행은 빠진다). 응답은 닉네임 그대로
+            runs = runs.filter(requested_by=request.user.username)
         names = nicknames()
         return page(request, runs, lambda run: summary(run, names))
 
@@ -99,7 +107,8 @@ class AnalysisDetailView(APIView):
         run = AnalysisRun.objects.filter(pk=pk).first()
         if run is None:
             raise NotFound("분석을 찾을 수 없습니다.")
-        data = summary(run) | {"scenarios": [], "news": [], "research": [], "indicators": {}, "errors": []}
+        data = summary(run) | {"scenarios": [], "news": [], "newsItems": [], "newsProvider": index.NEWS_PROVIDER,
+                               "dataAsOf": None, "research": [], "indicators": {}, "errors": []}
         entry = index.load_entry(run.run_file, run.symbol)
         if entry is not None:
             data |= index.details(entry)

@@ -67,6 +67,7 @@
 | `orderbook` | `ka10004` 주식호가요청 (10단계) | `usa20101` 현재가 10호가 | `/api/dostk/mrkcond`, `/api/us/mrkcond` |
 | `confirmed_prices` | `prices` + `orderbook` (원본과 같은 중간값 규칙) | 같음 | |
 | `daily_candles`, `candles_before`, `completed_daily_candles` | `ka10081` 주식일봉차트조회 (`base_dt`, `upd_stkpc_tp=1` 수정주가, 연속 조회) | `usa06012` 일 차트 (`upd_stkpc_tp=1`, `exrt_appl_tp=0`) | `/api/dostk/chart`, `/api/us/chart` |
+| `minute_candles(symbol, day, minutes=1)` (2026-10-05, 단타 연습) | `ka10080` 주식분봉차트조회 (`tic_scope` = `minutes`, `upd_stkpc_tp=1` 수정주가, `base_dt` = `day`, 연속 조회로 `day` 09:00 앞 봉이 나올 때까지, 최대 `MINUTE_MAX_PAGES`=20쪽) — 응답 목록 키 `stk_min_pole_chart_qry`. **실측 전** | 없음 → `KiwoomApiError` | `/api/dostk/chart` |
 | `stocks`, `warnings`, `listed_stocks(KOSPI\|KOSDAQ)` | `ka10099` 종목정보 리스트 (시장구분별, 하루 캐시) + `ka10100` 종목정보 조회 (목록에 없을 때) | `usa10098` 거래소구분 조회 / `usa10099` 종목리스트 | `/api/dostk/stkinfo`, `/api/us/stkinfo` |
 | `investor_trading` | `ka10059` 종목별투자자기관별 (`amt_qty_tp=2` 수량, `trde_tp=0` 순매수, `unit_tp=1` 1주) | 없음 → `KiwoomApiError` | `/api/dostk/stkinfo` |
 | `rankings(MARKET_TRADING_AMOUNT)` | `ka10032` 거래대금상위 (`mrkt_tp=000`, `stex_tp=1` KRX, `mang_stk_incls` 0=관리종목 제외) | `usa20540` 당일 거래대금 상위(주식) | `/api/dostk/rkinfo`, `/api/us/rkinfo` |
@@ -95,6 +96,9 @@
 | `tradingVolume` | 국내 `now_trde_qty`, 미국 `acc_trde_qty`/`trde_qty` | |
 | `price.changeRate` | `flu_rt` (%) | ÷ 100 → 소수 비율 (`"-1.23"` → `"-0.0123"`) |
 | 투자자 `netBuyVolume` | `ka10059` `ind_invsr`(개인), `frgnr_invsr`(외국인), `orgn`(기관계) | 부호 유지 (순매수 음수 = 순매도) |
+| 분봉 `timestamp` | `ka10080` `cntr_tm` (`YYYYMMDDHHmmss`, 옛 형식 `HHmmss` + `cntr_dt`도 읽는다) | 봉 시작 시각으로 보고 `YYYY-MM-DDTHH:MM:00+09:00` (초는 버린다). **가정(실측 전)**: 공지(2025-10)로 `cntr_tm`에 날짜가 들어갔다고 보고, 봉 시각이 시작인지 끝인지 모른다 → `minutes > 1` 봉을 다시 묶지 않는다 |
+| 분봉 가격·거래량 | `ka10080` `open_pric/high_pric/low_pric/cur_prc`, `trde_qty`(그 봉의 거래량 — `acc_trde_qty`는 누적이라 쓰지 않는다) | 부호 제거 (문자열). 시가·고가·저가가 없으면 종가로 채운다. 시각이나 종가를 읽지 못한 행은 버린다. 정규장(09:00~15:30, 양 끝 포함) 밖과 다른 날짜의 봉은 버린다 |
+| 분봉 완결 여부 | (응답 없음) | `day` 09:00보다 앞선 봉까지 닿았으면 두 번째 값 `complete = True`. 쪽 수 한도에 걸리거나 더 오래된 봉을 주지 않으면 `False` → 웹 API `partial: true` |
 | 환율 `rate` | `ust31301` `exch_tp=1`의 `buy_aplc_exrt`, `exch_tp=2`의 `sell_aplc_exrt` | 두 값 평균(매매기준율 근사). 한쪽만 받으면 그 값. 60초 캐시 |
 
 ### 종목 정보 (`stocks`)
@@ -160,6 +164,19 @@
 - 국내: 정규장 09:00~15:30, 프리 08:00~08:50, 애프터 15:30~20:00 (KRX+NXT 통합). 휴장 = 주말 + 특일정보 공휴일 + 양력 고정 공휴일 + 근로자의날 + 12월 마지막 영업일.
   특일정보는 `PAPER_ROOT/.cache/holidays-KR-<연도>.json`에 캐시(7일마다 갱신, 조회 실패 시 오래된 캐시 사용). 키가 없거나 실패하면 경고 1회 후
   음력 공휴일·대체공휴일 없이 동작한다 → **운영 전에 `DATA_GOKR_API`(특일정보 활용신청)를 꼭 넣는다.**
+- **2026-09-14 장 시간 개편 뒤 구조** (KRX·넥스트레이드 공지 기준 — 키 받은 뒤 실측으로 다시 확인):
+
+  | 구간 | KRX | NXT(넥스트레이드) |
+  |---|---|---|
+  | 프리마켓 | – | 08:00~08:50 |
+  | 정규장 | 09:00~15:30 (장 마감 단일가 15:20~15:30) | 메인마켓 (정규장 판단은 KRX 시각으로 한다) |
+  | 애프터마켓 | **16:00~20:00 (새로 생김)** | 15:40~20:00 |
+  | 시간외단일가 | **폐지** (그 전 장후 시간외 15:40~18:00) | – |
+
+  `KR_SESSIONS`의 afterMarket 15:30~20:00은 두 거래소의 **합집합**으로 그대로 둔다 (정규장 밖 판단에만 쓰고 체결은 정규장만 한다).
+  화면·평가의 가격은 정규장 종가(장마감 기준, `docs/API.md` 공통 규칙)라 애프터마켓 가격을 쓰지 않는다. 기준일은 정규장 종료 + 10분(15:40 KST)에 오늘로 바뀐다.
+  **분봉**(`ka10080`, 단타 연습)은 시간외 봉이 섞여 올 수 있으므로 정규장(09:00~15:30) 안의 봉만 쓴다 (엔진 `minute_candles`, 백엔드도 한 번 더 거른다).
+  `ka10095`의 `cur_prc`가 15:30 뒤·애프터마켓 중에 정규장 종가인지 애프터마켓 체결가인지는 실측 전이다 (8장 5번) — 그래서 화면 가격은 `cur_prc`가 아니라 일봉 종가를 쓴다.
 - 미반영: 새해 첫 거래일 10:00 개장, 수능일 개장·폐장 지연, 임시 휴장.
 - 미국: NYSE 규칙(휴장 10일 + 대체 휴일, 조기 폐장 3일)과 `zoneinfo` 서머타임. 임시 휴장(국가 애도일)은 미반영.
 
@@ -180,6 +197,8 @@
 11. 미국 TR 전부: 거래소구분 조회, 현재가·호가 값, `usa06012`의 행 순서·`strt_dt` 의미·`dt`가 뉴욕 거래일인지, 순위 단위.
 12. `ust31301` 환율 조회가 해외주식 계좌 없이 되는지, 값이 매매기준율과 얼마나 다른지.
 13. 공식 호출 제한(초당 5회)이 실제로 TR 전체 합산인지 TR별인지.
+14. `ka10080` 분봉 (2026-10-05 추가, 단타 연습): 응답 목록 키(`stk_min_pole_chart_qry`)와 필드, `cntr_tm`이 날짜 포함 14자리인지·봉의 시작 시각인지 끝 시각인지,
+    `tic_scope` > 1일 때 봉 경계가 09:00 기준인지, 한 쪽 행 수, `base_dt`로 며칠 전 세션까지 받을 수 있는지(지난 세션 `partial`이 얼마나 나는지), 시간외(NXT) 봉이 섞여 오는지, 15:30 단일가 봉의 시각.
 
 ## 9. 실측 체크리스트
 
@@ -201,6 +220,7 @@ uv run python scripts/kiwoom_check.py --fx --us --save-raw /tmp/kiwoom-raw  # �
 - [ ] 장 달력 KR (다음 영업일이 공휴일·대체공휴일을 건너뛰는지)
 - [ ] (`--fx`) 환율 → 12번. 실패하면 6장 대안
 - [ ] (`--us`) NVDA 거래소구분·현재가·호가·일봉·거래대금 상위·종목정보, 장 달력 US → 11번
+- [ ] 분봉(`ka10080`) 한 세션 → 14번. `scripts/kiwoom_check.py`에 아직 없다 — 엔진 `KiwoomClient.minute_candles("005930", 직전 거래일, 1)`을 직접 불러 봉 수(390개 근처)·`complete`·첫·마지막 봉 시각을 본다
 - [ ] `--save-raw` 폴더의 원본 응답으로 테스트 픽스처(`engine/tests/fixtures/kiwoom/`)를 실제 응답으로 바꾸고 이 문서 8장을 고친다
 
 ## 10. `MARKETS=US`를 켜기 전에 필요한 것

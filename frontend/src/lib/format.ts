@@ -1,7 +1,8 @@
 // 금액·수익률·시각 표시 형식은 모두 여기서 만든다.
-import type { Currency } from "../api/types";
+import type { Currency, Market } from "../api/types";
 
 const KST = "Asia/Seoul";
+const MARKET_TZ: Record<Market, string> = { KR: KST, US: "America/New_York" };
 const intKo = new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 0 });
 const usd = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -81,14 +82,34 @@ export function trendClass(n: number | null | undefined): string {
   return t === "up" ? "text-up" : t === "down" ? "text-down" : "text-sub";
 }
 
-function parts(iso: string, opts: Intl.DateTimeFormatOptions): Record<string, string> {
+function parts(iso: string, opts: Intl.DateTimeFormatOptions, timeZone: string = KST): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const p of new Intl.DateTimeFormat("ko-KR", { timeZone: KST, hourCycle: "h23", ...opts }).formatToParts(
-    new Date(iso),
-  )) {
+  for (const p of new Intl.DateTimeFormat("ko-KR", { timeZone, hourCycle: "h23", ...opts }).formatToParts(new Date(iso))) {
     out[p.type] = p.value;
   }
   return out;
+}
+
+/**
+ * 장마감 기준 표기 (docs/API.md 공통 규칙 "장마감 기준"). 시각은 그 시장의 현지 시각으로 보인다.
+ * KR "10월 2일(금) 15:30 장마감 기준", US "10월 2일(금) 16:00(뉴욕) 장마감 기준". 값이 없으면 "-".
+ */
+export function formatAsOf(iso: string | null | undefined, market: Market = "KR"): string {
+  if (!iso || Number.isNaN(new Date(iso).getTime())) return "-";
+  const p = parts(iso, { month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit" }, MARKET_TZ[market]);
+  return `${p.month}월 ${p.day}일(${p.weekday}) ${p.hour}:${p.minute}${market === "US" ? "(뉴욕)" : ""} 장마감 기준`;
+}
+
+/** 날짜 "YYYY-MM-DD" → "10월 6일(화)" (세션·기준일 표시). 형식이 틀리면 그대로. */
+export function formatDayLabel(day: string | null | undefined): string {
+  if (!day) return "-";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(day);
+  if (!m) return day;
+  // 날짜만 있는 값이라 UTC 정오로 읽어 요일을 구한다 (시간대와 무관)
+  const weekday = new Intl.DateTimeFormat("ko-KR", { timeZone: "UTC", weekday: "short" }).format(
+    new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12)),
+  );
+  return `${Number(m[2])}월 ${Number(m[3])}일(${weekday})`;
 }
 
 /** ISO 시각 → 한국 시간 "10.02 09:05". 올해가 아니면 "2025.10.02 09:05". */

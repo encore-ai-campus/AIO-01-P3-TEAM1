@@ -124,7 +124,7 @@ def test_settings_test_endpoint_states(client, alice, config):
     response = post(client, "/api/notification-settings/test")
     assert response.status_code == 202 and response.json()["discord"] == "queued"
     (m,) = OutboxMessage.objects.all()
-    assert m.status == "pending" and m.content.startswith("<@123456789012345678>\n**알림 시험**")
+    assert m.status == "pending" and m.content.startswith("[AI 리포트 데스크 · 모의투자] **알림 시험**\n<@123456789012345678>")
     assert SECRET not in response.content.decode() and SECRET not in m.content
 
     patch(client, {"discordEnabled": False})

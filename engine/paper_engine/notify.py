@@ -22,7 +22,7 @@ from .judge.risk import RiskAssessment
 from .judge.scenario import Scenario
 from .judge.verdict import PASS_SCORE, Candidate
 
-HORIZON_LABEL = {"SWING": "스윙", "LONG_TERM": "장기"}
+HORIZON_LABEL = {"SWING": "스윙", "LONG_TERM": "장기", "DAY": "단타"}  # 모르는 값은 그대로 보인다 (horizon_label)
 DIRECTION_LABEL = {"POSITIVE": "호재", "NEGATIVE": "악재", "NEUTRAL": "중립"}
 DISCORD_MAX_LEN = 2000  # Discord 메시지 하나의 최대 길이
 OPENCLAW_TIMEOUT_SEC = 60
@@ -308,6 +308,11 @@ def split_message(text: str, limit: int = DISCORD_MAX_LEN) -> list[str]:
     return chunks
 
 
+def horizon_label(horizon: str) -> str:
+    """보유 기간 유형의 화면 이름 (SWING 스윙 · LONG_TERM 장기 · DAY 단타). 모르는 값은 그대로."""
+    return HORIZON_LABEL.get(horizon, horizon)
+
+
 def _money(value: float, currency: str) -> str:
     return f"{value:,.0f}원" if currency == "KRW" else f"${value:,.2f}"
 
@@ -326,7 +331,7 @@ def format_report(s: Scenario, r: RiskAssessment, name: str = "", label: str | N
     label = label or ("통과" if r.approved else "탈락")
     lines = [
         f"[{label}] {name or s.symbol} ({s.symbol}) "
-        f"{HORIZON_LABEL[s.horizon]} 매수",
+        f"{horizon_label(s.horizon)} 매수",
         f"진입 {_money(s.entry_price, c)} / 목표 {_money(s.target_price, c)} (+{up:.1%}) "
         f"/ 손절 {_money(s.stop_price, c)} (-{down:.1%})",
         f"예상 보유 {s.holding_days}일 · 목표 도달 확률 {s.probability:.0%} (AI 추정) "
@@ -396,7 +401,7 @@ def format_recommendation(c: Candidate, name: str = "") -> str:
     up = s.target_price / s.entry_price - 1
     down = 1 - s.stop_price / s.entry_price
     lines = [
-        f"[매수 추천] {name or s.symbol} ({s.symbol}) · {HORIZON_LABEL[s.horizon]} {s.holding_days}거래일",
+        f"[매수 추천] {name or s.symbol} ({s.symbol}) · {horizon_label(s.horizon)} {s.holding_days}거래일",
         f"진입 {_money(s.entry_price, cur)} / 목표 {_money(s.target_price, cur)} (+{up:.1%}) "
         f"/ 손절 {_money(s.stop_price, cur)} (-{down:.1%})",
         f"{_size(r, cur)} · 예상 수익 {_money(r.expected_profit, cur)} "

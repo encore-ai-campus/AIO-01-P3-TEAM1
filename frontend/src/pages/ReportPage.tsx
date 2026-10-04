@@ -1,9 +1,11 @@
-// /reports/:id: 머리 카드 → 실행 요약 띠 → 탭 3개 (리포트 / 실행 과정 / 자세히). 구성은 docs/tasks/05-프론트.md "화면 구성".
+// /reports/:id: 주린이모드 켬(쉬운 보기, 기본)이면 components/reports/easy/EasyReport, 끔(전문가 보기)이면 아래 화면 그대로 —
+// 머리 카드 → 실행 요약 띠 → 탭 3개 (리포트 / 진행 기록 / 자세히). 구성은 docs/tasks/05-프론트.md "화면 구성".
+// 보기는 useViewMode(): "이 화면만 자세히 보기"는 ?view=expert (저장하지 않음). 분기는 이 파일 한 곳.
 // Snapshot을 먼저 받고 SSE로 이어 받는다 (api/reports.ts). 예시 재생은 화면 안에서만 바뀌고 서버에는 아무것도 보내지 않는다.
 import { Suspense, lazy, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { ApiError, errorMessage } from "../api/client";
-import { isFinished, useReportLive, useRequestReport } from "../api/reports";
+import { type Delivery, isFinished, useReportLive, useRequestReport } from "../api/reports";
 import type { ReportDetail, SharedState, TraceEvent } from "../api/types";
 import { SourceRecommendations } from "../components/autotrade/SourceRecommendations";
 import { Icon } from "../components/Icon";
@@ -15,10 +17,14 @@ import { RunSummary } from "../components/reports/RunSummary";
 import { SharedStatePanel } from "../components/reports/SharedStatePanel";
 import { AutoBadge, DeliveryBadge, ExampleTag, InjectedBadge, ReportStatusBadge } from "../components/reports/StatusChip";
 import { TraceTimeline } from "../components/reports/TraceTimeline";
+import { ViewToggle } from "../components/reports/ViewToggle";
+import { EasyReport } from "../components/reports/easy/EasyReport";
 import { Card, ErrorState, Notice, PageHeader, Skeleton, SkeletonCard, Spinner } from "../components/ui";
+import { type ViewModeState, useViewMode } from "../hooks/useBeginnerMode";
 import { cn } from "../lib/cn";
 import { formatDateTime } from "../lib/format";
 import { useReplay } from "../lib/reportExamples";
+import { DISCLAIMER } from "../lib/plainText";
 import { ERROR_LABEL, NOT_IMPLEMENTED, actorLabel, policyName } from "../lib/reports";
 
 const Markdown = lazy(() => import("../components/reports/Markdown").then((m) => ({ default: m.Markdown })));
@@ -26,7 +32,7 @@ const Markdown = lazy(() => import("../components/reports/Markdown").then((m) =>
 type Tab = "report" | "run" | "more";
 const TABS: { value: Tab; label: string }[] = [
   { value: "report", label: "리포트" },
-  { value: "run", label: "실행 과정" },
+  { value: "run", label: "진행 기록" }, // Trace (사용자 용어 "실행 준비·실행 확인"과 겹치지 않게 — docs/컨셉변경계획.md 4-3)
   { value: "more", label: "자세히" },
 ];
 const isTab = (v: string | null): v is Tab => TABS.some((t) => t.value === v);
@@ -66,7 +72,7 @@ function FailureCard({ r, trace, state }: { r: ReportDetail; trace: TraceEvent[]
           ))}
         </ul>
       )}
-      <p className="mt-2 text-[13px] text-mute">재시도와 대체 모델로도 복구하지 못했습니다. 어느 모델이 실패했는지는 &ldquo;실행 과정&rdquo; 탭에서 볼 수 있습니다.</p>
+      <p className="mt-2 text-[13px] text-mute">재시도와 대체 모델로도 복구하지 못했습니다. 어느 모델이 실패했는지는 &ldquo;진행 기록&rdquo; 탭에서 볼 수 있습니다.</p>
       <button
         type="button"
         disabled={request.isPending}
@@ -88,10 +94,8 @@ function FailureCard({ r, trace, state }: { r: ReportDetail; trace: TraceEvent[]
 export function ReportPage() {
   const { id } = useParams();
   const rid = Number(id);
-  const [params, setParams] = useSearchParams();
-  const [first, setFirst] = useState<{ id: number; tab: Tab } | null>(null);
+  const view = useViewMode();
   const { data: r, isPending, isError, error, refetch, delivery } = useReportLive(rid);
-  const replay = useReplay(r?.state.taskId ?? `report-${id}`);
 
   if (isPending) {
     return (
@@ -115,22 +119,49 @@ export function ReportPage() {
     );
   }
 
-  // 예시 재생 중이면 그래프·타임라인·요약·State에 예시 사건을 보인다 (실행 계획은 실제 Registry 그대로)
+  if (view.easy) {
+    return (
+      <>
+        <PageHeader title={`${r.name} AI 리포트`} back />
+        <EasyReport r={r} view={view} />
+      </>
+    );
+  }
+  return <ExpertReport r={r} delivery={delivery} view={view} />;
+}
+
+/** 전문가 보기 (주린이모드 끔 또는 ?view=expert): 예전 화면 그대로. 머리말 오른쪽에 "쉬운 보기" 전환만 더했다. */
+function ExpertReport({ r, delivery, view }: { r: ReportDetail; delivery: Delivery; view: ViewModeState }) {
+  const rid = r.id;
+  const [params, setParams] = useSearchParams();
+  const [first, setFirst] = useState<{ id: number; tab: Tab } | null>(null);
+  const replay = useReplay(r.state.taskId || `report-${rid}`);
+
+  // 예시 재생 중이면 그래프·타임라인·요약·State에 예시 사건을 보인다 (작업 계획은 실제 Registry 그대로)
   const ex = replay.active;
   const trace = ex ? replay.trace : r.trace;
   const state = ex ? replay.state : r.state;
   const finished = isFinished(r.status);
-  // 기본 탭은 처음 받았을 때의 상태로 정한다: 끝났으면 리포트, 아니면 실행 과정. 보는 중에 끝나도 탭을 바꾸지 않는다.
+  // 기본 탭은 처음 받았을 때의 상태로 정한다: 끝났으면 리포트, 아니면 진행 기록. 보는 중에 끝나도 탭을 바꾸지 않는다.
   // 주소에 tab이 있으면 그것
   if (first?.id !== rid) setFirst({ id: rid, tab: finished ? "report" : "run" });
   const param = params.get("tab");
   const tab: Tab = isTab(param) ? param : (first?.id === rid ? first.tab : finished ? "report" : "run");
-  const setTab = (t: Tab) => setParams({ tab: t }, { replace: true });
+  // 다른 쿼리(?view=expert 등)는 그대로 둔다
+  const setTab = (t: Tab) =>
+    setParams(
+      (prev) => {
+        const sp = new URLSearchParams(prev);
+        sp.set("tab", t);
+        return sp;
+      },
+      { replace: true },
+    );
   const startExample = () => setTab("run");
 
   return (
     <>
-      <PageHeader title={`${r.name} AI 리포트`} back />
+      <PageHeader title={`${r.name} AI 리포트`} back right={<ViewToggle view={view} compact />} />
       <div className="space-y-3 lg:space-y-4">
         <Card>
           <div className="flex flex-wrap items-start justify-between gap-2">
@@ -219,7 +250,7 @@ export function ReportPage() {
                     {r.plan.implemented ? (finished ? "본문이 없습니다." : "리포트를 쓰는 중입니다.") : "리포트 본문은 Agent 구현 뒤에 표시됩니다 (미구현)"}
                   </p>
                   <button type="button" onClick={() => setTab("run")} className="mt-2 h-9 rounded-xl bg-card px-3 text-[14px] font-semibold text-brand hover:bg-line">
-                    실행 과정 보기
+                    진행 기록 보기
                   </button>
                 </div>
               )}
@@ -239,7 +270,7 @@ export function ReportPage() {
               )
             )}
             <Card aria-labelledby="plan-title">
-              <CardTitle id="plan-title" title="실행 계획" sub={`${r.plan.title} · 실패 정책 ${policyName(r.plan.failurePolicy)} · 노드를 누르면 자세히`} example={ex} />
+              <CardTitle id="plan-title" title="작업 계획(Planner)" sub={`${r.plan.title} · 실패 정책 ${policyName(r.plan.failurePolicy)} · 노드를 누르면 자세히`} example={ex} />
               <PlanGraph plan={r.plan} trace={trace} currentStep={state.currentStep} />
             </Card>
             <Card aria-labelledby="trace-title">
@@ -265,6 +296,7 @@ export function ReportPage() {
             <EduDocSection />
           </div>
         )}
+        <p className="px-1 text-[12px] leading-snug text-mute">{DISCLAIMER}</p>
       </div>
     </>
   );

@@ -7,6 +7,7 @@
 **/.env
 **/.env.*
 team_accounts.txt
+admin_account.txt
 *.pem
 *.key
 

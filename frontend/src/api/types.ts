@@ -1,4 +1,6 @@
 // docs/API.md의 타입을 그대로 옮긴 것. 계약이 바뀌면 이 파일도 같이 고친다.
+// "구현 예정(2026-10-04, Claude)" 필드도 계약대로 적는다 (서버가 아직 안 내는 동안은 가짜 API(src/mocks)가 낸다).
+// "(추가)"로 표시된 리포트 필드처럼 서버가 아직 안 낼 수 있는 것은 ?로 둔다.
 
 export type Market = "KR" | "US";
 export type Currency = "KRW" | "USD";
@@ -9,16 +11,76 @@ export interface Me {
   nickname: string; // 랭킹에 보이는 이름 (기본값은 아이디)
   isPublic: boolean; // 내 정보 공개 (켜면 랭킹보드에 수익률이 나온다). 기본 false
   isStaff: boolean;
+  beginnerMode: boolean; // 주린이모드 (켬 = 쉬운 보기). 진단 전 기본 true. InvestorProfile.beginnerMode와 같은 값
 }
+
+// ---------------------------------------------------------------- 투자자 프로필 · 단타 연습 퀴즈 (docs/API.md "계정")
+
+export type ExperienceLevel = "intro" | "novice" | "intermediate" | "expert"; // 입문 · 초급 · 중급 · 숙련
+export type RiskProfile = "stable" | "stable_seeking" | "neutral" | "active" | "aggressive";
+// 안정형 · 안정추구형 · 위험중립형 · 적극투자형 · 공격투자형
+
+export type InvestorProduct = "deposit" | "fund_etf" | "kr_stock" | "us_stock" | "derivatives";
+
+/** 투자 성향·경험 진단 7문항의 답 (영문 코드). 점수표는 docs/API.md "투자자 프로필과 주린이모드". */
+export interface InvestorAnswers {
+  q1: "none" | "under_1y" | "1_3y" | "over_3y";
+  q2: InvestorProduct[]; // 여럿 고름 (1개 이상, deposit은 혼자만)
+  q3: "never" | "yearly" | "monthly" | "daily";
+  q4: "unknown" | "heard" | "explain";
+  q5: "no_loss" | "loss_10" | "loss_20" | "more";
+  q6: "years" | "weeks" | "intraday";
+  q7: "practice" | "growth" | "short_term";
+}
+
+export interface InvestorProfile {
+  beginnerMode: boolean; // 지금 주린이모드. 진단 전 기본 true
+  answers: InvestorAnswers | null; // 진단 전이면 null (아래 여섯도 null)
+  experienceScore: number | null; // 0~11
+  experienceLevel: ExperienceLevel | null;
+  riskScore: number | null; // 0~8
+  riskProfile: RiskProfile | null;
+  recommendedBeginnerMode: boolean | null; // 경험 단계가 intro·novice면 true
+  assessedAt: string | null; // 마지막 진단 제출 시각
+  dayQuizPassedAt: string | null; // 단타 연습 퀴즈를 마지막으로 통과한 시각 (진단과 따로)
+  dayTradingUnlocked: boolean; // = beginnerMode가 false이고 dayQuizPassedAt이 있음
+}
+
+export type DayQuizQuestionId = "q1" | "q2" | "q3" | "q4" | "q5";
+
+export interface DayQuizQuestion {
+  id: DayQuizQuestionId;
+  text: string;
+  choices: { id: string; text: string }[]; // id는 문항 안에서 유일 ("a"~"d")
+}
+
+/** GET /api/me/day-trading-quiz. 정답은 내지 않는다. */
+export interface DayQuiz {
+  questions: DayQuizQuestion[]; // 5개, q1부터
+  passedAt: string | null; // InvestorProfile.dayQuizPassedAt과 같은 값
+}
+
+/** POST /api/me/day-trading-quiz {answers: {q1..q5: 보기 id}}. */
+export interface DayQuizResult {
+  passed: boolean; // 5문항 모두 맞혔는지
+  correct: number; // 0~5
+  total: number; // 5
+  results: { id: string; correct: boolean; explanation: string }[]; // q1부터, 맞혀도 해설을 준다
+  passedAt: string | null; // 이번에 통과했으면 지금 시각, 틀렸으면 이전 통과 시각 그대로
+}
+
+// ---------------------------------------------------------------- 모의 트레이딩 (가격은 장마감 기준 — docs/API.md 공통 규칙 "장마감 기준")
 
 export interface Quote {
   symbol: string;
   name: string | null;
   currency: Currency;
-  price: number | null; // 현재가. 조회 실패면 null
-  prevClose: number | null; // 전 거래일 종가
+  price: number | null; // 직전 정규장 종가 (종가 봉의 종가). 조회 실패면 null
+  prevClose: number | null; // 그 전 거래일 종가. 일봉이 하나뿐이면 null
   change: number | null; // price - prevClose
   changeRate: number | null; // price / prevClose - 1
+  asOf: string | null; // price의 기준 시각 = 종가 봉 날짜의 정규장 종료 시각. price가 null이면 null
+  basis: "close"; // 가격 기준. 지금은 "close"(장마감 종가) 하나뿐
 }
 
 export interface StockItem {
@@ -43,18 +105,35 @@ export interface StockDetail {
   exchange: string;
   market: Market;
   currency: Currency;
-  quote: Quote;
-  candles: Candle[]; // 일봉, 과거 → 최신, 최근 120개
+  quote: Quote; // 장마감 기준
+  candles: Candle[]; // 일봉, 과거 → 최신. 최근 120개 중 날짜가 기준일 이하인 완성 봉만 (오늘 미완성 봉은 없다)
+  asOf: string | null; // 마지막 봉(= quote의 종가 봉)의 정규장 종료 시각. 일봉이 없으면 null
   warnings: string[];
 }
 
+export interface MarketSession {
+  market: Market;
+  isOpen: boolean; // 지금 정규장인지
+  opensAt: string | null; // 다음(또는 오늘) 정규장 시작
+  closesAt: string | null; // 지금 열려 있으면 오늘 종료 시각
+  closeDate: string | null; // 그 시장의 기준일 (장마감 기준). 장 달력을 못 받으면 null
+  lastCloseAt: string | null; // 기준일의 정규장 종료 시각. 장 달력을 못 받으면 null
+}
+
 export interface MarketStatus {
-  markets: { market: Market; isOpen: boolean; opensAt: string | null; closesAt: string | null }[];
+  markets: MarketSession[];
   halted: boolean; // 새 모의 매수 중단 스위치
   brokerReady: boolean; // 증권사 조회 키가 있는지
+  quoteProvider: string; // 시세 출처 이름 (화면 아래 출처 줄): "토스증권 Open API(개발)" | "키움증권 REST API"
 }
 
 export type OrderStatus = "ENTRY_PENDING" | "EXIT_WATCHING" | "CLOSED" | "CANCELED";
+
+/** 보유 방식: swing 스윙(목표·손절·기한 자동 매도) · long 장기 보유(자동 매도 없음) · day 단타 연습(그 세션 15:15 KST 정리). */
+export type HoldingStyle = "swing" | "long" | "day";
+
+/** 청산 사유. EOD = 단타 장 마감 전 정리. 화면은 모르는 값이면 그대로 보인다. */
+export type ExitReason = "TARGET" | "STOP" | "EXPIRED" | "MANUAL" | "EOD";
 
 export interface Order {
   id: number;
@@ -66,29 +145,32 @@ export interface Order {
   limitPrice: number | null;
   quantity: number;
   status: OrderStatus;
+  style: HoldingStyle; // 주문할 때 정해지고 바뀌지 않는다
   entryPrice: number;
   fillPrice: number | null;
   filledAt: string | null;
-  targetPrice: number | null;
+  targetPrice: number | null; // long이면 셋 다 null
   stopPrice: number | null;
   expireDate: string | null;
   exitPrice: number | null;
-  exitReason: "TARGET" | "STOP" | "EXPIRED" | "MANUAL" | null;
+  exitReason: ExitReason | null;
   closedAt: string | null;
-  pnlKrw: number | null;
-  note: string | null;
+  pnlKrw: number | null; // 실현 손익 (수수료·세금 포함)
+  note: string | null; // 취소 사유 등 (단타 주문이 15:15에 취소되면 "단타 진입 마감")
   createdAt: string;
 }
 
+/** 보유 중(EXIT_WATCHING)인 주문의 평가 (장마감 기준). */
 export interface Position {
   orderId: number;
   symbol: string;
   name: string;
   market: Market;
   currency: Currency;
+  style: HoldingStyle; // 스윙·장기·단타 배지
   quantity: number;
-  avgPrice: number;
-  lastPrice: number | null;
+  avgPrice: number; // 매수 체결가
+  lastPrice: number | null; // 직전 정규장 종가. 못 받으면 null (그때는 체결가로 평가)
   costKrw: number;
   valueKrw: number;
   profitKrw: number;
@@ -111,8 +193,12 @@ export interface AccountSummary {
   buyingPowerKrw: number | null;
   positions: Position[];
   notes: string[];
-  asOf: string;
+  pricesAsOf: PricesAsOf; // 평가에 쓴 종가의 기준 시각 (보유가 있는 시장만. 없으면 {})
+  asOf: string; // 계산 시각 (응답을 만든 때)
 }
+
+/** 시장별 종가 기준 시각. */
+export type PricesAsOf = Partial<Record<Market, string>>;
 
 export interface Fill {
   id: number;
@@ -126,8 +212,8 @@ export interface Fill {
   amount: number;
   commission: number;
   tax: number;
-  cashChangeKrw: number;
-  reason: "ENTRY" | "TARGET" | "STOP" | "EXPIRED" | "MANUAL";
+  cashChangeKrw: number; // 현금 증감 (매수 음수)
+  reason: "ENTRY" | ExitReason; // 매수 체결은 ENTRY, 매도 체결은 청산 사유
   filledAt: string;
 }
 
@@ -142,7 +228,8 @@ export interface Reservation {
   targetPrice: number | null;
   stopPrice: number | null;
   days: number | null;
-  runAt: string | null;
+  style: HoldingStyle | null; // BUY 예약의 보유 방식 ("swing" | "long"). SELL이면 null
+  runAt: string | null; // 실행 예정 (다음 정규장 시작)
   createdAt: string;
 }
 
@@ -159,10 +246,12 @@ export interface RankingEntry {
   isMe: boolean;
 }
 
+/** 수익률은 장마감 기준 평가 (AccountSummary.profitRate와 같은 계산). */
 export interface Ranking {
-  results: RankingEntry[];
+  results: RankingEntry[]; // 내 정보 공개(isPublic)를 켠 사용자만
   me: { isPublic: boolean; rank: number | null; profitRate: number };
-  asOf: string;
+  pricesAsOf: PricesAsOf; // 평가에 쓴 종가의 기준 시각 (누군가 보유한 시장만)
+  asOf: string; // 계산 시각
 }
 
 export type Verdict = "BUY" | "PASS";
@@ -190,7 +279,7 @@ export interface AnalysisSummary {
   currency: Currency;
   analyzedAt: string;
   verdict: Verdict;
-  priceAtAnalysis: number | null;
+  priceAtAnalysis: number | null; // 분석 시각의 가격 (장마감 기준이 아니다. 화면 "분석 시각 가격")
   best: Scenario | null;
   scenarioCount: number;
   requestedBy: string | null;
@@ -204,9 +293,18 @@ export interface ResearchFinding {
   sourceTitle: string | null;
 }
 
+export interface NewsItem {
+  title: string;
+  source: string | null; // 매체 이름
+  publishedAt: string | null; // 게시 시각 (ISO)
+}
+
 export interface AnalysisDetail extends AnalysisSummary {
   scenarios: Scenario[];
-  news: string[];
+  news: string[]; // 뉴스 제목 (예전 형식)
+  newsItems: NewsItem[]; // 뉴스 제목 + 매체 + 게시 시각, news와 같은 순서. 링크는 내지 않는다
+  newsProvider: string; // 뉴스 출처 표기 "Google 뉴스 검색 결과" (화면이 뉴스 칸 아래에 적는다)
+  dataAsOf: string | null; // 지표·일봉 자료의 기준일 YYYY-MM-DD (엔진 스냅숏의 lastCandleDate)
   research: { researcher: string; findings: ResearchFinding[] }[];
   indicators: Record<string, number | string | null>;
   errors: string[];
@@ -241,6 +339,16 @@ export interface OrderRequest {
   quantity: number;
   orderType: "MARKET" | "LIMIT";
   limitPrice?: number;
+  targetPrice?: number;
+  stopPrice?: number;
+  days?: number;
+  // "swing"(목표·손절 둘 다 필요) | "long"(목표·손절·기한을 받지 않음). 없으면 셋이 모두 없을 때 long, 아니면 swing.
+  // day는 이 경로로 받지 않는다 (POST /api/day/plans).
+  style?: "swing" | "long";
+}
+
+/** PATCH /api/orders/{id}. long 주문은 셋 다 받지 않고, day 주문은 받지 않는다 (400). */
+export interface OrderPatch {
   targetPrice?: number;
   stopPrice?: number;
   days?: number;
@@ -364,6 +472,7 @@ export interface ScreeningResult {
   dropped: Record<string, unknown>[];
   excluded: Record<string, unknown>[];
   reportIds: number[];
+  recommendationIds?: number[]; // 그날 만든 자동 추천 (AUTO_RECOMMEND=demo). 서버가 아직 안 낼 수 있다
 }
 
 export interface Handoff {
@@ -398,10 +507,26 @@ export interface ReportSummary {
   chaosEnabled?: boolean;
   costUsd?: number | null;
   hasPdf?: boolean;
+  opinion: ReportOpinion | null; // AI 의견 = results.report_agent.verdict. status가 completed일 때만, 그 밖은 null
+  oneLiner: string | null; // 한 줄 요약 = results.report_agent.oneLiner (80자). opinion과 같은 규칙
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
 }
+
+/** AI 의견: buy 긍정적 · hold 지켜보기 · avoid 부정적 (화면 문구는 lib/plainText.ts). */
+export type ReportOpinion = "buy" | "hold" | "avoid";
+
+/** GET /api/reports/quota — 하루 리포트 한도 (D-7). */
+export interface ReportQuota {
+  limit: number; // AI_DAILY_REPORTS_PER_USER (기본 3)
+  used: number; // 오늘(KST) 신청한 리포트 중 한도에 세는 수 (장애 주입 없이 failed로 끝난 것은 빼고)
+  remaining: number; // max(limit − used, 0). 0이면 POST /api/reports가 429 {detail, limit, used}
+  resetsAt: string; // 다음 날 00:00 KST
+}
+
+/** 리포트 실패 사유 코드 (Trace의 마지막 workflow_failed.details.reason). 모르는 값도 올 수 있다. */
+export type ReportFailureReason = "join_blocked" | "review_failed" | "timeout" | "engine_restarted" | "exception";
 
 export interface ReportDetail extends ReportSummary {
   // Snapshot
@@ -415,7 +540,9 @@ export interface ReportDetail extends ReportSummary {
 
 // ---------------------------------------------------------------- AI 추천 · 매매 계획 · 자동매매 · 알림 (docs/API.md 끝 절)
 
-export type RecommendationSource = "report" | "analysis" | "demo";
+// day: 단타 연습장에서 사용자가 직접 입력한 계획 (AI 아님). 목록에는 source=day일 때만, 내 것만 나온다
+export type RecommendationSource = "report" | "analysis" | "demo" | "day";
+export type PlanHorizon = "SWING" | "DAY"; // DAY는 단타 계획만
 export type RecommendationStatus = "open" | "expired"; // open: validUntil 전이라 활성화할 수 있음
 export type RiskLevel = "low" | "medium" | "high";
 
@@ -423,16 +550,17 @@ export interface Recommendation {
   id: number;
   source: RecommendationSource;
   sourceId: number | null; // report면 리포트 id, analysis면 분석 id, demo면 null
-  requestedBy: string | null; // 신청한(또는 시연 추천을 만든) 팀원의 닉네임. 자동이면 null
+  requestedBy: string | null; // 신청한(또는 시연·단타 추천을 만든) 팀원의 닉네임. 자동이면 null
   symbol: string;
   name: string;
   market: Market;
   currency: Currency;
-  priceAtCreation: number | null;
-  entryPrice: number; // 지정가로 주문한다
+  horizon: PlanHorizon; // SWING(기본) | DAY (source가 day일 때만)
+  priceAtCreation: number | null; // 추천을 만들 때의 직전 장마감 종가 (출처와 무관)
+  entryPrice: number; // 지정가로 주문한다. day는 사용자가 입력한 값
   targetPrice: number;
   stopPrice: number; // 0 < stopPrice < entryPrice < targetPrice
-  holdingDays: number; // 거래일 1~20
+  holdingDays: number; // 거래일 1~20. DAY는 1
   targetReturn: number; // targetPrice / entryPrice - 1 (비용 전)
   stopLossRate: number; // stopPrice / entryPrice - 1 (음수, 비용 전)
   rewardRisk: number; // 손익비 (비용 반영, 리스크 엔진과 같은 계산)
@@ -445,23 +573,50 @@ export interface Recommendation {
   risks: string[];
   riskLevel: RiskLevel | null;
   status: RecommendationStatus;
-  validUntil: string;
+  validUntil: string; // 활성화 기한 = 계획의 진입 기한. DAY는 만든 날 15:15 KST
   createdAt: string;
   myPlan: { id: number; status: TradePlanStatus } | null;
   planCount: number;
 }
 
+/**
+ * 실행 불가 사유 코드 (docs/API.md "실행 불가 사유 코드"). 서버는 이 표의 코드만 낸다.
+ * 화면은 모르는 코드면 같은 자리의 사유 원문을 보인다 (lib/plainText.ts reasonSentence).
+ */
+export type ReasonCode =
+  | "reward_risk_low"
+  | "ev_negative"
+  | "daily_loss_limit"
+  | "daily_trades_limit"
+  | "warning_stock"
+  | "size_too_small"
+  | "budget_too_small"
+  | "expired"
+  | "plan_exists"
+  | "position_exists"
+  | "halted"
+  | "price_passed"
+  | "day_entry_closed"
+  | "day_trading_locked"
+  | "cash_short"
+  | "position_limit"
+  | "total_limit";
+
+/** 리스크 엔진이 "내 계좌"로 계산한 결과 (활성화 전 확인용). 가격·자산은 장마감 기준. */
 export interface RiskPreview {
-  approved: boolean;
-  activatable: boolean;
-  reasons: string[];
-  quantity: number;
-  amountKrw: number;
-  expectedProfitKrw: number;
-  maxLossKrw: number; // 양수
+  approved: boolean; // 리스크 엔진 통과
+  activatable: boolean; // approved && 추천이 open && 같은 종목 진행 중 계획·주문 없음 && 중단 스위치 꺼짐
+  reasons: string[]; // 활성화할 수 없는 사유 (activatable이면 [])
+  reasonCodes: string[]; // reasons[i]의 코드 = reasonCodes[i] (같은 길이·같은 순서). 값은 ReasonCode
+  quantity: number; // 주문할 수량 (국내는 정수 주)
+  amountKrw: number; // 매수 금액 (원화 환산)
+  expectedProfitKrw: number; // 목표가 도달 시 이익 (비용 반영)
+  maxLossKrw: number; // 손절 시 손실 (비용 반영, 양수)
   limitedBy: string; // "건당 위험 한도" | "매수 가능 금액" | "총 금액 한도" | "유동성 한도" | "예산"
   budgetKrw: number | null;
-  lastPrice: number | null;
+  lastPrice: number | null; // 직전 정규장 종가 (못 받으면 null). 목표가·손절가와 비교하는 가격 (price_passed)
+  lastPriceAsOf: string | null; // lastPrice의 기준 시각 (Quote.asOf와 같은 규칙)
+  priceBasis: "close"; // 가격 기준. 지금은 "close" 하나뿐
 }
 
 export type TradePlanStatus = "active" | "entry_pending" | "holding" | "closed" | "cancelled" | "expired" | "failed";
@@ -474,6 +629,7 @@ export interface TradePlan {
   market: Market;
   currency: Currency;
   source: RecommendationSource;
+  horizon: PlanHorizon; // 추천에서 복사. DAY면 진입 주문이 style "day"이고 그 세션 15:15에 정리된다
   status: TradePlanStatus;
   via: "web" | "discord";
   quantity: number;
@@ -482,21 +638,21 @@ export interface TradePlan {
   targetPrice: number;
   stopPrice: number;
   holdingDays: number;
-  entryDeadline: string;
+  entryDeadline: string; // 진입 기한 (= 추천의 validUntil. DAY는 만든 날 15:15 KST)
   orderId: number | null;
   fillPrice: number | null;
   filledAt: string | null;
   exitPrice: number | null;
-  exitReason: "TARGET" | "STOP" | "EXPIRED" | "MANUAL" | null;
+  exitReason: ExitReason | null; // EOD는 DAY만
   closedAt: string | null;
   pnlKrw: number | null;
-  failureReason: string | null;
+  failureReason: string | null; // failed·expired·cancelled의 사유 (사람이 읽는 말, 전문가 보기)
   activatedAt: string;
   updatedAt: string;
 }
 
 export type PlanEventKind =
-  | "activated"
+  | "activated" // details: {via, budgetKrw, acknowledged}
   | "risk_checked"
   | "order_placed"
   | "order_requeued"
@@ -530,7 +686,11 @@ export type NotificationKind =
   | "cancelled"
   | "expired"
   | "failed"
-  | "system";
+  | "system"
+  | "report_completed" // 리포트 완성 (이 리포트로 추천이 생기면 보내지 않는다)
+  | "report_failed" // 리포트 실패 (본문은 실패 사유 코드의 쉬운 문장)
+  | "daily_move" // 오늘의 내 종목 뉴스 묶음 (사용자당 하루 1개, 웹만)
+  | "thesis_check"; // 펀더멘털 점검 결과가 나빠짐 (웹만)
 
 export interface Notification {
   id: number;
@@ -555,4 +715,241 @@ export interface NotificationSettings {
 export interface NotificationTestResult {
   detail: string;
   discord: "queued" | "not_configured" | "disabled";
+}
+
+/** POST /api/recommendations/{id}/activate 본문. acknowledged: 실행 확인 체크리스트를 모두 켰는지 (없으면 false). */
+export interface ActivateRequest {
+  budgetKrw?: number;
+  token?: string; // Discord 활성화 링크의 ?t=
+  acknowledged?: boolean;
+}
+
+// ---------------------------------------------------------------- 장기투자 (docs/API.md "장기투자")
+
+export interface DailyMoveEvidence {
+  id: string; // "E1", "E2" … (기록 하나 안에서 유일)
+  kind: "disclosure" | "flow" | "broker" | "news";
+  // disclosure 그날 DART 공시(사실) · flow 수급(숫자) · broker 증권사 목표가 헤드라인 · news 뉴스 제목(신뢰 낮음)
+  text: string; // 한 줄 (200자까지)
+  source: string; // 출처 이름
+  at: string | null; // 게시·접수 시각. 날짜만 아는 자료는 null
+  url: string | null; // 공시면 DART 원문 주소, 그 밖은 null
+  reliability: "high" | "medium" | "low";
+}
+
+/** 종목 하나의 하루 기록 (팀 공용). 원인을 단정하지 않는다 — 화면 고정 문구는 lib/plainText.ts DAILY_MOVE_CAPTION. */
+export interface DailyMove {
+  symbol: string;
+  name: string;
+  market: "KR";
+  date: string; // 거래일 YYYY-MM-DD
+  asOf: string; // 그날 정규장 종료 시각
+  close: number;
+  prevClose: number;
+  changeRate: number; // close / prevClose − 1
+  marketProxy: { symbol: string; name: string; changeRate: number | null }; // 코스피 "069500" KODEX 200 · 코스닥 "229200" KODEX 코스닥150
+  excessChangeRate: number | null; // changeRate − marketProxy.changeRate (β=1, 원인이 아니다)
+  sectorChangeRate: null; // v1은 늘 null (화면 "업종 자료 없음")
+  volatility20: number | null; // 최근 20거래일 일간 등락률 표준편차
+  flows: { foreign: number | null; institution: number | null; individual: number | null } | null; // 순매수 ÷ 거래량
+  headline: string; // 60자까지
+  summary: string[]; // 1~3개 (각 120자까지)
+  drivers: string[]; // 설명이 기댄 evidence id. 템플릿이면 []
+  uncertain: boolean; // 근거가 약함 → 화면 "뚜렷한 소식을 찾지 못했어요"
+  method: "template" | "llm";
+  evidence: DailyMoveEvidence[];
+  missing: string[]; // 비운 칸과 이유 한 줄씩
+  createdAt: string;
+}
+
+/** GET /api/longterm/daily-moves. 기록이 하나도 없으면 {date: null, results: []}. */
+export interface DailyMoveList {
+  date: string | null;
+  results: DailyMove[];
+}
+
+export type FundamentalKey =
+  | "revenueGrowth"
+  | "operatingIncomeGrowth"
+  | "operatingMargin"
+  | "roe"
+  | "debtRatio"
+  | "currentRatio"
+  | "interestCoverage"
+  | "operatingCashFlow"
+  | "earningsQuality"; // docs/API.md "지표와 판정" 표 순서
+export type ThesisAxis = "growth" | "profitability" | "balance_sheet"; // 성장 · 수익성 · 재무 안정
+export type CheckStatus = "ok" | "warn" | "bad" | "na"; // ✓ · △ · ✗ · 판정 없음
+/** 종합. 화면은 중립 표기: solid "기준 충족" · caution "주의" · review "확인 필요" · na "적용하지 않음". */
+export type FundamentalsOverall = "solid" | "caution" | "review" | "na";
+
+export interface FundamentalsRow {
+  key: FundamentalKey;
+  label: string; // 화면 이름 ("매출 성장")
+  axis: ThesisAxis;
+  value: number | null; // 최신 값 (unit 기준)
+  unit: "ratio" | "times" | "krw"; // ratio 소수(0.12 = 12%) · times 배 · krw 원
+  baseline: number | null; // 산 이유를 처음 저장할 때의 값
+  change: number | null; // value − baseline (ratio면 %p를 소수로)
+  status: CheckStatus;
+  note: string | null; // 판정 이유 한 줄
+}
+
+export interface ThesisCheck {
+  id: number;
+  checkedAt: string;
+  trigger: "filing" | "weekly";
+  period: string | null; // "2026 반기보고서"
+  receivedAt: string | null; // 보고서 접수일 YYYY-MM-DD
+  overall: FundamentalsOverall;
+  previousOverall: FundamentalsOverall | null;
+  rows: FundamentalsRow[]; // 9개
+  newBad: FundamentalKey[];
+  notified: boolean;
+  caption: string; // "공시 숫자를 정해진 기준으로 본 것이며 투자 권유가 아닙니다"
+}
+
+/** 산 이유 (사용자·종목당 하나). */
+export interface Thesis {
+  symbol: string;
+  name: string;
+  market: Market;
+  reasons: string[]; // 1~3개 (각 1~100자)
+  axes: ThesisAxis[]; // 비면 셋 다로 본다
+  baseline: Partial<Record<FundamentalKey, number | null>>; // 자료가 없으면 {}
+  baselinePeriod: string | null;
+  active: boolean; // 이 종목을 장기 보유(style long, 체결 대기·보유 중) 중인지. 서버가 정한다
+  lastCheck: ThesisCheck | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** PUT /api/longterm/theses/{symbol}. axes를 빼면 그대로 (새로 만들 때는 []). */
+export interface ThesisRequest {
+  reasons: string[];
+  axes?: ThesisAxis[];
+}
+
+/** GET /api/stocks/{symbol}/fundamentals — 보유 여부와 상관없이 최근 지표와 절대 기준 판정. */
+export interface FundamentalsView {
+  symbol: string;
+  name: string;
+  market: Market;
+  applicable: boolean; // 금융업·ETF·ETN·리츠·미국 종목은 false
+  reason: string | null; // applicable이 false거나 자료가 없을 때의 이유
+  overall: FundamentalsOverall;
+  rows: FundamentalsRow[]; // 9개 (baseline·change는 늘 null). applicable이 false면 []
+  asOf: { period: string | null; receivedAt: string | null } | null;
+  source: string; // "금융감독원 OpenDART"
+  caption: string;
+  thesis: Thesis | null; // 이 종목에 대한 내 산 이유와 최근 점검
+}
+
+// ---------------------------------------------------------------- 단타 연습 (docs/API.md "단타 연습")
+
+export interface MinuteCandle {
+  time: string; // 봉 시작 시각 ISO 8601 (+09:00)
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+/** GET /api/stocks/{symbol}/minute-candles — 완성된 정규장 세션만. */
+export interface MinuteCandles {
+  symbol: string;
+  date: string; // 세션 날짜
+  minutes: number; // 봉 간격 (1·3·5·10·15·30·60)
+  asOf: string | null; // 그 세션 정규장 종료 시각. 봉이 없으면 null
+  candles: MinuteCandle[]; // 09:00~15:30 안의 봉, 과거 → 최신
+  partial: boolean; // 세션을 다 받지 못함 → "일부 구간만 있어요" / 봉이 없으면 "이 날짜의 분봉은 받을 수 없어요"
+}
+
+export type DayLockReason = "beginner_mode" | "quiz_not_passed"; // 주린이모드 켬 · 단타 연습 퀴즈 미통과
+
+export interface DaySession {
+  date: string; // acceptingPlans면 오늘(KST). 아니면 다음 국내 거래일
+  acceptingPlans: boolean; // 오늘이 국내 거래일이고 지금이 15:15 KST 전
+  opensAt: string; // 그 세션 정규장 시작
+  entryCutoffAt: string; // 단타 진입 마감 = 그 세션 15:15 KST
+  closeAt: string; // 그 세션 정규장 종료 (보통 15:30)
+  isOpen: boolean; // 지금 국내 정규장 중인지
+}
+
+export interface DayLimits {
+  riskPerTrade: number; // 0.005
+  maxDailyLoss: number; // 0.02
+  maxDailyTrades: number; // 10
+  minRewardRisk: number; // 2.0
+}
+
+/** GET /api/day/status (잠겨도 된다). */
+export interface DayStatus {
+  unlocked: boolean; // = InvestorProfile.dayTradingUnlocked
+  lockReasons: DayLockReason[];
+  session: DaySession;
+  limits: DayLimits;
+  today: {
+    orders: number; // 오늘(KST) 낸 단타 주문 수 (취소 포함)
+    lossKrw: number; // 오늘 확정된 단타 손실 합 (양수)
+    lossLimitKrw: number; // 총자산(장마감 기준) × maxDailyLoss
+  };
+}
+
+export interface TradeCosts {
+  commissionKrw: number; // 매수 + 매도 수수료
+  taxKrw: number; // 매도 거래세 (매도 금액 × 0.002)
+  totalKrw: number;
+}
+
+/** POST /api/day/preview 본문. POST /api/day/plans는 여기에 acknowledged: true를 더한다. */
+export interface DayPlanInput {
+  symbol: string;
+  entryPrice: number;
+  targetPrice: number;
+  stopPrice: number;
+  budgetKrw?: number;
+}
+
+export interface DayPlanRequest extends DayPlanInput {
+  acknowledged: true; // 실행 확인 체크리스트(손절 시 손실 · 15:15 강제 정리 · 비용)를 모두 켰음. 필수
+}
+
+/** POST /api/day/preview. activatable = approved && session.acceptingPlans && 같은 종목 진행 중 없음 && 중단 스위치 꺼짐. */
+export interface DayPreview extends RiskPreview {
+  session: DaySession;
+  costsAtTarget: TradeCosts; // quantity주를 entryPrice에 사서 targetPrice에 팔 때
+  costsAtStop: TradeCosts; // quantity주를 entryPrice에 사서 stopPrice에 팔 때
+}
+
+/** GET /api/day/plans?date= — 그 세션의 내 단타 계획 (최신순). */
+export interface DayPlanList {
+  date: string;
+  results: TradePlan[];
+}
+
+export interface DayReviewItem {
+  plan: TradePlan;
+  entryAt: string | null; // 진입 체결 시각
+  entryPrice: number | null; // 진입 체결가 (plan.entryPrice는 지정가)
+  exitAt: string | null;
+  exitPrice: number | null;
+  exitReason: ExitReason | null; // TARGET · STOP · MANUAL · EOD
+  pnlKrw: number | null; // 청산 전이면 null
+  costsKrw: number; // 수수료 + 세금 합 (체결된 것만)
+  events: PlanEvent[];
+}
+
+/** GET /api/day/review?date= — 결정론 복기 (DB 사실 그대로). AI 복기는 "준비 중". */
+export interface DayReview {
+  date: string;
+  plans: DayReviewItem[]; // 활성화 순
+  totals: {
+    filled: number; // 진입 체결된 계획 수
+    wins: number; // pnlKrw > 0
+    losses: number; // pnlKrw ≤ 0
+    pnlKrw: number;
+    costsKrw: number;
+  };
 }

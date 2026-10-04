@@ -1,9 +1,21 @@
 import { useMutation } from "@tanstack/react-query";
-import { type InputHTMLAttributes, type ReactNode, useId, useState } from "react";
+import { type InputHTMLAttributes, type ReactNode, useEffect, useId, useState } from "react";
+import { createPortal } from "react-dom";
 import { api, errorMessage } from "../api/client";
+import { useFundamentals } from "../api/longterm";
 import { useMarket } from "../api/queries";
 import { useRefreshTrading, useSymbolTrading } from "../api/trading";
-import type { MarketStatus, Order, OrderRequest, OrderResult, Position, Reservation, StockDetail } from "../api/types";
+import type {
+  HoldingStyle,
+  MarketStatus,
+  Order,
+  OrderRequest,
+  OrderResult,
+  Position,
+  PricesAsOf,
+  Reservation,
+  StockDetail,
+} from "../api/types";
 import { cn } from "../lib/cn";
 import {
   formatDate,
@@ -16,8 +28,12 @@ import {
   formatSignedKrw,
   trendClass,
 } from "../lib/format";
+import { HOLDING_STYLE_TEXT, MARKET_ORDER_ESTIMATE, errorSentence } from "../lib/plainText";
+import { StyleBadge } from "./autotrade/Badges";
+import { Icon } from "./Icon";
+import { ThesisForm } from "./longterm/ThesisForm";
 import { useToast } from "./toast";
-import { Flash, Notice, Row, Segmented, Skeleton, Spinner } from "./ui";
+import { AsOf, ErrorState, Flash, Notice, Row, Segmented, Skeleton, Spinner } from "./ui";
 
 export interface Prefill {
   analysisId: number;
@@ -27,10 +43,13 @@ export interface Prefill {
 }
 
 type Session = MarketStatus["markets"][number] | undefined;
+/** 웹 주문이 받는 보유 방식 (단타는 단타 연습장에서만 — docs/API.md "보유 방식"). */
+type BuyStyle = Exclude<HoldingStyle, "day">;
 
 const KR_COMMISSION = 0.00015;
 const toNum = (s: string) => (s.trim() === "" ? null : Number(s));
 
+/** 주문 요청. 막히면 토스트로: 실행 불가 사유 코드가 있으면 쉬운 문장(rejectionSentences), 아니면 서버 detail. */
 function useOrderMutation<T>(fn: () => Promise<T>, onOk: (data: T) => void) {
   const toast = useToast();
   const refresh = useRefreshTrading();
@@ -40,7 +59,7 @@ function useOrderMutation<T>(fn: () => Promise<T>, onOk: (data: T) => void) {
       onOk(data);
       await refresh();
     },
-    onError: (err) => toast(errorMessage(err), "error"),
+    onError: (err) => toast(errorSentence(err), "error"),
   });
 }
 
@@ -49,11 +68,18 @@ const primaryBtn =
 const subBtn =
   "flex h-12 w-full items-center justify-center rounded-xl bg-fill text-[15px] font-semibold text-sub transition-colors hover:bg-line";
 
-/** 종목 상세의 주문 패널. 보유 중이면 보유 정보와 전량 매도, 대기 주문이면 취소, 아니면 매수 입력. */
+/**
+ * 종목 상세의 주문 패널. 보유 중이면 보유 정보와 전량 매도, 대기 주문이면 취소, 아니면 매수 입력(보유 방식: 스윙·장기 보유).
+ * 장기 보유를 사면 "왜 샀나요?"(산 이유, components/longterm/ThesisForm)를 연다 — 바텀시트가 닫혀도 보이게 body에 띄운다.
+ * 펀더멘털 점검을 적용하지 않는 종목(미국·ETF·금융업·리츠 — FundamentalsView.applicable false)은 산 이유를 묻지 않는다 (점검이 오지 않으므로).
+ */
 export function OrderPanel({ stock, prefill, onDone }: { stock: StockDetail; prefill?: Prefill | null; onDone?: () => void }) {
   const { data: market } = useMarket();
   const t = useSymbolTrading(stock.symbol);
   const session = market?.markets.find((m) => m.market === stock.market);
+  const [thesisOpen, setThesisOpen] = useState(false);
+  // 종목 상세의 펀더멘털 패널과 같은 캐시. 아직 모르면(불러오는 중·실패) 열고, 대화상자가 다시 확인한다.
+  const thesisApplicable = useFundamentals(stock.symbol).data?.applicable !== false;
 
   let body: ReactNode;
   if (!t.ready) {
@@ -67,7 +93,17 @@ export function OrderPanel({ stock, prefill, onDone }: { stock: StockDetail; pre
       </div>
     );
   } else if (t.order?.status === "EXIT_WATCHING") {
-    body = <Holding order={t.order} position={t.position} session={session} sellReservation={t.sellReservation} onDone={onDone} />;
+    body = (
+      <Holding
+        order={t.order}
+        position={t.position}
+        pricesAsOf={t.account?.pricesAsOf ?? {}}
+        session={session}
+        sellReservation={t.sellReservation}
+        onDone={onDone}
+        onThesis={thesisApplicable ? () => setThesisOpen(true) : null}
+      />
+    );
   } else if (t.order?.status === "ENTRY_PENDING") {
     body = <Pending order={t.order} onDone={onDone} />;
   } else if (t.buyReservation) {
@@ -81,6 +117,7 @@ export function OrderPanel({ stock, prefill, onDone }: { stock: StockDetail; pre
         buyingPower={t.account?.buyingPowerKrw ?? null}
         prefill={prefill}
         onDone={onDone}
+        onLongBought={() => thesisApplicable && setThesisOpen(true)}
       />
     );
   }
@@ -89,7 +126,83 @@ export function OrderPanel({ stock, prefill, onDone }: { stock: StockDetail; pre
     <div className="space-y-4">
       {market && !market.brokerReady && <Notice tone="warn">증권사 조회 키가 없어 시세·주문이 되지 않습니다.</Notice>}
       {body}
+      {thesisOpen && <ThesisDialog symbol={stock.symbol} name={stock.name} onClose={() => setThesisOpen(false)} />}
     </div>
+  );
+}
+
+/**
+ * "왜 샀나요?" — 장기 보유의 산 이유 (저장하면 공시가 나올 때 펀더멘털 점검). 건너뛰어도 된다.
+ * 이미 적은 산 이유는 펀더멘털 조회(FundamentalsView.thesis, 종목 상세 패널과 같은 캐시)에서 받아 폼에 채운다 —
+ * 받기 전에 빈 폼을 보이면 저장이 기존 이유·축을 덮어쓰므로, 받을 때까지 폼을 그리지 않는다.
+ */
+function ThesisDialog({ symbol, name, onClose }: { symbol: string; name: string; onClose: () => void }) {
+  const toast = useToast();
+  const q = useFundamentals(symbol);
+  const f = q.data;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return createPortal(
+    <div className="fixed inset-0 z-[60] flex items-end justify-center lg:items-center">
+      <button type="button" aria-label="닫기" onClick={onClose} className="absolute inset-0 bg-ink/40" />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="thesis-title"
+        className="relative max-h-[88dvh] w-full animate-sheet-up overflow-y-auto rounded-t-3xl bg-card p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] lg:max-w-md lg:animate-none lg:rounded-3xl"
+      >
+        <div className="mb-2 flex items-start justify-between gap-2">
+          <h2 id="thesis-title" className="text-[18px] font-bold">
+            왜 샀나요?
+          </h2>
+          <button type="button" aria-label="나중에 적기" onClick={onClose} className="-mt-1 -mr-2 grid size-10 place-items-center rounded-full text-sub hover:bg-fill">
+            <Icon name="close" className="size-5" />
+          </button>
+        </div>
+        {q.isPending ? (
+          <div className="space-y-2" aria-busy="true" aria-label="불러오는 중">
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-2/3" />
+            <Skeleton className="h-12 w-full" />
+          </div>
+        ) : q.isError || !f ? (
+          <ErrorState message={errorMessage(q.error)} onRetry={() => void q.refetch()} />
+        ) : !f.applicable ? (
+          <>
+            <p className="text-[14px] leading-snug text-sub">
+              {name}은(는) 정기공시 숫자 점검을 하지 않는 종목이에요{f.reason ? ` (${f.reason})` : ""}. 산 이유를 적어도 점검 알림은 오지 않아요.
+            </p>
+            <button type="button" onClick={onClose} className={cn(subBtn, "mt-4")}>
+              닫기
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="mb-4 text-[14px] leading-snug text-sub">
+              {name}을(를) 산 이유를 1~3개 적어 두면, 정기공시가 나올 때 그 이유와 관련된 숫자를 정해진 기준으로 점검해 알려 드려요. 매도를 권하거나
+              자동으로 팔지 않아요. 건너뛰어도 돼요.
+            </p>
+            <ThesisForm
+              symbol={symbol}
+              name={name}
+              intro={false}
+              initial={f.thesis ? { reasons: f.thesis.reasons, axes: f.thesis.axes } : null}
+              onSaved={() => {
+                toast("산 이유를 저장했어요.");
+                onClose();
+              }}
+              onCancel={onClose}
+            />
+          </>
+        )}
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -128,6 +241,9 @@ function Field({
   );
 }
 
+/** 입력이 아직 비어 있어서 생긴 안내 (빨간 경고로 띄우지 않는다). */
+const MISSING = new Set(["수량을 입력해 주세요.", "스윙은 목표가와 손절가를 둘 다 넣어 주세요."]);
+
 function BuyForm({
   stock,
   session,
@@ -135,6 +251,7 @@ function BuyForm({
   buyingPower,
   prefill,
   onDone,
+  onLongBought,
 }: {
   stock: StockDetail;
   session: Session;
@@ -142,15 +259,15 @@ function BuyForm({
   buyingPower: number | null;
   prefill?: Prefill | null;
   onDone?: () => void;
+  onLongBought: () => void;
 }) {
   const toast = useToast();
-  const price = stock.quote.price;
+  const price = stock.quote.price; // 직전 장마감 종가 (화면 추정용)
   const kr = stock.market === "KR";
-  const unit = kr ? "원" : "$";
+  const [style, setStyle] = useState<BuyStyle>(prefill ? "swing" : "long");
   const [type, setType] = useState<"MARKET" | "LIMIT">("MARKET");
   const [limit, setLimit] = useState(price != null ? String(price) : "");
   const [qty, setQty] = useState("");
-  const [exitOpen, setExitOpen] = useState(Boolean(prefill));
   const [target, setTarget] = useState(prefill ? String(prefill.targetPrice) : "");
   const [stop, setStop] = useState(prefill ? String(prefill.stopPrice) : "");
   const [days, setDays] = useState(prefill ? String(prefill.days) : "");
@@ -160,20 +277,21 @@ function BuyForm({
   const estimate = base != null && q != null && q > 0 ? base * q : null;
   const closed = session ? !session.isOpen : false;
   const maxQty = kr && base && buyingPower != null ? Math.max(0, Math.floor(buyingPower / (base * (1 + KR_COMMISSION)))) : null;
+  const swing = style === "swing";
 
   const problem = (() => {
     if (halted) return "새 모의 매수가 중단되어 있습니다.";
     if (type === "LIMIT" && !(toNum(limit)! > 0)) return "지정가를 입력해 주세요.";
-    if (type === "MARKET" && price == null) return "현재가를 받지 못해 시장가로 주문할 수 없습니다.";
+    if (type === "MARKET" && price == null) return "직전 종가를 받지 못해 시장가로 주문할 수 없습니다.";
     if (q == null) return "수량을 입력해 주세요.";
     if (!(q > 0)) return "수량은 0보다 커야 합니다.";
     if (kr && !Number.isInteger(q)) return "국내 종목은 정수 주만 주문할 수 있습니다.";
-    if (exitOpen) {
+    if (swing) {
       const tp = toNum(target);
       const sp = toNum(stop);
-      if ((tp == null) !== (sp == null)) return "목표가와 손절가는 함께 입력해 주세요.";
-      if (tp != null && sp != null && base != null && !(sp < base && base < tp)) {
-        return "손절가 < 기준가 < 목표가 순서여야 합니다.";
+      if (tp == null || sp == null) return "스윙은 목표가와 손절가를 둘 다 넣어 주세요.";
+      if (base != null && !(sp < base && base < tp)) {
+        return type === "MARKET" ? "손절가 < 직전 종가 < 목표가 순서여야 합니다." : "손절가 < 지정가 < 목표가 순서여야 합니다.";
       }
       const d = toNum(days);
       if (d != null && !(Number.isInteger(d) && d >= 1)) return "보유 기한은 1일 이상 정수로 입력해 주세요.";
@@ -186,16 +304,12 @@ function BuyForm({
 
   const mutation = useOrderMutation(
     () => {
-      const body: OrderRequest = { symbol: stock.symbol, quantity: q!, orderType: type };
+      const body: OrderRequest = { symbol: stock.symbol, quantity: q!, orderType: type, style };
       if (type === "LIMIT") body.limitPrice = toNum(limit)!;
-      if (exitOpen) {
-        const tp = toNum(target);
-        const sp = toNum(stop);
+      if (swing) {
+        body.targetPrice = toNum(target)!;
+        body.stopPrice = toNum(stop)!;
         const d = toNum(days);
-        if (tp != null && sp != null) {
-          body.targetPrice = tp;
-          body.stopPrice = sp;
-        }
         if (d != null) body.days = d;
       }
       return api.post<OrderResult>("/api/orders", body);
@@ -204,11 +318,11 @@ function BuyForm({
       toast(res.message);
       setQty("");
       onDone?.();
+      if (style === "long") onLongBought();
     },
   );
 
-  // 수량 입력 전의 "수량을 입력해 주세요"는 안내만 하고 빨간 경고로 띄우지 않는다
-  const showProblem = problem && !(q == null && problem === "수량을 입력해 주세요.");
+  const quiet = problem !== null && MISSING.has(problem);
 
   return (
     <form
@@ -218,6 +332,23 @@ function BuyForm({
         if (!problem) mutation.mutate();
       }}
     >
+      <div>
+        <p className="mb-1.5 text-[14px] font-medium text-sub">보유 방식</p>
+        <Segmented
+          label="보유 방식"
+          value={style}
+          onChange={setStyle}
+          className="w-full"
+          options={[
+            { value: "swing", label: "스윙" },
+            { value: "long", label: "장기 보유" },
+          ]}
+        />
+        <p className="mt-1 text-[12px] text-mute">
+          {swing ? "목표가·손절가에 닿으면 자동으로 팔아요 (보유 기한은 선택)." : `${HOLDING_STYLE_TEXT.long.hint}. 사고 나면 산 이유를 적어 둘 수 있어요.`}
+        </p>
+      </div>
+
       <Segmented
         label="주문 방식"
         value={type}
@@ -241,11 +372,14 @@ function BuyForm({
           hint="확인 가격이 지정가 이하가 되면 체결되고, 그날 정규장이 끝날 때까지 안 되면 취소됩니다."
         />
       ) : (
-        <div className="flex items-center justify-between rounded-xl bg-fill px-3.5 py-3 text-[15px]">
-          <span className="text-sub">시장가 (현재가)</span>
-          <b className="font-semibold tabular-nums">
-            <Flash value={price}>{formatPrice(price, stock.currency)}</Flash>
-          </b>
+        <div className="rounded-xl bg-fill px-3.5 py-3">
+          <div className="flex items-center justify-between text-[15px]">
+            <span className="text-sub">시장가 · 직전 종가</span>
+            <b className="font-semibold tabular-nums">
+              <Flash value={price}>{formatPrice(price, stock.currency)}</Flash>
+            </b>
+          </div>
+          <AsOf at={stock.quote.asOf} market={stock.market} className="mt-0.5 block text-right" />
         </div>
       )}
 
@@ -253,7 +387,7 @@ function BuyForm({
         <Field
           label="수량"
           suffix="주"
-          placeholder={maxQty != null ? `최대 ${formatNumber(maxQty)}주` : "0"}
+          placeholder={maxQty != null ? `최대 ${formatNumber(maxQty)}` : "0"}
           value={qty}
           min={0}
           step={kr ? 1 : "any"}
@@ -281,38 +415,23 @@ function BuyForm({
         )}
       </div>
 
-      <div className="rounded-xl border border-line px-3.5 py-1">
-        <button
-          type="button"
-          aria-expanded={exitOpen}
-          onClick={() => setExitOpen((v) => !v)}
-          className="flex h-11 w-full items-center justify-between text-[15px] font-semibold text-sub"
-        >
-          목표가·손절가 자동 매도 (선택)
-          <span aria-hidden="true" className={cn("text-mute transition-transform", exitOpen && "rotate-180")}>
-            ▾
-          </span>
-        </button>
-        {exitOpen && (
-          <div className="space-y-3 pb-3">
-            {prefill && (
-              <p className="text-[13px] text-brand-dark">AI 분석 #{prefill.analysisId}의 목표가·손절가·보유 기한을 채웠습니다.</p>
-            )}
-            <div className="grid grid-cols-2 gap-2">
-              <Field label="목표가" suffix={unit === "$" ? "USD" : "원"} value={target} min={0} step="any" inputMode="decimal" onChange={(e) => setTarget(e.target.value)} />
-              <Field label="손절가" suffix={unit === "$" ? "USD" : "원"} value={stop} min={0} step="any" inputMode="decimal" onChange={(e) => setStop(e.target.value)} />
-            </div>
-            <Field label="보유 기한" suffix="일" value={days} min={1} step={1} inputMode="numeric" onChange={(e) => setDays(e.target.value)} />
-            <p className="text-[12px] text-mute">목표가·손절가·기한 조건을 2회 연속 확인하면 엔진이 자동으로 전량 매도합니다.</p>
+      {swing && (
+        <fieldset className="space-y-3 rounded-xl border border-line px-3.5 py-3">
+          <legend className="px-1 text-[14px] font-semibold text-sub">스윙 자동 매도</legend>
+          {prefill && <p className="text-[13px] text-brand-dark">AI 분석 #{prefill.analysisId}의 목표가·손절가·보유 기한을 채웠습니다.</p>}
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="목표가" suffix={kr ? "원" : "USD"} value={target} min={0} step="any" inputMode="decimal" onChange={(e) => setTarget(e.target.value)} />
+            <Field label="손절가" suffix={kr ? "원" : "USD"} value={stop} min={0} step="any" inputMode="decimal" onChange={(e) => setStop(e.target.value)} />
           </div>
-        )}
-      </div>
+          <Field label="보유 기한" suffix="일" placeholder="선택" value={days} min={1} step={1} inputMode="numeric" onChange={(e) => setDays(e.target.value)} />
+          <p className="text-[12px] text-mute">목표가·손절가·기한 조건을 2회 연속 확인하면 엔진이 모의 계좌에서 자동으로 전량 매도합니다.</p>
+        </fieldset>
+      )}
 
       <dl className="space-y-0.5">
-        <Row label="예상 금액">
-          {estimate != null ? formatPrice(estimate, stock.currency) : "-"}
-        </Row>
+        <Row label="예상 금액">{estimate != null ? formatPrice(estimate, stock.currency) : "-"}</Row>
         <Row label="매수 가능액">{formatKrw(buyingPower)}</Row>
+        {type === "MARKET" && <p className="text-[12px] leading-snug text-mute">{MARKET_ORDER_ESTIMATE}.</p>}
         {!kr && <p className="text-right text-[12px] text-mute">미국 종목은 체결 시점 환율로 원화 환산합니다.</p>}
       </dl>
 
@@ -320,8 +439,8 @@ function BuyForm({
       {closed && type === "LIMIT" && (
         <ClosedNotice session={session}>장이 닫혀 있어 체결 대기 주문으로 접수되고, 정규장에서 체결을 확인합니다.</ClosedNotice>
       )}
-      {showProblem && (
-        <p role="alert" className="text-[14px] font-medium text-up">
+      {problem && !(quiet && q == null) && (
+        <p role={quiet ? undefined : "alert"} className={cn("text-[14px] font-medium", quiet ? "text-mute" : "text-up")}>
           {problem}
         </p>
       )}
@@ -330,6 +449,7 @@ function BuyForm({
         {mutation.isPending && <Spinner />}
         {mutation.isPending ? "주문 중…" : closed && type === "MARKET" ? "매수 예약하기" : "매수하기"}
       </button>
+      <p className="text-center text-[12px] text-mute">모의 계좌에서만 주문해요 (실제 돈이 아니에요).</p>
     </form>
   );
 }
@@ -337,15 +457,20 @@ function BuyForm({
 function Holding({
   order,
   position,
+  pricesAsOf,
   session,
   sellReservation,
   onDone,
+  onThesis,
 }: {
   order: Order;
   position: Position | null;
+  pricesAsOf: PricesAsOf;
   session: Session;
   sellReservation: Reservation | null;
   onDone?: () => void;
+  /** "왜 샀나요?"를 연다. null이면 버튼을 그리지 않는다 (펀더멘털 점검을 적용하지 않는 종목). */
+  onThesis: (() => void) | null;
 }) {
   const toast = useToast();
   const [confirm, setConfirm] = useState(false);
@@ -363,11 +488,14 @@ function Holding({
     () => toast("매도 예약을 취소했습니다."),
   );
   const c = order.currency;
+  const style = position?.style ?? order.style;
 
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-[15px] font-semibold text-sub">보유 중</h3>
+        <h3 className="flex items-center gap-1.5 text-[15px] font-semibold text-sub">
+          보유 중 <StyleBadge style={style} />
+        </h3>
         <p className="mt-1 text-[22px] font-bold tabular-nums">
           <Flash value={position?.valueKrw}>{formatKrw(position?.valueKrw ?? null)}</Flash>
         </p>
@@ -376,17 +504,33 @@ function Holding({
             {formatSignedKrw(position.profitKrw)} ({formatRate(position.profitRate)})
           </p>
         )}
+        <AsOf at={pricesAsOf[order.market]} market={order.market} className="block" />
       </div>
       <dl className="border-t border-line pt-2">
         <Row label="보유 수량">{formatQty(order.quantity)}</Row>
         <Row label="평균 체결가">{formatPrice(position?.avgPrice ?? order.fillPrice, c)}</Row>
-        <Row label="현재가">{formatPrice(position?.lastPrice ?? null, c)}</Row>
+        <Row label="종가">{formatPrice(position?.lastPrice ?? null, c)}</Row>
         <Row label="매수 원금">{formatKrw(position?.costKrw ?? null)}</Row>
-        <Row label="목표가 / 손절가">
-          <span className="text-up">{formatPrice(order.targetPrice, c)}</span> / <span className="text-down">{formatPrice(order.stopPrice, c)}</span>
-        </Row>
-        <Row label="보유 기한">{order.expireDate ? `${formatDate(order.expireDate)}까지` : "-"}</Row>
+        {style === "long" ? (
+          <Row label="자동 매도">없음 (내가 팔 때까지 보유)</Row>
+        ) : (
+          <>
+            <Row label="목표가 / 손절가">
+              <span className="text-up">{formatPrice(order.targetPrice, c)}</span> / <span className="text-down">{formatPrice(order.stopPrice, c)}</span>
+            </Row>
+            {style === "day" ? (
+              <Row label="정리">그날 15:15 (단타)</Row>
+            ) : (
+              <Row label="보유 기한">{order.expireDate ? `${formatDate(order.expireDate)}까지` : "-"}</Row>
+            )}
+          </>
+        )}
       </dl>
+      {style === "long" && onThesis && (
+        <button type="button" onClick={onThesis} className={subBtn}>
+          왜 샀나요? (산 이유 적기)
+        </button>
+      )}
 
       {sellReservation ? (
         <>
@@ -425,7 +569,7 @@ function Holding({
           </button>
         </>
       )}
-      <p className="text-[12px] text-mute">같은 종목은 포지션 하나만 가질 수 있고, 매도는 전량만 됩니다.</p>
+      <p className="text-[12px] text-mute">같은 종목은 포지션 하나만 가질 수 있고, 매도는 전량만 됩니다. 평가는 직전 장마감 종가 기준이에요.</p>
     </div>
   );
 }
@@ -442,7 +586,9 @@ function Pending({ order, onDone }: { order: Order; onDone?: () => void }) {
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-[15px] font-semibold text-sub">체결 대기 중</h3>
+        <h3 className="flex items-center gap-1.5 text-[15px] font-semibold text-sub">
+          체결 대기 중 <StyleBadge style={order.style} />
+        </h3>
         <p className="mt-1 text-[22px] font-bold tabular-nums">
           {formatQty(order.quantity)} · {order.orderType === "LIMIT" ? "지정가" : "시장가"}
         </p>
@@ -477,7 +623,9 @@ function Reserved({ r, onDone }: { r: Reservation; onDone?: () => void }) {
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-[15px] font-semibold text-sub">매수 예약됨</h3>
+        <h3 className="flex items-center gap-1.5 text-[15px] font-semibold text-sub">
+          매수 예약됨 {r.style && <StyleBadge style={r.style} />}
+        </h3>
         <p className="mt-1 text-[22px] font-bold tabular-nums">{formatQty(r.quantity)} · 시장가</p>
       </div>
       <dl className="border-t border-line pt-2">
@@ -489,7 +637,7 @@ function Reserved({ r, onDone }: { r: Reservation; onDone?: () => void }) {
         )}
         {r.days != null && <Row label="보유 기한">{r.days}일</Row>}
       </dl>
-      <p className="text-[13px] text-mute">정규장 밖 시장가 주문이라 다음 정규장 시작에 엔진이 실행합니다.</p>
+      <p className="text-[13px] text-mute">정규장 밖 시장가 주문이라 다음 정규장 시작에 엔진이 실행합니다. 체결 가격은 그때의 가격이에요.</p>
       <button type="button" disabled={cancel.isPending} onClick={() => cancel.mutate()} className={subBtn}>
         예약 취소
       </button>

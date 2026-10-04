@@ -1,6 +1,12 @@
 // 가짜 API의 초기 데이터: 종목, 팀원 계정, AI 분석 기록, AI 리포트 실행 계획.
 import type { AnalysisDetail, Currency, ExecutionPlan, Market, Scenario, Verdict } from "../api/types";
+import { basisDay, kstIso } from "./clock";
 
+/**
+ * 가짜 종목. 가격은 둘로 나눈다 (docs/API.md 공통 규칙 "장마감 기준"):
+ * close·prevClose는 화면에 보이는 직전 장마감 종가와 그 전 종가, price는 모의 체결·청산 판단에만 쓰는 장중 확인 가격.
+ * 처음에는 price = close이고, setPrice(테스트)·지터(개발 화면)는 price만 움직인다.
+ */
 export interface MockStock {
   symbol: string;
   name: string;
@@ -8,8 +14,11 @@ export interface MockStock {
   market: Market;
   currency: Currency;
   price: number;
+  close: number;
   prevClose: number;
   warnings: string[];
+  /** 금융업·ETF 등 일반 기업용 펀더멘털 점검을 적용하지 않는 종목의 이유 (없으면 적용). */
+  fundamentalsNa?: string;
 }
 
 export interface MockUser {
@@ -21,10 +30,29 @@ export interface MockUser {
   isStaff: boolean;
 }
 
-const kr = (symbol: string, name: string, exchange: string, price: number, prevClose: number, warnings: string[] = []) =>
-  ({ symbol, name, exchange, market: "KR", currency: "KRW", price, prevClose, warnings }) as MockStock;
-const us = (symbol: string, name: string, exchange: string, price: number, prevClose: number) =>
-  ({ symbol, name, exchange, market: "US", currency: "USD", price, prevClose, warnings: [] }) as MockStock;
+const kr = (symbol: string, name: string, exchange: string, close: number, prevClose: number, warnings: string[] = []): MockStock => ({
+  symbol,
+  name,
+  exchange,
+  market: "KR",
+  currency: "KRW",
+  price: close,
+  close,
+  prevClose,
+  warnings,
+});
+const us = (symbol: string, name: string, exchange: string, close: number, prevClose: number): MockStock => ({
+  symbol,
+  name,
+  exchange,
+  market: "US",
+  currency: "USD",
+  price: close,
+  close,
+  prevClose,
+  warnings: [],
+  fundamentalsNa: "미국 종목은 펀더멘털 점검을 적용하지 않아요",
+});
 
 export function seedStocks(): MockStock[] {
   return [
@@ -35,7 +63,7 @@ export function seedStocks(): MockStock[] {
     kr("035420", "NAVER", "KOSPI", 191_200, 193_000),
     kr("035720", "카카오", "KOSPI", 45_150, 44_800),
     kr("068270", "셀트리온", "KOSPI", 186_400, 184_900),
-    kr("105560", "KB금융", "KOSPI", 84_300, 83_100),
+    { ...kr("105560", "KB금융", "KOSPI", 84_300, 83_100), fundamentalsNa: "금융업은 일반 기업용 점검을 적용하지 않아요" },
     kr("247540", "에코프로비엠", "KOSDAQ", 201_500, 196_000),
     kr("086520", "에코프로", "KOSDAQ", 98_700, 101_200),
     kr("196170", "알테오젠", "KOSDAQ", 352_000, 340_500, ["투자주의 종목입니다 (소수 계좌 거래 집중)."]),
@@ -60,12 +88,24 @@ export function seedUsers(): MockUser[] {
 /** 다른 팀원의 수익률 (랭킹용, 보유 없이 현금으로만 흉내 낸다). */
 export const OTHER_RATES: Record<number, number> = { 2: 0.0412, 3: 0.065, 4: -0.0235, 5: 0.0108 };
 
-/** 호가 단위로 반올림 (국내는 가격대별 단위, 미국은 센트). */
+/** 호가 단위 (국내는 가격대별 단위, 미국은 센트). */
+export function tickOf(price: number, currency: Currency): number {
+  if (currency === "USD") return 0.01;
+  return price < 2_000 ? 1 : price < 5_000 ? 5 : price < 20_000 ? 10 : price < 50_000 ? 50 : price < 200_000 ? 100 : price < 500_000 ? 500 : 1_000;
+}
+
+/** 호가 단위로 반올림. */
 export function roundTick(price: number, currency: Currency): number {
   if (currency === "USD") return Math.round(price * 100) / 100;
-  const tick =
-    price < 2_000 ? 1 : price < 5_000 ? 5 : price < 20_000 ? 10 : price < 50_000 ? 50 : price < 200_000 ? 100 : price < 500_000 ? 500 : 1_000;
+  const tick = tickOf(price, currency);
   return Math.round(price / tick) * tick;
+}
+
+/** 호가 단위로 내림 (단타 계획의 입력 가격을 맞출 때 — docs/API.md "단타 연습"). */
+export function floorTick(price: number, currency: Currency): number {
+  if (currency === "USD") return Math.floor(price * 100 + 1e-9) / 100;
+  const tick = tickOf(price, currency);
+  return Math.floor(price / tick + 1e-9) * tick;
 }
 
 /** 종목 코드로 정해지는 의사 난수 (같은 종목이면 같은 일봉). */
@@ -115,7 +155,14 @@ export function makeAnalysis(
   requestedBy: string | null,
   scenarioCount = 3,
 ): AnalysisDetail {
-  const price = stock.price;
+  const price = stock.price; // 분석 시각의 가격 (장마감 기준이 아니다)
+  const news = [
+    `${stock.name}, 외국인 5거래일 연속 순매수`,
+    `증권가 "${stock.name} 목표주가 상향" 잇따라`,
+    `${stock.exchange} 업종 전반 반등 기대감`,
+  ];
+  const sources = ["연합뉴스", "한국경제", "머니투데이"];
+  const at = Date.parse(analyzedAt);
   const scenarios = Array.from({ length: scenarioCount }, (_, i) =>
     scenario(stock, price, i, verdict === "BUY" ? i !== 2 : false, verdict === "BUY" && i === 0),
   );
@@ -137,11 +184,14 @@ export function makeAnalysis(
     requestedBy,
     costUsd: scenarioCount ? 0.31 : 0.12,
     scenarios,
-    news: [
-      `${stock.name}, 외국인 5거래일 연속 순매수`,
-      `증권가 "${stock.name} 목표주가 상향" 잇따라`,
-      `${stock.exchange} 업종 전반 반등 기대감`,
-    ],
+    news,
+    newsItems: news.map((title, i) => ({
+      title,
+      source: sources[i],
+      publishedAt: Number.isNaN(at) ? null : kstIso(new Date(at - (i + 1) * 5 * 3_600_000)),
+    })),
+    newsProvider: "Google 뉴스 검색 결과",
+    dataAsOf: Number.isNaN(at) ? null : basisDay(stock.market, new Date(at)),
     research: [
       {
         researcher: "claude",

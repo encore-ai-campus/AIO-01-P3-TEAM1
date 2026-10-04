@@ -98,3 +98,77 @@ export function session(market: Market, now: Date = new Date(), override?: boole
   }
   return { isOpen, opensAt: null, closesAt: null };
 }
+
+// ---------------------------------------------------------------- 장마감 기준 (docs/API.md 공통 규칙 "장마감 기준")
+
+/** 일봉 종가가 굳기를 기다리는 여유 (정규장 종료 + 10분). */
+export const CLOSE_SETTLE_MIN = 10;
+
+/** 날짜 "YYYY-MM-DD"가 평일인지 (가짜 API는 공휴일을 모른다). */
+export function isWeekday(day: string): boolean {
+  const wd = new Date(`${day}T00:00:00Z`).getUTCDay();
+  return wd !== 0 && wd !== 6;
+}
+
+export function prevWeekday(day: string): string {
+  let d = addDays(day, -1);
+  while (!isWeekday(d)) d = addDays(d, -1);
+  return d;
+}
+
+export function nextWeekday(day: string): string {
+  let d = addDays(day, 1);
+  while (!isWeekday(d)) d = addDays(d, 1);
+  return d;
+}
+
+/** 그 시장 현지 날짜 YYYY-MM-DD. */
+export function marketDay(market: Market, now: Date = new Date()): string {
+  const z = zoned(now, TZ[market]);
+  return `${z.y}-${z.m}-${z.d}`;
+}
+
+/** 그 시장 현지 시각(분, 0~1439). */
+export function marketMinutes(market: Market, now: Date = new Date()): number {
+  return zoned(now, TZ[market]).minutes;
+}
+
+/** 기준일: 정규장 종료 + 10분이 now 이전인 가장 최근 영업일 (그 시장 현지 날짜). */
+export function basisDay(market: Market, now: Date = new Date()): string {
+  const z = zoned(now, TZ[market]);
+  const today = `${z.y}-${z.m}-${z.d}`;
+  if (isWeekday(today) && z.minutes >= HOURS[market].close + CLOSE_SETTLE_MIN) return today;
+  return prevWeekday(today);
+}
+
+/** day(그 시장 현지 날짜)의 hh:mm을 오프셋이 붙은 ISO로. */
+export function marketIso(market: Market, day: string, minutes: number): string {
+  // 그 날짜 낮 시각으로 오프셋을 구한다 (서머타임은 새벽 2시에 바뀌므로 낮이면 그날 값)
+  const probe = zoned(new Date(`${day}T17:00:00Z`), TZ[market]);
+  return `${day}T${hhmm(minutes)}:00${probe.offset}`;
+}
+
+/** 그 날짜의 정규장 종료 시각 ISO (KR 15:30+09:00, US 뉴욕 16:00). */
+export function sessionEndIso(market: Market, day: string): string {
+  return marketIso(market, day, HOURS[market].close);
+}
+
+export function sessionStartIso(market: Market, day: string): string {
+  return marketIso(market, day, HOURS[market].open);
+}
+
+/** day로 끝나는(포함) 평일 n개 (과거 → 최신). */
+export function weekdaysEnding(day: string, n: number): string[] {
+  const out: string[] = [];
+  let d = isWeekday(day) ? day : prevWeekday(day);
+  while (out.length < n) {
+    out.push(d);
+    d = prevWeekday(d);
+  }
+  return out.reverse();
+}
+
+/** KST 그 날짜 00:00의 epoch ms. */
+export function kstDayStartMs(day: string): number {
+  return Date.parse(`${day}T00:00:00+09:00`);
+}

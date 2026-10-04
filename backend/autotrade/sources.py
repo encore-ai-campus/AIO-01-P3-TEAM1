@@ -1,6 +1,9 @@
-"""추천 만들기 (docs/DECISIONS.md 12-1·12-2): AI 리포트(report_agent 결과)·AI 교차검증 분석(BUY)·시연 규칙(demo.py).
+"""추천 만들기 (docs/DECISIONS.md 12-1·12-2): AI 리포트(report_agent 결과)·AI 교차검증 분석(BUY)·시연 규칙(demo.py)·
+단타 연습(source day — backend/daytrade가 create를 부른다, AI 아님).
 
-출처마다 추천은 하나다. 판정이 buy/BUY이고 0 < 손절 < 진입 < 목표일 때만 만든다. 만들면 신청한 팀원(없으면 팀 전체)에게 알린다.
+출처마다 추천은 하나다. 판정이 buy/BUY이고 0 < 손절 < 진입 < 목표일 때만 만든다. 만들면 신청한 팀원(없으면 팀 전체)에게 알린다
+(단타 연습 추천은 알리지 않는다 — 만든 사람 혼자 쓰는 계획의 껍데기다).
+priceAtCreation은 출처와 무관하게 만들 때의 직전 정규장 종가다 (장마감 기준, docs/DECISIONS.md 14-1).
 엔진 루프의 "추천 수집" 단계가 collect를 부른다 (끝난 리포트·분석을 추천으로, 기한 지난 추천을 만료로).
 """
 import math
@@ -11,7 +14,6 @@ from django.contrib.auth import get_user_model
 from django.db import IntegrityError
 from django.db.models import Q
 from django.utils import timezone
-from notifications import service as notices
 from paper_engine.data.ticks import round_price
 from reports.models import Report
 from trading import market
@@ -19,8 +21,8 @@ from trading import market
 from config.api import Unavailable
 
 from . import conf, risk
-from .models import Recommendation
-from .text import money, pct, when
+from . import text as texts
+from .models import HORIZON_SWING, HORIZONS, Recommendation
 from .tokens import activation_token
 
 DEFAULT_HOLDING_DAYS, MIN_HOLDING_DAYS, MAX_HOLDING_DAYS = 10, 1, 20
@@ -28,9 +30,9 @@ ASSUMED_PROBABILITY = 0.5
 MAX_ITEMS = 3  # reasons·risks
 RISK_LEVELS = ("low", "medium", "high")
 REPORT_LOOKBACK, ANALYSIS_LOOKBACK = timedelta(days=7), timedelta(days=3)
-SOURCE_LABEL = {Recommendation.REPORT: "AI 리포트", Recommendation.ANALYSIS: "AI 교차검증 분석",
-                Recommendation.DEMO: "시연용 규칙 추천 (AI 아님)"}
-COLOR = {Recommendation.REPORT: 0x2E7D32, Recommendation.ANALYSIS: 0x1565C0, Recommendation.DEMO: 0x757575}
+SOURCE_LABEL = texts.SOURCE_LABEL
+COLOR = {Recommendation.REPORT: 0x2E7D32, Recommendation.ANALYSIS: 0x1565C0, Recommendation.DEMO: 0x757575,
+         Recommendation.DAY: 0x757575}
 _FETCH = object()
 
 
@@ -75,9 +77,10 @@ def _confidence(value) -> float | None:
     return min(max(float(value), 0.0), 100.0) if math.isfinite(value) else None
 
 
-def _last_price(symbol: str) -> float | None:
+def _close_price(symbol: str) -> float | None:
+    """직전 정규장 종가 (장마감 기준). 받지 못하면 None."""
     try:
-        return market.last_price(symbol)
+        return market.close_price(symbol)
     except Unavailable:
         return None
 
@@ -86,14 +89,20 @@ def create(source: str, *, symbol: str, name: str, market_: str, entry, target, 
            probability=None, confidence=None, summary: str = "", reasons=(), risks=(), risk_level=None,
            requested_by=None, report: Report | None = None, analysis: AnalysisRun | None = None,
            price_at_creation=_FETCH, now: datetime | None = None, probability_assumed: bool | None = None,
+           horizon: str = HORIZON_SWING, valid_until: datetime | None = None, announce: bool = True,
            ) -> Recommendation:
-    """값을 검증하고 수치를 채워 추천을 저장한 뒤 알린다. 값이 잘못됐으면 ValueError.
+    """값을 검증하고 수치를 채워 추천을 저장한 뒤 (announce면) 알린다. 값이 잘못됐으면 ValueError.
 
     probability_assumed를 주면 그 값을 쓴다 (시연 추천처럼 확률을 정해 두고 "가정"으로 표시할 때).
+    price_at_creation을 주지 않으면 지금의 직전 정규장 종가 (장마감 기준).
+    horizon: SWING(기본) | DAY. valid_until: 활성화 기한이자 진입 기한 (없으면 지금 + RECOMMENDATION_VALID_DAYS일).
+    단타 연습은 backend/daytrade가 source day, horizon DAY, valid_until = 그날 15:15 KST, announce=False로 부른다.
     """
     now = now or timezone.now()
     if market_ not in market.CURRENCY:
         raise ValueError(f"시장이 KR·US가 아님: {market_}")
+    if horizon not in dict(HORIZONS):
+        raise ValueError(f"horizon은 SWING 또는 DAY여야 함: {horizon}")
     entry, target, stop = _price(entry, "entry"), _price(target, "target"), _price(stop, "stop")
     # 호가 단위로 맞춘다 (모의 주문과 같은 내림, 엔진 PaperExecutor.buy). 순서·수치는 맞춘 값으로 본다
     currency = market.CURRENCY[market_]
@@ -104,7 +113,7 @@ def create(source: str, *, symbol: str, name: str, market_: str, entry, target, 
     if probability_assumed is not None:
         assumed = probability_assumed
     if price_at_creation is _FETCH:
-        price_at_creation = _last_price(symbol)
+        price_at_creation = _close_price(symbol)
     m = risk.metrics(entry, target, stop, p, market_)
     rec = Recommendation.objects.create(
         source=source, report=report, analysis=analysis, requested_by=requested_by, symbol=symbol, name=name,
@@ -113,9 +122,10 @@ def create(source: str, *, symbol: str, name: str, market_: str, entry, target, 
         probability_assumed=assumed, confidence=_confidence(confidence), target_return=m["targetReturn"],
         stop_loss_rate=m["stopLossRate"], reward_risk=m["rewardRisk"], expected_return=m["expectedReturn"],
         summary=(summary or "").strip(), reasons=_texts(reasons), risks=_texts(risks),
-        risk_level=risk_level if risk_level in RISK_LEVELS else None, status=Recommendation.OPEN,
-        valid_until=now + timedelta(days=conf.valid_days()), created_at=now)
-    announce(rec)
+        risk_level=risk_level if risk_level in RISK_LEVELS else None, status=Recommendation.OPEN, horizon=horizon,
+        valid_until=valid_until or now + timedelta(days=conf.valid_days()), created_at=now)
+    if announce:
+        notify_recommendation(rec)
     return rec
 
 
@@ -164,7 +174,7 @@ def from_analysis(run: AnalysisRun, now: datetime | None = None) -> Recommendati
                       confidence=best.get("score"),
                       summary=rationale[0] if rationale else f"AI 교차검증 분석 BUY · {run.name}",
                       reasons=rationale, risks=[f"시나리오가 틀렸다고 볼 조건: {invalidation}"] if invalidation else [],
-                      requested_by=user, analysis=run, price_at_creation=run.price_at_analysis, now=now)
+                      requested_by=user, analysis=run, now=now)  # priceAtCreation = 만들 때의 종가 (분석 시각 가격 아님)
     except ValueError:
         return None
     except IntegrityError:
@@ -208,40 +218,40 @@ def collect(now: datetime, log) -> int:
 # --- 알림 ---
 
 def title_of(rec: Recommendation) -> str:
-    head = "시연 추천(AI 아님)" if rec.source == Recommendation.DEMO else "AI 추천"
-    return f"{head} · {rec.name} ({rec.symbol})"
+    """전문가 제목 ("AI 추천 · 삼성전자 (005930)")."""
+    return texts.recommendation(rec).expert_title
 
 
 def body_of(rec: Recommendation) -> str:
-    c = rec.currency
-    probability = f"확률 {rec.probability:.0%}" + (", 가정" if rec.probability_assumed else "")
-    source = SOURCE_LABEL[rec.source] + (f" #{rec.report_id or rec.analysis_id}" if rec.source != "demo" else "")
-    lines = [
-        f"진입 {money(rec.entry_price, c)} · 목표 {money(rec.target_price, c)} ({pct(rec.target_return)}) · "
-        f"손절 {money(rec.stop_price, c)} ({pct(rec.stop_loss_rate)})",
-        f"손익비 {rec.reward_risk:.2f} · 보유 {rec.holding_days}거래일 · 기대수익률 {pct(rec.expected_return)} ({probability})",
-        f"출처 {source} · 유효 기한 {when(rec.valid_until)}",
-    ]
-    if rec.summary:
-        lines.append(rec.summary)
-    return "\n".join(lines)
+    """전문가 본문 (진입·목표·손절 / 손익비·보유·기대수익률 / 출처·유효 기한 / 한 줄 결론). 리포트 추천이면 첫 줄 "리포트가 완성됐어요"."""
+    return texts.recommendation(rec).expert_body
 
 
-def announce(rec: Recommendation) -> None:
-    """추천 알림: 신청한 팀원(없으면 팀 전체). Discord에는 서명된 활성화 링크를 넣는다. 알림 실패가 추천을 막지 않는다."""
+def notify_recommendation(rec: Recommendation) -> None:
+    """추천 알림: 신청한 팀원(없으면 팀 전체). Discord에는 서명된 활성화 링크를 넣는다. 알림 실패가 추천을 막지 않는다.
+
+    단타 연습 추천(source day)은 알리지 않는다 (만든 사람 혼자 쓰는 계획의 껍데기, 만들 때 이미 활성화된다).
+    """
+    if rec.source == Recommendation.DAY:
+        return
     c = rec.currency
-    fields = [{"name": "진입가", "value": money(rec.entry_price, c), "inline": True},
-              {"name": "목표가", "value": f"{money(rec.target_price, c)} ({pct(rec.target_return)})", "inline": True},
-              {"name": "손절가", "value": f"{money(rec.stop_price, c)} ({pct(rec.stop_loss_rate)})", "inline": True},
+    notice = texts.recommendation(rec)
+    fields = [{"name": "진입가", "value": texts.money(rec.entry_price, c), "inline": True},
+              {"name": "목표가", "value": f"{texts.money(rec.target_price, c)} ({texts.pct(rec.target_return)})",
+               "inline": True},
+              {"name": "손절가", "value": f"{texts.money(rec.stop_price, c)} ({texts.pct(rec.stop_loss_rate)})",
+               "inline": True},
               {"name": "손익비", "value": f"{rec.reward_risk:.2f}", "inline": True},
-              {"name": "기대수익률", "value": pct(rec.expected_return), "inline": True},
-              {"name": "유효 기한", "value": when(rec.valid_until), "inline": True}]
-    embed = {"title": title_of(rec), "description": rec.summary or SOURCE_LABEL[rec.source],
+              {"name": "기대수익률", "value": texts.pct(rec.expected_return), "inline": True},
+              {"name": "유효 기한", "value": texts.when(rec.valid_until), "inline": True}]
+    embed = {"title": notice.title, "description": rec.summary or SOURCE_LABEL[rec.source],
              "color": COLOR[rec.source], "fields": fields}
     try:
-        notices.notify(rec.requested_by, "recommendation", title_of(rec), body_of(rec),
-                       link=f"/recommendations/{rec.id}",
-                       discord_link=f"/recommendations/{rec.id}?t={activation_token(rec)}",
-                       link_label="계획 활성화", embed=embed)
+        notice.send(rec.requested_by, "recommendation", link=f"/recommendations/{rec.id}",
+                    discord_link=f"/recommendations/{rec.id}?t={activation_token(rec)}",
+                    link_label="계획 활성화", embed=embed)
     except Exception:  # notify는 예외를 내지 않기로 했지만, 혹시 내도 추천은 남긴다
         pass
+
+
+announce = notify_recommendation  # 예전 이름

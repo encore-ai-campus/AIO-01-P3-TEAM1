@@ -2,7 +2,7 @@
 import os
 import subprocess
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -155,6 +155,21 @@ def test_sync_summary(tmp_path):
     assert d.store.paper_order(1)["status"] == ex.EXIT_WATCHING
     assert d.sync(EVENING) == "20:00 모의 주문 1건 확인 (KR 장 밖)"
 
+
+
+def test_account_context_counts_only_swing_orders(tmp_path, monkeypatch):
+    """AI 경로(SWING만 매매)의 하루 주문 수 한도에는 단타(style day) 주문을 세지 않는다 (docs/DECISIONS.md 14-4)."""
+    class Today(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 9, 29)
+    monkeypatch.setattr(trading, "date", Today)
+    d = desk(tmp_path)
+    for symbol, style in (("005930", ex.SWING), ("000660", ex.DAY), ("035420", ex.DAY)):
+        d.executor.buy(symbol, "종목", "KR", "KRW", 1, 100_000, None, NOW, "alice", 99_000, 110_000, 90_000, None,
+                       regular_open=False, style=style)
+    assert d.store.paper_today("2026-09-29") == (3, 0.0)
+    assert d.account_context("005930", "KRW", None, []).daily_trades == 1
 
 def test_account_summary_without_client_uses_fill_price(tmp_path):
     d = desk(tmp_path)

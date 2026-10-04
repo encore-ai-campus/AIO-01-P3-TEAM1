@@ -1,8 +1,10 @@
 """AI가 제안하는 매매 시나리오의 고정 형식."""
 from dataclasses import dataclass, field
 
-HORIZONS = ("SWING", "LONG_TERM")  # 형식. LONG_TERM은 이전 기록과 리스크 한도 때문에 남겨 둔다.
-# 지금 매매하는 것 (사실 검증에서 거른다)
+# 형식. LONG_TERM은 이전 기록과 리스크 한도 때문에 남겨 둔다. DAY는 단타 연습 계획(사용자가 직접 입력, AI 아님)의
+# 리스크 한도용이다 (docs/DECISIONS.md 14-4).
+HORIZONS = ("SWING", "LONG_TERM", "DAY")
+# AI가 제안해 매매하는 것 (사실 검증에서 거른다). DAY는 AI 경로에 넣지 않는다
 TRADABLE_HORIZONS = ("SWING",)
 SWING_MIN_DAYS, SWING_MAX_DAYS = 3, 20  # 스윙 보유 기간 (거래일, 양 끝 포함)
 
@@ -11,7 +13,7 @@ SWING_MIN_DAYS, SWING_MAX_DAYS = 3, 20  # 스윙 보유 기간 (거래일, 양 �
 class Scenario:
     symbol: str
     currency: str  # KRW | USD
-    horizon: str  # SWING | LONG_TERM
+    horizon: str  # SWING | LONG_TERM | DAY
     entry_price: float
     target_price: float
     stop_price: float

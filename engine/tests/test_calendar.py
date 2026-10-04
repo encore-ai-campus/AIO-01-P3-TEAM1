@@ -243,3 +243,137 @@ def test_calendar_rejects_bad_input():
         c.calendar("JP")
     with pytest.raises(ValueError):
         c.calendar("KR", datetime(2026, 9, 23, 10, 0))
+
+
+# --- 장마감 기준 (docs/API.md 공통 규칙 "장마감 기준") ---
+
+from paper_engine.data.calendar import (  # noqa: E402
+    NEW_YORK, close_basis_day, close_of, session_end_iso)
+
+
+def ny(*args):
+    return datetime(*args, tzinfo=NEW_YORK)
+
+
+def test_close_basis_day_switches_ten_minutes_after_kr_close():
+    c = kr_calendar()
+    for text, expected in (("2026-09-22T08:00:00", "2026-09-21"), ("2026-09-22T12:00:00", "2026-09-21"),
+                           ("2026-09-22T15:30:00", "2026-09-21"), ("2026-09-22T15:39:59", "2026-09-21"),
+                           ("2026-09-22T15:40:00", "2026-09-22"), ("2026-09-22T23:59:00", "2026-09-22")):
+        now = kst(text)
+        assert close_basis_day(c.calendar("KR", now), "KR", now) == expected, text
+    now = kst("2026-09-22T15:30:00")
+    assert close_basis_day(c.calendar("KR", now), "KR", now, settle_minutes=0) == "2026-09-22"
+
+
+def test_close_basis_day_on_weekend_holiday_and_monday_morning():
+    c = kr_calendar()
+    for text, expected in (("2026-09-24T10:00:00", "2026-09-23"),   # 추석 연휴 → 직전 영업일
+                           ("2026-09-27T10:00:00", "2026-09-23"),   # 일요일 (9/24~9/28 휴장)
+                           ("2026-09-21T08:30:00", "2026-09-18")):  # 월요일 장 전 → 금요일
+        now = kst(text)
+        assert close_basis_day(c.calendar("KR", now), "KR", now) == expected, text
+
+
+def test_close_basis_day_us_uses_new_york_close():
+    c = MarketCalendar()
+    for now, expected in ((ny(2026, 9, 22, 16, 5), "2026-09-21"), (ny(2026, 9, 22, 16, 10), "2026-09-22"),
+                          (ny(2026, 11, 27, 13, 10), "2026-11-27"),   # 조기 폐장 13:00
+                          (ny(2026, 11, 26, 18, 0), "2026-11-25")):   # 추수감사절 휴장
+        assert close_basis_day(c.calendar("US", now), "US", now) == expected, now
+
+
+def test_close_basis_day_with_partial_or_missing_calendar():
+    now = kst("2026-09-22T12:00:00")
+    assert close_basis_day({}, "KR", now) is None
+    assert close_basis_day({"today": None, "previousBusinessDay": None}, "KR", now) is None
+    # 직전 영업일 항목에 구간이 없어도 그 날짜를 쓴다
+    assert close_basis_day({"today": {"date": "2026-09-22", "integrated": None},
+                            "previousBusinessDay": {"date": "2026-09-21"}}, "KR", now) == "2026-09-21"
+    with pytest.raises(ValueError):
+        close_basis_day({}, "JP", now)
+
+
+def test_session_end_iso_from_calendar_or_default():
+    cal = kr_calendar().calendar("KR", kst("2026-09-22T12:00:00"))
+    assert session_end_iso(cal, "KR", "2026-09-22") == "2026-09-22T15:30:00+09:00"
+    assert session_end_iso(cal, "KR", "2026-09-21") == "2026-09-21T15:30:00+09:00"
+    assert session_end_iso({}, "KR", "2026-10-02") == "2026-10-02T15:30:00+09:00"
+    assert session_end_iso({}, "US", "2026-07-01") == "2026-07-01T16:00:00-04:00"   # 서머타임
+    assert session_end_iso({}, "US", "2026-12-01") == "2026-12-01T16:00:00-05:00"
+    assert session_end_iso({}, "US", "2026-11-27") == "2026-11-27T13:00:00-05:00"   # 조기 폐장
+    us = MarketCalendar().calendar("US", ny(2026, 11, 27, 15, 0))
+    assert session_end_iso(us, "US", "2026-11-27") == "2026-11-27T13:00:00-05:00"
+    with pytest.raises(ValueError):
+        session_end_iso({}, "JP", "2026-10-02")
+
+
+def daily(day, close):
+    return {"timestamp": f"{day}T00:00:00+09:00", "openPrice": "1", "highPrice": "1", "lowPrice": "1",
+            "closePrice": f"{close}", "volume": "1"}
+
+
+def test_close_of_picks_last_candle_on_or_before_day():
+    candles = [daily("2026-09-18", 100), daily("2026-09-21", 102), daily("2026-09-22", 105.5)]
+    assert close_of(candles, "2026-09-21") == {"close": 102.0, "prevClose": 100.0, "date": "2026-09-21"}
+    assert close_of(candles, "2026-09-22") == {"close": 105.5, "prevClose": 102.0, "date": "2026-09-22"}
+    assert close_of(candles, "2026-09-30") == {"close": 105.5, "prevClose": 102.0, "date": "2026-09-22"}
+    assert close_of(candles, "2026-09-18") == {"close": 100.0, "prevClose": None, "date": "2026-09-18"}
+    assert close_of(candles, "2026-09-17") is None
+    assert close_of([], "2026-09-22") is None
+
+
+def test_close_basis_with_unknown_holiday_uses_candle_date():
+    """장 달력이 대체공휴일(10/5)을 몰라 기준일이 10/5여도 가격 날짜·asOf는 실제 마지막 봉(10/2) 기준이다."""
+    c = MarketCalendar()  # 공휴일 키 없음: 10/5 대체공휴일을 모른다
+    now = kst("2026-10-05T16:00:00")
+    cal = c.calendar("KR", now)
+    day = close_basis_day(cal, "KR", now)
+    assert day == "2026-10-05"
+    found = close_of([daily("2026-10-01", 100), daily("2026-10-02", 101)], day)
+    assert found["date"] == "2026-10-02"
+    assert session_end_iso(cal, "KR", found["date"]) == "2026-10-02T15:30:00+09:00"
+
+
+# --- KRX 특별 운영일 (수능일·새해 첫 거래일) ---
+
+from paper_engine.scheduler import current_session  # noqa: E402
+
+
+def test_kr_csat_day_opens_and_closes_an_hour_late():
+    """수능일(2026-11-19)은 정규장 10:00~16:30. 다음 날 장 달력의 전일 항목·asOf도 16:30이다."""
+    cal = kr_calendar().calendar("KR", kst("2026-11-19T12:00:00"))
+    today = cal["today"]["integrated"]
+    assert today["regularMarket"] == {"startTime": "2026-11-19T10:00:00+09:00", "endTime": "2026-11-19T16:30:00+09:00"}
+    assert today["afterMarket"] == {"startTime": "2026-11-19T16:30:00+09:00", "endTime": "2026-11-19T20:00:00+09:00"}
+    assert today["preMarket"] == {"startTime": "2026-11-19T08:00:00+09:00", "endTime": "2026-11-19T08:50:00+09:00"}
+    assert cal["previousBusinessDay"]["integrated"]["regularMarket"]["endTime"] == "2026-11-18T15:30:00+09:00"
+    sessions = regular_sessions(cal)
+    assert current_session(sessions, kst("2026-11-19T16:00:00"))       # 15:30 뒤에도 장중
+    assert not current_session(sessions, kst("2026-11-19T09:30:00"))   # 10:00 전은 장 밖
+    following = kr_calendar().calendar("KR", kst("2026-11-20T10:00:00"))
+    assert following["previousBusinessDay"]["integrated"]["regularMarket"]["endTime"] == "2026-11-19T16:30:00+09:00"
+    assert session_end_iso(following, "KR", "2026-11-19") == "2026-11-19T16:30:00+09:00"
+
+
+def test_close_basis_day_on_csat_day_switches_after_late_close():
+    """수능일에는 15:40이 아니라 16:40(16:30 + 10분)에 기준일이 오늘로 바뀌고, 그 전 오늘 봉은 미완성이다."""
+    c = kr_calendar()
+    for text, expected in (("2026-11-19T15:40:00", "2026-11-18"), ("2026-11-19T16:39:59", "2026-11-18"),
+                           ("2026-11-19T16:40:00", "2026-11-19"), ("2026-11-20T10:00:00", "2026-11-19")):
+        now = kst(text)
+        assert close_basis_day(c.calendar("KR", now), "KR", now) == expected, text
+    now = kst("2026-11-19T15:45:00")
+    candles = [{"timestamp": "2026-11-18T00:00:00+09:00"}, {"timestamp": "2026-11-19T00:00:00+09:00"}]
+    assert drop_incomplete(candles, c.calendar("KR", now), now) == candles[:1]
+    assert drop_incomplete(candles, c.calendar("KR", kst("2026-11-19T16:30:00")), kst("2026-11-19T16:30:00")) == candles
+
+
+def test_kr_first_trading_day_opens_at_ten():
+    for c in (kr_calendar(), MarketCalendar()):  # 공휴일 키가 없어도 1/1은 양력 고정 공휴일
+        for text, start in (("2026-01-02T12:00:00", "10:00"),    # 금요일 개장일
+                            ("2026-01-05T12:00:00", "09:00"),    # 둘째 거래일
+                            ("2027-01-04T12:00:00", "10:00")):   # 1/2·1/3 주말 → 4일(월) 개장일
+            regular = c.calendar("KR", kst(text))["today"]["integrated"]["regularMarket"]
+            day = text[:10]
+            assert regular == {"startTime": f"{day}T{start}:00+09:00", "endTime": f"{day}T15:30:00+09:00"}, text

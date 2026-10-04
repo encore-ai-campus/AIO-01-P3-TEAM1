@@ -6,6 +6,12 @@
 
 상태는 모두 "지금 상태가 X일 때만 Y로"인 조건부 UPDATE로 바꾼다. 웹 요청(활성화·중단)과 엔진 루프가 같은 계획을 동시에 진행해도
 주문은 상태를 먼저 잡은 쪽만 낸다. 상태 전이와 그 사건은 한 트랜잭션으로 쓰고, 알림은 커밋된 뒤에 보낸다 (롤백되면 알림 없음).
+
+- 활성화 점검 = 미리 보기와 같은 계산(장마감 기준) + 장중 확인(risk.preview live_check). 막히면 Blocked → 400 {"detail", "reasonCodes"}.
+- 알림 문장은 autotrade/text.py (쉬운 문장·전문가 문장·Discord 숫자 한 줄). PlanEvent.message·failure_reason은 원래 용어이고
+  장중 가격 숫자를 넣지 않는다 (docs/API.md 공통 규칙).
+- DAY(단타 연습) 계획: 진입 주문은 style "day"·보유 기한 없음, 다시 주문하지 않는다. 엔진이 15:15에 진입 주문을 "단타 진입 마감"으로
+  취소하면 expired, 보유는 15:15 뒤 EOD 청산 → closed. 알림은 웹만 (Discord로 보내지 않는다).
 """
 import logging
 import math
@@ -15,29 +21,47 @@ from django.db import IntegrityError, transaction
 from django.db.models import Max
 from django.utils import timezone
 from notifications import service as notices
+from paper_engine.agents.executor import DAY_ENTRY_CLOSED
 from paper_engine.data.kiwoom import KiwoomApiError
 from paper_engine.records.account import CANCELED, CLOSED, ENTRY_PENDING, EXIT_WATCHING
 from paper_engine.trading import MAX_MANAGED_DAYS
 from trading import service
 from trading.models import PaperOrder, Reservation
-from trading.store import account_for
+from trading.store import KST, account_for
 
 from config.api import Rejected, Unavailable
 
 from . import risk
-from .models import PlanEvent, Recommendation, TradePlan
-from .text import money, qty_text, signed_money, when
+from . import text as texts
+from .models import HORIZON_DAY, PlanEvent, Recommendation, TradePlan
+from .text import EXIT_LABEL, money, qty_text, signed_money
 
 logger = logging.getLogger(__name__)
 
 # 엔진 PaperExecutor가 주문을 취소할 때 남기는 note (agents/executor.py)
 DAY_END = "정규장이 끝날 때까지 지정가에 체결되지 않음"
+DAY_CUTOFF = DAY_ENTRY_CLOSED  # "단타 진입 마감": 단타(style day) 진입 주문을 그 세션 15:15 KST에 취소할 때 (docs/API.md "단타 연습")
+CASH_SHORT = "체결 시점 현금 부족"
 USER_CANCEL = "사용자 취소"
 TRANSIENT = (Unavailable, KiwoomApiError, OSError)  # 다음 번에 다시 시도한다
-EXIT_LABEL = {"TARGET": "목표가 도달", "STOP": "손절", "EXPIRED": "보유 기한 만료", "MANUAL": "직접 매도"}
 VIA_LABEL = {"web": "웹", "discord": "Discord 링크"}
+DAY_STYLE = "day"  # trading.models.DAY (주문의 보유 방식)
 MAX_STEPS = 4  # step 한 번에 이어서 바꿀 수 있는 상태 수 (주문 → 체결 → 청산)
 RECOVER_AFTER = timedelta(minutes=5)  # entry_pending인데 주문이 없으면 이만큼 기다린 뒤 active로 되돌린다
+
+
+class Blocked(Rejected):
+    """활성화 점검에서 막힘 → 400 {"detail": 사유들을 "; "로 이은 것, "reasonCodes"} (뷰가 Response로 직접 만든다).
+
+    reasons[i]의 사유 코드가 codes[i]다 (같은 길이·같은 순서, docs/API.md "실행 불가 사유 코드").
+    """
+
+    def __init__(self, reasons: list[str], codes: list[str]):
+        super().__init__("; ".join(reasons))
+        self.reasons, self.codes = list(reasons), list(codes)
+
+    def body(self) -> dict:
+        return {"detail": "; ".join(self.reasons), "reasonCodes": self.codes}
 
 
 def requester(plan: TradePlan) -> str:
@@ -79,63 +103,72 @@ def _event(plan: TradePlan, kind: str, message: str, details: dict | None = None
     raise RuntimeError(f"계획 #{plan.id} 사건 번호를 정하지 못함")
 
 
-def _notify(plan: TradePlan, kind: str, title: str, body: str, discord: bool = True) -> None:
+def _is_day(plan: TradePlan) -> bool:
+    return plan.horizon == HORIZON_DAY
+
+
+def _notify(plan: TradePlan, kind: str, notice: notices.Notice, discord: bool = True) -> None:
+    """계획 주인에게 알린다. 단타(DAY) 계획은 웹만 (하루 최대 10건 × 사람 수가 팀 채널을 채우지 않게)."""
     try:
-        notices.notify(plan.user, kind, title, body, link=f"/plans/{plan.id}", discord=discord)
+        notice.send(plan.user, kind, link=f"/plans/{plan.id}", discord=discord and not _is_day(plan))
     except Exception:  # 알림 실패가 매매를 막지 않게
         logger.exception("계획 #%s 알림 실패", plan.id)
 
 
-def _record(plan: TradePlan, kind: str, message: str, details: dict, title: str | None = None,
-            body: str | None = None, discord: bool = True) -> None:
-    """사건을 남기고 (title이 있으면) 계획 주인에게 같은 kind로 알린다. 알림은 트랜잭션이 커밋된 뒤에 보낸다."""
+def _record(plan: TradePlan, kind: str, message: str, details: dict, notice: notices.Notice | None = None,
+            discord: bool = True) -> None:
+    """사건을 남기고 (notice가 있으면) 계획 주인에게 같은 kind로 알린다. 알림은 트랜잭션이 커밋된 뒤에 보낸다."""
     _event(plan, kind, message, details)
-    if title:
-        text = body or message
-        transaction.on_commit(lambda: _notify(plan, kind, title, text, discord))
+    if notice is not None:
+        transaction.on_commit(lambda: _notify(plan, kind, notice, discord))
 
 
-def _end(plan: TradePlan, frm, to: str, reason: str, details: dict | None = None, match: dict | None = None) -> bool:
-    """끝난 상태(cancelled·expired·failed)로. 사건 kind와 알림 kind는 to와 같다."""
-    title = {TradePlan.CANCELLED: "계획 중단", TradePlan.EXPIRED: "계획 만료", TradePlan.FAILED: "계획 실패"}[to]
+def _end(plan: TradePlan, frm, to: str, reason: str, details: dict | None = None, match: dict | None = None,
+         why: str = "order_rejected", codes=()) -> bool:
+    """끝난 상태(cancelled·expired·failed)로. 사건 kind와 알림 kind는 to와 같다.
+
+    reason: failure_reason·사건 message (원래 용어, 장중 가격 숫자 없음). why·codes: 쉬운 알림 문장 (text.END_EASY의 키, 사유 코드).
+    """
     with transaction.atomic():
         if not _move(plan, frm, to, match=match, failure_reason=reason):
             return False
-        _record(plan, to, reason, {"reason": reason} | (details or {}), f"{plan.name} {title}", reason)
+        _record(plan, to, reason, {"reason": reason} | (details or {}), texts.ended(plan, to, why, reason, codes))
     return True
 
 
 # --- 활성화 ---
 
 def activate(rec: Recommendation, user, budget_krw: float | None = None, via: str = "web",
-             now: datetime | None = None) -> TradePlan:
-    """리스크 엔진으로 수량을 정해 계획을 만들고 그 자리에서 한 번 진행한다(첫 주문). 활성화할 수 없으면 Rejected."""
+             now: datetime | None = None, *, acknowledged: bool = False) -> TradePlan:
+    """리스크 엔진으로 수량을 정해 계획을 만들고 그 자리에서 한 번 진행한다(첫 주문).
+
+    점검은 미리 보기와 같은 계산(장마감 기준)에 장중 확인을 더한 것이다 (risk.preview live_check). 막히면 Blocked
+    (사유와 사유 코드, 아무것도 만들지 않는다). acknowledged: 실행 확인 체크리스트를 모두 켰는지 (activated 사건 details에 남긴다).
+    단타 추천(source day)도 이 함수로 활성화한다 (backend/daytrade — 웹의 활성화 경로는 단타 추천을 받지 않는다).
+    """
     now = now or timezone.now()
-    preview = risk.preview(rec, user, budget_krw, now)
+    preview = risk.preview(rec, user, budget_krw, now, live_check=True)
     if not preview["activatable"]:
-        raise Rejected("; ".join(preview["reasons"]))
+        raise Blocked(preview["reasons"], preview["reasonCodes"])
     try:
         with transaction.atomic():
             plan = TradePlan.objects.create(
                 recommendation=rec, user=user, symbol=rec.symbol, name=rec.name, market=rec.market,
                 currency=rec.currency, status=TradePlan.ACTIVE, via=via, quantity=preview["quantity"],
                 budget_krw=budget_krw, entry_price=rec.entry_price, target_price=rec.target_price,
-                stop_price=rec.stop_price, holding_days=rec.holding_days, entry_deadline=rec.valid_until,
-                activated_at=now, updated_at=timezone.now())
-            c = plan.currency
-            _event(plan, "activated", f"{VIA_LABEL.get(via, via)}에서 계획 활성화", {"via": via, "budgetKrw": budget_krw})
+                stop_price=rec.stop_price, holding_days=rec.holding_days, horizon=rec.horizon,
+                entry_deadline=rec.valid_until, activated_at=now, updated_at=timezone.now())
+            _event(plan, "activated", f"{VIA_LABEL.get(via, via)}에서 계획 활성화",
+                   {"via": via, "budgetKrw": budget_krw, "acknowledged": bool(acknowledged)})
             _event(plan, "risk_checked",
                    f"리스크 엔진 통과: {qty_text(plan.quantity)} (수량을 정한 제약: {preview['limitedBy']}, "
                    f"손익비 {rec.reward_risk:.2f})",
                    {"approved": preview["approved"], "quantity": plan.quantity, "limitedBy": preview["limitedBy"],
                     "rewardRisk": rec.reward_risk, "reasons": preview["reasons"]})
-            transaction.on_commit(lambda: _notify(
-                plan, "plan_activated", f"{plan.name} 자동매매 계획 활성화",
-                f"{qty_text(plan.quantity)} · 진입 {money(plan.entry_price, c)} 지정가 · "
-                f"목표 {money(plan.target_price, c)} · 손절 {money(plan.stop_price, c)} · "
-                f"진입 기한 {when(plan.entry_deadline)}"))
+            notice = texts.plan_activated(plan)
+            transaction.on_commit(lambda: _notify(plan, "plan_activated", notice))
     except IntegrityError:
-        raise Rejected("같은 종목에 진행 중인 내 계획이 있음") from None
+        raise Blocked([risk.PLAN_EXISTS], ["plan_exists"]) from None
     try:
         step(plan, now)
     except Exception:  # 활성화는 성공으로 두고 엔진 루프가 이어 간다
@@ -180,7 +213,7 @@ def tick(now: datetime, log) -> int:
 def _enter(plan: TradePlan, now: datetime, log) -> None:
     """active: 기한이 지났으면 expired, 아니면 상태를 먼저 잡고(entry_pending) 진입 지정가 주문."""
     if now >= plan.entry_deadline:
-        _end(plan, TradePlan.ACTIVE, TradePlan.EXPIRED, "진입 기한까지 주문하지 못함")
+        _end(plan, TradePlan.ACTIVE, TradePlan.EXPIRED, "진입 기한까지 주문하지 못함", why="no_order_by_deadline")
         return
     if not _move(plan, TradePlan.ACTIVE, TradePlan.ENTRY_PENDING):
         return  # 다른 쪽이 먼저 잡았다
@@ -191,16 +224,23 @@ def _place(plan: TradePlan, now: datetime, log, previous: int | None = None, qua
     """entry_pending(주문 없음)인 계획의 진입 지정가 주문. previous는 재주문일 때 앞 주문 번호.
 
     quantity: 재주문 때 리스크 점검으로 줄인 수량 (없으면 계획 수량). 주문을 계획에 이을 때 계획 수량도 이 값으로 바꾼다.
+    DAY 계획은 style "day"·보유 기한 없음으로 낸다 (그 세션 15:15에 엔진이 정리한다).
+    주문 시각은 KST로 넘긴다 (주문의 날짜 — 보유 기한·단타 세션 — 가 0~9시에 UTC 날짜로 하루 밀리지 않게).
     """
     account = account_for(plan.user)
     qty = plan.quantity if quantity is None else quantity
+    at = now.astimezone(KST)
     try:
-        result = service.buy(account, requester(plan), plan.symbol, qty, service.LIMIT, plan.entry_price,
-                             plan.target_price, plan.stop_price, order_days(plan.holding_days), now)
+        if _is_day(plan):
+            result = service.buy(account, requester(plan), plan.symbol, qty, service.LIMIT, plan.entry_price,
+                                 plan.target_price, plan.stop_price, None, at, style=DAY_STYLE)
+        else:
+            result = service.buy(account, requester(plan), plan.symbol, qty, service.LIMIT, plan.entry_price,
+                                 plan.target_price, plan.stop_price, order_days(plan.holding_days), at)
     except Rejected as e:
         if str(e.detail) != service.NO_PRICE:
             _end(plan, TradePlan.ENTRY_PENDING, TradePlan.FAILED, f"주문할 수 없음: {e.detail}",
-                 match={"order__isnull": True})
+                 match={"order__isnull": True}, why="order_rejected", codes=getattr(e, "codes", ()))
             return
         error = e
     except TRANSIENT as e:
@@ -227,8 +267,7 @@ def _place(plan: TradePlan, now: datetime, log, previous: int | None = None, qua
             linked = True
             _record(plan, "order_placed", f"{what} 주문 접수",
                     {"orderId": order_id, "limitPrice": plan.entry_price, "quantity": qty},
-                    f"{plan.name} 진입 주문 접수",
-                    f"{what} 주문 접수 (모의 주문 #{order_id}). 진입 기한 {when(plan.entry_deadline)}")
+                    texts.order_placed(plan, order_id, qty))
         else:
             linked = True
             details = {"orderId": order_id, "previousOrderId": previous}
@@ -236,9 +275,7 @@ def _place(plan: TradePlan, now: datetime, log, previous: int | None = None, qua
                 details |= {"quantity": qty, "previousQuantity": previous_qty}
             reduced = f", 리스크 점검으로 {qty_text(previous_qty)} → {qty_text(qty)}" if qty < previous_qty else ""
             _record(plan, "order_requeued", f"{what} 다시 주문 (앞 주문 #{previous}이 그날 체결되지 않음{reduced})",
-                    details, f"{plan.name} 진입 주문 다시 접수",
-                    f"{what} 다시 주문 (모의 주문 #{order_id}{reduced}). 진입 기한 {when(plan.entry_deadline)}",
-                    discord=False)
+                    details, texts.order_requeued(plan, order_id, qty, previous_qty), discord=False)
     if not linked:
         _discard(plan, order_id, now, log)
         return
@@ -266,7 +303,7 @@ def _discard(plan: TradePlan, order_id: int, now: datetime, log) -> None:
 
 def _watch_entry(plan: TradePlan, now: datetime, log) -> None:
     """entry_pending: 연결된 주문을 따라간다 (체결 → holding, 그날 미체결 → 재주문, 직접 취소 → cancelled, 기한 → expired,
-    엔진이 취소(현금 부족 등) → failed)."""
+    엔진이 취소(현금 부족 등) → failed). DAY 계획은 다시 주문하지 않는다: 그날 미체결·"단타 진입 마감" 취소 → expired."""
     order = PaperOrder.objects.filter(pk=plan.order_id).first() if plan.order_id else None
     if order is None:
         _recover(plan)
@@ -280,33 +317,39 @@ def _watch_entry(plan: TradePlan, now: datetime, log) -> None:
                      filled_at=order.filled_at):
                 _record(plan, "filled", f"{plan.name} {qty_text(qty)} {money(order.fill_price, c)}에 진입 체결",
                         {"orderId": order.id, "fillPrice": order.fill_price, "quantity": qty},
-                        f"{plan.name} 진입 체결",
-                        f"{money(order.fill_price, c)} × {qty_text(qty)}. 목표 {money(plan.target_price, c)} / "
-                        f"손절 {money(plan.stop_price, c)} 자동 감시")
+                        texts.filled(plan, order.fill_price, qty))
         return
+    unfilled = ("day_unfilled", "단타 진입 마감까지 지정가에 체결되지 않음") if _is_day(plan) else \
+        ("unfilled_by_deadline", "진입 기한까지 지정가에 체결되지 않음")
     if order.status == CANCELED:
         note = order.note or ""
         details = {"orderId": order.id}
-        if note == DAY_END and now < plan.entry_deadline:
+        mine = f"{USER_CANCEL} ({requester(plan)})"
+        if _is_day(plan) and (note == DAY_END or note.startswith(DAY_CUTOFF)):  # 단타는 다시 주문하지 않는다
+            _end(plan, TradePlan.ENTRY_PENDING, TradePlan.EXPIRED, unfilled[1], details, linked, why=unfilled[0])
+        elif note == DAY_END and now < plan.entry_deadline:
             _requeue(plan, order, now, log)
-        elif now >= plan.entry_deadline and note in (DAY_END, f"{USER_CANCEL} ({requester(plan)})"):
-            _end(plan, TradePlan.ENTRY_PENDING, TradePlan.EXPIRED, "진입 기한까지 지정가에 체결되지 않음", details,
-                 linked)
-        elif note == f"{USER_CANCEL} ({requester(plan)})":
-            _end(plan, TradePlan.ENTRY_PENDING, TradePlan.CANCELLED, "사용자가 계획을 중단함", details, linked)
+        elif now >= plan.entry_deadline and note in (DAY_END, mine):
+            _end(plan, TradePlan.ENTRY_PENDING, TradePlan.EXPIRED, unfilled[1], details, linked, why=unfilled[0])
+        elif note == mine:
+            _end(plan, TradePlan.ENTRY_PENDING, TradePlan.CANCELLED, "사용자가 계획을 중단함", details, linked,
+                 why="user_stopped")
         elif note.startswith(USER_CANCEL):
-            _end(plan, TradePlan.ENTRY_PENDING, TradePlan.CANCELLED, "모의 주문을 직접 취소함", details, linked)
+            _end(plan, TradePlan.ENTRY_PENDING, TradePlan.CANCELLED, "모의 주문을 직접 취소함", details, linked,
+                 why="order_cancelled")
         else:  # 사용자가 하지 않은 취소 (체결 시점 현금 부족 등): 주문할 수 없었다
-            _end(plan, TradePlan.ENTRY_PENDING, TradePlan.FAILED, f"모의 주문이 취소됨: {note or '사유 없음'}",
-                 details, linked)
+            # 엔진 note의 괄호 안 금액은 장중 확인 가격으로 계산한 값이라 문장에 옮기지 않는다 (docs/API.md 공통 규칙)
+            short = note.split(" (")[0].strip()
+            _end(plan, TradePlan.ENTRY_PENDING, TradePlan.FAILED, f"모의 주문이 취소됨: {short or '사유 없음'}",
+                 details, linked, why="cash_short" if short.startswith(CASH_SHORT) else "engine_cancelled")
         return
     if order.status == ENTRY_PENDING and now >= plan.entry_deadline:
         try:
             service.cancel(account_for(plan.user), requester(plan), order.id, now)
         except Rejected:
             return  # 그사이 체결됐다. 다음 번에 따라간다
-        _end(plan, TradePlan.ENTRY_PENDING, TradePlan.EXPIRED, "진입 기한까지 지정가에 체결되지 않음",
-             {"orderId": order.id}, linked)
+        _end(plan, TradePlan.ENTRY_PENDING, TradePlan.EXPIRED, unfilled[1], {"orderId": order.id}, linked,
+             why=unfilled[0])
 
 
 def _requeue(plan: TradePlan, old: PaperOrder, now: datetime, log) -> None:
@@ -322,12 +365,13 @@ def _requeue(plan: TradePlan, old: PaperOrder, now: datetime, log) -> None:
     linked = {"order_id": old.id}
     if not preview["activatable"]:
         _end(plan, TradePlan.ENTRY_PENDING, TradePlan.FAILED, "다시 주문할 수 없음: " + "; ".join(preview["reasons"]),
-             {"orderId": old.id}, linked)
+             {"orderId": old.id, "reasonCodes": preview["reasonCodes"]}, linked, why="requeue_blocked",
+             codes=preview["reasonCodes"])
         return
     quantity = min(plan.quantity, preview["quantity"])
     if quantity <= 0 or (plan.market != "US" and quantity < 1):
         _end(plan, TradePlan.ENTRY_PENDING, TradePlan.FAILED, "다시 주문할 수 없음: 리스크 엔진이 정한 수량이 1주 미만",
-             {"orderId": old.id, "quantity": quantity}, linked)
+             {"orderId": old.id, "quantity": quantity}, linked, why="requeue_too_small")
         return
     claimed = TradePlan.objects.filter(pk=plan.pk, status=TradePlan.ENTRY_PENDING, order_id=old.id).update(
         order_id=None, updated_at=timezone.now())
@@ -359,12 +403,11 @@ def _recover(plan: TradePlan) -> None:
         if not recorded:
             _record(plan, "order_placed", f"{what} 주문 접수 (주문을 낸 뒤 계획에 잇지 못해 다시 이음)",
                     {"orderId": found.id, "limitPrice": plan.entry_price, "quantity": found.quantity},
-                    f"{plan.name} 진입 주문 접수",
-                    f"{what} 주문 접수 (모의 주문 #{found.id}). 진입 기한 {when(plan.entry_deadline)}")
+                    texts.order_placed(plan, found.id, found.quantity))
 
 
 def _watch_exit(plan: TradePlan) -> None:
-    """holding: 주문이 청산되면 closed (목표가·손절·기한·직접 매도)."""
+    """holding: 주문이 청산되면 closed (목표가·손절·기한·직접 매도·단타 장 마감 전 정리 EOD)."""
     order = PaperOrder.objects.filter(pk=plan.order_id).first() if plan.order_id else None
     if order is None or order.status != CLOSED:
         return
@@ -378,7 +421,8 @@ def _watch_exit(plan: TradePlan) -> None:
             _record(plan, "closed", f"{plan.name} {money(order.exit_price, c)}에 청산 ({label}){pnl}",
                     {"orderId": order.id, "exitReason": order.exit_reason, "exitPrice": order.exit_price,
                      "pnlKrw": order.pnl_krw},
-                    f"{plan.name} 청산 · {label}", f"{money(order.exit_price, c)}에 전량 매도{pnl}")
+                    texts.closed(plan, order.exit_price, order.exit_reason, order.pnl_krw,
+                                 order.filled_quantity or plan.quantity))
 
 
 # --- 중단 ---
@@ -391,7 +435,8 @@ def cancel(plan: TradePlan, user, now: datetime | None = None, _retry: int = 2) 
     now = now or timezone.now()
     plan.refresh_from_db()
     reason = "사용자가 계획을 중단함"
-    if plan.status == TradePlan.ACTIVE and _end(plan, TradePlan.ACTIVE, TradePlan.CANCELLED, reason):
+    if plan.status == TradePlan.ACTIVE and _end(plan, TradePlan.ACTIVE, TradePlan.CANCELLED, reason,
+                                                why="user_stopped"):
         return plan
     if plan.status == TradePlan.ENTRY_PENDING:
         order = PaperOrder.objects.filter(pk=plan.order_id).first() if plan.order_id else None
@@ -405,7 +450,7 @@ def cancel(plan: TradePlan, user, now: datetime | None = None, _retry: int = 2) 
             order.refresh_from_db()
         # 읽은 주문이 아직 계획에 이어져 있을 때만 끝낸다 (그사이 엔진이 다시 주문했으면 그 주문을 다시 취소한다)
         if order.status == CANCELED and _end(plan, TradePlan.ENTRY_PENDING, TradePlan.CANCELLED, reason,
-                                             {"orderId": order.id}, {"order_id": order.id}):
+                                             {"orderId": order.id}, {"order_id": order.id}, why="user_stopped"):
             return plan
         step(plan, now)
     if plan.status == TradePlan.HOLDING:

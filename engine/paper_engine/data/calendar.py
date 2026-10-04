@@ -11,17 +11,27 @@
   previousBusinessDay·nextBusinessDay는 오늘 기준 직전·다음 영업일이다. 오늘이 휴장이면 today의 구간은 None이다
   (국내는 "integrated": None, 미국은 "regularMarket": None 등).
 
-  국내(Asia/Seoul): KRX 정규장 09:00~15:30. 시간외는 KRX+NXT(넥스트레이드) 통합 기준으로 넓게 잡는다 —
-    preMarket 08:00~08:50 (NXT 프리마켓), afterMarket 15:30~20:00 (NXT 애프터마켓. KRX 장후 시간외 15:40~18:00을 포함).
+  국내(Asia/Seoul): KRX 정규장 09:00~15:30 (장 마감 단일가 15:20~15:30). 시간외는 KRX+NXT(넥스트레이드) 합집합으로 넓게 잡는다 —
+    preMarket 08:00~08:50 (NXT 프리마켓), afterMarket 15:30~20:00 (KRX+NXT 합집합).
+    2026-09-14 개편: KRX 시간외단일가 폐지, KRX 애프터마켓 16:00~20:00 신설, NXT 애프터마켓 15:40~20:00
+    (그 전 KRX 장후 시간외는 15:40~18:00). afterMarket은 둘을 묶은 15:30~20:00 그대로 둔다 — 정규장 밖 판단에만 쓴다.
     휴장: 주말, 공휴일(data.go.kr 한국천문연구원 특일정보 getRestDeInfo: 공휴일·대체공휴일·임시공휴일·선거일),
     양력 고정 공휴일(신정·삼일절·어린이날·현충일·광복절·개천절·한글날·성탄절), 근로자의날(5/1),
     KRX 연말 휴장일(12월 마지막 영업일).
-    미반영: 새해 첫 거래일 10:00 개장, 수능일 10:00 개장·16:30 마감 같은 시각 변경, 임시 휴장(시장 사정).
+    KRX 특별 운영일 (정규장 시각이 바뀌는 날, KR_SPECIAL_REGULAR): 수능일(KR_CSAT_DAYS) 10:00~16:30, 새해 첫 거래일 10:00~15:30.
+      시간외 구간은 preMarket 그대로, afterMarket은 정규장 종료부터 20:00 (정규장 밖 판단에만 쓴다).
+      수능일은 교육부가 해마다 정한다 — 새 수능일을 KR_CSAT_DAYS에 더한다.
+    미반영: 임시 휴장(시장 사정), 장애로 인한 장 마감 연장 같은 그날 공지 (백엔드는 현지 17:00 전 오늘 종가를 굳은 값으로 보지 않는다).
   미국(America/New_York): 정규장 09:30~16:00, preMarket 04:00~09:30, afterMarket 16:00~20:00. 서머타임은 zoneinfo.
     NYSE 휴장: 신정, 마틴 루터 킹 데이, 대통령의 날, 성금요일, 메모리얼 데이, 준틴스, 독립기념일, 노동절, 추수감사절,
     성탄절 (토요일이면 금요일, 일요일이면 월요일에 쉰다. 단 신정이 토요일이면 전년 12/31은 쉬지 않는다).
     조기 폐장 13:00 (애프터마켓 13:00~17:00): 독립기념일 전날·크리스마스 이브(평일이고 휴장이 아닐 때), 추수감사절 다음 날.
     미반영: 국가 애도일 같은 임시 휴장.
+
+장마감 기준 (docs/API.md 공통 규칙 "장마감 기준", docs/DECISIONS.md 14-1): 화면의 가격은 직전 정규장 종가다.
+  close_basis_day  기준일 = 정규장 종료 + CLOSE_SETTLE_MIN(10분)이 지금 이전인 가장 최근 영업일 (시장 현지 날짜)
+  close_of         일봉 중 날짜가 기준일 이하인 마지막 봉의 종가와 그 앞 봉의 종가
+  session_end_iso  그 날짜의 정규장 종료 시각 (asOf). 장 달력에 없으면 기본 시각 (KR 15:30, US 뉴욕 16:00·조기 폐장 13:00)
 """
 import json
 import os
@@ -46,6 +56,83 @@ KR_FIXED_HOLIDAYS = ((1, 1), (3, 1), (5, 1), (5, 5), (6, 6), (8, 15), (10, 3), (
 KR_SESSIONS = {"preMarket": ("08:00", "08:50"), "regularMarket": ("09:00", "15:30"), "afterMarket": ("15:30", "20:00")}
 US_SESSIONS = {"preMarket": ("04:00", "09:30"), "regularMarket": ("09:30", "16:00"), "afterMarket": ("16:00", "20:00")}
 US_EARLY_CLOSE = {"preMarket": ("04:00", "09:30"), "regularMarket": ("09:30", "13:00"), "afterMarket": ("13:00", "17:00")}
+# KRX 특별 운영일 정규장 (시작, 끝) 현지 시각 (KRX 공지). 수능일은 1시간 늦게 열고 늦게 닫는다.
+KR_CSAT_DAYS = frozenset({date(2024, 11, 14), date(2025, 11, 13), date(2026, 11, 19)})  # 대학수학능력시험일
+KR_SPECIAL_REGULAR = {"csat": ("10:00", "16:30"), "newYear": ("10:00", "15:30")}       # 수능일, 새해 첫 거래일(개장일)
+CLOSE_SETTLE_MIN = 10  # 정규장 종료 뒤 일봉 종가가 굳기를 기다리는 여유 (분)
+CALENDAR_DAYS = ("previousBusinessDay", "today", "nextBusinessDay")
+
+
+def _regular(entry: dict | None) -> dict | None:
+    """날짜 항목의 정규장 구간 (국내는 integrated 아래, 해외는 바로 아래). 휴장이거나 없으면 None."""
+    if not entry:
+        return None
+    session = entry.get("integrated") or entry
+    regular = session.get("regularMarket")
+    return regular if isinstance(regular, dict) and regular.get("endTime") else None
+
+
+def close_basis_day(calendar: dict, market_country: str, now: datetime,
+                    settle_minutes: int = CLOSE_SETTLE_MIN) -> str | None:
+    """장마감 기준일 "YYYY-MM-DD" (그 시장 현지 날짜): 정규장 종료 + settle_minutes가 now 이전인 가장 최근 영업일.
+
+    오늘(장 달력 today)이 영업일이고 그 시각이 지났으면 오늘, 아니면 직전 영업일(previousBusinessDay).
+    직전 영업일 항목에 정규장 구간이 없으면 그 날짜를 그대로 쓴다 (직전 영업일은 정의상 영업일이다).
+    장 달력에 둘 다 없으면 None. now에는 시간대가 있어야 한다.
+    """
+    if market_country not in ("KR", "US"):
+        raise ValueError(f"지원하지 않는 시장: {market_country}")
+    settle = timedelta(minutes=settle_minutes)
+    for key in ("today", "previousBusinessDay"):
+        entry = calendar.get(key) or {}
+        day = entry.get("date")
+        if not day:
+            continue
+        regular = _regular(entry)
+        if regular is None:
+            if key == "previousBusinessDay":
+                return day
+            continue  # 오늘이 휴장
+        if datetime.fromisoformat(regular["endTime"]) + settle <= now:
+            return day
+    return None
+
+
+def session_end_iso(calendar: dict, market_country: str, day: str) -> str:
+    """day(YYYY-MM-DD, 시장 현지 날짜)의 정규장 종료 시각 ISO (오프셋 포함).
+
+    장 달력(전일·당일·익일)에 그 날짜의 정규장이 있으면 그 endTime, 없으면 기본 시각:
+    KR 15:30+09:00, US 뉴욕 16:00 (NYSE 조기 폐장일이면 13:00, 서머타임 반영).
+    """
+    if market_country not in ("KR", "US"):
+        raise ValueError(f"지원하지 않는 시장: {market_country}")
+    for key in CALENDAR_DAYS:
+        entry = calendar.get(key) or {}
+        regular = _regular(entry)
+        if entry.get("date") == day and regular is not None:
+            return regular["endTime"]
+    d = date.fromisoformat(day)
+    if market_country == "KR":
+        hhmm, tz = KR_SESSIONS["regularMarket"][1], KST
+    else:
+        table = US_EARLY_CLOSE if d in us_early_closes(d.year) else US_SESSIONS
+        hhmm, tz = table["regularMarket"][1], NEW_YORK
+    h, m = map(int, hhmm.split(":"))
+    return datetime(d.year, d.month, d.day, h, m, tzinfo=tz).isoformat()
+
+
+def close_of(candles: list[dict], day: str) -> dict | None:
+    """일봉(과거 → 최신) 중 날짜(timestamp 앞 10자)가 day 이하인 마지막 봉의 종가.
+
+    {"close": float, "prevClose": float | None, "date": "YYYY-MM-DD"}. prevClose는 그 앞 봉의 종가 (앞 봉이 없으면 None).
+    해당하는 봉이 없으면 None.
+    """
+    done = [c for c in candles if c["timestamp"][:10] <= day]
+    if not done:
+        return None
+    last = done[-1]
+    prev = float(done[-2]["closePrice"]) if len(done) > 1 else None
+    return {"close": float(last["closePrice"]), "prevClose": prev, "date": last["timestamp"][:10]}
 
 
 def drop_incomplete(candles: list[dict], calendar: dict, now: datetime) -> list[dict]:
@@ -116,11 +203,21 @@ class MarketCalendar:
     def _entry(self, market_country: str, day: date) -> dict:
         is_open = self.is_business_day(market_country, day)
         if market_country == "KR":
-            return {"date": day.isoformat(), "integrated": _sessions(day, KR_SESSIONS, KST) if is_open else None}
+            return {"date": day.isoformat(), "integrated": _sessions(day, self._kr_table(day), KST) if is_open else None}
         if not is_open:
             return {"date": day.isoformat(), **{name: None for name in US_SESSIONS}}
         table = US_EARLY_CLOSE if day in us_early_closes(day.year) else US_SESSIONS
         return {"date": day.isoformat(), **_sessions(day, table, NEW_YORK)}
+
+    def _kr_table(self, day: date) -> dict:
+        """국내 영업일 day의 구간 표. 수능일·새해 첫 거래일은 정규장 시각이 바뀐다 (KR_SPECIAL_REGULAR)."""
+        if day in KR_CSAT_DAYS:
+            regular = KR_SPECIAL_REGULAR["csat"]
+        elif day == self._step("KR", date(day.year, 1, 1), 1):  # 1월 1일(신정) 다음 첫 영업일
+            regular = KR_SPECIAL_REGULAR["newYear"]
+        else:
+            return KR_SESSIONS
+        return {**KR_SESSIONS, "regularMarket": regular, "afterMarket": (regular[1], KR_SESSIONS["afterMarket"][1])}
 
     # --- 국내 휴장일 ---
 

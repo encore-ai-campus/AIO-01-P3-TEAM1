@@ -67,7 +67,7 @@ def test_mutations_require_csrf(user, fake, api):
 
 # --- 시세 호출 제한 ---
 
-def test_failed_prev_close_is_cached_so_polling_does_not_repeat_calls(api, fake):
+def test_failed_close_is_cached_so_polling_does_not_repeat_calls(api, fake):
     calls = []
 
     def broken(symbol, count=200):
@@ -76,21 +76,20 @@ def test_failed_prev_close_is_cached_so_polling_does_not_repeat_calls(api, fake)
     fake.daily_candles = broken
     for _ in range(3):  # 화면이 되풀이해 보내는 폴링
         quotes = api.get("/api/quotes?symbols=005930,000660").json()["quotes"]
-        assert [(q["price"], q["prevClose"], q["changeRate"]) for q in quotes] == [(70000, None, None),
-                                                                                    (200000, None, None)]
+        assert [(q["price"], q["prevClose"], q["changeRate"], q["asOf"]) for q in quotes] == [(None,) * 4] * 2
     assert sorted(calls) == ["000660", "005930"]  # 종목마다 한 번만 (실패도 잠시 캐시한다)
+    assert fake.calls.count("prices") == 0  # 화면 시세에 현재가를 부르지 않는다
 
 
-def test_quotes_limits_new_prev_close_lookups_per_request(api, fake, monkeypatch):
-    monkeypatch.setattr(market, "PREV_CLOSE_BATCH", 1)
+def test_quotes_limits_new_close_lookups_per_request(api, fake, monkeypatch):
+    monkeypatch.setattr(market, "CLOSE_BATCH", 1)
     path = "/api/quotes?symbols=005930,005935,000660"
     first = api.get(path).json()["quotes"]
     assert fake.calls.count("daily_candles") == 1
-    assert [q["prevClose"] is not None for q in first] == [True, False, False]
-    assert all(q["price"] is not None for q in first)  # 현재가는 모두 준다
+    assert [q["price"] is not None for q in first] == [True, False, False]  # 나머지는 다음 폴링에 채운다
     api.get(path)
     third = api.get(path).json()["quotes"]
-    assert fake.calls.count("daily_candles") == 3 and all(q["prevClose"] is not None for q in third)
+    assert fake.calls.count("daily_candles") == 3 and all(q["price"] is not None for q in third)
 
 
 # --- 한 시장·한 번의 실패 ---

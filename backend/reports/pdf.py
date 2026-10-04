@@ -1,8 +1,15 @@
-"""AI 리포트 A4 PDF (docs/tasks/05-프론트.md T5-11~T5-14, TEAM_DEV_PLAN.md 6-3).
+"""AI 리포트 A4 PDF (docs/tasks/05-프론트.md T5-11~T5-14, TEAM_DEV_PLAN.md 6-3, docs/DECISIONS.md 14-7 "PDF").
 
 `build_report_html`이 종목 리포트 한 쪽(길어도 두 쪽)을, `build_screening_html`이 선별 요약 표지를 HTML 문자열로 만든다.
 가격 차트·점수 막대는 SVG·CSS를 문자열로 직접 만든다 (외부 라이브러리 없음). PDF 변환은 엔진의 `render_pdf`(Chrome headless).
 Agent가 아직 결과를 다 못 채웠어도(`Report.results`가 비어 있어도) 있는 만큼만 그리고 없는 칸은 "자료 없음"으로 둔다.
+
+서비스 이름은 "AI 리포트 데스크"(D-5). 맨 위에 쉬운 요약 상자(`results.report_agent.plainSummary`, B1)와 통일 면책 문장을 두고,
+꼬리말도 같은 면책 문장이다. 가격은 장마감 기준이다: 차트는 완성 일봉(`trading.market.completed_candles` — 장중 미완성 봉 없음)으로
+그리고 범례에 "YYYY-MM-DD 종가 기준"을, 시세 지표 아래에 `market_agent`의 종가·`asOf`("… 장마감 기준")를 적는다.
+
+만든 파일은 `PAPER_ROOT/reports/<id>.v<TEMPLATE_VERSION>.pdf`(Chrome이 없으면 `.html`)로 두고 다시 쓴다. 양식을 바꾸면
+TEMPLATE_VERSION을 올린다 — 이름이 달라져 예전 양식 파일(판 번호 없는 `<id>.pdf` = 1판 포함)을 쓰지 않고 새로 만들며, 그때 예전 파일을 지운다.
 
 리포트 신청자의 로그인 아이디는 넣지 않는다 (아이디는 로그인 정보다). 비밀 값도 넣지 않는다.
 """
@@ -22,10 +29,13 @@ from trading import market
 from config import engine
 
 from .models import Report, TraceEvent
-from .payloads import KST
+from .payloads import KST, conclusion
 
 log = logging.getLogger(__name__)
 
+SERVICE_NAME = "AI 리포트 데스크"
+DISCLAIMER = "이 리포트는 AI가 만든 참고 자료이며 투자 권유가 아닙니다. 모든 매매는 모의 계좌에서만 이뤄집니다."  # 통일 면책 문장
+TEMPLATE_VERSION = 2       # 양식 판. 양식을 바꾸면 올린다 (예전 판 파일은 다음 요청 때 새로 만든다). 2: 2026-10 쉬운 요약·장마감 기준
 NO_DATA = "자료 없음"
 NO_VALUE = "–"
 CHART_DAYS = 60            # 차트에 그리는 최근 일봉 수
@@ -34,7 +44,9 @@ LIST_ITEMS = 3             # 근거·리스크 줄 수
 MAX_DROP_REASONS = 8       # 탈락·제외 사유 요약에 보이는 종류 수
 MAX_FAIL_LINES = 6         # 꼬리의 복구 내용 줄 수
 
-VERDICT_LABEL = {"buy": "매수", "hold": "관망", "avoid": "회피"}
+VERDICT_LABEL = {"buy": "긍정적", "hold": "지켜보기", "avoid": "부정적"}  # AI 의견 배지 (화면 lib/plainText.ts OPINION_TEXT와 같은 말)
+SUMMARY_ITEMS = 3          # 쉬운 요약 줄 수 (ReportDraft.plainSummary 상한)
+WEEKDAYS = "월화수목금토일"
 RISK_LABEL = {"low": "낮음", "medium": "보통", "high": "높음"}
 STATUS_LABEL = {"requested": "대기", "running": "진행 중", "completed": "완성", "failed": "실패"}
 AGENT_LABEL = {"market_agent": "시세", "fundamental_agent": "재무", "news_agent": "뉴스",
@@ -71,6 +83,9 @@ th, td { border: 1px solid #ccc; padding: .8mm 1.8mm; text-align: left; vertical
 th { background: #f3f3f3; width: 24mm; }
 td.n { text-align: right; }
 .foot { margin-top: 4mm; color: #555; font-size: 8.5pt; border-top: 1px solid #ccc; padding-top: 1.5mm; }
+.easy { border: 1.5px solid #3b6fd4; border-radius: 2mm; background: #f4f7fd; padding: 1.5mm 3mm 2mm; margin: 3mm 0 0; }
+.easy h2 { border: 0; margin: 0 0 1mm; padding: 0; }
+.notice { color: #555; font-size: 8.5pt; margin-top: 1.5mm; }
 .small { font-size: 8pt; color: #777; }
 svg text { font-family: "Noto Sans CJK KR", "Apple SD Gothic Neo", sans-serif; }
 """
@@ -109,16 +124,29 @@ def _price(value: float | None, mkt: str) -> str:
 
 
 def _page(title: str, body: str) -> str:
-    return (f'<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>{_e(title)}</title>'
+    return (f'<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>{_e(title)} · {SERVICE_NAME}</title>'
             f"<style>{CSS}</style></head><body>{body}</body></html>")
+
+
+def _as_of(value, mkt: str) -> str | None:
+    """장마감 기준 시각 ISO → "10월 2일(금) 15:30 장마감 기준" (미국은 뉴욕 시각 "16:00(뉴욕)"). 읽지 못하면 None."""
+    try:
+        at = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    if at.tzinfo is None:
+        return None
+    at = at.astimezone(market.MARKET_TZ.get(mkt, KST))
+    return (f"{at.month}월 {at.day}일({WEEKDAYS[at.weekday()]}) {at:%H:%M}{'(뉴욕)' if mkt == 'US' else ''} "
+            f"장마감 기준")
 
 
 # --- 가격 차트 (SVG 문자열) ---
 
 def _load_candles(symbol: str) -> list[dict]:
-    """일봉(과거 → 최신). 조회가 안 되면 빈 목록 (차트 자리에 "시세 자료 없음")."""
+    """완성 일봉(과거 → 최신, 장마감 기준 — 장중에도 오늘 미완성 봉이 없다). 조회가 안 되면 빈 목록 (차트 자리에 "시세 자료 없음")."""
     try:
-        rows = market.candles(symbol)
+        rows = market.completed_candles(symbol)
     except Exception as e:  # 시세를 못 받아도 PDF는 나가야 한다 (차트만 비운다)
         log.warning("리포트 PDF 차트용 일봉 조회 실패: %s %s", symbol, type(e).__name__)
         return []
@@ -326,9 +354,19 @@ def _footer(report: Report, trace: list[TraceEvent], now: datetime) -> str:
     cost_text = f"${cost:,.4f}" if cost is not None else NO_DATA
     made_at = now.astimezone(KST).strftime("%Y-%m-%d %H:%M")
     return (f'<div class="foot"><h2>만든 Agent · 자동 복구</h2>{agents_html}{failed_html}{recovery_html}'
-            f"<p>비용 {_e(cost_text)} · 생성 {_e(made_at)} KST</p>"
-            '<p class="small">AI는 제안만 합니다. 수량·한도·체결 가능 여부는 별도의 규칙 코드가 판단하며, '
-            "투자 판단과 책임은 본인에게 있습니다.</p></div>")
+            f"<p>비용 {_e(cost_text)} · 생성 {_e(made_at)} KST · {SERVICE_NAME}</p>"
+            f'<p class="small">{DISCLAIMER}</p></div>')
+
+
+def _market_basis(mkt_res: dict, mkt: str) -> str:
+    """시세 지표 아래 기준 줄: "시세 지표: 종가 72,000원 · 10월 2일(금) 15:30 장마감 기준" (MarketResult의 price·asOf).
+    asOf가 없으면(장마감 기준 이전의 결과) 기준 시각을 알 수 없다고 적고 가격을 보이지 않는다."""
+    as_of = _as_of(mkt_res.get("asOf"), mkt) if mkt_res.get("asOf") else None
+    if as_of is None:
+        return f'<p class="legend">시세 지표 기준 시각: {NO_DATA}</p>'
+    close = _num(mkt_res.get("price"))
+    price = f"종가 {_price(close, mkt)}{'원' if mkt == 'KR' else '달러'} · " if close is not None and close > 0 else ""
+    return f'<p class="legend">시세 지표: {_e(price)}{_e(as_of)}</p>'
 
 
 def build_report_html(report: Report, trace: list[TraceEvent], now: datetime | None = None) -> str:
@@ -340,15 +378,19 @@ def build_report_html(report: Report, trace: list[TraceEvent], now: datetime | N
     targets = _dict(draft.get("targets"))
     when = (report.finished_at or report.created_at).astimezone(KST).strftime("%Y-%m-%d")
     verdict = draft.get("verdict")
-    verdict_html = (f'<span class="badge {_e(verdict) if verdict in VERDICT_LABEL else ""}">'
-                    f'{_e(VERDICT_LABEL.get(verdict, verdict) if verdict else "판정 없음")}</span>')
+    opinion_html = (f'AI 의견 <span class="badge {_e(verdict) if verdict in VERDICT_LABEL else ""}">'
+                    f"{_e(VERDICT_LABEL.get(verdict, verdict))}</span>" if verdict else "AI 의견 없음")
     head = (f"<h1>{_e(report.name)} <span class=\"meta\">{_e(report.symbol)} · {_e(report.market)}</span></h1>"
-            f'<p class="meta">{_e(when)} · AI 리포트 · {verdict_html}</p>'
+            f'<p class="meta">{_e(when)} · {SERVICE_NAME} · {opinion_html}</p>'
             f'<p class="one">{_e(draft.get("oneLiner") or NO_DATA)}</p>')
+    easy = (f'<div class="easy"><h2>쉬운 요약</h2>{_list(_texts(draft.get("plainSummary"), SUMMARY_ITEMS))}'
+            f'<p class="notice">{DISCLAIMER}</p></div>')
 
-    chart = (f"<h2>가격 차트</h2>{_chart_svg(_load_candles(report.symbol), targets, report.market)}"
-             f'<p class="legend">일봉(최근 {CHART_DAYS}일) · <span style="color:{ACCENT}">━</span> {MA_WINDOW}일 이동평균 · '
-             f'점선: 제안 진입·목표·손절 (AI 제안)</p>')
+    candles = _load_candles(report.symbol)
+    basis = f"{candles[-1]['date']} 종가 기준 · " if candles else ""
+    chart = (f"<h2>가격 차트</h2>{_chart_svg(candles, targets, report.market)}"
+             f'<p class="legend">{_e(basis)}일봉(최근 {CHART_DAYS}일) · <span style="color:{ACCENT}">━</span> '
+             f"{MA_WINDOW}일 이동평균 · 점선: 제안 진입·목표·손절 (AI 제안)</p>")
 
     metrics = _dict(fund_res.get("metrics"))
     rank = _num(mkt_res.get("volumeRank"))
@@ -359,6 +401,7 @@ def build_report_html(report: Report, trace: list[TraceEvent], now: datetime | N
         _card("변동성", _fmt(_num(mkt_res.get("volatilityPct")), 2, "%")),
         _card("PER", _fmt(_num(metrics.get("per")), 1, "배")),
         _card("PBR", _fmt(_num(metrics.get("pbr")), 2, "배"))))
+    basis_html = _market_basis(mkt_res, report.market)
 
     bars = []
     score, confidence, probability = _num(review.get("score")), _num(draft.get("confidence")), _num(targets.get("probability"))
@@ -378,7 +421,7 @@ def build_report_html(report: Report, trace: list[TraceEvent], now: datetime | N
                      f'{" — " + _e(risk.get("summary")) if risk.get("summary") else ""}</p>'
                      + (_list(warnings) if warnings else ""))
 
-    body = (head + chart + f"<h2>핵심 지표</h2><div class=\"cards\">{cards}</div>"
+    body = (head + easy + chart + f"<h2>핵심 지표</h2><div class=\"cards\">{cards}</div>{basis_html}"
             f"<h2>점수·확률</h2>{bars_html}"
             f'<div class="cols"><div><h2>근거</h2>{_list(_texts(draft.get("reasons"), LIST_ITEMS))}</div>'
             f'<div><h2>리스크</h2>{_list(_texts(draft.get("risks"), LIST_ITEMS))}</div></div>{risk_html}'
@@ -441,13 +484,12 @@ def build_screening_html(screening: dict, reports: list[Report]) -> str:
 
     rows = []
     for r in reports:
-        res = _dict(_dict(r.results).get("report_agent"))
-        verdict = res.get("verdict")
+        found = conclusion(r)  # 목록 카드와 같은 규칙: 완성된 리포트만 AI 의견·한 줄 요약 (B3)
         rows.append(f"<tr><td>{_e(r.name)} ({_e(r.symbol)})</td><td>{_e(STATUS_LABEL.get(r.status, r.status))}</td>"
-                    f"<td>{_e(VERDICT_LABEL.get(verdict, verdict) if verdict else NO_VALUE)}</td>"
-                    f"<td>{_e(res.get('oneLiner') or NO_VALUE)}</td></tr>")
-    reports_html = ("<table><tr><th>종목</th><th>상태</th><th>판정</th><th>한 줄 결론</th></tr>" + "".join(rows) + "</table>"
-                    if rows else f'<p class="empty">{NO_DATA}</p>')
+                    f"<td>{_e(VERDICT_LABEL.get(found['opinion'], NO_VALUE))}</td>"
+                    f"<td>{_e(found['oneLiner'] or NO_VALUE)}</td></tr>")
+    reports_html = ("<table><tr><th>종목</th><th>상태</th><th>AI 의견</th><th>한 줄 요약</th></tr>" + "".join(rows)
+                    + "</table>" if rows else f'<p class="empty">{NO_DATA}</p>')
 
     body = (f"<h1>{_e(title)}</h1><p class=\"meta\">{_e(at)} · {stats}</p>"
             f"<h2>선별 종목 점수</h2>{_bars_svg(score_rows, '#3b6fd4')}"
@@ -455,7 +497,7 @@ def build_screening_html(screening: dict, reports: list[Report]) -> str:
             f'<div class="cols"><div><h2>탈락 사유</h2>{_reason_summary(dropped)}</div>'
             f"<div><h2>제외 사유</h2>{_reason_summary(excluded)}</div></div>"
             f"<h2>이날의 리포트</h2>{reports_html}"
-            '<p class="foot small">AI는 제안만 합니다. 선별은 규칙 점수(결정론적 코드)로 한 것입니다.</p>')
+            f'<p class="foot small">{SERVICE_NAME} · 선별은 AI가 아니라 규칙 점수(결정론적 코드)로 한 것입니다. {DISCLAIMER}</p>')
     return _page(title, body)
 
 
@@ -466,23 +508,33 @@ def report_dir() -> Path:
     return engine.ROOT / "reports"
 
 
-def ensure_report_file(report: Report, trace: list[TraceEvent]) -> Path:
-    """`PAPER_ROOT/reports/<id>.pdf`(Chrome이 없으면 `.html`)가 있으면 그것을, 없으면 만들어 그 경로를 돌려준다.
+def _file_stem(report_id: int, version: int) -> str:
+    """양식 판별 파일 이름 (확장자 없이). 1판은 판 번호가 없던 예전 이름 `<id>`."""
+    return f"{report_id}" if version <= 1 else f"{report_id}.v{version}"
 
+
+def ensure_report_file(report: Report, trace: list[TraceEvent]) -> Path:
+    """`PAPER_ROOT/reports/<id>.v<판>.pdf`(Chrome이 없으면 `.html`)가 있으면 그것을, 없으면 만들어 그 경로를 돌려준다.
+
+    지금 판(TEMPLATE_VERSION) 파일만 다시 쓴다 — 양식이 바뀌기 전에 만든 파일은 새로 만들고, 만든 뒤 예전 판 파일을 지운다.
     임시 이름으로 만든 뒤 이름을 바꿔 넣는다: 같은 리포트를 동시에 두 번 만들어도 반쯤 쓰인 파일이 노출되지 않는다.
     """
     folder = report_dir()
+    stem = _file_stem(report.id, TEMPLATE_VERSION)
     for suffix in (".pdf", ".html"):
-        done = folder / f"{report.id}{suffix}"
+        done = folder / f"{stem}{suffix}"
         if done.exists() and done.stat().st_size > 0:
             return done
     html = build_report_html(report, trace)
-    temp = folder / f"{report.id}.{uuid.uuid4().hex}.pdf"   # render_pdf는 같은 이름의 .html도 쓴다
+    temp = folder / f"{stem}.{uuid.uuid4().hex}.pdf"   # render_pdf는 같은 이름의 .html도 쓴다
     made = render_pdf(html, temp, engine.engine_config().chrome_bin)
-    final = folder / f"{report.id}{made.suffix}"
+    final = folder / f"{stem}{made.suffix}"
     try:
         os.replace(made, final)
     finally:
         for left in (temp, temp.with_suffix(".html")):  # PDF가 되면 .html은 render_pdf가 지웠다. 실패한 찌꺼기만 남지 않게
             left.unlink(missing_ok=True)
+    for version in range(1, TEMPLATE_VERSION):  # 예전 판 파일 (다른 요청이 만드는 중인 임시 파일은 건드리지 않는다)
+        for suffix in (".pdf", ".html"):
+            (folder / f"{_file_stem(report.id, version)}{suffix}").unlink(missing_ok=True)
     return final

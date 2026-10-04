@@ -12,7 +12,7 @@ from autotrade import demo, risk, sources
 from autotrade.models import Recommendation
 from autotrade.tokens import activation_token, check_token
 
-from .conftest import make_rec
+from .conftest import close_of, make_rec
 
 pytestmark = pytest.mark.django_db
 
@@ -66,8 +66,12 @@ def test_from_report_makes_one_recommendation(user, sent):
     assert Recommendation.objects.count() == 1
     call = sent.calls[0]
     assert call["kind"] == "recommendation" and call["users"] == user
-    assert call["title"] == "AI 추천 · 삼성전자 (005930)"
-    assert "진입 69,000원" in call["body"] and "목표 80,000원 (+15.9%)" in call["body"]
+    assert call["expert_title"] == "AI 추천 · 삼성전자 (005930)"
+    assert "진입 69,000원" in call["expert_body"] and "목표 80,000원 (+15.9%)" in call["expert_body"]
+    # 리포트 추천 알림은 본문 첫 줄이 "리포트가 완성됐어요" (리포트 완성 알림을 대신한다 — 쉬운 문장·전문가 문장 모두)
+    assert call["body"].splitlines()[0] == "리포트가 완성됐어요" == call["expert_body"].splitlines()[0]
+    assert "69,000원에 사서 80,000원이 되면 팔고" in call["body"] and call["title"] == "삼성전자 새 매매 계획 제안 · AI 리포트"
+    assert call["numbers"].startswith("진입 69,000원 · 목표 80,000원 (+15.9%)")
     assert call["link"] == f"/recommendations/{rec.id}" and call["link_label"] == "계획 활성화"
     token = call["discord_link"].split("?t=")[1]
     assert check_token(rec, token)
@@ -99,7 +103,8 @@ def test_from_analysis(user, sent):
     run = analysis_of()
     rec = sources.from_analysis(run)
     assert rec.source == "analysis" and rec.analysis == run and rec.requested_by == user
-    assert rec.holding_days == 20 and rec.probability_assumed and rec.price_at_creation == 70100
+    # priceAtCreation은 분석 시각 가격(70,100)이 아니라 만들 때의 종가 — 증권사가 없으면 None
+    assert rec.holding_days == 20 and rec.probability_assumed and rec.price_at_creation is None
     assert rec.summary == "20일선 지지" and rec.risks == ["시나리오가 틀렸다고 볼 조건: 66,000원 이탈"]
     assert rec.confidence == 80
     assert sources.from_analysis(run) is None
@@ -148,15 +153,28 @@ def test_token_checks_id_and_expiry():
 
 # --- 시연 추천 ---
 
+def test_price_at_creation_is_close_for_every_source(user, fake):
+    """priceAtCreation = 만들 때의 직전 정규장 종가 (장마감 기준). 분석 추천도 분석 시각 가격이 아니다."""
+    close = close_of(70000)
+    assert sources.from_report(report_of(user)).price_at_creation == close
+    assert sources.from_analysis(analysis_of()).price_at_creation == close
+    assert make_rec(symbol="005935", name="삼성전자우", price_at_creation=sources._FETCH).price_at_creation == \
+        close_of(60000)
+    assert demo.recommend(user, "000660").price_at_creation == close_of(200000)
+
+
 def test_demo_recommendation_passes_risk_engine(user, fake, sent):
     rec = demo.recommend(user)
     assert rec.source == "demo" and rec.symbol == "005930" and rec.requested_by == user
-    assert rec.entry_price == 70000 and rec.stop_price < rec.entry_price < rec.target_price
+    # 진입가 = 직전 정규장 종가(69,758.6원)를 호가 단위로 내린 값. 장중 가격(70,000원)·오늘 미완성 봉을 쓰지 않는다
+    assert rec.entry_price == 69700 and rec.price_at_creation == close_of(70000)
+    assert rec.stop_price < rec.entry_price < rec.target_price
     assert rec.entry_price % 100 == 0 and rec.stop_price % 100 == 0 and rec.target_price % 100 == 0
     assert rec.reward_risk >= 2.4 and rec.probability == 0.45 and rec.probability_assumed
     assert rec.confidence is None and rec.holding_days == 10
-    assert rec.summary.startswith("시연용 규칙 추천 (AI 아님)") and demo.NOT_AI in rec.risks
-    assert sent.calls[0]["title"].startswith("시연 추천(AI 아님) · 삼성전자")
+    assert rec.summary.startswith("연습용 예시 계획 (AI 아님)") and demo.NOT_AI in rec.risks
+    assert sent.calls[0]["expert_title"] == "연습용 예시 계획(AI 아님) · 삼성전자 (005930)"
+    assert sent.calls[0]["title"] == "삼성전자 새 매매 계획 제안 · 연습용 예시 계획 (AI 아님)"
     preview = risk.preview(rec, user)
     assert preview["approved"] and preview["activatable"], preview["reasons"]
     assert demo.recommend(user).symbol == "000660"  # 오늘 시연 추천이 없는 다음 종목

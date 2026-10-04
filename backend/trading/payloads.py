@@ -1,6 +1,14 @@
-"""응답 형식 (docs/API.md 타입). 키는 camelCase, 숫자는 number, 시각은 오프셋이 붙은 ISO 문자열."""
-from .models import PaperFill, Reservation
+"""응답 형식 (docs/API.md 타입). 키는 camelCase, 숫자는 number, 시각은 오프셋이 붙은 ISO 문자열.
+
+청산 사유(exitReason·Fill.reason)는 저장한 값 그대로다 (TARGET·STOP·EXPIRED·MANUAL·EOD — EOD는 단타 장 마감 전 정리).
+"""
+from .models import SWING, PaperFill, Reservation
 from .store import iso
+
+
+def _style(row: dict) -> str:
+    """주문의 보유 방식 (swing · long · day). 열이 비었으면 기본값 swing."""
+    return row.get("style") or SWING
 
 
 def order_json(row: dict) -> dict:
@@ -12,7 +20,7 @@ def order_json(row: dict) -> dict:
         "fillPrice": row["fill_price"], "filledAt": row["filled_at"], "targetPrice": row["target_price"],
         "stopPrice": row["stop_price"], "expireDate": row["expire_date"], "exitPrice": row["exit_price"],
         "exitReason": row["exit_reason"], "closedAt": row["closed_at"], "pnlKrw": row["pnl_krw"],
-        "note": row["note"], "createdAt": row["created_at"],
+        "note": row["note"], "createdAt": row["created_at"], "style": _style(row),
     }
 
 
@@ -30,17 +38,19 @@ def reservation_json(r: Reservation, run_at: str | None) -> dict:
     return {
         "id": r.id, "kind": r.kind, "symbol": r.symbol, "name": r.name, "market": r.market, "quantity": r.quantity,
         "orderId": r.order_id, "targetPrice": r.target_price, "stopPrice": r.stop_price, "days": r.days,
-        "runAt": run_at, "createdAt": iso(r.created_at),
+        "style": r.style if r.kind == "BUY" else None, "runAt": run_at, "createdAt": iso(r.created_at),
     }
 
 
 def position_json(holding: dict, order: dict) -> dict:
-    """Position. holding은 records.account.holdings 항목, order는 그 주문 dict (체결 환율로 원금을 계산한다)."""
+    """Position (장마감 기준 평가). holding은 records.account.holdings 항목 (lastPrice = 직전 종가),
+    order는 그 주문 dict (체결 환율로 원금을 계산한다)."""
     cost = order["filled_quantity"] * order["fill_price"] * (order["fill_fx_rate"] or 1.0)
     value = holding["valueKrw"]
     return {
         "orderId": holding["id"], "symbol": holding["symbol"], "name": holding["name"], "market": holding["market"],
-        "currency": holding["currency"], "quantity": holding["quantity"], "avgPrice": holding["fillPrice"],
+        "currency": holding["currency"], "style": _style(order), "quantity": holding["quantity"],
+        "avgPrice": holding["fillPrice"],
         "lastPrice": holding["lastPrice"], "costKrw": cost, "valueKrw": value, "profitKrw": value - cost,
         "profitRate": value / cost - 1 if cost else None, "targetPrice": holding["target"],
         "stopPrice": holding["stop"], "expireDate": holding["expireDate"], "filledAt": holding["filledAt"],

@@ -62,7 +62,7 @@ def test_full_flow(browser, alice):
                             content_type="application/json", headers={"X-CSRFToken": token})
     assert response.status_code == 200
     assert response.json() == {"id": alice.pk, "username": "alice", "nickname": "alice",
-                               "isPublic": False, "isStaff": False}
+                               "isPublic": False, "isStaff": False, "beginnerMode": True}
 
     response = browser.get("/api/auth/me")
     assert response.status_code == 200
@@ -74,7 +74,7 @@ def test_full_flow(browser, alice):
     response = patch(browser, {"nickname": "  앨리스  "})
     assert response.status_code == 200
     assert response.json() == {"id": alice.pk, "username": "alice", "nickname": "앨리스",
-                               "isPublic": True, "isStaff": False}
+                               "isPublic": True, "isStaff": False, "beginnerMode": True}
     profile = profile_of(alice)
     assert (profile.nickname, profile.is_public) == ("앨리스", True)
 

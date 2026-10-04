@@ -8,7 +8,8 @@
 ```
 pyproject.toml      uv 작업 공간 (members: engine, backend). 루트는 패키지가 아니다
 engine/             paper-engine 패키지 (paper_engine/), 테스트 engine/tests/. 런타임 의존성 없음 (표준 라이브러리만)
-backend/            paper-backend: Django 프로젝트 (config/, accounts/, trading/). 외부 의존성은 여기만
+backend/            paper-backend: Django 프로젝트 (config/, accounts/, trading/, analysis/, reports/, autotrade/, notifications/,
+                    longterm/(장기투자, 2026-10-05), daytrade/(단타 연습, 2026-10-05) — 앱별 설명은 AGENTS.md "구조"). 외부 의존성은 여기만
 frontend/           Vite + React + TypeScript
 backtest/           백테스트 (DB 없이 단독 실행, engine을 import)
 deploy/             compose.dev.yml (로컬 Redis. `--profile postgres`로 PostgreSQL도)
@@ -67,6 +68,7 @@ KiwoomClient(appkey, secretkey, token_cache=None, calendar=None, base_url=BASE_U
   market_calendar(market) · listed_stocks(exchange) · warnings(symbol) · investor_trading(symbol, count=20)
   rankings(type_, market, duration="1d", count=30) · rankings_with_time(type_, market, duration="1d", count=30, exclude_caution=True)
   exchange_rate(base="USD", quote="KRW")
+  minute_candles(symbol, day, minutes=1) -> (봉 목록, complete)   # 2026-10-05: 단타 연습 분봉 (14-4). 국내만
 KiwoomApiError(status, body)        # 모든 조회 오류. 엔진은 이것만 잡는다
 data.calendar.MarketCalendar(data_gokr_api_key, cache_dir).calendar(market, now=None)
 data.calendar.drop_incomplete(candles, calendar, now)
@@ -77,6 +79,11 @@ data.calendar.drop_incomplete(candles, calendar, now)
   `KiwoomClient(cfg.kiwoom_appkey, cfg.kiwoom_secretkey, cfg.token_cache, MarketCalendar(cfg.data_gokr_api_key, ROOT/".cache"), cfg.kiwoom_base_url)`.
 - 미국 시세를 키움이 지원하지 않으면 해당 메서드는 `KiwoomApiError`를 낸다. `MARKETS=KR`이면 엔진은 미국을 부르지 않는다.
 - 계좌·주문 관련(`accounts`, `holdings`, `buying_power`, `sellable_quantity`, `commissions`)과 주문 TR은 만들지 않는다.
+- **`minute_candles(symbol: str, day: str, minutes: int = 1) -> tuple[list[dict], bool]`** (2026-10-05 추가, 두 클라이언트 같은 이름·인자·반환 — `test_toss.py`가 검사한다):
+  `day`(YYYY-MM-DD, KST) 국내 정규장 09:00~15:30(양 끝 포함) 분봉을 과거 → 최신으로, 봉은 일봉과 같은 내부(토스) 형식에 `timestamp`가 봉 시작 시각(`+09:00`).
+  **두 번째 값은 `complete`**(세션 시작 09:00까지 받았는지)다 — 쪽 수 한도 `MINUTE_MAX_PAGES`(20)에 걸리거나 증권사가 더 오래된 봉을 주지 않으면 `False`이고, 웹 API는 `partial = not complete`로 낸다.
+  `minutes`는 `kiwoom.MINUTE_STEPS`(1·3·5·10·15·30·45·60, 웹 API는 45를 받지 않는다), 아니면 `ValueError`. 미국 종목은 `KiwoomApiError`(토스는 `TossApiError`).
+  키움은 `ka10080`(`docs/KIWOOM.md` 4장), 토스는 `interval=1m` 쪽 넘기기 + 엔진이 `minutes` 간격으로 묶는다 (`docs/API.md` "단타 연습"). 공용 도우미 `minute_session`·`bar_time`·`bucket_minutes`는 `data/kiwoom.py`.
 
 ### 3-1. 로컬 개발 전용: 토스 조회 클라이언트 (2026-10-02 추가)
 
@@ -143,12 +150,13 @@ config.py       Config.broker · toss_client_id · toss_client_secret · toss_to
 | filled_quantity, fill_price, fill_fx_rate | REAL NULL | 매수 체결 |
 | filled_at | TEXT NULL | |
 | exit_price, exit_fx_rate | REAL NULL | 매도 체결 |
-| exit_reason | TEXT NULL | TARGET \| STOP \| EXPIRED \| MANUAL |
+| exit_reason | TEXT NULL | TARGET \| STOP \| EXPIRED \| MANUAL \| EOD (단타 장 마감 전 정리, 2026-10-05). 8자 이하 (Django 열 길이) |
 | closed_at | TEXT NULL | |
 | pnl, pnl_krw | REAL NULL | 실현 손익 (종목 통화, 원화). 수수료·세금 포함 |
 | signal_count | INTEGER | 청산 조건 연속 확인 횟수 (`LOCAL_EXIT_CONFIRMATIONS`=2) |
-| note | TEXT NULL | 취소 사유 등 |
+| note | TEXT NULL | 취소 사유 등 (단타 주문이 15:15에 취소되면 "단타 진입 마감") |
 | created_at | TEXT ISO | |
+| style | TEXT | 보유 방식 `swing` \| `long` \| `day`, 기본 `swing` (2026-10-05, 14-3). 주문 뒤 바뀌지 않는다. 엔진 SQLite는 열이 없으면 더하고 목표·손절·기한이 모두 없는 기존 주문을 `long`으로, Django는 `trading/0002_order_style` |
 
 `paper_fills` — 체결 내역
 | 열 | 형식 | 설명 |
@@ -161,10 +169,10 @@ config.py       Config.broker · toss_client_id · toss_client_secret · toss_to
 | commission, tax | REAL | 종목 통화 |
 | fx_rate | REAL | 종목 통화 1단위의 원화 가치 (KRW는 1) |
 | cash_change_krw | REAL | 현금 증감 (매수 음수, 매도 양수) |
-| reason | TEXT | ENTRY \| TARGET \| STOP \| EXPIRED \| MANUAL |
+| reason | TEXT | ENTRY \| TARGET \| STOP \| EXPIRED \| MANUAL \| EOD |
 | filled_at | TEXT ISO | |
 
-`equity_daily` — 일별 자산 (국내 장 마감 기록 직후 하루 한 번)
+`equity_daily` — 일별 자산 (국내 장 마감 기록 직후 하루 한 번. 웹 계좌는 KR 기준일이 오늘이 된 뒤 — 국내 거래일 15:40 KST 이후 — 장마감 기준 평가로, 14-1)
 | 열 | 형식 | 설명 |
 |---|---|---|
 | account_id, day | PK | day는 YYYY-MM-DD (KST) |
@@ -193,6 +201,10 @@ config.py       Config.broker · toss_client_id · toss_client_secret · toss_to
   사용자 컨펌 없이 모의 주문을 낸다 (진입가 지정가, 목표·손절·기한은 `make_plan`).
 - 리스크 엔진 입력(`AccountContext`)은 모의 계좌에서 만든다: 총자산=평가액, 매수 가능액, 수수료율=모의 수수료율,
   기존 보유 평가액, 오늘 확정 손실·주문 수, 자동 관리 금액.
+- **보유 방식 `style`** (2026-10-05, 14-3·14-4): `swing`은 위 목표·손절·기한 규칙 그대로. `long`은 자동 매도가 없다 (보유 기한을 쓰지 않는다).
+  `day`는 주문 접수 시각(`created_at`)의 KST 날짜가 세션이고, 그 날짜 15:15 KST(`DAY_CLOSE_AT`) 이후 첫 확인에서 체결 대기면 취소(`note` "단타 진입 마감"),
+  보유면 2회 확인 없이 바로 확인 가격으로 매도한다(`exit_reason` `EOD`. 장이 닫혀 놓쳤으면 다음 정규장 첫 확인에서). `long`·`day`는 보유 기한으로 팔지 않는다.
+  오늘 확정 손실·주문 수(`paper_today(day, style)`)는 보유 방식별로 센다 — 단타 한도는 `day` 주문만, 웹의 AI 추천 계획(SWING 한도)은 `swing` 주문만.
 
 ### 4-3. 상태 전이
 
@@ -201,6 +213,21 @@ ENTRY_PENDING ──체결──▶ EXIT_WATCHING ──목표·손절·기한·
       │
       └──지정가 당일 미체결·사용자 취소·점검 탈락──▶ CANCELED
 ```
+
+### 4-4. 웹에만 있는 표 (Django, 2026-10-04~05 추가)
+
+엔진 SQLite에는 없고 웹(Django)에만 있는 표 중 2026-10-04 결정(13·14장)으로 생기거나 바뀐 것. 열의 뜻은 각 모델 주석과 `docs/API.md`의 같은 이름 타입.
+JSON 열은 읽고 쓰기만 한다 (PostgreSQL 전용 조회를 쓰지 않는다 — 로컬 SQLite, 운영 PostgreSQL).
+
+| 표 (앱·마이그레이션) | 새 열·표 | 설명 |
+|---|---|---|
+| `reservations` (`trading/0002_order_style`) | `style` TEXT NULL | BUY 예약을 받을 때 정한 보유 방식(`swing`·`long`). 실행할 때 이 값으로 주문한다. SELL 예약은 null. 기존 BUY 예약은 마이그레이션이 같은 규칙으로 채웠다 |
+| `investor_profiles` (`accounts/0003_investorprofile`) | 새 표 (사용자당 하나) | `beginner_mode`(기본 켬), 진단 답 `answers`(JSON, q2는 보기 순서로)·점수·단계·성향·추천 모드·`assessed_at`, 단타 퀴즈 `day_quiz_passed_at`. 행이 없으면 기본값으로 본다 (14-7 B10) |
+| `recommendations` (`autotrade/0002_horizon`) | `horizon` TEXT (`SWING`·`DAY`, 기본 `SWING`), `source`에 `day` 더함 | `day` 추천(단타 계획의 껍데기)만 `DAY` (14-4) |
+| `trade_plans` (`autotrade/0002_horizon`) | `horizon` TEXT | 추천에서 복사. `DAY`면 진입 주문이 style `day`, 재주문 없음 |
+| `daily_move_notes` (`longterm/0001_initial`) | 새 표 (종목·날짜당 하나, 팀 공용) | 오늘의 내 종목 뉴스 (`DailyMove`). 업종 등락은 v1에서 늘 null이라 열이 없다. `llm_model`·`cost_usd`는 API에 내지 않는다 |
+| `investment_theses` (`longterm/0001_initial`) | 새 표 (사용자·종목당 하나) | 산 이유 (`Thesis`). `baseline`(JSON)은 9개 지표 값을 모두 담는다 (판정은 셋만) |
+| `thesis_checks` (`longterm/0001_initial`, `0002_thesischeck_facts`) | 새 표 + **`facts`** JSON (2026-10-05) | 산 이유 점검 한 번 (`ThesisCheck`). `facts`는 판정에만 쓰는 값(보고서·매출 성장률·같은 누적 기간의 순이익·영업현금흐름) — 다음 점검이 "2개 보고서 연속" 조건을 볼 때 읽는다. API에 내지 않는다. `caption`은 고정 문구라 저장하지 않는다 |
 
 ## 5. Redis 키 (접두사 `paper:`)
 
@@ -518,4 +545,229 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 | 휴장일 | 2026-10-05(월)는 개천절 대체공휴일로 휴장이다. 토스 장 달력은 이를 반영한다. **키움(운영)은 장 달력을 코드로 만들어 `DATA_GOKR_API`(특일정보)가 없으면 대체공휴일을 모른다** → 운영 `.env`에 이 키를 넣는다 (2장) |
 | 뉴스 출처 (U5·E-3) | **네이버 검색 API는 폐기한다** (2026-10-04 사용자 결정, 약관 검토 뒤). NAVER API 이용약관(2026-09-07 개정) 검색 API 특약 2.3이 "데이터를 AI에 입력하거나 학습, 개선, 평가 및 노출 등에 활용하는 행위"를, 2.2가 가공을 금지하고, 부칙 제2조로 개발자센터 신규 신청이 2026-07-30에 끝났다 (원문 확인). **발표까지 Google 뉴스 RSS를 유지**하되 출처 표시·노출 최소화를 하고, 발표 뒤 LLM 근거를 OpenDART 공시·재무·시세 수치 중심으로 옮긴다. 근거: `docs/research/약관_이용조건_조사.md` 3장·9장 |
 | 약관 ("교육용이라 상관없나") | **상관있다.** 약관(계약)은 비상업·교육 목적이어도 그대로 적용된다. 저작권 위험이 낮은 것은 교육용이어서가 아니라 제목·사실만 쓰기 때문이다. 원문: Google 뉴스 RSS "personal feed reader … personal, non-commercial use" 밖, **키움 「오픈 API 서비스 이용약관」 제5조 ③** "시세 정보를 … 개인의 업무에 한하여 이용해야 하며, 제3자에게 제공해서는 아니 된다", **토스 Open API FAQ** "비상업적인 용도라 하더라도 제 3자에게 배포하는 행위는 엄격히 금지". OpenDART·공공데이터포털(재무·특일)은 허용. 현실적 위험은 소송보다 **키 정지·차단**이다 |
-| 약관 대응 (발표 전) | 배포 URL은 계정 있는 사람만(가입 경로 없음 유지, 시험 계정은 시험 기간만), 검색엔진 색인 막기, **공개 시연 영상의 시세·뉴스 화면은 가짜 데이터(`VITE_MOCK=1`)로**, 화면 하단 출처 문구, 키움에 교육용 다중 표시 문의. 토스 조회는 원래 "혼자 로컬"까지만 회색이라 **`scripts/dev.sh`(0.0.0.0)로 팀원에게 보이는 지금 방식은 토스 FAQ 범위 밖**이다 — 키움 키를 받으면 바로 바꾼다 (사용자가 그때까지 토스 유지를 정함). 할 일 목록: 조사 보고서 9-2 |
+| 약관 대응 (발표 전) | 배포 URL은 계정 있는 사람만(가입 경로 없음 유지, 시험 계정은 시험 기간만), 검색엔진 색인 막기, ~~공개 시연 영상의 시세·뉴스 화면은 가짜 데이터(`VITE_MOCK=1`)로~~ → **2026-10-05 사용자 결정: 가능한 부분은 실제 데이터를 쓰고, 실시간 시세는 장마감 기준으로 쓰며 그렇게 표시한다**(14-1), 화면 하단 출처 문구, 키움에 교육용 다중 표시 문의. 토스 조회는 원래 "혼자 로컬"까지만 회색이라 **`scripts/dev.sh`(0.0.0.0)로 팀원에게 보이는 지금 방식은 토스 FAQ 범위 밖**이다 — 키움 키를 받으면 바로 바꾼다 (사용자가 그때까지 토스 유지를 정함). 할 일 목록: 조사 보고서 9-2 |
+
+## 14. 구현 결정 (2026-10-04): 장마감 기준 · 장기투자 · 단타 연습 · 리포트 끝 알림
+
+사용자(팀장)가 2026-10-04에 정한 두 가지와, 그것을 구현하려고 정한 공통 결정이다. API 계약은 `docs/API.md`(각 절의 "구현 예정(2026-10-04, Claude)" — 2026-10-05에 모두 만들어 "구현: 2026-10-05 (Claude)"로 바꿨다. 만들면서 계약 문장과 달라진 곳은 그 자리와 아래 각 절에 "2026-10-05 구현"으로 적었다).
+앞 장(특히 8-7·12-6의 파일 소유, 13장의 담당 번호)과 다르면 이 장이 우선한다.
+
+| 사용자 결정 | 뜻 |
+|---|---|
+| **표시·계산만 장마감 기준, 체결은 엔진 내부 장중** | 화면의 가격·평가·랭킹·미리 보기·추천 가격은 직전 정규장 종가로 계산하고 보인다. 모의 체결·청산 판단(체결 확인·예약 실행·재주문·활성화의 장중 확인·시장가 체결)만 지금처럼 장중 확인 가격을 쓴다 (14-1) |
+| **확장 1·2단계까지 구현** | `docs/투자서비스확장계획.md` 5장 로드맵의 1단계(장기투자)와 2단계 (a)(단타 연습)를 이번에 만든다. 2단계의 AI 팀(`day_plan`·`day_review`)은 추천 워크플로우라 팀 몫이고, 3단계(WebSocket 틱)는 하지 않는다 |
+
+### 14-1. 장마감 기준
+
+- **왜**: ① 화면의 숫자가 장중에 흔들리지 않아 초보가 읽기 쉽고, 미리 보기·활성화·평가·랭킹이 같은 숫자를 쓴다 (미리 보기에서 본 수량이 그대로 주문 수량이 된다).
+  ② 증권사 조회가 "보이는 종목마다 1초에 1번"(8-2)에서 "종목·기준일마다 일봉 1번"으로 줄어 키움 한도(토큰당 초당 5회)에 여유가 생긴다.
+  ③ 실시간 시세를 여러 사람 화면에 계속 띄우는 모양에서 멀어진다 — 다만 약관 문제(13-3)를 없애지는 않는다 (종가도 증권사 시세다).
+  체결을 장중으로 두는 이유: 모의 체결 규칙(4-2)이 장중 확인 가격 기준이고, 종가로 체결하면 지정가·손절이 하루 늦게 반응해 연습의 뜻이 없어진다.
+- **정의** (`docs/API.md` 공통 규칙 "장마감 기준"): 시장별 **기준일**(그 시장 현지 날짜) = **정규장 종료 + 10분(`CLOSE_SETTLE_MIN`, 일봉 종가가 굳기를 기다리는 여유)이 지금 이전인 가장 최근 영업일**
+  (2026-10-05 고침: 앞의 "아니면 지금 이전에 정규장이 끝난 가장 최근 영업일"은 15:30~15:40에 오늘을 골라 10분 규칙과 어긋났다 — KR은 거래일 15:40 KST, US는 뉴욕 16:10에 오늘로 바뀐다). **종가 봉** = 날짜가 기준일 이하인 마지막 일봉. **asOf** = 종가 봉 날짜의 정규장 종료 시각
+  (봉 날짜를 쓰므로 장 달력이 대체공휴일을 몰라도 실제 마지막 거래일로 표시된다 — 13-3 "휴장일").
+- **코드 접점**: 엔진 `data/calendar.py`의 `close_basis_day`·`session_end_iso`·`close_of`(표준 라이브러리), 백엔드 `trading/market.py`의 `basis`·`closes`·`close_price`·`completed_candles`
+  (종목·기준일별 캐시, 한 호출이 새로 받는 종목은 10개까지). `current_prices`·`confirmed_prices`·`last_price`는 **내부 경로 전용**으로 남긴다.
+- **장마감 기준인 것**: 시세(`Quote`)·종목 상세(완성 봉만)·계좌 평가·수익률·랭킹·일별 자산 기록(`record_equity`)·리스크 미리 보기와 활성화 수량·`priceAtCreation`·시연 추천 진입가·리포트 PDF 차트·분봉(완성 세션만)·
+  **리포트 시세 Worker 결과**(`MarketResult.price`·`changePct`·지표 — 팀의 `market_agent`도 `market.close_price`·`completed_candles`를 쓰고 `asOf`를 낸다, `docs/tasks/00-공통.md` 10절. 리포트 상세·PDF는 팀 전체가 본다).
+  분석의 `priceAtAnalysis`는 분석 시각 가격 그대로 두는 **일부러 둔 예외**다 (화면 "분석 시각 가격", 장중이었으면 "장중 가격"이라고 밝힌다). 지표 기준일(`dataAsOf`)을 따로 낸다.
+- **일별 자산 기록(`record_equity`)** (2026-10-05 확정): 그날 기록은 **KR 기준일이 오늘이 된 뒤**(국내 거래일 15:40 KST = 정규장 종료 + `CLOSE_SETTLE_MIN`) 하루 한 번 남긴다.
+  국내 보유는 그날 종가, **미국 보유는 그때의 최신 미국 종가**(장마감 기준 — `AccountSummary.pricesAsOf.US`와 같은 값, 15:40 KST에는 그날 새벽 끝난 뉴욕 정규장 종가)로 평가한다.
+  왜: 15:30 직후에는 일봉 종가가 굳지 않았을 수 있고, 미국 보유를 장중 가격으로 평가하면 화면(종가)과 기록이 어긋난다. 그 전 기록은 기록한 때의 가격 그대로 둔다.
+- **`priceAtCreation`은 출처와 무관하게 만들 때의 종가다** (2026-10-05 확정): 분석에서 나온 추천(`autotrade.sources.from_analysis`)도 분석 시각 가격(`run.price_at_analysis`)이 아니라
+  추천을 만들 때의 종가(`market.close_price`)를 넣는다 — 추천 화면의 "추천 때 가격"과 미리 보기(종가)가 같은 기준이 되게. 분석 상세의 `priceAtAnalysis`는 위 예외대로 그대로다.
+- **장중 가격 숫자는 문장에 넣지 않는다**: `400`의 `detail`·`failureReason`·`PlanEvent.message`·알림 문장에 장중 확인 가격이나 그것으로 계산한 금액을 넣지 않는다 (정해진 문장 — `docs/API.md` 공통 규칙 표).
+  이유: 일부러 틀린 목표가·손절가를 보내 거절 문장으로 장중 가격을 읽어 내는 길(특히 `PATCH /api/orders/{id}`)을 막아 "화면은 종가"가 실제로 지켜지게. 엔진 `buy_blockers`·`modify`와 재주문 점검 문장을 고친다.
+- **어긋남과 대응**: 시장가 주문은 화면 추정(종가)과 체결(주문 시점)이 다르다 → 화면 문구. 종가로는 활성화할 수 있는데 장중에 이미 목표가·손절가를 지났을 수 있다 →
+  활성화에 **장중 확인**을 하나 더 둔다 (`price_passed`, 문장에 장중 가격 숫자를 넣지 않는다). 재주문은 지금처럼 장중 가격으로 계산한다.
+- **폴링**: 시세·종목 60초, 계좌 10초, 랭킹 30초, 주문·계획 5초(체결은 장중에 바뀐다). 화면 아래 공통 출처 줄: "시세: {quoteProvider} 조회 · 장마감 기준 | 공시·재무: 금융감독원 OpenDART, 금융위원회(공공데이터포털) | 뉴스 제목: Google 뉴스 검색 결과(각 언론사)".
+- KRX 시간외 개편(2026-09-14: KRX 시간외단일가 폐지·애프터마켓 16:00~20:00 신설, NXT 애프터 15:40~20:00)을 `data/calendar.py` 설명에 반영한다. `KR_SESSIONS`의 afterMarket 15:30~20:00은 "KRX+NXT 합집합"으로 그대로 둔다.
+
+### 14-2. 범위와 파일 소유 (2026-10-04부터)
+
+- **팀은 추천 워크플로우만 만든다**: AI 리포트 Agent 워크플로우(Worker·출력 계약·Orchestrator·Guard·AutoHealing·장애 주입·복구 지표), 자동 리포트(B9, 01 T1-3·T1-4·T1-5의 자동 리포트 부분),
+  단타의 AI 팀(`day_plan`·`day_review`), 그리고 **UI/UX 고도화**(Claude가 만든 화면을 다듬기), **기능 논의**, **테스트**(사용성 시험·장애 시험 포함).
+  워크플로우에 붙어 있는 작은 계약 B1 `plainSummary`(출력 계약, 2)도 팀 몫 그대로다.
+- **B3 `opinion`·`oneLiner`는 Claude가 지금 만든다** (2026-10-05 바뀜 — 앞의 "4의 T4-1에서 한 PR에"를 버렸다): `payloads.summary`에 두 필드
+  (`status == "completed"`일 때만 `results["report_agent"]`의 `verdict`·`oneLiner`, 그 밖은 null). 왜: 리포트 목록 카드·쉬운 보기 화면이 먼저 이 값을 쓰고,
+  결과를 그대로 옮기는 작은 일이라 4가 AutoHealing에 집중하게 했다. 4는 나중에 같은 `summary`·`detail` 함수에 T4-1·T4-7의 나머지 필드(`source`·`chaosEnabled`·`costUsd`·`hasPdf`·`chaos`·`recovery`)를
+  더한다 — Claude가 넣은 B3 두 필드와 그 테스트는 지우지 않고 그 위에 더한다.
+- **그 밖은 Claude가 만든다**: 장마감 기준, 컨셉 변경 B3·B4~B8·B10과 D-1·D-4·D-5·D-7(횟수 한도)·U12, 보유 방식, 장기투자, 단타 연습, 컨셉 P0·P1 화면.
+- **파일 소유의 원본은 `docs/tasks/00-공통.md` 2절**이다 (2026-10-04에 다시 썼다). 요점:
+  - **팀 파일** — Claude는 만들거나 고치지 않는다: `backend/reports/{contracts.py, agents/, orchestrator.py, guards.py, runner.py, healing.py, chaos.py, stats.py, payloads.py(B3 두 필드 말고), auto.py, budget.py(새)}`,
+    `backend/reports/models.py`와 `migrations/0002*` 이후, `registry.py`·YAML Registry, `management/commands/auto_report.py`, `engine/paper_engine/llm.py`의 `complete_json_once`.
+  - **Claude 파일**(reports 안): 새 `alerts.py`(리포트 끝 알림 B7 — 14-5), 새 `text.py`(실패 사유 문장), 새 `quota.py`(하루 리포트 횟수 한도 — 14-6), `pdf.py`(이름·쉬운 요약 상자·면책·완성 봉 차트),
+    `payloads.py`의 B3 두 필드(`summary`의 `opinion`·`oneLiner` — 2026-10-05, 위),
+    `views.py`·`urls.py`의 자기 View·경로(`QuotaView`, 목록의 `?mine=1`, `ReportsView.post`의 횟수 한도 한 줄).
+  - `ReportsView.post` 순서: 입력 검사(종목 → **4**의 `chaos.parse`) → 같은 종목 진행 중이면 `200` → **Claude**의 `quota.check(user, now)` → **2**의 `budget.check(now)` → 생성.
+    먼저 합쳐진 쪽 위에 다음 쪽이 자기 한 줄을 이 자리 순서대로 더한다.
+  - 프론트: Claude가 컨셉 P0·P1 화면을 먼저 만든다 (5의 기존 파일 포함 — `Layout.tsx`·`LoginPage.tsx`·`index.html`·`ReportsPage`·`ReportPage`·`components/reports/*` 등).
+    5는 Claude가 "합쳤다"고 알린 뒤 그 위에서 다듬는다. 그 전에는 같은 파일을 고치지 않는다.
+- **팀 문서의 바뀐 작업 줄** (아래가 `docs/tasks/01~06`보다 우선한다. 2026-10-05에 Claude가 맡게 된 줄(일부만이면 그 부분)에 "→ Claude가 구현 (2026-10-05)"을 붙였다 — 줄은 지우지 않았다.
+  팀이 그대로 하되 내용이 바뀐 줄(02 T2-4, 03의 B7 줄·T3-4·T3-12)은 표시 없이 이 목록으로 읽는다 — 문서 머리의 2026-10-05 안내가 이 표를 가리킨다):
+
+  | 문서·작업 | 바뀐 것 |
+  |---|---|
+  | 01 T1-5 | 팀원 리포트 알림(user 부분)은 Claude `alerts.py`. 남는 것은 **자동 리포트 부분**: 팀 파일 `auto.py`의 `auto.after_finish(report)` — `source == "auto"`만 PDF·Discord, 그 밖은 아무것도 안 한다 (runner가 끝난 리포트마다 부른다) |
+  | 01 T1-7 | `?mine=1`(B8)은 Claude. `?source=`는 그대로 1 (`source` 열이 생긴 뒤 `ReportsView.get`에 한 줄) |
+  | 01 T1-19·T1-20·T1-21·T1-22·T1-23 | B4·B5·B10·B6·쉬운 보기 뼈대 → Claude |
+  | 02 T2-4 | `market_agent`는 `trading.market.close_price`·`completed_candles`(장마감 기준)로 자료를 만들고 `MarketResult.asOf`를 채운다 (`00-공통.md` 10절). `current_prices`·`last_price`·미완성 봉을 쓰지 않는다 |
+  | 02 T2-9 | 팀원별 횟수 한도(`quota.py`, `AI_DAILY_REPORTS_PER_USER`, `429`, `GET /api/reports/quota`)는 Claude. 2에게 남는 것은 **비용 예산**: 새 팀 파일 `backend/reports/budget.py`의 `check(now) -> None`(넘으면 `LimitExceeded`)과 `tests/test_budget.py`, `ReportsView.post`에 한 줄 (`cost_usd` 열이 생긴 뒤) |
+  | 03 (B7 줄) · T3-4 · T3-12 | runner는 끝난 리포트마다 팀의 `auto.after_finish(report)`를 부른다 (자동 리포트용). 사용자 알림은 Claude `alerts`가 보내므로 runner가 따로 부를 것은 없다 (`alerts.notify_finished`를 불러도 된다). T3-12의 `healing.notify_failure` 호출과 완료 기준 "실패 1건에 `notify_failure` 호출 1번"은 빠진다. 실패할 때 `workflow_failed.details.reason`을 9절 코드로 남기는 것은 그대로 |
+  | 04 T4-1 | **B3(`opinion`·`oneLiner`)는 Claude** (2026-10-05 바뀜 — Claude가 지금 `payloads.summary`에 넣는다). 4에게 남는 것: 모델 열·마이그레이션 0002, 같은 `summary`·`detail`의 `source`·`chaosEnabled`·`costUsd`·`hasPdf`·`requestedBy`("자동")·`chaos`·`recovery` — Claude가 넣은 B3 두 필드 위에 더한다 (지우지 않는다) |
+  | 04 T4-8 | `healing.notify_failure`는 사용자 알림(`report_failed`)을 보내지 않아도 된다 (14-5) |
+  | 05 T5-16·T5-17·T5-18·T5-19·T5-20·T5-21·T5-22 | 탭·주린이모드 분기·사유 문장 표·교차검증 배치·서비스 이름(`Layout`·`LoginPage`·`index.html`·`pdf.py`)·쉬운 보기·홈/종목/모의투자 → Claude가 먼저 만들고 5가 다듬는다. `pdf.py`의 `pdf_path` 열 전환(4의 0002 뒤)은 Claude 작업이 합쳐진 뒤 5 |
+  | 06 T6-10·T6-11·T6-12·T6-13 | B4·B5·B7·B6 → Claude (01 T1-19·T1-20·T1-5의 팀원 리포트 부분·T1-22와 같은 일). `backend/autotrade`·`backend/notifications`는 Claude 파일 (`00-공통.md` 2절) |
+
+- **경계**: Claude 코드는 팀이 새로 만드는 모듈(`contracts`·`agents`·`orchestrator`·`guards`·`runner`·`healing`·`chaos`·`stats`·`budget`, `auto`의 새 함수)을 import하지 않고 결과만 읽는다
+  (이미 있는 `models`의 `Report`·`TraceEvent`, `payloads`의 기존 이름(`KST`·`summary` 등), `state`의 읽기는 써도 된다) — `Report.status`·`results["report_agent"]`, Trace의 `workflow_failed.details.reason`,
+  아직 없는 열은 `getattr(report, "source", "user")`·`getattr(report, "chaos", None)`. 팀의 `guards.clean_text`·`healing.LlmCaller`가 필요한 곳(오늘의 내 종목 뉴스)은
+  Claude 쪽 간단한 대체(`longterm` 안의 `clean_text`, 엔진 `LlmClient` 전용 인스턴스)로 먼저 만들고, 팀 것이 생기면 한 함수만 바꾼다. 팀 코드는 Claude의 `alerts`·`quota`·`wording`을 불러도 된다.
+- 화면은 Claude가 먼저 만들고 팀이 그 위에서 다듬는다. 같은 파일을 동시에 고치지 않게 다듬기는 Claude 작업이 합쳐진 뒤 시작한다.
+
+### 14-3. 보유 방식과 장기투자 (확장 1단계)
+
+- **보유 방식 `style`** (`PaperOrder.style`, 엔진 SQLite `paper_orders.style`): `swing` · `long` · `day`, 기본 `swing`. 웹 주문에 `style`이 없으면 목표·손절·기한이 모두 없을 때 `long`.
+  기존 주문(과 기존 매수 예약)은 마이그레이션에서 같은 규칙으로 채운다 — 목표·손절이 다 갖춰지지 않은 기존 `swing`(기한만·목표만·손절만)은 그대로 두는 **예외**다:
+  있는 값대로만 자동 매도(기한만이면 기한 매도만), 배지는 "스윙", `PATCH`는 준 값만 바꾸고 둘 다를 요구하지 않는다. 새 주문·예약에는 허용하지 않는다 (아래 "보유 방식 규칙 더하기", 2026-10-05). 장기 보유가 웹 직접 매수라 `TradePlan`이 없으므로 주문 단위로 나눈다 (`docs/투자서비스확장계획.md` 3-1).
+  `long`은 자동 매도가 없다 (엔진이 `long`이면 보유 기한을 쓰지 않는다). `day`는 단타 계획만 만든다.
+- **보유 방식 규칙 더하기** (2026-10-05 확정, `docs/API.md` "보유 방식"):
+  - **`swing`은 목표가·손절가가 둘 다 있어야 한다** (없으면 `400`). `style` 없이 `days`만 주면 추론이 `swing`이라 역시 `400`이다 — 스윙의 자동 매도 기준은 목표·손절이고,
+    기한만 있는 주문은 "스윙" 배지와 실제 동작(기한 매도만)이 어긋난다. `days`는 선택.
+  - **예약은 `style`을 저장한다**: 정규장 밖 시장가 매수 예약은 받을 때 `style`을 정해 `Reservation.style`(새 열, 매도 예약은 null)에 두고(`long` 비중 점검도 그때),
+    실행할 때 그 값으로 주문한다 (다시 추론하지 않는다 — 받을 때와 실행할 때 규칙이 갈리거나 사용자가 고른 `style`이 사라지지 않게). 열은 `trading/0002` 마이그레이션에 같이 넣는다 (이미 합쳐졌으면 다음 마이그레이션).
+  - **단타 주문은 `PATCH /api/orders/{id}`로 바꾸지 않는다**: `days`를 주면 `400`(보유 기한이 없다), `targetPrice`·`stopPrice`를 주면 `400` "단타 계획에서 바꿔요" —
+    단타 주문의 목표·손절은 단타 계획(`TradePlan`)의 값이라 주문만 바꾸면 계획·복기와 어긋난다.
+- **장기 매수 점검**: 종목당 비중 한도 100%(E-4, `LIMITS["LONG_TERM"].max_position = 1.0`). 손절이 없어 손절 기반 `assess`를 쓸 수 없으므로
+  엔진에 `assess_position(price, quantity, account, limits) -> (ok, reasons, codes)`(매수 가능 금액 `cash_short`·비중 한도 `position_limit`·총 금액 한도 `total_limit`)를 더해 웹 `long` 매수가 쓴다.
+  `price`는 지정가 또는 직전 종가(장마감 기준 — 화면 추정과 같은 값), 막히면 `POST /api/orders`가 `400 {"detail", "reasonCodes"}`. 수량은 사용자가 정한다.
+- **오늘의 내 종목 뉴스** (`daily_move`):
+  - 대상은 팀원 누군가가 보유한 **국내 종목만**의 합집합, 종목당 하루 1회 (`DailyMoveNote(symbol, day)` 유일). 미국 종목은 v1에서 하지 않는다 (화면 "국내 종목만") — 시장 대용·공시(DART)·뉴스 지역이 국내 기준이라 범위를 줄였다.
+  - 시각: 국내 거래일, 기준일이 오늘이 된 뒤 `DAILY_MOVE_AT`(16:30) 이후 하루 한 번. 장 마감 뒤 수급 값이 굳을 시간을 둔다 (16:30에 확정인지는 실측 필요 — 조사 보고서 8장).
+  - **시장은 대용 ETF로 본다**: 코스피 종목 → KODEX 200(`069500`), 코스닥 종목 → KODEX 코스닥150(`229200`). 화면에 "KODEX 200 기준"처럼 적는다.
+    이유: 토스 조회에는 지수가 없고, 키움 지수 TR(`ka20001`·`ka20006`)은 경로·단위를 키움 키로 실측하기 전이다. KODEX 200은 이미 엔진 벤치마크(`records/market_log.py`)다. 키움 키를 받으면 지수로 바꾼다.
+  - **업종은 v1에서 하지 않는다** (`sectorChangeRate: null`, 화면 "업종 자료 없음"): 키움 종목 정보의 `upName`을 지금 버리고 있고, 키움 명세의 예시 응답(테스트 픽스처)에 005930이 "금융업"으로 나오는 등 값이 맞는지 실측 전이라 쓰지 않는다. 업종 TR(`ka10101`)도 아직 붙이지 않았다.
+  - 분해는 β=1의 "시장 대비 초과 등락"이고 **회계식 분해이지 인과가 아니다**. LLM 생략(템플릿) 기준은 제안값(E-5): |초과 등락| < 1%p이면서 20일 일간 변동성보다 작고 그날 공시·헤드라인이 없을 때.
+  - LLM은 종목당 0~1회, 엔진 `LlmClient` 전용 인스턴스(비용 = 호출 전후 차이), 모델 `DAILY_MOVE_MODEL` → `APPROVER` → 없으면 템플릿. 근거 id·숫자·금지어 검사에 걸리면 1번 다시, 또 걸리면 템플릿.
+  - 알림은 사용자당 하루 1개 묶음, **웹만**. Discord로 보내지 않는 이유: 팀 채널이 하나라 사용자별 묶음이 사람 수만큼 쌓이고, 등락 설명이 공개 채널에서 권유로 읽힐 수 있다 (조사 보고서는 웹 + Discord였다).
+  - 자료: 일봉·수급은 증권사 조회(지금 토스, 개발), 공시는 OpenDART, 뉴스는 Google 뉴스 RSS. 로컬 `.env`의 빈 `DART_API_KEY` 줄(U11)을 지워야 공시·재무가 실제로 나온다. 자료가 없으면 그 칸을 비우고 이유를 적는다.
+- **펀더멘털 점검** (`thesis_check`):
+  - 산 이유 `InvestmentThesis`(사용자·종목당 하나: 이유 1~3, 점검 축, 기준선, 기준선 보고서)를 장기 보유를 고를 때 "왜 샀나요?"로 받는다. 기준선은 처음 저장할 때 DART `fundamentals`로 잡고, 자료가 없으면 다음 점검에서 채운다.
+  - 규칙은 `docs/투자서비스확장계획.md` 3-2 표의 제안값 그대로(E-5) 순수 함수 `engine/paper_engine/judge/fundamentals_check.py`에 둔다. 표에 숫자가 없던 "이익의 질"은 영업외 손익이 세전이익의 절반 이상이면 △로 정했다 (제안값).
+    영업현금흐름은 이미 받는 DART 전체 재무제표의 현금흐름표(`ifrs-full_CashFlowsFromUsedInOperatingActivities`)에서 파싱만 더한다. 이자보상배율은 금융비용으로 나눈 **근사**다 (이자비용 계정이 없다 — 조사 보고서).
+    **기간을 맞춘다**: ROE는 DART 공시 지표(`reported.roe` — 분기 보고서면 누적·연환산 아님)를 쓰지 않고 순이익(TTM) ÷ 기말 자본총계로 계산한다 (보고서 종류가 바뀌어도 기준선과 비교되게).
+    이자보상배율은 최신 보고서의 **같은 누적 기간**의 영업이익 ÷ 금융비용이다 (TTM 영업이익 ÷ 누적 금융비용은 1분기 보고서에서 약 4배로 부푼다).
+    종합: ✗ 하나라도 → `review`, △ 둘 이상 → `caution`, 나머지 `solid`. 금융업·ETF·ETN·리츠·미국 종목은 적용하지 않는다(`na`). 점검 축은 판정을 바꾸지 않고 보이는 순서만 바꾼다 (경고를 숨기지 않게).
+  - **표기는 중립으로** (2026-10-05 확정): 종합의 화면 표기는 `solid` "기준 충족" · `caution` "주의" · `review` "확인 필요" · `na` "적용하지 않음" (값은 그대로).
+    전의 "견조"·"점검 필요"는 좋다·나쁘다(사라·팔아라)로 읽힐 수 있어 버렸다. `FundamentalsView`·`ThesisCheck`에 고정 문구 `caption` "공시 숫자를 정해진 기준으로 본 것이며 투자 권유가 아닙니다"를 늘 같이 낸다.
+  - **판정 우선순위 bad > warn > ok**: 한 행에서 여러 칸의 조건이 함께 맞으면 나쁜 쪽을 고른다. 표의 빈 곳을 채웠다 — 영업현금흐름: 순이익 적자(≤ 0)이고 영업현금흐름 ≤ 0 → ✗,
+    순이익 적자인데 영업현금흐름 > 0 → △ (흑자 쪽 규칙은 그대로: 흑자·영업현금흐름 > 0 → ✓, 흑자인데 ≤ 0 → △, 그것이 2개 보고서 연속 → ✗). 영업이익 적자 전환은 성장률 값이 null이어도 ✗.
+  - **이익의 질은 보이는 값과 판정 지표가 다르다** (보이는 값 = 순이익 ÷ 영업이익, 판정 = 영업외 손익 ÷ 세전이익) → `note`에 판정한 지표와 값을 꼭 적는다 ("판정: 영업외 손익이 세전이익의 62%"). 판정 지표가 없으면 `na`.
+  - 시각: 국내 거래일 `THESIS_CHECK_AT`(18:00) 이후 그날 정기공시(DART `pblntf_ty=A`, 마지막 쪽까지)가 있는 종목 + **매주 월요일** 전체 재점검 (조사 보고서의 토요일 대신 월요일).
+  - 알림은 ✗가 새로 생기거나 종합이 나빠졌을 때만, **웹만**. 매도 권유 문구·자동 매도는 없다.
+  - 보유 여부와 상관없이 종목 상세에서 지표와 절대 기준 판정을 볼 수 있다 (`GET /api/stocks/{symbol}/fundamentals`, 기준선 비교는 산 이유가 있을 때만).
+- **2026-10-05 구현에서 정한 것** (`docs/API.md` "장기투자"에도 적었다):
+  - **`data/dart.py`는 공용이다**: 공시·재무제표 항목에 접수번호 `rceptNo`(공시 원문 링크 `disclosure_url()`), `fundamentals()`에 `report`(보고서 이름 "2026 반기보고서"·접수번호·접수일)와 `cashFlow`(같은 누적 기간의 영업현금흐름·순이익)를 더했다.
+    그래서 AI 교차검증 분석의 스냅숏과 팀 리포트 Worker가 받는 DART 자료에도 이 키가 같이 들어간다 (기존 키는 그대로). 새 함수: `periodic_filings(day)`(정기공시 `pblntf_ty=A`, 모든 쪽), `industry_code(symbol)`(금융업 제외용).
+  - **`thesis_checks.facts`** (새 열, `longterm/0002`): "2개 보고서 연속" 조건은 직전 점검의 순이익·매출 성장률이 필요한데 저장한 `rows`에는 없어서, 판정용 값을 따로 둔다 (API에 내지 않는다 — 4-4).
+  - 산 이유 `active` = 그 종목의 장기 보유 주문(체결 대기·보유)이나 장기 보유 매수 예약이 있음. `baseline`은 9개 지표 값을 모두 저장한다 (판정은 셋만).
+  - 오늘의 내 종목 뉴스: `volatility20`이 없으면 LLM을 생략하지 않는다 (계약 그대로 — "1%p 미만이면서 변동성보다 작음"을 볼 수 없으므로). 한 바퀴에 최대 3종목, 실패는 10분 뒤 3번까지,
+    알림은 그날 대상이 모두 끝난 뒤 사용자당 1개. 수급 근거는 외국인·기관·개인 셋까지.
+  - 펀더멘털 점검: 산 이유당 하루 한 번, 한 바퀴에 최대 5개. DART 키가 없으면 점검 기록을 남기지 않고, 그 회사 재무제표가 없으면 모든 지표 `na`인 기록을 남긴다.
+
+### 14-4. 단타 연습 (확장 2단계 a)
+
+- **잠금**: 주린이모드 끔 + 단타 연습 퀴즈 통과. 서버가 막는다 (`day_trading_locked`). 퀴즈는 5문항(당일 청산·손절·비용·VI·모의)이고 **5문항을 모두 맞혀야** 통과한다 —
+  초보에게 가장 위험한 방식이라 일부만 알아도 열리지 않게 했다. 다시 풀 수 있고, 통과 기록은 틀려도 지우지 않는다. 문항·정답·해설은 서버 코드에만 둔다.
+- **국내 종목만** (15:15·15:30 규칙이 국내 장 기준이다).
+- **한도** (E-6 그대로): `LIMITS["DAY"] = RiskLimits(risk_per_trade=0.005, max_position=None, min_reward_risk=2.0, max_daily_loss=0.02, max_daily_trades=10)`. `HORIZONS`에 `"DAY"`를 더하고
+  AI 경로의 `TRADABLE_HORIZONS`에는 넣지 않는다. 하루 거래 수·손실은 **style day 주문만** 센다 (`paper_today`에 style 인자) — 스윙·장기 주문이 단타 한도를 쓰지 않게, 단타가 스윙 한도를 쓰지 않게.
+  (2026-10-05 구현: 웹의 SWING 한도 — AI 추천 계획의 미리 보기·활성화·재주문 — 도 `style="swing"` 주문만 센다. 그래서 장기 보유 주문의 손실은 어느 하루 한도에도 들어가지 않는다.)
+- **진입 마감·강제 정리 15:15 KST** (`DAY_CLOSE_AT`, 상수): 장 마감 단일가(15:20~15:30) 전에 끝내려고 15:15로 정했다 (E-6).
+  15:15 이후 체결 대기 단타 주문은 취소("단타 진입 마감"), 보유는 2회 확인 없이 바로 장중 확인 가격으로 청산(`exit_reason = "EOD"`, "장 마감 전 정리" — 열 길이 8자 안).
+  장이 닫혀 놓친 보유는 다음 정규장 첫 확인에서 같은 방식으로 정리한다 (밤을 넘기지 않는 것이 원칙, 놓친 경우만). 15:15 이후 새 단타 진입은 막는다(`day_entry_closed`).
+- **세션 규칙 (바뀜 — 앞의 "15:15 뒤에 만들면 다음 정규장 계획"은 버렸다)**: 단타 계획은 **국내 거래일 0시부터 15:15 KST 전까지만** 만든다 (장 전 계획 포함). 그 밖(15:15 이후·주말·휴장일)은 `day_entry_closed`.
+  그래서 계획·주문의 세션은 늘 **만든 날**이다: 진입 기한 = 그날 15:15, 엔진은 단타 주문의 세션 날짜를 **접수 시각(`created_at`)의 KST 날짜**로 보고 "그 날짜의 15:15 이후"에 취소·정리한다 (오늘 날짜가 아니라 주문의 날짜로 비교 — 새 열 없음),
+  하루 한도(`paper_today`의 접수 날짜 기준 셈)도 그날에 맞는다.
+  - 왜: 활성화는 그 자리에서 진입 주문을 낸다. "다음 정규장 계획"을 받으면 (1) 15:15 뒤에 낸 주문이 곧바로 `day_entry_closed`이거나 그날 엔진의 15:15 취소에 걸리고,
+    (2) 15:15~15:30에 낸 지정가가 그날 체결돼 밤을 넘기며, (3) 주문 수·손실이 만든 날로 세어져 세션과 어긋난다. 주문에 세션 열을 더하고 진입을 미루는 방법도 있지만, 연습 서비스에는 "그날 0시~15:15에만"이 단순하고 틀릴 곳이 없다.
+  - 화면: 만들 수 없는 시각이면 `DaySession.acceptingPlans: false`와 다음 거래일("10월 6일(화) 0시부터 만들 수 있어요"). 미리 보기는 그대로 해 볼 수 있다 (`activatable: false`).
+  - 활성화 점검(종가 계산·`DAY` 한도·장중 확인·세션)은 행을 만들기 전에 하고, 막히면 `400 {"detail", "reasonCodes"}`로 아무것도 만들지 않는다. 그 뒤 첫 주문 접수가 드문 경합으로 거절되면 일반 활성화와 같이 `201` + 계획 `failed`.
+- **흐름**: 단타 계획 = autotrade 추천·계획 재사용 (`Recommendation.source = "day"`, `Recommendation.horizon`·`TradePlan.horizon` `"SWING"|"DAY"`). `POST /api/day/plans`가 추천을 만들고 곧바로 활성화한다.
+  `day` 추천은 만든 사람 혼자 쓰는 것이라 팀 목록·추천 알림에 내지 않는다. 단타 계획의 상태 알림은 **웹만** (하루 최대 10건 × 사람 수가 팀 채널을 채우지 않게).
+  실행 확인 체크리스트(손절 시 손실·15:15 강제 정리·비용)는 서버에서도 **`acknowledged: true`를 요구한다** (B5의 일반 활성화는 막지 않지만, 단타는 위험이 커서 막는다).
+  (2026-10-05 구현: 추천 생성과 활성화(계획·첫 주문)는 한 DB 트랜잭션이 아니다 — 활성화가 증권사를 부르므로 그동안 트랜잭션을 열어 두지 않는다. 모든 점검을 행을 만들기 전에 하고,
+  그 뒤 활성화가 경합으로 막히거나 조회가 실패하면 방금 만든 추천을 지운다. 그래서 "막히면 아무것도 만들지 않는다"는 그대로다.)
+- **분봉**: 두 클라이언트에 같은 공개 메서드 **`minute_candles(symbol: str, day: str, minutes: int = 1) -> tuple[list[dict], bool]`** — 그 날짜 정규장(09:00~15:30) 봉과 "세션 시작까지 받았는지".
+  (바뀜: 처음 정한 `minute_candles(symbol, minutes=1, count=200)`은 날짜를 고를 수 없고, 1분봉 정규장 390봉이 200봉 한 번에 들어가지 않으며, 최신 봉이 시간외 봉이라 지난 세션을 채울 수 없었다.)
+  토스는 `interval=1m` 200봉씩 `before` 커서로 그 날짜 09:00 앞까지 쪽을 넘기고(시간외 봉은 버린다), 키움은 `ka10080`에 `base_dt` = 그 날짜 + 연속 조회. 한 번에 `MINUTE_MAX_PAGES = 20`쪽까지,
+  못 다 받으면 API `MinuteCandles.partial: true`(화면 "일부 구간만 있어요"). 키움 응답 형식은 실측 전이라 방어적으로 파싱한다.
+  (2026-10-05 구현: 두 번째 값의 이름은 **`complete`**다 — 설계 메모의 "(봉 목록, partial)"은 틀린 표기였다. 웹은 `partial = not complete`. 정규장 양 끝(09:00·15:30 봉)을 넣고,
+  키움이 준 `minutes > 1` 봉은 다시 묶지 않는다(봉 시각이 시작인지 끝인지 실측 전). 정규장 시각은 09:00~15:30 고정 — 수능일처럼 시간이 바뀐 날은 다루지 않는다. 3장)
+  화면에는 **완성된 정규장 세션만** 보인다 (14-1과 같은 원칙): 장 전·장중에는 직전 세션 분봉으로 계획하고, 장 마감 뒤에 그날 분봉으로 복기한다. 진입·청산 가격은 체결 사실이라 그대로 보인다.
+- **비용**: 화면에 늘 "단타는 비용이 손익을 크게 좌우해요"와 비용 합계(수수료 `PAPER_COMMISSION_KR` 매수·매도, 매도 거래세 0.20%)를 보인다. 미리 보기가 목표가·손절가에서 팔 때의 비용을 각각 낸다.
+- **복기**: 결정론 복기(계획·체결·청산·비용·사건)만 만든다. AI 복기는 팀의 `day_review` 몫이라 화면에 "AI 복기 — 준비 중".
+
+### 14-5. 리포트 끝 알림 (컨셉 계획 B7 바뀜)
+
+- **전**: 팀원의 runner가 `auto.after_finish`를 불러 완성 알림을, 담당 4의 `healing.notify_failure`가 실패 알림(`report_failed`)을 보낸다.
+- **지금**: 알림은 **모두 Claude 코드** — 새 파일 **`backend/reports/alerts.py`**가 보낸다 (`auto.py`는 자동 리포트 B9의 팀 파일이라 나눴다 — 14-2).
+  `notify_finished(report)`(즉시, 예외를 밖으로 내지 않음)와 `sweep_finished(now, log)`(최근 24시간 안에 끝난 리포트 중 아직 알림이 없는 것)를 두고,
+  `run_engine`의 새 단계 "리포트 알림"(추천 수집 다음)이 `alerts.sweep_finished`를 부른다. 팀 코드는 `alerts.notify_finished`를 불러도 되고 안 불러도 된다.
+  `healing.notify_failure`는 사용자 알림을 보내지 않아도 된다. 자동 리포트의 끝 처리(PDF·Discord)는 팀의 `auto.after_finish(report)`(runner가 부른다)다.
+- **왜**: 팀 일을 줄여 추천 워크플로우에 집중하게 하고, 알림이 runner·healing의 구현 시점에 묶이지 않게 한다. sweep이 있어 어느 경로가 빠져도 한 번은 간다.
+- 완성: 이 리포트로 추천이 있으면(추천 알림 첫 줄 "리포트가 완성됐어요"가 그 역할) 따로 보내지 않고, 없으면 `report_completed`. 실패: `report_failed`, 본문은 실패 사유 코드
+  (`workflow_failed.details.reason`)의 쉬운 문장(`reports/text.py`), 모르면 "리포트를 만들지 못했어요. 다시 만들 수 있어요". 같은 사용자·kind·link 알림이 있으면 보내지 않는다.
+  자동 리포트(`source: auto`)는 건너뛴다 (팀 몫, B9).
+
+### 14-6. 하루 리포트 한도 (D-7)
+
+- 새 `backend/reports/quota.py`, 설정 `AI_DAILY_REPORTS_PER_USER`(기본 3). 오늘(KST) 내가 신청한 리포트에서 **장애 주입 없이 failed로 끝난 것은 빼고** 센다.
+  `chaos` 열이 아직 없으므로 `getattr(report, "chaos", None)`이 dict이고 `enabled`가 참일 때만 failed도 센다 (열이 생기기 전에는 failed를 모두 뺀다). JSON 필드는 Python에서 읽는다 (PostgreSQL 전용 조회를 쓰지 않는다).
+- 넘으면 `POST /api/reports` → `429 {"detail", "limit", "used"}` (`config.api`의 예외 처리는 `detail` 외 필드를 버리므로 `Response`를 직접 돌려준다). 같은 종목의 진행 중 리포트를 돌려주는 `200` 경로는 세지 않는다.
+  남은 횟수는 `GET /api/reports/quota` (`limit`·`used`·`remaining`·`resetsAt`).
+- 비용 합산 한도(분석 + 리포트 $)는 `cost_usd` 열이 생긴 뒤 팀원(2) 몫이다 — 새 팀 파일 `backend/reports/budget.py`의 `check(now)`. `quota.py`(Claude)에 넣지 않는다.
+  `ReportsView.post`에서는 `quota.check` 바로 뒤에 `budget.check`를 한 줄로 부른다 (14-2의 순서).
+
+### 14-7. 그 밖의 구현 결정
+
+- **B6 알림 문장**: `notifications.service.notify`에 키워드 전용 인자 `expert_title`·`expert_body`를 더하고, **받는 사람의 주린이모드**(`accounts.beginner_modes(user_ids)`, 행이 없으면 켬)에 따라 웹 알림 문장을 고른다.
+  Discord(팀 공용 채널 하나)는 쉬운 문장 + 숫자 한 줄로 하나만, 맨 앞에 **`[AI 리포트 데스크 · 모의투자]`**. `PlanEvent.message`·`failure_reason`은 원래 용어(전문가 보기). 문장은 `autotrade/text.py`에 모은다.
+  (2026-10-05 구현: 숫자 한 줄은 `notify(..., numbers=)` 키워드로 넘긴다. 주린이모드는 `accounts.modes.beginner_modes(user_ids)`로 한 번에 읽는다.)
+  주문·체결·청산·활성화를 말하는 쉬운 문장에는 **"모의"를 꼭 넣는다**("모의 계좌에서 삼성전자를 … 샀어요") — 서비스 이름에서 "모의매매"가 빠져, 공용 채널·초보 화면에서 실제 매매로 읽힐 수 있다. 테스트로 확인한다.
+- **사유 코드와 문장** (2026-10-05 구현, `docs/API.md` "실행 불가 사유 코드"·공통 규칙 표): 엔진 `buy_checks`가 `(reasons, codes)` 짝을 내고 `OrderRejected.codes`가 같은 순서다.
+  그중 표 밖의 내부 코드(`invalid_order`·`market_closed`·`order_too_large`·`fx_unavailable`)는 API `reasonCodes`로 내지 않는다 (`trading.service`가 `400 {"detail"}`로 바꾼다).
+  종가 `price_passed` 문장은 "직전 종가(80,721원)가 이미 목표가 이상" (괄호 — 계약의 "직전 종가 {종가}가"는 "…원가"로 읽혀서). 재주문 점검에서 막혀 `failed`가 되면 사건 details에 `reasonCodes`도 남긴다.
+  엔진이 체결 시점에 진입 주문을 취소한 note "체결 시점 현금 부족 (현금 X원)"의 괄호 금액은 계획 `failureReason`에 옮기지 않는다.
+- **B10**: `accounts.InvestorProfile`은 행이 없으면 기본값(`beginnerMode` 켬)으로 본다 (신호·데이터 마이그레이션 없이). 점수표는 순수 함수 모듈 `accounts/assessment.py`. 단타 퀴즈 통과 시각도 이 모델에 둔다.
+  (2026-10-05 구현: `q2`는 보기 순서로 저장해 돌려주고, 같은 값이 두 번이면 `400`. 다른 앱은 `accounts/modes.py`의 `beginner_modes(user_ids)`·`day_trading_lock(user)`로 읽는다.
+  퀴즈 문항·정답·해설은 `accounts/quiz.py`, 거래세 숫자는 엔진 `SELL_TAX_RATE["KR"]`에서. 관리 화면은 읽기만 하고 진단 원답은 보이지 않는다.)
+- **D-1**: 교차검증 분석은 종목 상세의 보조 버튼과 리포트 탭의 "교차검증 분석" 묶음으로 남기고, 분석 목록에 `mine=1`을 더한다.
+- **U12 약관 대응**: 분석 상세에 뉴스 매체·시각(`newsItems`)과 출처 표기(`newsProvider` "Google 뉴스 검색 결과")를 더한다 (기존 `news: string[]`은 그대로, 링크는 내지 않는다 — 긴 주소가 AI 입력에 섞이지 않게).
+  검색엔진 색인 막기: `frontend/index.html`의 `noindex,nofollow`, `robots.txt`(Disallow: /), nginx `X-Robots-Tag`. 화면 아래 출처 줄(14-1).
+- **금지 표현은 목록 하나**: 권유(매수·매도 모두)·인과 단정·예측 표현을 엔진 `engine/paper_engine/wording.py`(표준 라이브러리, 기반 단계)의 상수와 `forbidden_phrases(text, causal=False)` 한 곳에 두고,
+  B6 알림 문장·오늘의 내 종목 뉴스 검사·펀더멘털 점검 알림이 모두 이것을 쓴다 (`docs/API.md` 공통 규칙 "금지 표현"). 전에는 B6 목록과 오늘의 내 종목 뉴스 목록이 달라 "사 볼 만해요"·"지금 사면"·"파세요" 등이 LLM 검사를 지나갔다.
+- **화면 문구**: 서비스 이름 "AI 리포트 데스크"(D-5). 권유형 문장 금지(위 금지 표현 — "사세요"·"사 볼 만해요"·"좋아요"·"매수 기회"·"지금 사면"·"파세요" 등), 주어를 밝힌다("AI 의견"·"안전장치"). 면책 문장은 하나로 통일한다:
+  "이 리포트는 AI가 만든 참고 자료이며 투자 권유가 아닙니다. 모든 매매는 모의 계좌에서만 이뤄집니다." 연습용 예시(시연 추천)는 "연습용 예시 계획 (AI 아님)"(D-4).
+- **PDF**: 이름 "AI 리포트 데스크", 맨 위 쉬운 요약 상자(`results.report_agent.plainSummary`, 없으면 "자료 없음") + 통일 면책 문장, 차트는 완성 일봉 + 범례 "YYYY-MM-DD 종가 기준".
+  (2026-10-05 구현: 지표 카드 아래 "시세 지표: 종가 72,000원 · 10월 2일(금) 15:30 장마감 기준" 한 줄 — `market_agent`의 `price`·`asOf`, 없으면 "시세 지표 기준 시각: 자료 없음".
+  AI 의견 배지는 화면과 같은 "긍정적 · 지켜보기 · 부정적"(전의 매수·관망·회피는 권유로 읽혀서). **양식 판 `TEMPLATE_VERSION`**(지금 2)을 파일 이름에 넣는다 —
+  `PAPER_ROOT/reports/<id>.v2.pdf`. 양식이 바뀌면 판을 올려 예전 파일(판 번호 없는 `<id>.pdf` = 1판)을 다시 쓰지 않고 새로 만든 뒤 지운다.)
+- **이름과 목록 봉투** (2026-10-05 확정, `docs/API.md`): 목록 엔드포인트(자원의 모음을 돌려주는 것이 일인 응답)는 항목 배열을 늘 `results`에 담는다 (`GET /api/longterm/daily-moves`의 `items` → `results`, `date`는 그대로).
+  한 대상을 돌려주는 객체(한 종목·한 세션 — `StockDetail`·`MinuteCandles`·`DayReview`·`TradePlanDetail`)는 목록 엔드포인트가 아니라 배열 필드가 자기 이름을 쓴다 (`candles`·`plans`·`events`). 같은 세션이라도 `GET /api/day/plans`(계획 목록)는 `results`, `GET /api/day/review`(세션 복기 한 건)는 `plans`다.
+  2026-10-04 전부터 있는 `/api/quotes`의 `quotes`·`/api/account/equity`의 `points`는 프론트가 이미 써서 그대로 둔다.
+  단타 숫자는 뜻이 드러나게: `DayStatus.today.trades` → `today.orders`(하루 한도와 같은 셈 — 낸 단타 주문 수, 취소 포함), `DayReview.totals.trades` → `totals.filled`(진입 체결된 계획 수).
+- **"구현 예정" 표시 위치** (`docs/API.md` 머리): 새 타입은 선언 줄, 이미 서버가 내는 타입에 더한 필드는 그 필드 줄마다. 만들면 "구현: 날짜 (Claude)"로 바꾼다 (2026-10-05: 이 장의 것은 모두 바꿨다).
+
+### 14-8. 새 설정 키 (`.env`. `.env.example`·`deploy/.env.docker.example`·CI에 같이)
+
+| 키 | 기본 | 뜻 |
+|---|---|---|
+| `AI_DAILY_REPORTS_PER_USER` | `3` | 팀원별 하루 리포트 신청 한도 (14-6) |
+| `LONGTERM_JOBS` | `on` | 장기투자 예약 작업(오늘의 내 종목 뉴스·펀더멘털 점검)을 엔진 루프에서 돌릴지. 외부(증권사·DART·뉴스·LLM)를 부르므로 루트 `conftest.py`는 `off`로 끈다 (빈 문자열이 아니라 `off` — 빈 값은 `.env` 값으로 넘어간다) |
+| `DAILY_MOVE_AT` | `16:30` | 오늘의 내 종목 뉴스를 만드는 시각 (KST, 국내 거래일, 이 시각 이후 하루 한 번) |
+| `DAILY_MOVE_MODEL` | (없음) | 오늘의 내 종목 뉴스 설명에 쓸 LLM 모델. 없으면 `APPROVER`, 그것도 없으면 템플릿 문장만 |
+| `THESIS_CHECK_AT` | `18:00` | 펀더멘털 점검 시각 (KST. 정기공시 감지는 거래일, 월요일 전체 재점검) |
+
+설정 키로 두지 않은 상수: `CLOSE_SETTLE_MIN` 10분, `DAY_CLOSE_AT` 15:15, `LIMITS["DAY"]`, 시장 대용 ETF(`069500`·`229200`), 단타 퀴즈 통과 기준 5/5, 리포트 알림 sweep 창 24시간,
+분봉 쪽 수 한도 `MINUTE_MAX_PAGES` 20, 금지 표현 목록(`paper_engine/wording.py`).

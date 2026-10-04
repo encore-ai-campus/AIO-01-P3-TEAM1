@@ -1,9 +1,9 @@
 // 여러 화면이 같이 쓰는 작은 조각들.
 import { type ReactNode, useState } from "react";
 import { useNavigate } from "react-router";
-import type { Currency, Verdict } from "../api/types";
+import type { Currency, Market, Verdict } from "../api/types";
 import { cn } from "../lib/cn";
-import { formatPrice, formatRate, formatSignedPrice, trendClass } from "../lib/format";
+import { formatAsOf, formatPrice, formatRate, formatSignedPrice, trendClass } from "../lib/format";
 import { NotificationBell } from "./autotrade/NotificationBell";
 import { Icon } from "./Icon";
 
@@ -80,6 +80,19 @@ export function PriceChange({
     <span className={cn("tabular-nums", trendClass(rate ?? change), className)}>
       {change !== undefined && change !== null ? `${formatSignedPrice(change, currency)} ` : ""}({formatRate(rate)})
     </span>
+  );
+}
+
+/**
+ * 장마감 기준 표시: "10월 2일(금) 15:30 장마감 기준" (미국은 "16:00(뉴욕)"). 가격·평가 옆에 붙인다.
+ * at은 Quote.asOf·StockDetail.asOf·AccountSummary.pricesAsOf[market] 같은 기준 시각. 없으면 아무것도 그리지 않는다.
+ */
+export function AsOf({ at, market = "KR", className }: { at: string | null | undefined; market?: Market; className?: string }) {
+  if (!at) return null;
+  return (
+    <time dateTime={at} className={cn("text-[12px] font-medium text-mute tabular-nums", className)}>
+      {formatAsOf(at, market)}
+    </time>
   );
 }
 

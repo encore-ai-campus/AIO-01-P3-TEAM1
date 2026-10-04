@@ -7,11 +7,12 @@ passed·selected·rejectReasons를 더한 것이다. 엔진 CLI·전략·일일 
 import json
 import logging
 import threading
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path, PurePosixPath
 from zoneinfo import ZoneInfo
 
 from django.db import IntegrityError, transaction
+from paper_engine.report import NEWS_PROVIDER
 
 from config import engine
 
@@ -204,9 +205,9 @@ def load_entry(run_file: str, symbol: str) -> dict | None:
 
 
 def details(entry: dict) -> dict:
-    """results 항목 → AnalysisDetail의 scenarios·news·research·indicators·errors."""
+    """results 항목 → AnalysisDetail의 scenarios·news·newsItems·newsProvider·dataAsOf·research·indicators·errors."""
     snap = entry.get("snapshot") if isinstance(entry.get("snapshot"), dict) else {}
-    news = [str(n["title"]) for n in _list(snap.get("news")) if isinstance(n, dict) and n.get("title")]
+    items = news_items(snap)
     research_log = entry.get("research") if isinstance(entry.get("research"), dict) else {}
     names = research_log.get("researchers") if isinstance(research_log.get("researchers"), dict) else {}
     web = snap.get("webResearch") if isinstance(snap.get("webResearch"), dict) else {}
@@ -226,12 +227,41 @@ def details(entry: dict) -> dict:
     errors += [str(e) for e in _list(entry.get("errors"))]
     return {
         "scenarios": scenarios_of(entry),
-        "news": news,
+        "news": [n["title"] for n in items],
+        "newsItems": items,
+        "newsProvider": NEWS_PROVIDER,
+        "dataAsOf": data_as_of(snap),
         "research": research,
         "indicators": {str(k): v for k, v in indicators.items()
                        if v is None or (isinstance(v, (int, float, str)) and not isinstance(v, bool))},
         "errors": errors,
     }
+
+
+def news_items(snap: dict) -> list[dict]:
+    """스냅샷 뉴스 → [{"title", "source", "publishedAt"}] (U12 약관 대응. 링크는 내지 않는다).
+
+    news(제목만)와 같은 항목·같은 순서다. 게시 시각은 한국 시간 ISO로 바꾸고, 읽지 못하면 null.
+    """
+    out = []
+    for n in _list(snap.get("news")):
+        if not isinstance(n, dict) or not n.get("title"):
+            continue
+        published = _time(n.get("publishedAt"))
+        out.append({"title": str(n["title"]), "source": _text(n.get("source")) or None,
+                    "publishedAt": published.astimezone(KST).isoformat() if published else None})
+    return out
+
+
+def data_as_of(snap: dict) -> str | None:
+    """지표·일봉 자료의 기준일 = 스냅숏의 lastCandleDate (정규장이 끝난 마지막 봉 날짜). 형식이 아니면 None."""
+    value = snap.get("lastCandleDate")
+    if not isinstance(value, str):
+        return None
+    try:
+        return f"{date.fromisoformat(value[:10])}" if len(value) >= 10 else None
+    except ValueError:
+        return None
 
 
 def _time(text) -> datetime | None:

@@ -7,6 +7,7 @@ urlpatterns = [
     path("market", views.MarketView.as_view()),
     path("stocks/search", views.StockSearchView.as_view()),
     path("stocks/<str:symbol>", views.StockDetailView.as_view()),
+    path("stocks/<str:symbol>/minute-candles", views.MinuteCandlesView.as_view()),
     path("quotes", views.QuotesView.as_view()),
     path("account", views.AccountView.as_view()),
     path("account/equity", views.EquityView.as_view()),

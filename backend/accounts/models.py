@@ -32,6 +32,33 @@ class Profile(models.Model):
         return f"{self.nickname} ({self.user.username})"
 
 
+class InvestorProfile(models.Model):
+    """투자자 프로필과 주린이모드 (docs/API.md "투자자 프로필과 주린이모드"·"단타 연습 퀴즈", docs/DECISIONS.md 14-7 B10).
+
+    **행이 없으면 기본값**으로 본다 (beginnerMode 켬, 진단 전, 퀴즈 통과 없음) — 신호·데이터 마이그레이션 없이,
+    진단 제출이나 스위치·퀴즈 통과처럼 값을 바꿀 때 행을 만든다. 점수 계산은 accounts/assessment.py(결정론).
+    """
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="investor_profile")
+    beginner_mode = models.BooleanField(default=True)  # 주린이모드 (켬 = 쉬운 보기)
+    # 진단 결과 (진단 전이면 모두 None). answers는 InvestorAnswers 그대로 (q1~q7)
+    answers = models.JSONField(null=True, blank=True)
+    experience_score = models.IntegerField(null=True, blank=True)  # 0~11
+    experience_level = models.CharField(max_length=20, null=True, blank=True)  # intro | novice | intermediate | expert
+    risk_score = models.IntegerField(null=True, blank=True)  # 0~8
+    risk_profile = models.CharField(max_length=20, null=True, blank=True)  # stable | stable_seeking | neutral | active | aggressive
+    recommended_beginner_mode = models.BooleanField(null=True, blank=True)
+    assessed_at = models.DateTimeField(null=True, blank=True)  # 마지막 진단 제출 시각
+    # 단타 연습 퀴즈를 마지막으로 통과한 시각 (진단과 따로. 틀려도 지우지 않는다)
+    day_quiz_passed_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "investor_profiles"
+
+    def __str__(self) -> str:
+        return f"{self.user} beginner={self.beginner_mode}"
+
+
 def profile_of(user) -> Profile:
     """user의 프로필. 없으면 닉네임을 아이디로 해서 만든다 (겹치면 숫자를 붙인다). 다른 앱은 프로필을 이 함수로만 얻는다."""
     profile = Profile.objects.filter(user=user).first()

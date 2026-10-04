@@ -1,19 +1,24 @@
-// /recommendations/:id: 머리 → 가격 사다리 → 지표 → 결론·근거·리스크 → 출처 링크 → 활성화 카드 (예산 → 리스크 미리 보기 → 계획 활성화).
+// /recommendations/:id: 새 계획 제안(전문가 보기: AI 추천)의 실행 확인 (docs/컨셉변경계획.md 4-2 "실행 확인", 6장 "내 확인").
+// 쉬운 보기: 계획 요약 → 예산 → 안전장치가 정한 수량·금액(장마감 기준) → 장 시간 안내(opensAt) → 체크 셋(손절 시 손실 · 보유 기간 끝 매도 ·
+//   AI 제안/모의)을 모두 켜야 "모의 자동매매 시작"(acknowledged: true).
+// 전문가 보기: 머리 → 가격 사다리 → 지표 → 결론·근거·리스크 → 활성화 카드(예산 → 리스크 미리 보기 → 같은 체크 셋을 한 줄 요약 확인 → "계획 활성화").
 // Discord 활성화 링크(?t=)로 들어오면 위에 띠를 보이고 활성화 요청에 token으로 넣는다 (via=discord).
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { useActivate } from "../api/autotrade";
 import { ApiError, errorMessage } from "../api/client";
-import { isPlanLive, useQuotes, useRecommendation, useRiskPreview } from "../api/queries";
-import type { Recommendation } from "../api/types";
+import { isPlanLive, useMarket, useQuotes, useRecommendation, useRiskPreview } from "../api/queries";
+import type { Recommendation, RiskPreview } from "../api/types";
 import { PlanStatusChip, RecStatusChip, RiskLevelBadge, SourceBadge } from "../components/autotrade/Badges";
 import { PriceLadder } from "../components/autotrade/PriceLadder";
 import { Icon } from "../components/Icon";
 import { useToast } from "../components/toast";
-import { Card, ErrorState, Notice, PageHeader, Row, Skeleton, SkeletonCard, Spinner } from "../components/ui";
-import { SOURCE, parseBudget, timeLeft } from "../lib/autotrade";
+import { AsOf, Card, ErrorState, Notice, PageHeader, Row, Skeleton, SkeletonCard, Spinner } from "../components/ui";
+import { useViewMode } from "../hooks/useBeginnerMode";
+import { SOURCE, closedMarketNotice, kstDayOf, parseBudget, timeLeft } from "../lib/autotrade";
 import { cn } from "../lib/cn";
-import { formatDateTime, formatKrw, formatPercent, formatPrice, formatQty, formatRate } from "../lib/format";
+import { formatDateTime, formatDayLabel, formatKrw, formatPercent, formatPrice, formatQty, formatRate } from "../lib/format";
+import { reasonSentence, rejectionSentences } from "../lib/plainText";
 import { useDebounced } from "../lib/useDebounced";
 
 function Metric({ label, value, sub, className }: { label: string; value: string; sub?: string; className?: string }) {
@@ -26,16 +31,106 @@ function Metric({ label, value, sub, className }: { label: string; value: string
   );
 }
 
-function sourceLink(r: Recommendation): { to: string; label: string } | null {
-  if (r.source === "report" && r.sourceId != null) return { to: `/reports/${r.sourceId}`, label: `AI 리포트 #${r.sourceId} 보기` };
-  if (r.source === "analysis" && r.sourceId != null) return { to: `/analyses/${r.sourceId}`, label: `AI 분석 #${r.sourceId} 보기` };
+function sourceLink(r: Recommendation, easy: boolean): { to: string; label: string } | null {
+  if (r.source === "report" && r.sourceId != null) return { to: `/reports/${r.sourceId}`, label: easy ? "이 계획이 나온 AI 리포트 보기" : `AI 리포트 #${r.sourceId} 보기` };
+  if (r.source === "analysis" && r.sourceId != null) {
+    return { to: `/analyses/${r.sourceId}`, label: easy ? "AI 교차검증 분석 보기 (리포트 없음)" : `AI 분석 #${r.sourceId} 보기` };
+  }
   return null;
+}
+
+/** 안전장치(리스크 엔진)가 수량을 정한 이유를 쉬운 말로 (RiskPreview.limitedBy). */
+function limitedByText(limitedBy: string, r: Recommendation): string {
+  switch (limitedBy) {
+    case "건당 위험 한도":
+      return `손절에 팔려도 계좌의 약 ${r.horizon === "DAY" ? "0.5" : "1"}%만 잃게 정했어요`;
+    case "매수 가능 금액":
+      return "지금 쓸 수 있는 현금 안에서 정했어요";
+    case "총 금액 한도":
+      return "총 투자 금액 한도 안에서 정했어요";
+    case "유동성 한도":
+      return "거래량에 비해 너무 많이 사지 않게 정했어요";
+    case "예산":
+      return "내가 적은 예산 안에서 정했어요";
+    default:
+      return limitedBy;
+  }
+}
+
+/** 체크 셋 ③: AI 제안 / 연습용 예시(AI 아님). */
+function thirdCheck(r: Recommendation): string {
+  return r.source === "demo" || r.source === "day"
+    ? "AI가 아닌 연습용 예시 계획이며, 실제 돈이 아닌 모의 투자예요."
+    : "AI의 제안이며, 실제 돈이 아닌 모의 투자예요.";
+}
+
+function Check({ checked, onChange, children }: { checked: boolean; onChange: (v: boolean) => void; children: string }) {
+  const id = useId();
+  return (
+    <li className="flex items-start gap-2.5">
+      <input id={id} type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 size-5 shrink-0 accent-brand" />
+      <label htmlFor={id} className="text-[14px] leading-snug">
+        {children}
+      </label>
+    </li>
+  );
+}
+
+/** 쉬운 보기의 체크 셋. 셋 다 켜야 onReady(true). 금액이 바뀌면(예산·수량) 부모가 key로 새로 그려 체크를 지운다. */
+function Checklist({ r, pv, onReady }: { r: Recommendation; pv: RiskPreview; onReady: (ok: boolean) => void }) {
+  const [checks, setChecks] = useState([false, false, false]);
+  const set = (i: number) => (v: boolean) => {
+    const next = checks.map((c, j) => (j === i ? v : c));
+    setChecks(next);
+    onReady(next.every(Boolean));
+  };
+  const items = [
+    `손절 가격(${formatPrice(r.stopPrice, r.currency)})에 팔리면 약 ${formatKrw(pv.maxLossKrw)}을 잃어요. 가격이 갑자기 크게 떨어지면 더 잃을 수도 있어요.`,
+    `산 뒤 최대 ${r.holdingDays}거래일 보유해요. 그때까지 목표·손절에 닿지 않으면 그날 가격에 팔아요 — 이익일 수도, 손실일 수도 있어요.`,
+    thirdCheck(r),
+  ];
+  return (
+    <fieldset className="rounded-xl border border-line p-3.5">
+      <legend className="px-1 text-[15px] font-semibold">시작하기 전에 확인해 주세요</legend>
+      <ul className="mt-1 space-y-2.5">
+        {items.map((text, i) => (
+          <Check key={i} checked={checks[i]} onChange={set(i)}>
+            {text}
+          </Check>
+        ))}
+      </ul>
+    </fieldset>
+  );
+}
+
+/** 전문가 보기: 같은 체크 셋을 한 줄 요약 확인으로. */
+function SummaryCheck({ r, pv, checked, onChange }: { r: Recommendation; pv: RiskPreview; checked: boolean; onChange: (v: boolean) => void }) {
+  const id = useId();
+  return (
+    <div className="mt-3 rounded-xl bg-fill p-3">
+      <ul className="list-disc space-y-0.5 pl-5 text-[13px] text-sub">
+        <li>손절 시 손실 -{formatKrw(pv.maxLossKrw)} (급락하면 더 클 수 있음)</li>
+        <li>최대 {r.holdingDays}거래일 보유 후 그날 가격에 매도 (손익 무관)</li>
+        <li>{r.source === "demo" || r.source === "day" ? "연습용 예시 계획(AI 아님)" : "AI의 제안"} · 모의 계좌</li>
+      </ul>
+      <div className="mt-2 flex items-center gap-2">
+        <input id={id} type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="size-5 accent-brand" />
+        <label htmlFor={id} className="text-[14px] font-semibold">
+          위 내용을 확인했습니다
+        </label>
+      </div>
+    </div>
+  );
 }
 
 function ActivateCard({ r, token }: { r: Recommendation; token: string | null }) {
   const navigate = useNavigate();
   const toast = useToast();
+  const { easy } = useViewMode();
+  const { data: market } = useMarket();
   const [raw, setRaw] = useState("");
+  // 확인은 그때 본 수량·손실 금액에 대한 것이다 (예산을 바꿔 금액이 바뀌면 다시 확인한다)
+  const [ackedFor, setAckedFor] = useState<string | null>(null);
   const budget = parseBudget(raw);
   const debounced = useDebounced(budget.value, 400);
   const open = r.status === "open";
@@ -43,17 +138,33 @@ function ActivateCard({ r, token }: { r: Recommendation; token: string | null })
   const preview = useRiskPreview(r.id, debounced, open && !budget.error);
   const activate = useActivate(r.id);
   const pv = preview.data;
+  const ackKey = pv ? `${pv.quantity}:${pv.maxLossKrw}` : null;
+  // 금액이 바뀌면 체크 셋(key={ackKey})을 새로 그려 체크를 지운다. 확인 상태도 그때 같이 지운다 —
+  // 예산을 지워 금액이 처음 값(A → B → A)으로 돌아와도 빈 체크 아래에서 버튼이 켜지지 않게.
+  const [ackKeySeen, setAckKeySeen] = useState(ackKey);
+  if (ackKeySeen !== ackKey) {
+    setAckKeySeen(ackKey);
+    setAckedFor(null);
+  }
+  const acked = ackedFor !== null && ackedFor === ackKey;
+  const setAcked = (ok: boolean) => setAckedFor(ok ? ackKey : null);
   const settling = debounced !== budget.value || preview.isFetching;
-  const canActivate = open && !budget.error && !settling && pv?.activatable === true && !activate.isPending;
+  const canActivate = open && !budget.error && !settling && pv?.activatable === true && acked && !activate.isPending;
+  const session = market?.markets.find((m) => m.market === r.market);
+  const closedNotice = closedMarketNotice(session, r.market);
+  const blocked = activate.isError ? rejectionSentences(activate.error) : null;
+  const title = easy ? "모의 자동매매 시작" : "계획 활성화";
 
   return (
     <Card aria-labelledby="activate-title" className={cn(token && "ring-2 ring-brand")}>
       <h2 id="activate-title" className="flex items-center gap-1.5 text-[17px] font-bold">
         <Icon name="bolt" className="size-5 text-brand" />
-        계획 활성화
+        {easy ? "실행 확인" : "계획 활성화"}
       </h2>
       <p className="mt-1 text-[13px] leading-snug text-mute">
-        AI는 제안만 합니다. 수량과 활성화 가능 여부는 리스크 엔진(건당 위험 1%, 손익비·매수 가능 금액·한도)이 정합니다.
+        {easy
+          ? "AI는 제안만 해요. 몇 주를 살지와 시작할 수 있는지는 안전장치가 내 모의 계좌로 정해요."
+          : "AI는 제안만 합니다. 수량과 활성화 가능 여부는 리스크 엔진(건당 위험 1%, 손익비·매수 가능 금액·한도)이 정합니다."}
       </p>
 
       {r.myPlan && (
@@ -62,7 +173,7 @@ function ActivateCard({ r, token }: { r: Recommendation; token: string | null })
           className="mt-3 flex h-11 items-center justify-between gap-2 rounded-xl bg-brand-soft px-3.5 text-[15px] font-semibold text-brand-dark hover:bg-brand-soft/70"
         >
           <span className="flex items-center gap-2">
-            내 계획 보기 <PlanStatusChip status={r.myPlan.status} />
+            {easy ? "내 모의 자동매매 보기" : "내 계획 보기"} <PlanStatusChip status={r.myPlan.status} easy={easy} />
           </span>
           <Icon name="chevron" className="size-4" />
         </Link>
@@ -70,7 +181,9 @@ function ActivateCard({ r, token }: { r: Recommendation; token: string | null })
 
       {!open ? (
         <Notice tone="warn" className="mt-3">
-          유효 기한({formatDateTime(r.validUntil)})이 지나 활성화할 수 없습니다.
+          {easy
+            ? `이 계획은 ${formatDayLabel(kstDayOf(r.validUntil))}에 기한이 끝났어요. 가격이 바뀌었을 수 있으니 새로 만들어 보세요.`
+            : `유효 기한(${formatDateTime(r.validUntil)})이 지나 활성화할 수 없습니다.`}
         </Notice>
       ) : (
         <>
@@ -83,17 +196,24 @@ function ActivateCard({ r, token }: { r: Recommendation; token: string | null })
               inputMode="numeric"
               value={raw}
               onChange={(e) => setRaw(e.target.value)}
-              placeholder="비우면 리스크 엔진이 정한 수량"
+              placeholder={easy ? "비우면 안전장치가 정한 수량" : "비우면 리스크 엔진이 정한 수량"}
               aria-describedby="budget-help"
               aria-invalid={budget.error ? true : undefined}
               className="mt-1.5 h-12 w-full rounded-xl bg-fill px-3.5 text-[16px] tabular-nums outline-none focus:ring-2 focus:ring-brand"
             />
             <p id="budget-help" className={cn("mt-1 text-[13px]", budget.error ? "text-up" : "text-mute")}>
-              {budget.error ?? "예산을 주면 수량을 그만큼 줄입니다 (늘리지는 않습니다)."}
+              {budget.error ??
+                (easy
+                  ? "예산을 적으면 그 안에서만 사요. 안전장치가 더 적게 정하면 그 수량으로 사요."
+                  : "예산을 주면 수량을 그만큼 줄입니다 (늘리지는 않습니다).")}
             </p>
           </div>
 
-          <section aria-label="리스크 미리 보기" aria-busy={settling} className="mt-3 rounded-xl border border-line p-3.5">
+          <section
+            aria-label={easy ? "안전장치가 정한 수량" : "리스크 미리 보기"}
+            aria-busy={settling}
+            className="mt-3 rounded-xl border border-line p-3.5"
+          >
             {preview.isError ? (
               <Notice tone="error">{errorMessage(preview.error)}</Notice>
             ) : !pv ? (
@@ -104,46 +224,43 @@ function ActivateCard({ r, token }: { r: Recommendation; token: string | null })
               </div>
             ) : (
               <div className={cn("transition-opacity", settling && "opacity-60")}>
-                <p className="flex items-center gap-1.5 text-[14px] font-semibold">
-                  <Icon name={pv.approved ? "check" : "ban"} className={cn("size-4", pv.approved ? "text-ok" : "text-up")} />
-                  {pv.approved ? "리스크 엔진 통과" : "리스크 엔진 거절"}
-                  {settling && <Spinner className="ml-auto text-mute" />}
-                </p>
-                <dl className="mt-2">
-                  <Row label="수량">{formatQty(pv.quantity)}</Row>
-                  <Row label="매수 금액">{formatKrw(pv.amountKrw)}</Row>
-                  <Row label="목표 도달 시 이익">
-                    <span className="text-up">+{formatKrw(pv.expectedProfitKrw)}</span>
-                  </Row>
-                  <Row label="손절 시 손실">
-                    <span className="text-down">-{formatKrw(pv.maxLossKrw)}</span>
-                  </Row>
-                  <Row label="수량을 정한 제약">{pv.limitedBy}</Row>
-                  {pv.lastPrice != null && <Row label="지금 가격">{formatPrice(pv.lastPrice, r.currency)}</Row>}
-                </dl>
-                {pv.reasons.length > 0 && (
-                  <div role="alert" className="mt-2 rounded-lg bg-up-soft/70 p-3">
-                    <p className="text-[13px] font-semibold text-up">활성화할 수 없는 사유</p>
-                    <ul aria-label="활성화할 수 없는 사유" className="mt-1 list-disc space-y-0.5 pl-5 text-[13px] text-sub">
-                      {pv.reasons.map((x, i) => (
-                        <li key={i}>{x}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+                {easy ? <EasyPreview r={r} pv={pv} /> : <ExpertPreview r={r} pv={pv} />}
+                {settling && <Spinner className="mt-1 text-mute" />}
               </div>
             )}
           </section>
+
+          {closedNotice && <Notice className="mt-3">{closedNotice}</Notice>}
+          {r.market === "US" && easy && <p className="mt-2 text-[13px] text-mute">가격은 달러, 이익·손실은 원화(그때 환율)로 보여요.</p>}
+
+          {pv &&
+            (easy ? (
+              <div className="mt-3 space-y-3">
+                <p className="text-[14px] leading-snug text-sub">
+                  {r.horizon === "DAY"
+                    ? `${formatPrice(r.entryPrice, r.currency)} 이하가 될 때까지 오늘 15:15까지만 기다려요. 그때까지 안 내려오면 사지 않고 끝나요(돈은 그대로).`
+                    : `${formatPrice(r.entryPrice, r.currency)} 이하가 될 때까지 ${formatDayLabel(kstDayOf(r.validUntil))}까지만 기다려요. 그때까지 안 내려오면 사지 않고 끝나요(돈은 그대로).`}
+                </p>
+                <Checklist key={ackKey} r={r} pv={pv} onReady={setAcked} />
+              </div>
+            ) : (
+              <SummaryCheck r={r} pv={pv} checked={acked} onChange={setAcked} />
+            ))}
 
           <button
             type="button"
             disabled={!canActivate}
             onClick={() =>
               activate.mutate(
-                { ...(budget.value !== null ? { budgetKrw: budget.value } : {}), ...(token ? { token } : {}) },
+                {
+                  ...(budget.value !== null ? { budgetKrw: budget.value } : {}),
+                  ...(token ? { token } : {}),
+                  acknowledged: true,
+                },
                 {
                   onSuccess: (plan) => {
-                    toast(`${plan.name} 계획을 활성화했습니다. 진입 주문을 냈습니다.`);
+                    if (plan.status === "failed") toast(easy ? "모의 주문을 넣지 못해 계획이 끝났어요." : "첫 주문 접수가 거절되어 계획이 실패했습니다.", "error");
+                    else toast(easy ? `${plan.name} 모의 자동매매를 시작했어요. 사는 주문을 넣었어요.` : `${plan.name} 계획을 활성화했습니다. 진입 주문을 냈습니다.`);
                     navigate(`/plans/${plan.id}`);
                   },
                 },
@@ -152,17 +269,117 @@ function ActivateCard({ r, token }: { r: Recommendation; token: string | null })
             className="mt-4 flex h-13 w-full items-center justify-center gap-2 rounded-xl bg-brand text-[16px] font-bold text-white hover:bg-brand-dark disabled:opacity-40"
           >
             {activate.isPending && <Spinner />}
-            계획 활성화
+            {title}
           </button>
-          {live && <p className="mt-2 text-[13px] text-mute">이미 이 종목에 진행 중인 내 계획이 있습니다.</p>}
-          {activate.isError && (
-            <Notice tone="error" className="mt-3">
-              {errorMessage(activate.error)}
-            </Notice>
+          {pv?.activatable && !acked && (
+            <p className="mt-2 text-[13px] text-mute">{easy ? "위의 확인 셋을 모두 켜면 시작할 수 있어요." : "확인에 체크하면 활성화할 수 있습니다."}</p>
           )}
+          {live && <p className="mt-2 text-[13px] text-mute">{easy ? "이미 이 종목으로 진행 중인 내 모의 자동매매가 있어요." : "이미 이 종목에 진행 중인 내 계획이 있습니다."}</p>}
+          {activate.isError &&
+            (blocked && blocked.length > 0 ? (
+              <div role="alert" className="mt-3 rounded-lg bg-up-soft/70 p-3">
+                <p className="text-[13px] font-semibold text-up">{easy ? "지금은 시작할 수 없어요" : "활성화할 수 없습니다"}</p>
+                <ul className="mt-1 list-disc space-y-0.5 pl-5 text-[13px] text-sub">
+                  {(easy ? blocked : (activate.error as ApiError).detail.split("; ")).map((x) => (
+                    <li key={x}>{x}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <Notice tone="error" className="mt-3">
+                {errorMessage(activate.error)}
+              </Notice>
+            ))}
         </>
       )}
     </Card>
+  );
+}
+
+/** 사유 코드와 쉬운 문장 짝 (같은 문장은 한 번만). */
+function reasonPairs(pv: RiskPreview): { code: string | undefined; text: string }[] {
+  const out: { code: string | undefined; text: string }[] = [];
+  const n = Math.max(pv.reasonCodes.length, pv.reasons.length);
+  for (let i = 0; i < n; i++) {
+    const text = reasonSentence(pv.reasonCodes[i], pv.reasons[i]);
+    if (text && !out.some((x) => x.text === text)) out.push({ code: pv.reasonCodes[i], text });
+  }
+  return out;
+}
+
+function EasyPreview({ r, pv }: { r: Recommendation; pv: RiskPreview }) {
+  const reasons = reasonPairs(pv);
+  return (
+    <>
+      <p className="text-[16px] font-semibold tabular-nums">
+        이 계좌로는 {formatQty(pv.quantity)} · {formatKrw(pv.amountKrw)}
+      </p>
+      <dl className="mt-1">
+        <Row label="목표에 팔면">
+          <span className="text-up">+{formatKrw(pv.expectedProfitKrw)}</span>
+        </Row>
+        <Row label="손절에 팔면">
+          <span className="text-down">-{formatKrw(pv.maxLossKrw)}</span>
+        </Row>
+        <Row label="직전 종가">{formatPrice(pv.lastPrice, r.currency)}</Row>
+      </dl>
+      <AsOf at={pv.lastPriceAsOf} market={r.market} className="block text-right" />
+      <p className="mt-1 text-[13px] text-sub">안전장치: {limitedByText(pv.limitedBy, r)}. 가격이 갑자기 크게 떨어지면 손실이 더 클 수도 있어요.</p>
+      {reasons.length > 0 && (
+        <div role="alert" className="mt-2 rounded-lg bg-up-soft/70 p-3">
+          <p className="text-[13px] font-semibold text-up">지금은 시작할 수 없어요</p>
+          <ul aria-label="시작할 수 없는 이유" className="mt-1 list-disc space-y-0.5 pl-5 text-[13px] text-sub">
+            {reasons.map((x) => (
+              <li key={x.text}>
+                {x.text}
+                {r.myPlan && x.code === "plan_exists" && (
+                  <>
+                    {" "}
+                    <Link to={`/plans/${r.myPlan.id}`} className="font-semibold text-brand">
+                      보기
+                    </Link>
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </>
+  );
+}
+
+function ExpertPreview({ r, pv }: { r: Recommendation; pv: RiskPreview }) {
+  return (
+    <>
+      <p className="flex items-center gap-1.5 text-[14px] font-semibold">
+        <Icon name={pv.approved ? "check" : "ban"} className={cn("size-4", pv.approved ? "text-ok" : "text-up")} />
+        {pv.approved ? "리스크 엔진 통과" : "리스크 엔진 거절"}
+      </p>
+      <dl className="mt-2">
+        <Row label="수량">{formatQty(pv.quantity)}</Row>
+        <Row label="매수 금액">{formatKrw(pv.amountKrw)}</Row>
+        <Row label="목표 도달 시 이익">
+          <span className="text-up">+{formatKrw(pv.expectedProfitKrw)}</span>
+        </Row>
+        <Row label="손절 시 손실">
+          <span className="text-down">-{formatKrw(pv.maxLossKrw)}</span>
+        </Row>
+        <Row label="수량을 정한 제약">{pv.limitedBy}</Row>
+        {pv.lastPrice != null && <Row label="직전 종가">{formatPrice(pv.lastPrice, r.currency)}</Row>}
+      </dl>
+      <AsOf at={pv.lastPriceAsOf} market={r.market} className="block text-right" />
+      {pv.reasons.length > 0 && (
+        <div role="alert" className="mt-2 rounded-lg bg-up-soft/70 p-3">
+          <p className="text-[13px] font-semibold text-up">활성화할 수 없는 사유</p>
+          <ul aria-label="활성화할 수 없는 사유" className="mt-1 list-disc space-y-0.5 pl-5 text-[13px] text-sub">
+            {pv.reasons.map((x, i) => (
+              <li key={i}>{x}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -170,9 +387,11 @@ export function RecommendationPage() {
   const { id } = useParams();
   const [params] = useSearchParams();
   const token = params.get("t");
+  const { easy } = useViewMode();
   const { data: r, isPending, isError, error, refetch } = useRecommendation(Number(id));
   const { data: quotes } = useQuotes(r ? [r.symbol] : []);
-  const last = r ? (quotes?.get(r.symbol)?.price ?? null) : null;
+  const quote = r ? quotes?.get(r.symbol) : undefined;
+  const last = quote?.price ?? null;
 
   if (isPending) {
     return (
@@ -185,10 +404,10 @@ export function RecommendationPage() {
   if (isError) {
     return (
       <>
-        <PageHeader title="AI 추천" back />
+        <PageHeader title={easy ? "새 계획 제안" : "AI 추천"} back />
         <Card>
           <ErrorState
-            message={error instanceof ApiError && error.status === 404 ? "추천을 찾을 수 없습니다." : errorMessage(error)}
+            message={error instanceof ApiError && error.status === 404 ? (easy ? "계획을 찾을 수 없어요." : "추천을 찾을 수 없습니다.") : errorMessage(error)}
             onRetry={() => void refetch()}
           />
         </Card>
@@ -197,13 +416,16 @@ export function RecommendationPage() {
   }
 
   const open = r.status === "open";
-  const src = sourceLink(r);
+  const src = sourceLink(r, easy);
   return (
     <>
-      <PageHeader title={`${r.name} 추천`} back />
+      <PageHeader title={easy ? `${r.name} 계획 제안` : `${r.name} 추천`} back />
       {token && (
         <Notice className="mb-3">
-          <b>Discord에서 연 활성화 링크</b> · 내용을 확인하고 &ldquo;계획 활성화&rdquo;를 누르면 내 모의 계좌에 계획이 만들어집니다 (Discord로 활성화한 것으로 기록).
+          <b>Discord에서 연 활성화 링크</b> ·{" "}
+          {easy
+            ? "내용을 확인하고 “모의 자동매매 시작”을 누르면 내 모의 계좌에서 시작해요 (Discord로 시작한 것으로 기록해요)."
+            : "내용을 확인하고 “계획 활성화”를 누르면 내 모의 계좌에 계획이 만들어집니다 (Discord로 활성화한 것으로 기록)."}
         </Notice>
       )}
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start lg:gap-6">
@@ -212,50 +434,70 @@ export function RecommendationPage() {
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[14px] text-mute">
-                  {r.symbol} · {r.market === "KR" ? "국내" : "미국"} · 추천 #{r.id}
+                  {r.symbol} · {r.market === "KR" ? "국내" : "미국"} · {easy ? "계획" : "추천"} #{r.id}
                 </p>
                 <p className="mt-0.5 text-[22px] font-bold tracking-tight">{r.name}</p>
               </div>
-              <RecStatusChip open={open} className="h-7 px-2 text-[13px]" />
+              <RecStatusChip open={open} easy={easy} className="h-7 px-2 text-[13px]" />
             </div>
             <div className="mt-2 flex flex-wrap gap-1.5">
               <SourceBadge source={r.source} />
-              <RiskLevelBadge level={r.riskLevel} />
+              {!easy && <RiskLevelBadge level={r.riskLevel} />}
             </div>
             <p className="mt-2 text-[14px] text-sub">
-              {r.requestedBy ? `${r.requestedBy} 신청` : "자동"} · {formatDateTime(r.createdAt)}
+              {r.requestedBy ? `${r.requestedBy} ${easy ? "님이 만듦" : "신청"}` : "자동"} · {formatDateTime(r.createdAt)}
               {" · "}
-              {open ? `${timeLeft(r.validUntil)} (${formatDateTime(r.validUntil)}까지)` : `${formatDateTime(r.validUntil)}에 만료`}
+              {open ? `${timeLeft(r.validUntil)} (${formatDateTime(r.validUntil)}까지)` : `${formatDateTime(r.validUntil)}에 ${easy ? "기한 지남" : "만료"}`}
             </p>
             {r.source === "demo" && (
               <Notice tone="warn" className="mt-3">
-                시연용 규칙 추천입니다 (AI 아님). {SOURCE.demo.hint}.
+                {easy ? "연습용 예시 계획(AI 아님)이에요." : "연습용 예시 계획입니다 (AI 아님)."} {SOURCE.demo.hint}.
               </Notice>
             )}
             <div className="mt-5">
-              <PriceLadder stop={r.stopPrice} entry={r.entryPrice} target={r.targetPrice} last={last} currency={r.currency} />
+              <PriceLadder stop={r.stopPrice} entry={r.entryPrice} target={r.targetPrice} last={last} currency={r.currency} easy={easy} />
+              <AsOf at={quote?.asOf} market={r.market} className="mt-1 block text-right" />
             </div>
           </Card>
 
-          <Card aria-labelledby="metrics-title">
-            <h2 id="metrics-title" className="mb-3 text-[17px] font-bold">
-              지표
-            </h2>
-            <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <Metric label="목표 수익률" value={formatRate(r.targetReturn)} className="text-up" sub="비용 전" />
-              <Metric label="손절률" value={formatRate(r.stopLossRate)} className="text-down" sub="비용 전" />
-              <Metric label="손익비" value={r.rewardRisk.toFixed(2)} sub="비용 반영" />
-              <Metric label="목표 도달 확률" value={formatPercent(r.probability)} sub={r.probabilityAssumed ? "가정 (AI가 주지 않음)" : undefined} />
-              <Metric label="기대수익률" value={formatRate(r.expectedReturn)} className={r.expectedReturn >= 0 ? "text-up" : "text-down"} sub="비용 반영" />
-              <Metric label="보유 기간" value={`${r.holdingDays}거래일`} />
-              <Metric label="신뢰도" value={r.confidence == null ? "-" : `${Math.round(r.confidence)}점`} sub={r.confidence == null ? "없음" : "0~100"} />
-              <Metric label="추천 때 가격" value={formatPrice(r.priceAtCreation, r.currency)} />
-            </dl>
-          </Card>
+          {easy ? (
+            <Card aria-labelledby="plan-summary-title">
+              <h2 id="plan-summary-title" className="text-[17px] font-bold">
+                계획 요약
+              </h2>
+              <ul className="mt-2 space-y-1.5 text-[15px] leading-relaxed">
+                <li>
+                  목표에 팔면 <b className="text-up tabular-nums">{formatRate(r.targetReturn, 1)}</b> · 손절에 팔면{" "}
+                  <b className="text-down tabular-nums">{formatRate(r.stopLossRate, 1)}</b> <span className="text-[13px] text-mute">(비용 전)</span>
+                </li>
+                <li>목표에 팔면 버는 돈이 손절에 팔면 잃는 돈의 {r.rewardRisk.toFixed(1)}배예요 (수수료·세금 반영).</li>
+                <li>산 뒤 최대 {r.holdingDays}거래일 보유해요.</li>
+                <li className="text-[14px] text-sub">
+                  만들 때 직전 종가 <span className="tabular-nums">{formatPrice(r.priceAtCreation, r.currency)}</span>
+                </li>
+              </ul>
+            </Card>
+          ) : (
+            <Card aria-labelledby="metrics-title">
+              <h2 id="metrics-title" className="mb-3 text-[17px] font-bold">
+                지표
+              </h2>
+              <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <Metric label="목표 수익률" value={formatRate(r.targetReturn)} className="text-up" sub="비용 전" />
+                <Metric label="손절률" value={formatRate(r.stopLossRate)} className="text-down" sub="비용 전" />
+                <Metric label="손익비" value={r.rewardRisk.toFixed(2)} sub="비용 반영" />
+                <Metric label="목표 도달 확률" value={formatPercent(r.probability)} sub={r.probabilityAssumed ? "가정 (AI가 주지 않음)" : undefined} />
+                <Metric label="기대수익률" value={formatRate(r.expectedReturn)} className={r.expectedReturn >= 0 ? "text-up" : "text-down"} sub="비용 반영" />
+                <Metric label="보유 기간" value={`${r.holdingDays}거래일`} />
+                <Metric label="신뢰도" value={r.confidence == null ? "-" : `${Math.round(r.confidence)}점`} sub={r.confidence == null ? "없음" : "0~100"} />
+                <Metric label="추천 때 종가" value={formatPrice(r.priceAtCreation, r.currency)} sub="만들 때의 직전 종가" />
+              </dl>
+            </Card>
+          )}
 
           <Card aria-labelledby="summary-title">
             <h2 id="summary-title" className="text-[17px] font-bold">
-              결론
+              {easy ? "AI 의견 요약" : "결론"}
             </h2>
             <p className="mt-1 text-[15px] leading-relaxed">{r.summary}</p>
             {r.reasons.length > 0 && (
@@ -270,7 +512,7 @@ export function RecommendationPage() {
             )}
             {r.risks.length > 0 && (
               <div className="mt-3">
-                <h3 className="text-[14px] font-semibold text-sub">리스크</h3>
+                <h3 className="text-[14px] font-semibold text-sub">{easy ? "위험" : "리스크"}</h3>
                 <ul className="mt-1 list-disc space-y-1 pl-5 text-[14px] leading-relaxed">
                   {r.risks.map((x, i) => (
                     <li key={i}>{x}</li>
@@ -288,8 +530,22 @@ export function RecommendationPage() {
         </div>
 
         <div className="space-y-3 lg:sticky lg:top-8">
-          <ActivateCard key={r.id} r={r} token={token} />
-          <p className="px-1 text-[13px] text-mute">팀에서 이 추천으로 활성화한 계획 {r.planCount}건</p>
+          {r.source === "day" ? (
+            <Card>
+              <Notice>단타 연습 계획은 만들 때 이미 시작됐어요.</Notice>
+              {r.myPlan && (
+                <Link to={`/plans/${r.myPlan.id}`} className="mt-3 flex h-11 items-center justify-between rounded-xl bg-fill px-3.5 text-[15px] font-semibold hover:bg-line">
+                  내 단타 계획 보기
+                  <Icon name="chevron" className="size-4" />
+                </Link>
+              )}
+            </Card>
+          ) : (
+            <ActivateCard key={r.id} r={r} token={token} />
+          )}
+          <p className="px-1 text-[13px] text-mute">
+            {easy ? `팀에서 이 계획으로 시작한 모의 자동매매 ${r.planCount}건` : `팀에서 이 추천으로 활성화한 계획 ${r.planCount}건`}
+          </p>
         </div>
       </div>
     </>

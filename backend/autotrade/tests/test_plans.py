@@ -14,7 +14,7 @@ from autotrade.models import PlanEvent, Recommendation, TradePlan
 from autotrade.tokens import activation_token
 from config import engine
 
-from .conftest import login, make_rec, set_price, switch
+from .conftest import close_of, login, make_rec, set_price, switch
 
 pytestmark = pytest.mark.django_db
 
@@ -60,7 +60,9 @@ def test_preview_passes(api, fake):
     assert p["limitedBy"] == "건당 위험 한도" and p["quantity"] == 25  # 자산 1천만 × 1% ÷ 1주 손실
     assert p["amountKrw"] == pytest.approx(25 * 69000)
     assert p["maxLossKrw"] == pytest.approx(25 * (69000 * 1.001 - 66000 * 0.99 * 0.997))
-    assert p["budgetKrw"] is None and p["lastPrice"] == 70000
+    assert p["reasonCodes"] == [] and p["priceBasis"] == "close"
+    assert p["budgetKrw"] is None and p["lastPrice"] == close_of(70000)  # 직전 정규장 종가 (장마감 기준)
+    assert p["lastPriceAsOf"]  # 그 종가 봉 날짜의 정규장 종료 시각 (가짜 장 달력 기준)
 
 
 def test_preview_budget_limits_quantity(api, fake):
@@ -72,6 +74,7 @@ def test_preview_budget_limits_quantity(api, fake):
     assert big["quantity"] == 25 and big["limitedBy"] == "건당 위험 한도"  # 늘리지는 않는다
     small = api.get(f"/api/recommendations/{rec.id}/preview?budgetKrw=1000").json()
     assert not small["activatable"] and "1주도 살 수 없음" in small["reasons"][0]
+    assert small["reasonCodes"] == ["budget_too_small"]
     for bad in ("abc", "0", "-5"):
         assert api.get(f"/api/recommendations/{rec.id}/preview?budgetKrw={bad}").status_code == 400
 
@@ -80,30 +83,37 @@ def test_preview_blockers(api, fake):
     rec = make_rec()
     engine.HALT_FILE.touch()
     p = api.get(f"/api/recommendations/{rec.id}/preview").json()
-    assert not p["activatable"] and any("중단 스위치" in r for r in p["reasons"])
+    assert not p["activatable"] and any("중단 스위치" in r for r in p["reasons"]) and p["reasonCodes"] == ["halted"]
     engine.HALT_FILE.unlink()
-    api.post("/api/orders", {"symbol": "005930", "quantity": 1, "orderType": "MARKET"}, format="json")
+    api.post("/api/orders", {"symbol": "005930", "quantity": 1, "orderType": "MARKET", "style": "long"},
+             format="json")
     p = api.get(f"/api/recommendations/{rec.id}/preview").json()
     assert p["approved"] and not p["activatable"] and any("진행 중인 모의 주문" in r for r in p["reasons"])
+    assert p["reasonCodes"] == ["position_exists"]
 
 
 def test_preview_price_above_target_or_below_stop(api, fake):
+    """미리 보기는 직전 종가로 본다 (종가 숫자는 문장에 넣어도 된다)."""
     rec = make_rec()
     set_price(fake, "005930", 81000)
     p = api.get(f"/api/recommendations/{rec.id}/preview").json()
-    assert not p["activatable"] and any("이미 목표가에 도달" in r for r in p["reasons"])
+    assert not p["activatable"] and p["reasonCodes"] == ["price_passed"]
+    assert p["reasons"] == [f"직전 종가({close_of(81000):,.0f}원)가 이미 목표가 이상"]
     set_price(fake, "005930", 65000)
     p = api.get(f"/api/recommendations/{rec.id}/preview").json()
-    assert any("손절가 이하" in r for r in p["reasons"])
+    assert p["reasons"] == [f"직전 종가({close_of(65000):,.0f}원)가 이미 손절가 이하"]
+    set_price(fake, "005930", 80100)  # 장중 가격은 목표가 이상이지만 종가(79,823원)는 아직 아래: 미리 보기는 통과
+    p = api.get(f"/api/recommendations/{rec.id}/preview").json()
+    assert p["activatable"] and p["lastPrice"] == close_of(80100) < 80000
 
 
 def test_preview_expired_and_warning(api, fake):
     rec = make_rec(symbol="000660", name="SK하이닉스", entry=190000, target=230000, stop=180000)
     p = api.get(f"/api/recommendations/{rec.id}/preview").json()
-    assert not p["approved"] and any("매수 유의" in r for r in p["reasons"])
+    assert not p["approved"] and any("매수 유의" in r for r in p["reasons"]) and p["reasonCodes"] == ["warning_stock"]
     old = make_rec(now=timezone.now() - timedelta(days=4))
     p = api.get(f"/api/recommendations/{old.id}/preview").json()
-    assert any("활성화 기한" in r for r in p["reasons"])
+    assert any("활성화 기한" in r for r in p["reasons"]) and p["reasonCodes"] == ["expired"]
 
 
 def test_preview_without_broker_is_503(api):
@@ -113,24 +123,30 @@ def test_preview_without_broker_is_503(api):
 
 # --- 활성화 ---
 
-def test_activate_places_limit_order(api, fake, user, sent):
+@pytest.mark.parametrize("at", ["2026-09-22T10:00:00", "2026-09-22T01:30:00"])  # 장중 · KST와 UTC 날짜가 다른 새벽
+def test_activate_places_limit_order(api, clock, user, sent, at):
+    now = clock(at)
     rec = make_rec()
     body = activate(api, rec)
     assert body.status_code == 201, body.json()
     plan = body.json()
     assert plan["status"] == "entry_pending" and plan["via"] == "web" and plan["quantity"] == 25
+    assert plan["horizon"] == "SWING" and plan["recommendation"]["horizon"] == "SWING"
     assert plan["source"] == "analysis" and plan["recommendation"]["myPlan"] == {"id": plan["id"],
                                                                                "status": "entry_pending"}
     assert [e["kind"] for e in plan["events"]] == ["activated", "risk_checked", "order_placed"]
     assert [e["step"] for e in plan["events"]] == [1, 2, 3]
+    assert plan["events"][0]["details"] == {"via": "web", "budgetKrw": None, "acknowledged": False}
     assert plan["events"][2]["message"] == "삼성전자 25주 69,000원 지정가 매수 주문 접수"
     order = PaperOrder.objects.get(pk=plan["orderId"])
     assert order.order_type == "LIMIT" and order.limit_price == 69000 and order.quantity == 25
-    assert order.requested_by == f"plan:{plan['id']}" and order.account.user == user
+    assert order.requested_by == f"plan:{plan['id']}" and order.account.user == user and order.style == "swing"
     assert (order.target_price, order.stop_price) == (80000, 66000)
-    assert order.expire_date == timezone.localdate() + timedelta(days=executor.order_days(rec.holding_days))
+    days = executor.order_days(rec.holding_days)
+    assert str(order.expire_date) == str(now.date() + timedelta(days=days))  # 주문한 날의 KST 날짜 기준
     assert sent.kinds == ["recommendation", "plan_activated", "order_placed"]
     assert sent.calls[-1]["link"] == f"/plans/{plan['id']}" and sent.calls[-1]["users"] == user
+    assert sent.calls[-1]["discord"] is True
 
 
 def test_activate_with_discord_token(api, fake):
@@ -147,6 +163,7 @@ def test_activate_twice_and_others(api, fake, django_user_model):
     first = activate(api, rec).json()
     again = activate(api, rec)
     assert again.status_code == 400 and "진행 중" in again.json()["detail"]
+    assert again.json()["reasonCodes"] == ["plan_exists", "position_exists"]
     assert activate(api, make_rec(), budgetKrw=-1).status_code == 400
     assert api.post("/api/recommendations/999/activate", {}, format="json").status_code == 404
     bob, bob_api = login(django_user_model, "bob")
@@ -159,6 +176,8 @@ def test_activate_rejected_by_risk_engine(api, fake):
     rec = make_rec(target=70500)  # 손익비 미달
     body = activate(api, rec)
     assert body.status_code == 400 and "손익비" in body.json()["detail"]
+    assert set(body.json()) == {"detail", "reasonCodes"} and "reward_risk_low" in body.json()["reasonCodes"]
+    assert len(body.json()["reasonCodes"]) == len(body.json()["detail"].split("; "))
     assert not TradePlan.objects.exists()
 
 
@@ -181,7 +200,9 @@ def test_full_flow_fill_then_target_exit(api, fake, sent):
     assert plan.pnl_krw > 0 and plan.closed_at is not None
     assert kinds(plan) == ["activated", "risk_checked", "order_placed", "filled", "closed"]
     assert sent.kinds == ["recommendation", "plan_activated", "order_placed", "filled", "closed"]
-    assert sent.calls[-1]["title"] == "삼성전자 청산 · 목표가 도달"
+    assert sent.calls[-1]["expert_title"] == "삼성전자 청산 · 목표가 도달"
+    assert sent.calls[-1]["title"] == "삼성전자 모의 계좌에서 모두 팔았어요"
+    assert sent.calls[-1]["body"].startswith("목표 가격에 닿아 모의 계좌에서 삼성전자 25주를 81,000원에 모두 팔았어요.")
     assert executor.tick(timezone.now(), lambda text: None) == 0
 
 
@@ -225,7 +246,10 @@ def test_requeue_fails_when_price_passed_target(api, fake):
     sync()
     executor.step(plan, timezone.now())
     plan.refresh_from_db()
-    assert plan.status == "failed" and "이미 목표가에 도달" in plan.failure_reason
+    # 재주문은 장중 확인 가격으로 보고, 문장에 장중 가격 숫자를 넣지 않는다
+    assert plan.status == "failed" and plan.failure_reason == "다시 주문할 수 없음: 장중 가격이 이미 목표가 이상이에요"
+    failed = PlanEvent.objects.get(plan=plan, kind="failed")
+    assert failed.details["reasonCodes"] == ["price_passed"] and "81,000" not in failed.message
 
 
 def test_deadline_expires_pending_order(api, fake, sent):
@@ -458,11 +482,11 @@ def test_cancel_racing_requeue_leaves_no_live_order(api, fake, monkeypatch):
     day_end(plan, fake)
     original = executor._end
 
-    def requeue_first(p, frm, to, reason, details=None, match=None):
+    def requeue_first(p, frm, to, reason, details=None, match=None, **kw):
         if to == TradePlan.CANCELLED and match == {"order_id": first}:
             monkeypatch.setattr(executor, "_end", original)
             executor.step(TradePlan.objects.get(pk=p.pk), timezone.now())  # 엔진 루프가 끼어든다
-        return original(p, frm, to, reason, details, match)
+        return original(p, frm, to, reason, details, match, **kw)
     monkeypatch.setattr(executor, "_end", requeue_first)
     body = api.post(f"/api/trade-plans/{plan.id}/cancel")
     assert body.status_code == 200 and body.json()["status"] == "cancelled"
@@ -540,8 +564,10 @@ def test_engine_cancel_makes_plan_failed(api, fake, sent):
     PaperOrder.objects.filter(pk=plan.order_id).update(status="CANCELED", note=note)
     executor.step(plan, timezone.now())
     plan.refresh_from_db()
-    assert plan.status == "failed" and plan.failure_reason == f"모의 주문이 취소됨: {note}"
+    # 괄호 안 금액은 장중 확인 가격으로 계산한 값이라 옮기지 않는다
+    assert plan.status == "failed" and plan.failure_reason == "모의 주문이 취소됨: 체결 시점 현금 부족"
     assert kinds(plan)[-1] == "failed" and sent.kinds[-1] == "failed"
+    assert "현금이 모자라" in sent.calls[-1]["body"] and "1,726,725" not in sent.calls[-1]["body"]
 
 
 def test_cancel_holding_twice_outside_hours(api, fake):
@@ -590,3 +616,116 @@ def test_preview_us_budget_is_fractional_amount(api, fake):
     assert small["activatable"] and 0 < small["quantity"] < 1
     tiny = api.get(f"/api/recommendations/{rec.id}/preview?budgetKrw=1000").json()  # 약 $0.71
     assert not tiny["activatable"] and any("최소 주문 금액" in r for r in tiny["reasons"])
+
+
+# --- 사유 코드 (B4) · 활성화의 장중 확인 · acknowledged (B5) ---
+
+def test_reason_codes_align_with_reasons(api, fake, user):
+    rec = make_rec(symbol="000660", name="SK하이닉스", entry=190000, target=230000, stop=180000,
+                   now=timezone.now() - timedelta(days=4))  # 매수 유의 + 기한 지남
+    engine.HALT_FILE.touch()
+    p = api.get(f"/api/recommendations/{rec.id}/preview?budgetKrw=1000").json()
+    assert p["reasonCodes"] == ["warning_stock", "budget_too_small", "expired", "halted"]
+    assert len(p["reasons"]) == len(p["reasonCodes"]) and not p["activatable"]
+    body = activate(api, rec, budgetKrw=1000)
+    assert body.status_code == 400 and body.json()["reasonCodes"] == p["reasonCodes"]
+    assert body.json()["detail"].split("; ") == p["reasons"]
+
+
+def test_reason_pairs_are_deduplicated_in_order(fake, user, monkeypatch):
+    """같은 (코드, 문장) 짝은 한 번만 — 두 목록이 같은 길이·같은 순서로 남는다."""
+    real = risk.assess
+
+    def doubled(scenario, ctx, fractional=False):
+        a = real(scenario, ctx, fractional)
+        reasons, codes = ["일일 손실 한도 도달"] * 2 + ["손익비 낮음"], ["daily_loss_limit"] * 2 + ["reward_risk_low"]
+        return a.__class__(**{**a.__dict__, "approved": False, "reasons": reasons, "codes": codes})
+    monkeypatch.setattr(risk, "assess", doubled)
+    p = risk.preview(make_rec(), user)
+    assert p["reasonCodes"] == ["daily_loss_limit", "reward_risk_low"] and p["reasons"] == ["일일 손실 한도 도달", "손익비 낮음"]
+
+
+def test_activation_rechecks_intraday_price_without_numbers(api, fake):
+    """종가로는 통과해도 정규장 중 장중 확인 가격이 이미 목표가 이상이면 활성화하지 않는다 (문장에 장중 가격 숫자 없음)."""
+    rec = make_rec()
+    set_price(fake, "005930", 80100)  # 종가 79,823원 < 목표가 80,000원 ≤ 장중 80,100원
+    assert api.get(f"/api/recommendations/{rec.id}/preview").json()["activatable"]
+    body = activate(api, rec)
+    assert body.status_code == 400
+    assert body.json() == {"detail": "장중 가격이 이미 목표가 이상이에요", "reasonCodes": ["price_passed"]}
+    assert not TradePlan.objects.exists()
+    switch(fake, KR=False)  # 정규장 밖이면 장중 확인은 없다 (종가 기준 판단만)
+    assert activate(api, rec).status_code == 201
+
+
+def test_activation_intraday_below_stop(fake, user, monkeypatch):
+    rec = make_rec()
+    monkeypatch.setattr(risk, "_live_price", lambda symbol: 65000.0)
+    with pytest.raises(executor.Blocked) as caught:
+        executor.activate(rec, user)
+    assert caught.value.reasons == ["장중 가격이 이미 손절가 이하예요"] and caught.value.codes == ["price_passed"]
+    assert caught.value.body() == {"detail": "장중 가격이 이미 손절가 이하예요", "reasonCodes": ["price_passed"]}
+
+
+def test_activation_race_on_live_plan_is_plan_exists(fake, user, monkeypatch):
+    """점검과 계획 만들기 사이에 같은 종목 계획이 생기면 (유일 제약) plan_exists로 막는다."""
+    rec = make_rec()
+    plan_in("active", make_rec(), user)
+    monkeypatch.setattr(risk, "preview", lambda *a, **kw: {"activatable": True, "quantity": 1, "limitedBy": "x",
+                                                            "approved": True, "reasons": [], "reasonCodes": []})
+    with pytest.raises(executor.Blocked) as caught:
+        executor.activate(rec, user)
+    assert caught.value.codes == ["plan_exists"] and caught.value.reasons == [risk.PLAN_EXISTS]
+
+
+@pytest.mark.parametrize("body,expected", [({}, False), ({"acknowledged": True}, True), ({"acknowledged": False}, False)])
+def test_acknowledged_is_recorded(api, fake, body, expected):
+    plan = activate(api, make_rec(), **body).json()
+    assert plan["events"][0]["kind"] == "activated" and plan["events"][0]["details"]["acknowledged"] is expected
+
+
+@pytest.mark.parametrize("bad", ["yes", 1, None, [True]])
+def test_acknowledged_must_be_boolean(api, fake, bad):
+    body = activate(api, make_rec(), acknowledged=bad)
+    assert body.status_code == 400 and set(body.json()) == {"detail"} and "acknowledged" in body.json()["detail"]
+    assert not TradePlan.objects.exists()
+
+
+def test_evaluate_shape_matches_preview(fake, user):
+    rec = make_rec()
+    direct = risk.evaluate(user, symbol=rec.symbol, name=rec.name, market=rec.market, currency=rec.currency,
+                           entry=rec.entry_price, target=rec.target_price, stop=rec.stop_price,
+                           holding_days=rec.holding_days, probability=rec.probability)
+    assert direct == risk.preview(rec, user)
+    assert {"reasonCodes", "lastPrice", "lastPriceAsOf", "priceBasis"} <= set(direct)
+
+
+def test_requeue_sizes_from_intraday_equity(api, clock, user, monkeypatch):
+    """재주문 점검의 수량은 보유를 장중 가격으로 평가한 자산으로 정한다 (docs/API.md "재주문의 계산은 지금처럼 장중 확인 가격").
+    미리 보기·활성화는 그대로 장마감 기준(종가) 자산이다."""
+    clock("2026-09-22T10:00:00")  # 국내 정규장 중
+    held = api.post("/api/orders", {"symbol": "000660", "quantity": 20, "orderType": "MARKET", "style": "long"},
+                    format="json")
+    assert held.status_code == 201 and held.json()["order"]["status"] == "EXIT_WATCHING", held.json()
+    rec = make_rec()
+    plan = plan_in("entry_pending", rec, user)
+    cash = account_for(user).cash_krw
+    intraday = {"000660": 100_000.0}  # 장중에 크게 떨어짐 (종가 = 어제 봉은 그대로)
+    client = clock.client
+    monkeypatch.setattr(client, "prices", lambda symbols: [
+        {"symbol": s, "lastPrice": f"{intraday.get(s, client.price[s]):g}"} for s in symbols if s in client.price])
+    monkeypatch.setattr(client, "confirmed_prices", lambda symbols: {
+        s: intraday.get(s, client.price[s]) for s in symbols if s in client.price})
+    seen = []
+    real = risk.assess
+
+    def spy(scenario, ctx, fractional=False):
+        seen.append(ctx.equity_krw)
+        return real(scenario, ctx, fractional)
+    monkeypatch.setattr(risk, "assess", spy)
+
+    shown = risk.preview(rec, user)  # 미리 보기: 종가 기준
+    requeue = risk.preview(rec, user, plan=plan)  # 재주문 점검: 장중 평가
+    assert seen == [pytest.approx(cash + 20 * close_of(200_000)), pytest.approx(cash + 20 * 100_000)]
+    assert requeue["activatable"] and requeue["quantity"] < shown["quantity"]
+    assert requeue["priceBasis"] == "close" and requeue["lastPrice"] == close_of(70000)  # 표시 값은 그대로 종가

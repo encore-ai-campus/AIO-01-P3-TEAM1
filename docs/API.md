@@ -4,8 +4,13 @@
 바꾸려면 이 파일을 먼저 고치고 양쪽 작업자에게 알린다. 프론트 타입(`frontend/src/api/types.ts`)은 지금은 이 문서를 보고
 손으로 쓰고, OpenAPI 자동 생성(`drf-spectacular` → `openapi-typescript`) 비교는 CI 단계(4E)에서 붙인다.
 
-**2026-10-04 합의 (구현 전 계약)**: 서비스 컨셉 변경(`docs/컨셉변경계획.md` 8장, 결정 `docs/DECISIONS.md` 13장)의 계약 변경 B3·B4·B5·B7·B8·B10을
-아래 각 절에 넣었다. "(2026-10-04 합의, 컨셉 계획 B○ — 미구현, 담당 ○)"로 표시한 것은 **아직 서버가 내지 않는다** (괄호의 담당이 만든다).
+**2026-10-04 합의 (2026-10-05 구현)**: 서비스 컨셉 변경(`docs/컨셉변경계획.md` 8장, 결정 `docs/DECISIONS.md` 13장)의 계약 변경 B3·B4·B5·B6·B7·B8·B10과
+구현 결정(`docs/DECISIONS.md` 14장: 장마감 기준 · 보유 방식 · 장기투자 · 단타 연습 · 리포트 끝 알림 · 하루 리포트 한도)을 아래 각 절에 넣었다.
+"구현 예정(2026-10-04, Claude)"으로 표시했던 것은 **2026-10-05에 모두 만들어** 그 자리를 "구현: 2026-10-05 (Claude)"로 바꿨다 (코드로 하나씩 확인했다).
+만들면서 계약 문장과 달라진 곳은 그 자리에 "2026-10-05 구현"으로 적었다. 앞으로 새로 합의한 것도 "구현 예정(날짜, 담당)" → 만들면 "구현: 날짜 (담당)"로 표시한다.
+팀 몫(리포트 Worker·Orchestrator 등, "(추가)" 표시)은 이 표시와 따로다 — 아직 서버가 내지 않는다.
+표시 위치(2026-10-05): **새 타입**은 선언 줄(`type …`·`interface …`)에 표시하고 그 표시가 타입의 모든 필드를 덮는다. **이미 서버가 내는 타입에 더한 필드**는 그 필드 줄마다 표시한다. 절 전체가 새것이면(장기투자·단타 연습) 절 머리의 표시가 그 절의 엔드포인트를 덮는다. **가격 기준**(공통 규칙 "장마감 기준" 절 머리의 표시)은 문서 곳곳의 "장마감 기준"·"종가"·"완성 봉" 문구를 덮는다 — 그 밖의 새 동작(`day` 추천·`style` 등)은 그 자리에 따로 표시한다.
+추천 워크플로우(리포트 Agent·Orchestrator·AutoHealing)와 그것에 붙은 B1(`plainSummary`, 출력 계약), 자동 리포트(B9)는 팀 몫이고, 그 밖은 Claude가 만든다 — **B3(`ReportSummary.opinion`·`oneLiner`)도 Claude가 `payloads.summary`에 넣었다** (2026-10-05 바뀜·구현. 같은 파일의 나머지 새 필드 — `summary`의 `source`·`chaosEnabled`·`costUsd`·`hasPdf`, `detail`의 `chaos`·`recovery` — 는 담당 4) (`docs/DECISIONS.md` 14-2, 파일 소유는 `docs/tasks/00-공통.md` 2절).
 B1(`ReportDraft.plainSummary`)은 HTTP가 아니라 리포트 출력 계약이라 `docs/tasks/00-공통.md` 10절에 있다 (화면은 `state.results.report_agent.plainSummary`로 읽는다).
 
 ## 공통 규칙
@@ -22,10 +27,67 @@ B1(`ReportDraft.plainSummary`)은 HTTP가 아니라 리포트 출력 계약이�
   값이 없으면 `null`. 원화 반올림·천 단위 표시는 프론트가 한다.
 - 시각은 UTC 오프셋이 붙은 ISO 8601 (`2026-10-02T09:00:00+09:00`), 날짜는 `YYYY-MM-DD`.
 - 목록의 페이지: `?limit=20&offset=0` → `{"count": n, "results": [...]}`.
-- **실시간 = 폴링.** 프론트는 화면에 보이는 종목의 시세(`/api/quotes`, `/api/stocks/{symbol}`)를 **1초**, 계좌(`/api/account`)를 2초,
-  랭킹·주문·작업 상태를 5초 간격으로 다시 받는다. 백엔드는 현재가를 1초 캐시한다 (같은 종목은 팀원이 몇 명이 봐도 증권사 조회 1번).
+- **목록 봉투는 `{"results": [...]}`다** (2026-10-05 확정): **목록 엔드포인트** — 자원의 모음을 돌려주는 것이 일인 응답(주문·체결·예약·분석·리포트·추천·계획·알림 목록, 검색, `GET /api/day/plans`, `GET /api/longterm/daily-moves` 등) — 는 항목 배열을 늘 `results`에 담는다. 페이지가 있으면 `count`를, 맥락 값이 있으면 옆에 둔다 (예: `{"date", "results"}`).
+  **한 대상을 돌려주는 객체**(한 종목·한 세션·한 리포트)는 목록 엔드포인트가 아니다 — 그 안의 배열 필드는 자기 이름을 쓴다 (예: `StockDetail.candles`, `MinuteCandles.candles`, `DayReview.plans`·`totals`, `TradePlanDetail.events`).
+  2026-10-04 전부터 서버가 내는 `GET /api/quotes`의 `quotes`와 `GET /api/account/equity`의 `points`는 그대로 둔다 (프론트가 이미 쓴다).
+- **새로 받기 = 폴링. 가격은 장마감 기준** (아래 "장마감 기준" — 구현: 2026-10-05 (Claude)). 프론트는 화면에 보이는 종목의 시세(`/api/quotes`, `/api/stocks/{symbol}`)를
+  **60초**, 계좌(`/api/account`)를 10초, 랭킹을 30초, 주문·매매 계획·작업 상태를 5초 간격으로 다시 받는다 (종가는 하루 한 번 바뀌지만 체결·현금은 장중에 바뀐다).
+  백엔드는 종가를 종목·기준일별로 캐시한다 (같은 종목·같은 기준일은 팀원이 몇 명이 봐도 증권사 일봉 조회 1번).
   시세와 계좌는 로그인해 있는 동안 탭이 가려져도 계속 받고, 나머지는 탭이 보이지 않으면 멈춘다.
-  간격은 `frontend/src/api/queries.ts`의 `POLL`, 캐시는 `backend/trading/market.py`의 `PRICE_TTL`.
+  간격은 `frontend/src/api/queries.ts`의 `POLL`, 캐시는 `backend/trading/market.py`(`closes`).
+  (2026-10-04 전: 시세 1초·계좌 2초·랭킹 5초, 현재가 1초 캐시 `PRICE_TTL` — 이 캐시는 내부 체결 경로에만 남는다.)
+
+### 장마감 기준 (2026-10-04 결정 — 구현: 2026-10-05 (Claude), `docs/DECISIONS.md` 14-1)
+
+화면에 보이는 가격·평가·계산은 모두 **직전 정규장 종가**다. 모의 체결·청산 판단만 엔진 내부에서 지금처럼 장중 확인 가격을 쓴다.
+
+- **기준일**(시장별, 그 시장 현지 날짜 `YYYY-MM-DD`): **정규장 종료 + 10분이 지금 이전인 가장 최근 영업일** (2026-10-05 고침 — 시각 하나로 정한다).
+  그래서 오늘 정규장이 있어도 종료 + 10분 전(KR 15:30~15:40 KST, US 뉴욕 16:00~16:10 포함)에는 그 앞 영업일이고, KR은 거래일 15:40 KST, US는 뉴욕 16:10에 오늘로 바뀐다.
+  10분(`CLOSE_SETTLE_MIN`)은 일봉 종가가 굳기를 기다리는 여유다.
+- **종가 봉**: 일봉 중 날짜가 기준일 이하인 마지막 봉. 가격 = 그 봉의 종가, `prevClose` = 그 앞 봉의 종가.
+- **`asOf`**(가격 기준 시각, ISO): 종가 봉 날짜의 정규장 종료 시각. 장 달력에 그 날짜가 있으면 그 종료 시각, 없으면 KR `15:30+09:00`, US 뉴욕 `16:00`.
+  봉 날짜를 쓰므로 장 달력이 휴일을 몰라도(예: 키움 + `DATA_GOKR_API` 없음) 실제 마지막 거래일로 표시된다.
+- 화면 표기: KR "10월 2일(금) 15:30 장마감 기준", US "10월 2일(금) 16:00(뉴욕) 장마감 기준". 가격·평가를 보이는 곳마다 옆에 붙인다.
+- **장마감 기준인 것**: `Quote`, `StockDetail`(일봉은 완성 봉만), `AccountSummary`·`Position`(평가·수익률), `Ranking`,
+  일별 자산(`/api/account/equity` — 그날 기록은 KR 기준일이 오늘이 된 뒤(국내 거래일 15:40 KST 이후) 남기고, 국내 보유는 그날 종가, 미국 보유는 그때의 최신 미국 종가(`AccountSummary.pricesAsOf.US`와 같은 값)로 평가한다),
+  `RiskPreview`(금액·자산 기준 포함)와 활성화 수량, `Recommendation.priceAtCreation`(출처와 무관하게 만들 때의 종가 — 분석에서 나온 추천(`from_analysis`)도 분석 시각 가격이 아니라 만들 때의 종가), 시연 추천의 진입가, 리포트 PDF 차트, 분봉(완성된 정규장 세션만 — "단타 연습" 절),
+  리포트 시세 Worker 결과(`state.results.market_agent`의 `price`·`changePct`와 지표 — `docs/tasks/00-공통.md` 10절 `MarketResult`. 리포트 상세·PDF가 팀 전체에 보인다.
+  이 항목은 팀(담당 2)이 Worker를 만들 때 지킨다 — 이 절 머리의 "구현" 표시는 Claude가 만든 나머지를 덮는다).
+- **장중 가격을 쓰는 것** (화면에 가격으로 내지 않는다): 체결 확인·청산·예약 실행·지정가 재주문, 활성화의 장중 확인(아래 "AI 추천" 절 규칙), 시장가 체결,
+  주문 거절 검사(엔진 `buy_blockers`), `PATCH /api/orders/{id}`의 순서 검사. 체결가·청산가는 일어난 사실이라 그대로 보인다.
+- 분석의 `priceAtAnalysis`는 분석 시각의 가격 그대로다 (일부러 둔 예외. 화면은 "분석 시각 가격"으로 적고, 장중이었으면 "장중 가격"이라고 밝힌다).
+
+**장중 가격 숫자는 문장에 넣지 않는다**: 사람이 읽는 문장 — `400`의 `detail`, `TradePlan.failureReason`, `PlanEvent.message`, 알림 제목·본문(웹·Discord) — 에
+장중 확인 가격이나 그것으로 계산한 금액을 넣지 않는다 (사용자가 일부러 틀린 값을 보내 장중 가격을 읽어 내는 길이 되지 않게). 정해진 문장을 쓴다
+(숫자는 사용자가 넣은 지정가·목표가·손절가, 종가, 체결가·청산가(일어난 사실), 현금만 넣어도 된다):
+
+| 자리 | 문장 |
+|---|---|
+| 활성화의 장중 확인, 재주문 점검(`risk.preview(…, plan=…)`) | "장중 가격이 이미 목표가 이상이에요" / "장중 가격이 이미 손절가 이하예요" (코드 `price_passed`) |
+| 미리 보기(종가) | "직전 종가({종가})가 이미 목표가 이상" / "직전 종가({종가})가 이미 손절가 이하" (코드 `price_passed`. 종가는 넣어도 된다. 예: "직전 종가(80,721원)가 이미 목표가 이상" — 2026-10-05 구현: 괄호를 넣었다, "{종가}가"는 "…원가"로 읽혀서) |
+| 시장가 주문의 순서 검사 (엔진 `buy_blockers`) | "손절가 {stop} < 현재가 < 목표가 {target} 순서가 아님" (현재가 숫자 없음. 지정가 주문은 지금처럼 지정가 숫자를 쓴다) |
+| 매수 가능 금액 (엔진 `buy_blockers`) | "매수 가능 금액 부족 (가능 {가능 금액}원)" (장중 가격으로 계산한 "필요 금액"을 넣지 않는다) |
+| `PATCH /api/orders/{id}` 순서 검사 (엔진 `modify`) | "손절가 {stop} < 현재가 < 목표가 {target} 순서가 아님" |
+| 엔진이 체결 시점에 진입 주문을 취소 (`Order.note`) · 그 계획의 `failureReason` | note "체결 시점 현금 부족 (현금 {현금}원)" (현금은 넣어도 된다). 계획의 `failureReason`은 괄호 속 금액을 옮기지 않는다: "모의 주문이 취소됨: 체결 시점 현금 부족" (2026-10-05 구현) |
+
+엔진 문장(`buy_blockers`·`modify`)은 엔진 CLI에도 같은 문장으로 나온다 (엔진 쪽에서 고친다). 예약 실행 실패처럼 `run_engine` 콘솔에만 남는 문장은 이 규칙 밖이다.
+
+### 금지 표현 (2026-10-04 결정 — 구현: 2026-10-05 (Claude))
+
+우리가 만들어 사용자에게 보이는 문장(알림 문장 B6, 오늘의 내 종목 뉴스의 LLM 설명과 템플릿, 펀더멘털 점검 알림, 화면 고정 문구)에 쓰지 않는 표현이다.
+**목록의 원본은 코드 한 곳** — 엔진 `engine/paper_engine/wording.py`(표준 라이브러리. 기반 단계에서 만든다)의 상수 `PERSUASION`·`CAUSAL`·`PREDICTION`과
+`forbidden_phrases(text: str, *, causal: bool = False) -> list[str]`(걸린 표현 목록. 공백을 모두 지운 뒤 부분 문자열로 비교 — "사 볼 만해요"와 "사볼만해요"를 같게 본다).
+백엔드(`autotrade/text.py`·`notifications`·`longterm`)가 이 함수로 검사한다 (팀의 `guards`·프롬프트 점검도 쓸 수 있다. 화면 문구는 코드 검사 대상이 아니라 이 목록을 보고 쓴다).
+아래는 **최소 목록**이다 (모듈은 이것을 모두 담고, 더하면 이 표도 고친다).
+
+| 상수 | 언제 검사하나 | 최소 목록 |
+|---|---|---|
+| `PERSUASION` (권유 — 매수·매도 모두) | 우리가 만드는 모든 사용자 문장 (`causal=False`) | 사세요 · 사 볼 만해요 · 사 볼 만 · 매수하세요 · 매수 기회 · 지금 사면 · 담으세요 · 좋아요 · 파세요 · 팔아야 · 매도하세요 · 매도 기회 · 지금 팔면 · 정리하세요 · 비중을 줄이세요 · 비중을 늘리세요 · 손절하세요 |
+| `CAUSAL` (인과 단정) | 시장 움직임을 설명하는 문장 (오늘의 내 종목 뉴스, `causal=True`) | 때문에 · 덕분에 · 원인은 · 탓에 · 영향으로 |
+| `PREDICTION` (예측) | `causal=True`일 때 같이 | 오를 것 · 내릴 것 · 오를 거 · 내릴 거 · 상승할 것 · 하락할 것 · 반등할 것 |
+
+`causal=True`는 `PERSUASION`도 함께 본다. 우리 시스템이 한 일을 설명하는 문장("목표가에 닿아 팔았어요")은 `causal=False`로 검사한다.
+테스트: 목록의 표현마다 걸리는지 하나씩 (`engine/tests/test_wording.py`), B6 쉬운 문장 전부와 오늘의 내 종목 뉴스 템플릿이 걸리지 않는지 (각 앱 테스트).
 
 ## 타입
 
@@ -40,17 +102,18 @@ interface Me {
   isPublic: boolean;      // 내 정보 공개 (켜면 랭킹보드에 수익률이 나온다). 기본 false
   isStaff: boolean;
   beginnerMode: boolean;  // 주린이모드 (켬 = 쉬운 보기, 끔 = 중급 이상 화면). 진단 전 기본 true. InvestorProfile.beginnerMode와 같은 값
-                          // (2026-10-04 합의, 컨셉 계획 B10 — 미구현, 담당 1)
+                          // (2026-10-04 합의, 컨셉 계획 B10 — 구현: 2026-10-05 (Claude))
 }
 
-// 투자자 프로필 (2026-10-04 합의, 컨셉 계획 B10 — 미구현, 담당 1). 문항·보기 값·점수표는 아래 "투자자 프로필" 절
-type ExperienceLevel = "intro" | "novice" | "intermediate" | "expert";   // 경험 단계: 입문 · 초급 · 중급 · 숙련
-type RiskProfile = "stable" | "stable_seeking" | "neutral" | "active" | "aggressive";
+// 투자자 프로필 (2026-10-04 합의, 컨셉 계획 B10 — 구현: 2026-10-05 (Claude)). 문항·보기 값·점수표는 아래 "투자자 프로필" 절
+type ExperienceLevel = "intro" | "novice" | "intermediate" | "expert";   // 경험 단계: 입문 · 초급 · 중급 · 숙련 — 구현: 2026-10-05 (Claude)
+type RiskProfile = "stable" | "stable_seeking" | "neutral" | "active" | "aggressive";   // 구현: 2026-10-05 (Claude)
 // 투자 성향 5단계: 안정형 · 안정추구형 · 위험중립형 · 적극투자형 · 공격투자형
 
-interface InvestorAnswers {       // 투자 성향·경험 진단 7문항의 답 (영문 코드)
+interface InvestorAnswers {       // 투자 성향·경험 진단 7문항의 답 (영문 코드) — 구현: 2026-10-05 (Claude)
   q1: "none" | "under_1y" | "1_3y" | "over_3y";
-  q2: ("deposit" | "fund_etf" | "kr_stock" | "us_stock" | "derivatives")[];   // 여럿 고름 (1개 이상)
+  q2: ("deposit" | "fund_etf" | "kr_stock" | "us_stock" | "derivatives")[];   // 여럿 고름 (1개 이상, 같은 값 두 번 안 됨).
+                                // 서버는 이 보기 순서(deposit → derivatives)로 저장해 돌려준다 — 낸 순서와 다를 수 있다 (2026-10-05 구현)
   q3: "never" | "yearly" | "monthly" | "daily";
   q4: "unknown" | "heard" | "explain";
   q5: "no_loss" | "loss_10" | "loss_20" | "more";
@@ -58,7 +121,7 @@ interface InvestorAnswers {       // 투자 성향·경험 진단 7문항의 답
   q7: "practice" | "growth" | "short_term";
 }
 
-interface InvestorProfile {
+interface InvestorProfile {       // 구현: 2026-10-05 (Claude)
   beginnerMode: boolean;                    // 지금 주린이모드. 진단 전 기본 true
   answers: InvestorAnswers | null;          // 진단 전이면 null (아래 여섯도 null)
   experienceScore: number | null;           // 경험 점수 0~11
@@ -67,16 +130,42 @@ interface InvestorProfile {
   riskProfile: RiskProfile | null;
   recommendedBeginnerMode: boolean | null;  // 진단이 추천하는 주린이모드 (경험 단계가 intro·novice면 true)
   assessedAt: string | null;                // 마지막 진단 제출 시각
+  // 아래 둘은 진단과 따로다 (진단 전에도 값이 있다). 2026-10-04 합의 — 구현: 2026-10-05 (Claude)
+  dayQuizPassedAt: string | null;           // 단타 연습 퀴즈를 마지막으로 통과한 시각. 통과한 적이 없으면 null
+  dayTradingUnlocked: boolean;              // 단타 연습장을 쓸 수 있는지 = beginnerMode가 false이고 dayQuizPassedAt이 있음
 }
 
-interface Quote {
+// 단타 연습 퀴즈 (2026-10-04 합의 — 구현: 2026-10-05 (Claude)). 5문항(당일 청산·손절·비용·VI·모의), 문항·정답·해설은 서버 코드에만 둔다
+interface DayQuizQuestion {       // 구현: 2026-10-05 (Claude)
+  id: "q1" | "q2" | "q3" | "q4" | "q5";
+  text: string;                             // 질문
+  choices: { id: string; text: string }[];  // 보기. id는 문항 안에서 유일한 짧은 문자열 ("a"~"d")
+}
+
+interface DayQuiz {                         // GET /api/me/day-trading-quiz. 정답은 내지 않는다 — 구현: 2026-10-05 (Claude)
+  questions: DayQuizQuestion[];             // 5개, q1부터
+  passedAt: string | null;                  // InvestorProfile.dayQuizPassedAt과 같은 값
+}
+
+interface DayQuizResult {                   // POST /api/me/day-trading-quiz — 구현: 2026-10-05 (Claude)
+  passed: boolean;                          // 5문항을 모두 맞혔는지 (하나라도 틀리면 false)
+  correct: number;                          // 맞힌 수 0~5
+  total: number;                            // 5
+  results: { id: string; correct: boolean; explanation: string }[];   // 문항별 채점과 해설 (q1부터, 맞혀도 해설을 준다)
+  passedAt: string | null;                  // 이번에 통과했으면 지금 시각. 틀렸으면 이전 통과 시각 그대로 (지우지 않는다)
+}
+
+interface Quote {               // 장마감 기준 (공통 규칙 "장마감 기준" — 구현: 2026-10-05 (Claude))
   symbol: string;
   name: string | null;
   currency: Currency;
-  price: number | null;        // 현재가. 조회 실패면 null
-  prevClose: number | null;    // 전 거래일 종가. 그날 처음 보는 종목은 잠깐 null일 수 있다 (한 요청이 새로 받는 수를 제한한다. 다음 폴링에 채워진다)
+  price: number | null;        // 직전 정규장 종가 (종가 봉의 종가). 조회 실패면 null
+  prevClose: number | null;    // 그 전 거래일 종가 (종가 봉 앞 봉의 종가). 일봉이 하나뿐이면 null
+                               // price·prevClose는 같은 일봉에서 나온다. 한 요청이 새로 받는 종목은 10개까지라 처음 보는 종목은 잠깐 둘 다 null일 수 있다 (다음 폴링에 채워진다)
   change: number | null;       // price - prevClose
   changeRate: number | null;   // price / prevClose - 1
+  asOf: string | null;         // price의 기준 시각 = 종가 봉 날짜의 정규장 종료 시각. price가 null이면 null — 구현: 2026-10-05 (Claude)
+  basis: "close";              // 가격 기준. 지금은 "close"(장마감 종가) 하나뿐이다 — 구현: 2026-10-05 (Claude)
 }
 
 interface StockItem {            // 검색 결과
@@ -94,20 +183,30 @@ interface StockDetail {
   exchange: string;
   market: Market;
   currency: Currency;
-  quote: Quote;
-  candles: Candle[];           // 일봉, 과거 → 최신, 최근 120개 (장중이면 마지막은 오늘 미완성 봉)
+  quote: Quote;                // 장마감 기준
+  candles: Candle[];           // 일봉, 과거 → 최신. 최근 120개 중 날짜가 기준일 이하인 완성 봉만 (장중에도 오늘 미완성 봉은 없다 — 구현: 2026-10-05 (Claude))
+  asOf: string | null;         // 마지막 봉(= quote의 종가 봉)의 정규장 종료 시각. 일봉이 없으면 null (구현: 2026-10-05 (Claude))
   warnings: string[];          // 매수 유의 (투자경고 등). 없으면 []
 }
 
 interface MarketStatus {
-  markets: { market: Market; isOpen: boolean; opensAt: string | null; closesAt: string | null }[];
+  markets: { market: Market; isOpen: boolean; opensAt: string | null; closesAt: string | null;
+             closeDate: string | null; lastCloseAt: string | null }[];   // closeDate·lastCloseAt: 구현: 2026-10-05 (Claude)
   // isOpen: 지금 정규장인지. opensAt: 다음(또는 오늘) 정규장 시작, closesAt: 지금 열려 있으면 오늘 종료 시각
+  // closeDate: 그 시장의 기준일 (공통 규칙 "장마감 기준"). lastCloseAt: 기준일의 정규장 종료 시각. 장 달력을 못 받으면 둘 다 null
+  //   (장 달력으로 계산한 값이다. 종목 가격의 정확한 기준 시각은 각 Quote.asOf — 실제 마지막 봉 날짜)
   halted: boolean;             // 새 모의 매수 중단 스위치
   brokerReady: boolean;        // 증권사 조회 키가 있는지 (없으면 시세·주문이 안 된다)
+  quoteProvider: string;       // 시세 출처 이름 (화면 아래 출처 줄): "토스증권 Open API(개발)" (BROKER=toss) | "키움증권 REST API" — 구현: 2026-10-05 (Claude)
 }
 
 type OrderStatus = "ENTRY_PENDING" | "EXIT_WATCHING" | "CLOSED" | "CANCELED";
 // ENTRY_PENDING 체결 대기 · EXIT_WATCHING 보유 중 · CLOSED 종료(매도 완료) · CANCELED 취소
+
+type HoldingStyle = "swing" | "long" | "day";   // 보유 방식 (구현: 2026-10-05 (Claude)). 아래 "주문 규칙"의 보유 방식
+// swing 스윙(목표·손절·기한으로 자동 매도) · long 장기 보유(자동 매도 없음) · day 단타 연습(그 세션 15:15 KST에 정리, "단타 연습" 절)
+
+type ExitReason = "TARGET" | "STOP" | "EXPIRED" | "MANUAL" | "EOD";   // 청산 사유. 뜻은 아래 "청산 사유" 표 (EOD: 구현: 2026-10-05 (Claude))
 
 interface Order {                // 매수 주문 하나 = 포지션 하나
   id: number;
@@ -116,33 +215,35 @@ interface Order {                // 매수 주문 하나 = 포지션 하나
   limitPrice: number | null;
   quantity: number;
   status: OrderStatus;
+  style: HoldingStyle;         // 보유 방식. 주문할 때 정해지고 바뀌지 않는다 — 구현: 2026-10-05 (Claude)
   entryPrice: number;          // 계획 진입가 (시장가는 주문 시점 가격)
   fillPrice: number | null; filledAt: string | null;
-  targetPrice: number | null; stopPrice: number | null; expireDate: string | null;
-  exitPrice: number | null; exitReason: "TARGET" | "STOP" | "EXPIRED" | "MANUAL" | null; closedAt: string | null;
+  targetPrice: number | null; stopPrice: number | null; expireDate: string | null;   // long이면 셋 다 null
+  exitPrice: number | null; exitReason: ExitReason | null; closedAt: string | null;
   pnlKrw: number | null;       // 실현 손익 (수수료·세금 포함)
-  note: string | null;         // 취소 사유 등
+  note: string | null;         // 취소 사유 등 (단타 주문이 15:15에 취소되면 "단타 진입 마감" — 구현: 2026-10-05 (Claude))
   createdAt: string;
 }
 
-interface Position {             // 보유 중(EXIT_WATCHING)인 주문의 평가
+interface Position {             // 보유 중(EXIT_WATCHING)인 주문의 평가 (장마감 기준)
   orderId: number;
   symbol: string; name: string; market: Market; currency: Currency;
+  style: HoldingStyle;         // 보유 방식 (화면의 스윙·장기·단타 배지) — 구현: 2026-10-05 (Claude)
   quantity: number;
   avgPrice: number;            // 매수 체결가
-  lastPrice: number | null;    // 현재가. 못 받으면 null (그때는 체결가로 평가)
+  lastPrice: number | null;    // 직전 정규장 종가. 못 받으면 null (그때는 체결가로 평가)
   costKrw: number;             // 매수 원금 (체결가 × 수량 × 체결 환율)
-  valueKrw: number;            // 평가 금액
+  valueKrw: number;            // 평가 금액 (종가 × 수량 × 환율)
   profitKrw: number;           // valueKrw - costKrw
   profitRate: number | null;
   targetPrice: number | null; stopPrice: number | null; expireDate: string | null;
   filledAt: string;
 }
 
-interface AccountSummary {       // My Page · 홈 자산 카드
+interface AccountSummary {       // My Page · 홈 자산 카드. 평가는 장마감 기준
   initialCapitalKrw: number;
   cashKrw: number;
-  holdingsValueKrw: number;    // 보유 평가액
+  holdingsValueKrw: number;    // 보유 평가액 (종가 기준)
   equityKrw: number;           // 총자산 = 현금 + 보유 평가액
   investedKrw: number;         // 투자금액 = 보유 종목 매수 원금 합계
   profitKrw: number;           // equityKrw - initialCapitalKrw
@@ -150,8 +251,10 @@ interface AccountSummary {       // My Page · 홈 자산 카드
   pendingKrw: number | null;   // 대기 매수 금액
   buyingPowerKrw: number | null; // 매수 가능액 = 현금 - 대기 매수 금액
   positions: Position[];
-  notes: string[];             // "현재가를 받지 못해 체결가로 평가: ..." 같은 안내
-  asOf: string;
+  notes: string[];             // "종가를 받지 못해 체결가로 평가: ..." 같은 안내
+  pricesAsOf: { KR?: string; US?: string };   // 평가에 쓴 종가의 기준 시각 (시장별, 보유가 있는 시장만. 없으면 {}) — 구현: 2026-10-05 (Claude)
+                               // 값 = 그 시장 보유 종목 종가 asOf 중 가장 늦은 것. 그 시장 종가를 하나도 받지 못했으면 그 시장은 빠진다 (체결가로 평가, notes에 사유)
+  asOf: string;                // 계산 시각 (응답을 만든 때. 가격 시각은 pricesAsOf)
 }
 
 interface Fill {
@@ -161,7 +264,7 @@ interface Fill {
   price: number; quantity: number; amount: number;
   commission: number; tax: number;
   cashChangeKrw: number;       // 현금 증감 (매수 음수)
-  reason: "ENTRY" | "TARGET" | "STOP" | "EXPIRED" | "MANUAL";
+  reason: "ENTRY" | ExitReason;   // 매수 체결은 ENTRY, 매도 체결은 청산 사유
   filledAt: string;
 }
 
@@ -172,6 +275,7 @@ interface Reservation {          // 정규장 밖 시장가 매수·매도 → �
   quantity: number;
   orderId: number | null;      // SELL이면 팔 주문(포지션)
   targetPrice: number | null; stopPrice: number | null; days: number | null;
+  style: HoldingStyle | null;  // BUY 예약의 보유 방식 = 예약을 받을 때 정한 값("swing" | "long"). 실행할 때 이 값으로 주문한다 (다시 추론하지 않는다). SELL이면 null — 구현: 2026-10-05 (Claude)
   runAt: string | null;        // 실행 예정 (다음 정규장 시작)
   createdAt: string;
 }
@@ -189,10 +293,11 @@ interface RankingEntry {
   isMe: boolean;
 }
 
-interface Ranking {
+interface Ranking {              // 수익률은 장마감 기준 평가 (AccountSummary.profitRate와 같은 계산)
   results: RankingEntry[];     // 내 정보 공개(isPublic)를 켠 사용자만
   me: { isPublic: boolean; rank: number | null; profitRate: number }; // 내가 비공개면 rank는 null
-  asOf: string;
+  pricesAsOf: { KR?: string; US?: string };   // 평가에 쓴 종가의 기준 시각 (시장별, 평가한 계좌(공개 사용자 + 나)가 보유한 시장만. 값은 AccountSummary와 같은 규칙) — 구현: 2026-10-05 (Claude)
+  asOf: string;                // 계산 시각
 }
 
 type Verdict = "BUY" | "PASS";   // BUY: 교차검증·리스크 엔진·최종 승인을 통과한 시나리오가 있음
@@ -215,7 +320,7 @@ interface AnalysisSummary {      // AI 분석 종목 대시보드의 카드
   symbol: string; name: string; market: Market; currency: Currency;
   analyzedAt: string;
   verdict: Verdict;
-  priceAtAnalysis: number | null; // 분석 시점 현재가
+  priceAtAnalysis: number | null; // 분석 시각의 가격 (엔진 스냅숏의 그때 가격, 장마감 기준이 아니다. 화면 "분석 시각 가격")
   best: Scenario | null;       // 대표 시나리오: 승인된 것 중 최고 점수, 없으면 전체 중 최고 점수. 시나리오가 없으면 null
   scenarioCount: number;
   requestedBy: string | null;  // 요청한 팀원의 닉네임 (로그인 아이디는 내지 않는다), 전략 실행이면 "strategy:<번호>", CLI면 "cli"
@@ -224,7 +329,12 @@ interface AnalysisSummary {      // AI 분석 종목 대시보드의 카드
 
 interface AnalysisDetail extends AnalysisSummary {
   scenarios: Scenario[];
-  news: string[];              // 뉴스 제목
+  news: string[];              // 뉴스 제목 (예전 형식. 그대로 둔다)
+  // 아래 셋: 2026-10-04 합의 (U12 약관 대응·장마감 기준)
+  newsItems: { title: string; source: string | null; publishedAt: string | null }[];   // 구현: 2026-10-05 (Claude)
+                               // 뉴스 제목 + 매체 이름 + 게시 시각(ISO), news와 같은 순서. 링크는 내지 않는다
+  newsProvider: string;        // 뉴스 출처 표기 "Google 뉴스 검색 결과" (화면이 뉴스 칸 아래에 적는다) — 구현: 2026-10-05 (Claude)
+  dataAsOf: string | null;     // 지표·일봉 자료의 기준일 YYYY-MM-DD = 엔진 스냅숏의 lastCandleDate. 없으면 null — 구현: 2026-10-05 (Claude)
   research: { researcher: string; findings: { claim: string; direction: string | null; date: string | null;
                                                sourceTitle: string | null }[] }[];
   indicators: Record<string, number | string | null>;   // 엔진 스냅샷의 지표 그대로
@@ -260,11 +370,22 @@ interface AnalysisQuota {
 | `POST /api/auth/logout` | – | `204` |
 | `GET /api/auth/me` | – | `200 Me` · `401` |
 | `PATCH /api/me/profile` | `{"isPublic"?: boolean, "nickname"?: string}` | `200 Me` · 닉네임은 2~12자(NFKC 정규화 후), 다른 사람의 닉네임·아이디와 겹치거나 보이지 않는 문자가 있으면 `400` |
-| `GET /api/me/investor-profile` | – | `200 InvestorProfile` (진단 전이면 `beginnerMode: true`, 나머지는 null) — (2026-10-04 합의, 컨셉 계획 B10 — 미구현, 담당 1) |
-| `PUT /api/me/investor-profile` | `{"answers": InvestorAnswers}` (`answers` 필수) | `200 InvestorProfile` — 진단 제출. 서버가 아래 점수표로 `experienceScore`·`experienceLevel`·`riskScore`·`riskProfile`·`recommendedBeginnerMode`를 계산해 저장한다 (다시 내면 덮어쓴다). **`beginnerMode`는 바꾸지 않는다** · 빠진 문항·모르는 키·모르는 값, `q2`가 비었거나 `deposit`이 다른 보기와 같이 오면 `400` — (2026-10-04 합의, 컨셉 계획 B10 — 미구현, 담당 1) |
-| `PATCH /api/me/investor-profile` | `{"beginnerMode": boolean}` | `200 InvestorProfile` — 주린이모드 스위치만 (진단 전에도 된다) · 불리언이 아니면 `400` — (2026-10-04 합의, 컨셉 계획 B10 — 미구현, 담당 1) |
+| `GET /api/me/investor-profile` | – | `200 InvestorProfile` (진단 전이면 `beginnerMode: true`, `answers`부터 `assessedAt`까지 일곱은 null) — (2026-10-04 합의, 컨셉 계획 B10 — 구현: 2026-10-05 (Claude)) |
+| `PUT /api/me/investor-profile` | `{"answers": InvestorAnswers}` (`answers` 필수) | `200 InvestorProfile` — 진단 제출. 서버가 아래 점수표로 `experienceScore`·`experienceLevel`·`riskScore`·`riskProfile`·`recommendedBeginnerMode`를 계산해 저장한다 (다시 내면 덮어쓴다). **`beginnerMode`는 바꾸지 않는다** · 빠진 문항·모르는 키·모르는 값, `q2`가 목록이 아니거나 비었거나 같은 값이 두 번 있거나("q2에 같은 답이 두 번 있습니다." — 2026-10-05 구현에서 더함) `deposit`이 다른 보기와 같이 오면, 본문에 `answers` 밖의 키가 있으면(`beginnerMode` 포함) `400` — (2026-10-04 합의, 컨셉 계획 B10 — 구현: 2026-10-05 (Claude)) |
+| `PATCH /api/me/investor-profile` | `{"beginnerMode": boolean}` | `200 InvestorProfile` — 주린이모드 스위치만 (진단 전에도 된다) · 빠졌거나(`{}`) 불리언이 아니거나 `beginnerMode` 밖의 키가 있으면 `400` — (2026-10-04 합의, 컨셉 계획 B10 — 구현: 2026-10-05 (Claude)) |
+| `GET /api/me/day-trading-quiz` | – | `200 DayQuiz` (정답·해설은 내지 않는다) — (2026-10-04 합의 — 구현: 2026-10-05 (Claude)) |
+| `POST /api/me/day-trading-quiz` | `{"answers": {"q1": 보기 id, …, "q5": 보기 id}}` (`answers` 필수, 다섯 문항 모두) | `200 DayQuizResult` · 빠진 문항·모르는 문항 키·그 문항에 없는 보기 id·모르는 키면 `400` — (2026-10-04 합의 — 구현: 2026-10-05 (Claude)) |
 
-#### 투자자 프로필과 주린이모드 (2026-10-04 합의, 컨셉 계획 B10 — 미구현, 담당 1)
+#### 단타 연습 퀴즈 (2026-10-04 합의 — 구현: 2026-10-05 (Claude))
+
+단타 연습장("단타 연습" 절)을 여는 조건 둘 중 하나다 (다른 하나는 주린이모드 끔). 결정은 `docs/DECISIONS.md` 14-4.
+
+- 5문항: 당일 청산 · 손절 · 비용(수수료·거래세) · VI(변동성 완화장치) · 모의 투자의 한계. 문항·보기·정답·해설은 **서버 코드에만** 둔다 (화면·가짜 API는 `GET` 응답만 쓴다).
+- **5문항을 모두 맞혀야 통과**한다. 몇 번이든 다시 풀 수 있다. 통과하면 `dayQuizPassedAt`을 그 시각으로 바꾸고, 틀리면 이전 통과 기록을 지우지 않는다.
+- `dayTradingUnlocked` = `beginnerMode`가 `false`이고 `dayQuizPassedAt`이 있음. 주린이모드를 다시 켜면 잠긴다 (퀴즈 기록은 남는다).
+  잠겨도 이미 진행 중인 단타 계획은 그대로 진행되고 그 세션 15:15에 정리된다.
+
+#### 투자자 프로필과 주린이모드 (2026-10-04 합의, 컨셉 계획 B10 — 구현: 2026-10-05 (Claude))
 
 마이 메뉴의 투자 성향·경험 진단(7문항)과 주린이모드 스위치. 원문은 `docs/투자서비스확장계획.md` 2장, 결정은 `docs/DECISIONS.md` 13-2(E-1·E-2).
 
@@ -297,18 +418,20 @@ interface AnalysisQuota {
 | `GET /api/market` | – | `200 MarketStatus` |
 | `GET /api/stocks/search?q=&limit=20` | `q`는 종목명 일부나 종목코드 | `200 {"results": StockItem[]}` (`q`가 비면 `[]`) |
 | `GET /api/stocks/{symbol}` | – | `200 StockDetail` · `404` |
-| `GET /api/quotes?symbols=005930,000660` | 쉼표 구분, 최대 50개 | `200 {"quotes": Quote[], "asOf": string}` (모르는 종목은 빠진다) |
+| `GET /api/quotes?symbols=005930,000660` | 쉼표 구분, 최대 50개 | `200 {"quotes": Quote[], "asOf": string}` (모르는 종목은 빠진다). 맨 위 `asOf`는 **응답 시각**이다 (가격의 기준 시각은 각 `Quote.asOf`) |
 | `GET /api/account` | – | `200 AccountSummary` |
-| `GET /api/account/equity?days=30` | – | `200 {"points": {"day": string, "equityKrw": number}[]}` (일별 자산, 과거 → 최신) |
+| `GET /api/account/equity?days=30` | – | `200 {"points": {"day": string, "equityKrw": number}[]}` (일별 자산, 과거 → 최신. 그날 기록은 **KR 기준일이 오늘이 된 뒤**(국내 거래일 15:40 KST = 정규장 종료 15:30 + 10분 이후) 하루 한 번 남긴다 — 국내 보유는 그날 종가, 미국 보유는 그때의 최신 미국 종가(장마감 기준, `AccountSummary.pricesAsOf.US`와 같은 값 — 15:40 KST에는 그날 새벽에 끝난 뉴욕 정규장의 종가)로 평가한다. 구현: 2026-10-05 (Claude). 그 전 기록은 기록한 때의 가격) |
 | `GET /api/orders?status=active\|all` | 기본 `active`(대기·보유), 페이지 | `200 {"count", "results": Order[]}` (최신순) |
-| `POST /api/orders` | `{"symbol", "quantity", "orderType": "MARKET"\|"LIMIT", "limitPrice"?, "targetPrice"?, "stopPrice"?, "days"?}` | `201 OrderResult` · 거절 `400` |
-| `PATCH /api/orders/{id}` | `{"targetPrice"?, "stopPrice"?, "days"?}` | `200 Order` |
+| `POST /api/orders` | `{"symbol", "quantity", "orderType": "MARKET"\|"LIMIT", "limitPrice"?, "targetPrice"?, "stopPrice"?, "days"?, "style"?: "swing"\|"long"}` | `201 OrderResult` · 거절 `400 {"detail"}`. `long` 매수가 비중 점검(`assess_position`)에서 막히면 `400 {"detail", "reasonCodes": string[]}` (`Response`를 직접 돌려준다). `style` 규칙은 아래 "보유 방식" (구현: 2026-10-05 (Claude)) |
+| `PATCH /api/orders/{id}` | `{"targetPrice"?, "stopPrice"?, "days"?}` | `200 Order` · `long` 주문에 셋 중 하나라도 주면 `400` · `day` 주문은 `days`를 주면 `400`(단타 주문에는 보유 기한이 없다), `targetPrice`·`stopPrice`를 주면 `400 {"detail": "단타 계획에서 바꿔요"}` — 단타 주문은 이 경로로 바꾸지 않는다 (구현: 2026-10-05 (Claude)) |
 | `POST /api/orders/{id}/sell` | – (보유 전량 매도. 대기 주문이면 취소) | `200 OrderResult` |
 | `POST /api/orders/{id}/cancel` | – (체결 대기 주문만) | `200 Order` |
 | `GET /api/fills` | 페이지 | `200 {"count", "results": Fill[]}` (최신순) |
 | `GET /api/reservations` | – | `200 {"results": Reservation[]}` |
 | `DELETE /api/reservations/{id}` | – | `204` |
 | `GET /api/ranking` | – | `200 Ranking` |
+
+종목 경로의 `GET /api/stocks/{symbol}/fundamentals`는 "장기투자" 절, `GET /api/stocks/{symbol}/minute-candles`는 "단타 연습" 절에 있다.
 
 주문 규칙 (엔진 `PaperExecutor` 그대로, `docs/DECISIONS.md` 4-2):
 - 매수 주문 하나가 포지션 하나다. **같은 종목은 포지션 하나만** (진행 중 주문이 있으면 거절), **매도는 전량**이다.
@@ -322,12 +445,49 @@ interface AnalysisQuota {
 - 예약 실행이 증권사 조회 실패 같은 일시 오류로 안 되면 정규장 시작 뒤 10분 동안 다시 시도하고, 그래도 안 되거나 주문이 거절되면
   예약을 지운다 (사유는 `run_engine` 콘솔에 남는다).
 - 남의 주문·예약은 `404`.
+- 화면의 시장가 매수 추정 금액·최대 수량은 **직전 장마감 종가 기준**이고 실제 체결은 주문 시점(장중) 확인 가격이다. 화면에
+  "직전 장마감 가격 기준 추정이에요. 시장가는 주문 시점 가격으로 체결돼요"를 적는다 (API 변화 없음).
+- `PATCH /api/orders/{id}`의 "손절가 < 현재가 < 목표가" 검사는 **`PATCH`를 받은 때의 현재가**(`market.last_price`, 장중이면 장중 가격)로 한다 (주문을 낸 때의 가격이 아니다).
+  그래서 화면의 종가로는 맞아 보여도 `400`이 날 수 있다. 그 `400` 문장에는 현재가 숫자를 넣지 않는다 (공통 규칙 "장중 가격 숫자는 문장에 넣지 않는다").
+
+**보유 방식 `style`** (2026-10-04 결정 — 구현: 2026-10-05 (Claude), `docs/DECISIONS.md` 14-3):
+- `POST /api/orders`의 `style`은 `"swing"`·`"long"`만 받는다. `"day"`나 모르는 값은 `400` (단타 주문은 `POST /api/day/plans`로만 생긴다).
+  `style`이 없으면 `targetPrice`·`stopPrice`·`days`가 모두 없을 때 `long`, 하나라도 있으면 `swing`이다.
+- **`swing`은 `targetPrice`와 `stopPrice`가 둘 다 있어야 한다** (2026-10-05 확정). `style: "swing"`을 주고 둘 중 하나라도 없으면 `400`,
+  `style` 없이 `days`만 주면(→ `swing`) 역시 `400`이다 — 스윙의 자동 매도는 목표·손절이 기준이고, 기한만 있는 주문은 만들지 않는다. `days`는 선택이다.
+- `long`(장기 보유)이면 `targetPrice`·`stopPrice`·`days`를 받지 않는다 (주면 `400`). **자동 매도가 없다** (보유 기한도 없다 — 사용자가 팔 때까지 보유).
+- `long` 매수는 손절 기반 수량 계산 대신 리스크 엔진의 비중 점검(`assess_position(price, quantity, account, limits) -> (ok, reasons, codes)`:
+  매수 가능 금액 · 종목당 비중 한도 100% · 총 금액 한도 `MAX_TOTAL_INVEST_KRW`)을 통과해야 한다. `price`는 지정가 주문이면 지정가, 시장가면 직전 종가(장마감 기준 — 화면 추정과 같은 값),
+  자산은 장마감 기준 평가다. 막히면 `400 {"detail": 사유들을 "; "로 이은 것, "reasonCodes"}` — 코드는 `cash_short`·`position_limit`·`total_limit` ("실행 불가 사유 코드" 표).
+  이 점검을 통과한 뒤 실제 접수(엔진 `buy_blockers`, 장중 가격)에서 막히면 다른 주문처럼 `400 {"detail"}`이다. 수량은 사용자가 정한다 (점검이 줄이지 않는다).
+  시장가 `long` 매수인데 직전 종가를 받지 못하면 점검 전에 `400 {"detail": "확인된 가격이 없어 주문하지 않음"}`(`reasonCodes` 없음)이다. 매수 금액이 자산보다 크면 `cash_short`와 `position_limit`이 같이 나올 수 있다 (2026-10-05 구현).
+- `style`은 주문 뒤에 바뀌지 않는다. `long` 주문에 `PATCH`로 `targetPrice`·`stopPrice`·`days`를 주면 `400`.
+  `day` 주문에 `PATCH`로 `days`를 주면 `400`(보유 기한이 없다), `targetPrice`·`stopPrice`를 주면 `400 {"detail": "단타 계획에서 바꿔요"}` — 단타 주문의 목표·손절은 단타 계획의 값이다 (이 경로로 바꾸지 않는다).
+- 정규장 밖 시장가 매수의 예약은 **예약을 받을 때** 위 규칙으로 `style`을 정해 `Reservation.style`에 저장하고(`long` 비중 점검도 그때 한다), 실행할 때는 **저장한 `style`로** 주문한다 (다시 추론하지 않는다). 매도 예약의 `style`은 `null`이다.
+- 2026-10-04 전에 만든 주문은 목표·손절·기한이 모두 없으면 `long`, 아니면 `swing`으로 바꿔 둔다 (마이그레이션. 기존 매수 예약의 `Reservation.style`도 같은 규칙으로 채운다).
+  **기존 주문 예외** (2026-10-05): 목표·손절이 다 갖춰지지 않은 기존 주문(기한만·목표만·손절만 있는 것)도 `swing`으로 두고, 있는 값대로만 자동 매도한다 (기한만이면 기한 매도만).
+  배지는 다른 스윙 주문과 같이 "스윙"이고 없는 목표·손절은 비워 보인다. `PATCH`는 이런 주문에 지금처럼 준 값만 더하거나 바꾸고, 둘 다 있으라고 요구하지 않는다.
+  새 주문·새 예약에는 이 모양을 허용하지 않는다 (위의 "`swing`은 둘 다" 규칙).
+- `day`는 단타 계획이 낸 주문이다. 주문의 세션 = 접수 시각(`createdAt`)의 KST 날짜이고 (단타 주문은 국내 거래일 15:15 전에만 접수된다), 그 세션 15:15 KST에 정리된다
+  (아래 "청산 사유"의 `EOD`, "단타 연습" 절). `trading.service.buy(style="day")`는 국내 종목만, 국내 거래일(장 달력 — 받지 못하면 주말만 거른다) 15:15 KST 전에만 받고, 정규장 밖 시장가 예약은 하지 않는다 (지정가만 — 단타 계획은 늘 지정가다).
+
+**청산 사유** (`ExitReason` — `Order.exitReason`, `Fill.reason`, `TradePlan.exitReason`, `closed` 사건의 `details.exitReason`, 단타 복기에 같은 값):
+
+| 값 | 화면 | 언제 |
+|---|---|---|
+| `TARGET` | 목표가 도달 | 확인 가격이 목표가 이상인 것을 2회 연속 확인 |
+| `STOP` | 손절가 도달 | 확인 가격이 손절가 이하인 것을 2회 연속 확인 |
+| `EXPIRED` | 보유 기한 경과 | `expireDate`가 지난 뒤 첫 정규장 확인 |
+| `MANUAL` | 사용자 매도 | 사용자의 전량 매도 (계획 중단의 매도 포함) |
+| `EOD` | 장 마감 전 정리 | 단타(`style: "day"`) 보유를 그 세션 15:15 KST 이후 첫 확인에서 **2회 확인 없이 바로** 매도. 장이 닫혀 놓쳤으면 다음 정규장 첫 확인에서 같은 방식으로 (구현: 2026-10-05 (Claude)) |
+
+값은 8자 이하다 (DB 열 길이). 화면은 모르는 값이면 그대로 보인다.
 
 ### AI 분석 (`backend/analysis`)
 
 | 메서드·경로 | 요청 | 응답 |
 |---|---|---|
-| `GET /api/analyses?symbol=&verdict=` | 페이지, 둘 다 선택 | `200 {"count", "results": AnalysisSummary[]}` (최신순, 팀 전체 공용) |
+| `GET /api/analyses?symbol=&verdict=&mine=` | 페이지, 셋 다 선택. `mine=1`(또는 `true`)이면 내가 요청한 분석만 (요청자 아이디가 나인 것 — 전략·CLI 실행은 빠진다. 응답의 `requestedBy`는 그대로 닉네임. 구현: 2026-10-05 (Claude)) | `200 {"count", "results": AnalysisSummary[]}` (최신순, 팀 전체 공용) |
 | `GET /api/analyses/{id}` | – | `200 AnalysisDetail` · `404` |
 | `GET /api/analyses/quota` | – | `200 AnalysisQuota` |
 | `POST /api/analyses` | `{"symbol"}` | `202 {"jobId": number}` · 한도 초과 `429` · AI 키 없음 `503` |
@@ -335,7 +495,9 @@ interface AnalysisQuota {
 
 - 분석은 몇 분 걸린다. 프론트는 `POST` 뒤 `GET /api/jobs/{id}`를 5초 간격으로 확인하고, `DONE`이면 `result.analysisIds[0]`로 간다.
 - 한도(팀원별 하루 횟수, 전체 하루 횟수)는 **엔진이 실제로 시작한 작업을 실패해도 센다** (실패는 대부분 AI 비용을 쓴 뒤에 난다).
-- 분석 결과는 팀 전체가 같이 본다 (요청자 표시). 현재가·등락률은 프론트가 `/api/quotes`로 따로 받는다.
+- 분석 결과는 팀 전체가 같이 본다 (요청자 표시). 지금 종가·등락률은 프론트가 `/api/quotes`로 따로 받는다 (장마감 기준).
+- 분석 상세의 가격은 `priceAtAnalysis`(분석 시각 가격)이고, 지표·일봉의 기준일은 `dataAsOf`다. 뉴스는 `newsItems`(제목·매체·시각)와 출처 표기 `newsProvider`로 보인다.
+- 리포트 탭의 "교차검증 분석" 묶음과 종목 상세의 보조 버튼 "AI 교차검증 분석"이 이 API를 쓴다 (`docs/DECISIONS.md` 13-1 D-1).
 
 ---
 
@@ -447,8 +609,9 @@ interface ReportSummary {
   costUsd: number | null;       // (추가) LLM 비용 (끝나기 전엔 지금까지의 합)
   hasPdf: boolean;              // (추가) GET /api/reports/{id}/pdf 가 되는지
   opinion: "buy" | "hold" | "avoid" | null;   // AI 의견 = results.report_agent.verdict. status가 completed일 때만, 그 밖은 null
-                                              // (2026-10-04 합의, 컨셉 계획 B3 — 미구현, 담당 4)
-  oneLiner: string | null;      // 한 줄 요약 = results.report_agent.oneLiner (80자). opinion과 같은 규칙 (2026-10-04 합의, 컨셉 계획 B3 — 미구현, 담당 4)
+                                              // (2026-10-04 합의, 컨셉 계획 B3 — 구현: 2026-10-05 (Claude). 2026-10-05: 담당 4 대신 Claude가 `payloads.summary`에 넣는다 — docs/DECISIONS.md 14-2)
+  oneLiner: string | null;      // 한 줄 요약 = results.report_agent.oneLiner (80자). opinion과 같은 규칙 (2026-10-04 합의, 컨셉 계획 B3 — 구현: 2026-10-05 (Claude))
+                                // 서버는 앞뒤 공백을 지우고 80자로 자른다. 모르는 verdict, 문자열이 아니거나 빈 oneLiner, results 모양이 틀리면 그 필드는 null
   createdAt: string; startedAt: string | null; finishedAt: string | null;
 }
 
@@ -473,6 +636,13 @@ interface ScreeningResult {       // (추가) 자동 리포트의 그날 선별 
   recommendationIds: number[];          // 그날 만든 자동 추천 (AUTO_RECOMMEND=demo — 아래 "AI 추천" 절)
 }
 
+interface ReportQuota {           // GET /api/reports/quota — 하루 리포트 한도 (D-7, 2026-10-04 합의 — 구현: 2026-10-05 (Claude))
+  limit: number;                // 팀원별 하루 한도 AI_DAILY_REPORTS_PER_USER (기본 3)
+  used: number;                 // 오늘(KST) 내가 신청한 리포트 중 한도에 세는 수 (장애 주입 없이 failed로 끝난 것은 빼고 — 아래 규칙)
+  remaining: number;            // max(limit − used, 0). 0이면 POST /api/reports가 429
+  resetsAt: string;             // 한도가 다시 차는 시각 = 다음 날 00:00 KST
+}
+
 interface ReportDetail extends ReportSummary {   // Snapshot
   content: string | null;       // 리포트 본문 (Markdown). Agent 구현 전에는 null
   state: SharedState;
@@ -489,11 +659,12 @@ interface ReportDetail extends ReportSummary {   // Snapshot
 |---|---|---|
 | `GET /api/reports/plan` | – | `200 ExecutionPlan` (YAML Registry에서 읽은 실행 계획) |
 | `GET /api/reports?symbol=` | 페이지, `symbol` 선택 | `200 {"count", "results": ReportSummary[]}` (팀 전체 공용, 최신순) |
-| `POST /api/reports` | `{"symbol", "chaos"?: {"enabled", "probability"?, "errorTypes"?, "workers"?, "scope"?, "seed"?}}` | `201 ReportDetail` · 같은 사람이 같은 종목으로 신청해 아직 끝나지 않은 리포트가 있으면 그것을 `200`으로 · 없는 종목·잘못된 `chaos` `400` · (추가) 하루 한도 초과 `429 {"detail", "limit", "used"}` · (추가) AI 설정 없음 `503` · 증권사 조회 불가 `503` |
-| `GET /api/reports?symbol=&source=&mine=` | 페이지, `symbol`·`source`(`user`\|`auto`)·`mine`(`1`이면 내가 신청한 것만) 선택, 같이 쓸 수 있다 | (추가 `source`) · `mine=1` (2026-10-04 합의, 컨셉 계획 B8 — 미구현, 담당 1: `ReportsView.get` 한 줄. 자동 리포트는 신청자가 없어 빠진다) |
+| `POST /api/reports` | `{"symbol", "chaos"?: {"enabled", "probability"?, "errorTypes"?, "workers"?, "scope"?, "seed"?}}` | `201 ReportDetail` · 같은 사람이 같은 종목으로 신청해 아직 끝나지 않은 리포트가 있으면 그것을 `200`으로 (한도를 넘었어도 돌려준다) · 없는 종목·잘못된 `chaos` `400` · 하루 한도 초과 `429 {"detail": string, "limit": number, "used": number}` (`detail` 예: "오늘 리포트 한도(3개)를 다 썼어요. 내일 0시에 다시 만들 수 있어요." — D-7, 구현: 2026-10-05 (Claude)) · (추가) AI 설정 없음 `503` · 증권사 조회 불가 `503` |
+| `GET /api/reports/quota` | – | `200 ReportQuota` (D-7 — 구현: 2026-10-05 (Claude)) |
+| `GET /api/reports?symbol=&source=&mine=` | 페이지, `symbol`·`source`(`user`\|`auto`)·`mine`(`1`이면 내가 신청한 것만) 선택, 같이 쓸 수 있다 | (추가 `source`) · `mine=1` (2026-10-04 합의, 컨셉 계획 B8 — 구현: 2026-10-05 (Claude): `ReportsView.get` 한 줄. 자동 리포트는 신청자가 없어 빠진다) |
 | `GET /api/reports/{id}` | – | `200 ReportDetail` · `404` (**Snapshot API**: 새로고침·연결 복구에 쓴다) |
 | `GET /api/reports/{id}/events` | 헤더 `Last-Event-ID` 또는 `?after=<step>` | `200 text/event-stream` (**SSE**) · 미로그인 `401` JSON · `404` |
-| `GET /api/reports/{id}/pdf` | – | `200 application/pdf` (A4. 처음 부르면 만들어 `PAPER_ROOT/reports/<id>.pdf`에 저장하고 다음부터 그 파일. `pdf_path` 열이 생기면 그 열로) · 완성 전 `409 {"detail"}` · `404` · Chrome이 없으면 `200 text/html`(같은 내용) — 2026-10-04 구현 |
+| `GET /api/reports/{id}/pdf` | – | `200 application/pdf` (A4. 처음 부르면 만들어 `PAPER_ROOT/reports/<id>.v<양식 판>.pdf`(Chrome이 없으면 `.html`)에 저장하고 다음부터 그 파일. `pdf_path` 열이 생기면 그 열로. 2026-10-05 구현: 양식 판 `TEMPLATE_VERSION`(`backend/reports/pdf.py`, 지금 2 — 쉬운 요약·장마감 기준)을 파일 이름에 넣어, 양식이 바뀌면 판 번호 없는 예전 `<id>.pdf`(1판)·이전 판 파일을 쓰지 않고 새로 만든 뒤 지운다) · 완성 전 `409 {"detail"}` · `404` · Chrome이 없으면 `200 text/html`(같은 내용) — 2026-10-04 구현 |
 | (추가) `GET /api/reports/recovery-stats?days=7` | `days` 1~90, 기본 7 | `200 RecoveryStats` |
 | `GET /api/reports/screening?market=KR&date=` | `date` 기본 오늘(KST) | `200 ScreeningResult` · 그날 선별이 없으면 `404` · 잘못된 `market`·`date` `400` — 2026-10-04 구현 (`reports/auto.py`가 남긴 파일을 읽는다) |
 
@@ -505,15 +676,22 @@ SSE 형식 (실행 Event를 발생 즉시 한 방향으로 전달):
 - **SSE가 실행 상태의 유일한 저장소가 되면 안 된다.** 상태와 Trace는 DB에 있고, 프론트는 먼저 Snapshot을 받은 뒤 SSE로 이어 받는다.
   SSE가 끊기거나 안 되면 Snapshot을 3초 간격으로 다시 받는다 (폴링). `plan.implemented`가 false이고 status가 `requested`면 SSE를 열지 않는다.
 
-목록 카드의 결론과 매매 계획 연결 (2026-10-04 합의, 컨셉 계획 B3·B8 — 미구현):
-- `opinion`·`oneLiner`는 `status`가 `completed`일 때만 `state.results.report_agent`의 `verdict`·`oneLiner`를 그대로 낸다 (담당 4, `payloads.summary`).
+목록 카드의 결론과 매매 계획 연결 (2026-10-04 합의, 컨셉 계획 B3·B8 — 구현: 2026-10-05 (Claude): B3 `payloads.summary`의 두 필드와 B8 `?mine=1` 모두 Claude. 2026-10-05 바뀜 — B3는 원래 담당 4의 T4-1이었다):
+- `opinion`·`oneLiner`는 `status`가 `completed`일 때만 `state.results.report_agent`의 `verdict`·`oneLiner`를 그대로 낸다 (`payloads.summary`).
   대기·실행 중·실패면 `null`이다 — 실행 중의 `report_agent` 결과는 검토 전이거나 RETRY로 다시 쓰이는 중이고, 실패한 리포트의 초안은 검토를 통과하지 않았다.
   `ReportDetail`은 `ReportSummary`를 이어받으므로 상세에도 같은 값이 있다. 쉬운 요약(B1)은 `state.results.report_agent.plainSummary`로 읽는다.
 - 리포트와 매매 계획(추천)의 연결은 리포트 API에 넣지 않는다 (reports → autotrade 역방향 의존을 만들지 않는다). 프론트가 추천 API로 맞춘다:
   목록은 `GET /api/recommendations?source=report&status=open&limit=100` 한 번으로 받아 `sourceId`(= 리포트 id)로 카드에 붙이고,
   상세(매매 계획 카드)는 `GET /api/recommendations?source=report&sourceId={리포트 id}&status=all`로 받는다 (기한이 지난 추천까지 와야 "기한 지남" 상태를 보인다).
   두 쿼리는 지금 서버가 된다 (2026-10-04 `autotrade/views.py`로 확인. 페이지 상한은 100).
-- 하루 리포트 한도(`429`, 담당 2의 T2-9)는 **장애 주입 없이 `failed`로 끝난 리포트를 세지 않는다** (`docs/DECISIONS.md` 13-1 D-7 — 미구현, 담당 2). 장애 주입을 켠 리포트는 실패해도 센다.
+
+하루 리포트 한도 (2026-10-04 합의, D-7 — 구현: 2026-10-05 (Claude), `backend/reports/quota.py`, `docs/DECISIONS.md` 14-6):
+- 팀원마다 오늘(KST) 한도에 세는 리포트 수가 `AI_DAILY_REPORTS_PER_USER`(기본 3)에 닿으면 `POST /api/reports`가 새 리포트를 만들지 않고 `429 {"detail", "limit", "used"}`를 돌려준다.
+- 세는 것: 오늘 내가 신청한 리포트에서 **장애 주입 없이 `failed`로 끝난 것을 뺀** 수. 장애 주입을 켠 리포트는 실패해도 센다.
+  `chaos` 열이 생기기 전에는 장애 주입 여부를 알 수 없으므로 failed는 모두 빼고 센다 (열이 생기면 `chaos.enabled`가 참인 failed만 센다).
+- 같은 종목의 진행 중 리포트를 돌려주는 `200` 경로는 새로 세지 않는다. 자동 리포트(`source: "auto"`)는 신청자가 없어 세지 않는다.
+- 비용 합산 한도(분석 + 리포트 $, `AI_DAILY_BUDGET_USD`)는 `cost_usd` 열이 생긴 뒤 팀원(2) 몫이다 — 팀 파일 `backend/reports/budget.py`의 `check(now)`를 `ReportsView.post`에서 횟수 한도 바로 뒤에 부른다
+  (넘으면 `429`, 본문 형식은 2가 이 절에 적는다). `quota.py`(횟수, Claude)와 파일을 나눈다 (`docs/tasks/00-공통.md` 2절).
 
 ---
 
@@ -525,27 +703,34 @@ SSE 형식 (실행 Event를 발생 즉시 한 방향으로 전달):
 
 - **AI는 제안만 한다.** 수량·한도·활성화 가능 여부·체결은 결정론적 코드(엔진 리스크 엔진 `judge/risk.py`, 모의 체결기)가 정한다.
   최소 손익비 기준(2.0)은 AI 프롬프트에 넣지 않는다 (리스크 엔진이 거른다).
-- 추천의 출처는 셋이다: `report`(AI 리포트 Agent 워크플로우의 `report_agent` 결과 — 담당 2·3·4가 구현), `analysis`(지금 있는 AI 교차검증 분석의
-  BUY 판정), `demo`(**시연용 규칙 추천, AI 아님** — 일봉 ATR로 목표·손절을 정한다. 화면에 "시연용"을 표시한다).
+- 추천의 출처는 넷이다: `report`(AI 리포트 Agent 워크플로우의 `report_agent` 결과 — 추천 워크플로우 팀이 구현), `analysis`(지금 있는 AI 교차검증 분석의
+  BUY 판정), `demo`(**시연용 규칙 추천, AI 아님** — 일봉 ATR로 목표·손절을 정한다. 화면에 "연습용 예시 계획 (AI 아님)"을 표시한다),
+  `day`(**단타 연습장에서 사용자가 직접 입력한 단타 계획, AI 아님** — "단타 연습" 절. 구현: 2026-10-05 (Claude)).
 - 추천은 팀 전체가 같이 보고, **활성화는 팀원마다 자기 모의 계좌에** 한다 (같은 추천을 여러 명이 각자 활성화할 수 있다).
+  단, `day` 추천은 만든 사람 혼자 쓰는 계획의 껍데기다: 목록(`GET /api/recommendations`)에는 `source=day`를 줄 때만, 그리고 내 것만 나온다.
+  남의 `day` 추천은 `404`이고, `day` 추천은 미리 보기·활성화 경로로 활성화하지 않는다 (만들 때 이미 활성화된다. `activate`는 `400`). 추천 알림(`recommendation`)도 보내지 않는다.
+- 가격은 장마감 기준이다 (공통 규칙): 미리 보기의 `lastPrice`·금액·자산, `priceAtCreation`(모든 출처 — `from_analysis`도 분석 시각 가격이 아니라 만들 때의 종가), 시연 추천의 진입가·일봉. 진입 체결 이후의 진행(체결 확인·재주문·청산)은 장중 확인 가격이다.
 
 ## 타입
 
 ```ts
-type RecommendationSource = "report" | "analysis" | "demo";
+type RecommendationSource = "report" | "analysis" | "demo" | "day";   // day: 구현: 2026-10-05 (Claude)
 type RecommendationStatus = "open" | "expired";   // open: validUntil 전이라 활성화할 수 있음
+type PlanHorizon = "SWING" | "DAY";   // 계획의 보유 기간 종류 (구현: 2026-10-05 (Claude)). DAY는 "단타 연습" 절의 단타 계획만
 
 interface Recommendation {
   id: number;
   source: RecommendationSource;
-  sourceId: number | null;        // report면 리포트 id, analysis면 분석 id, demo면 null
-  requestedBy: string | null;     // 리포트·분석을 신청한(또는 시연 추천을 만든) 팀원의 닉네임. 자동이면 null
+  sourceId: number | null;        // report면 리포트 id, analysis면 분석 id, demo·day면 null
+  requestedBy: string | null;     // 리포트·분석을 신청한(또는 시연·단타 추천을 만든) 팀원의 닉네임. 자동이면 null
   symbol: string; name: string; market: Market; currency: Currency;
-  priceAtCreation: number | null; // 추천을 만들 때의 가격
-  entryPrice: number;             // AI가 제안한 진입가 (지정가로 주문한다)
+  horizon: PlanHorizon;           // SWING(기본) | DAY (source가 day일 때만) — 구현: 2026-10-05 (Claude)
+  priceAtCreation: number | null; // 추천을 만들 때의 직전 장마감 종가 (장마감 기준 — 구현: 2026-10-05 (Claude)). 출처와 무관하게 같다: analysis 추천(`from_analysis`)도
+                                  // 분석 시각 가격(`priceAtAnalysis`)이 아니라 추천을 만들 때의 종가. 2026-10-04 전에 만든 추천은 그때 장중 가격(analysis는 분석 시각 가격)
+  entryPrice: number;             // AI가 제안한 진입가 (지정가로 주문한다). day는 사용자가 입력한 값
   targetPrice: number;            // 목표가
   stopPrice: number;              // 손절가. 0 < stopPrice < entryPrice < targetPrice
-  holdingDays: number;            // 보유 기간 (거래일, 1~20)
+  holdingDays: number;            // 보유 기간 (거래일, 1~20). DAY는 1
   targetReturn: number;           // 목표가 도달 시 수익률 = targetPrice / entryPrice - 1 (비용 전)
   stopLossRate: number;           // 손절 시 손실률 = stopPrice / entryPrice - 1 (음수, 비용 전)
   rewardRisk: number;             // 손익비 (수수료·세금·손절 미끄러짐 반영. 리스크 엔진과 같은 계산)
@@ -558,25 +743,27 @@ interface Recommendation {
   risks: string[];                // 리스크 (최대 3)
   riskLevel: "low" | "medium" | "high" | null;   // 리스크 점검 Agent 결과 (없으면 null)
   status: RecommendationStatus;
-  validUntil: string;             // 이 시각까지 활성화할 수 있고, 계획의 진입 기한도 이 시각이다
+  validUntil: string;             // 이 시각까지 활성화할 수 있고, 계획의 진입 기한도 이 시각이다. DAY는 만든 날(= 세션) 15:15 KST
   createdAt: string;
   myPlan: { id: number; status: TradePlanStatus } | null;   // 내가 활성화한 계획 (진행 중인 것, 없으면 가장 최근 것)
   planCount: number;              // 이 추천으로 활성화한 계획 수 (팀 전체)
 }
 
-interface RiskPreview {           // 리스크 엔진이 "내 계좌"로 계산한 결과 (활성화 전 확인용)
+interface RiskPreview {           // 리스크 엔진이 "내 계좌"로 계산한 결과 (활성화 전 확인용). 가격·자산은 장마감 기준
   approved: boolean;              // 리스크 엔진 통과
   activatable: boolean;           // approved && 추천이 open && 같은 종목의 진행 중 계획·주문 없음 && 중단 스위치 꺼짐
   reasons: string[];              // 활성화할 수 없는 사유 (activatable이면 [])
   reasonCodes: string[];          // reasons[i]의 사유 코드 = reasonCodes[i] (같은 길이·같은 순서). 코드 표는 아래 "실행 불가 사유 코드"
-                                  // (2026-10-04 합의, 컨셉 계획 B4 — 미구현, 담당 1)
+                                  // (2026-10-04 합의, 컨셉 계획 B4 — 구현: 2026-10-05 (Claude))
   quantity: number;               // 주문할 수량 (국내는 정수 주)
   amountKrw: number;              // 매수 금액 (원화 환산)
   expectedProfitKrw: number;      // 목표가 도달 시 이익 (비용 반영)
   maxLossKrw: number;             // 손절 시 손실 (비용 반영, 양수)
   limitedBy: string;              // 수량을 정한 제약: "건당 위험 한도" | "매수 가능 금액" | "총 금액 한도" | "유동성 한도" | "예산"
   budgetKrw: number | null;       // 요청한 예산 (없으면 null)
-  lastPrice: number | null;       // 지금 가격 (못 받으면 null)
+  lastPrice: number | null;       // 직전 정규장 종가 (못 받으면 null). 목표가·손절가와 비교하는 가격 (price_passed)
+  lastPriceAsOf: string | null;   // lastPrice의 기준 시각 (Quote.asOf와 같은 규칙. lastPrice가 null이면 null) — 구현: 2026-10-05 (Claude)
+  priceBasis: "close";            // 가격 기준. 지금은 "close" 하나뿐 (수량·금액·총자산 모두 종가로 계산) — 구현: 2026-10-05 (Claude)
 }
 
 type TradePlanStatus = "active" | "entry_pending" | "holding" | "closed" | "cancelled" | "expired" | "failed";
@@ -589,15 +776,16 @@ interface TradePlan {
   recommendationId: number;
   symbol: string; name: string; market: Market; currency: Currency;
   source: RecommendationSource;
+  horizon: PlanHorizon;           // 추천에서 복사. DAY면 진입 주문이 style "day"이고 보유 기한 없이 그 세션 15:15에 정리된다 — 구현: 2026-10-05 (Claude)
   status: TradePlanStatus;
   via: "web" | "discord";         // 어디서 활성화했나 (Discord 링크의 token으로 판단)
   quantity: number;
   budgetKrw: number | null;
   entryPrice: number; targetPrice: number; stopPrice: number; holdingDays: number;   // 활성화 때 추천에서 복사
-  entryDeadline: string;          // 진입 기한 (= 추천의 validUntil)
+  entryDeadline: string;          // 진입 기한 (= 추천의 validUntil. DAY는 만든 날(= 세션) 15:15 KST)
   orderId: number | null;         // 지금 연결된 모의 주문 (Order). 재주문하면 바뀐다
   fillPrice: number | null; filledAt: string | null;
-  exitPrice: number | null; exitReason: "TARGET" | "STOP" | "EXPIRED" | "MANUAL" | null; closedAt: string | null;
+  exitPrice: number | null; exitReason: ExitReason | null; closedAt: string | null;   // ExitReason은 "모의 트레이딩" 절 (EOD는 DAY만)
   pnlKrw: number | null;          // 실현 손익 (청산 뒤)
   failureReason: string | null;   // failed·expired·cancelled의 사유 (사람이 읽는 말)
   activatedAt: string;
@@ -605,7 +793,7 @@ interface TradePlan {
 }
 
 type PlanEventKind =
-  | "activated"        // 사용자가 활성화 (details: {via, budgetKrw}. 2026-10-04 합의 B5 — 미구현, 담당 1: + acknowledged)
+  | "activated"        // 사용자가 활성화 (details: {via, budgetKrw, acknowledged}. acknowledged는 2026-10-04 합의 B5 — 구현: 2026-10-05 (Claude))
   | "risk_checked"     // 리스크 엔진 점검 (details: {approved, quantity, limitedBy, rewardRisk, reasons})
   | "order_placed"     // 진입 지정가 주문 접수 (details: {orderId, limitPrice, quantity})
   | "order_requeued"   // 지정가가 그날 체결되지 않아 다음 정규장에 다시 주문 (details: {orderId, previousOrderId}, 수량이 줄었으면 + {quantity, previousQuantity})
@@ -613,8 +801,10 @@ type PlanEventKind =
   | "exit_requested"   // 사용자가 보유 중 계획을 중단 → 전량 매도 요청·예약 (details: {orderId, reservationId})
   | "closed"           // 청산 (details: {orderId, exitReason, exitPrice, pnlKrw})
   | "cancelled"        // 중단 (details: {reason})
-  | "expired"          // 진입 기한 지남 (details: {orderId})
-  | "failed";          // 주문할 수 없음 (details: {reason})
+  | "expired"          // 진입 기한 지남 (details: {reason, orderId})
+  | "failed";          // 주문할 수 없음 (details: {reason}. 재주문 점검에서 막혔으면 + {orderId, reasonCodes} — reasonCodes는 2026-10-05 구현,
+                      //   재주문 수량이 1주 미만이면 + {orderId, quantity}, 엔진이 진입 주문을 취소했으면 + {orderId})
+// cancelled·expired·failed의 details.reason = 그 사건의 message = TradePlan.failureReason
 
 interface PlanEvent {
   step: number;                   // 계획별 1부터
@@ -632,14 +822,18 @@ interface TradePlanDetail extends TradePlan {
 type NotificationKind =
   | "recommendation" | "plan_activated" | "order_placed" | "order_requeued" | "filled" | "closed"
   | "cancelled" | "expired" | "failed" | "system"
-  | "report_completed" | "report_failed";   // (2026-10-04 합의, 컨셉 계획 B7 — 미구현, 담당 1·4) 리포트 완성 / 리포트 실패
-// system은 시험 알림 등 그 밖의 것. 리포트 실패 알림은 system이 아니라 report_failed다 (보내는 규칙은 아래 "리포트 끝 알림")
+  | "report_completed" | "report_failed"    // 리포트 완성 / 리포트 실패 (2026-10-04 합의, 컨셉 계획 B7 — 구현: 2026-10-05 (Claude)). 아래 "리포트 끝 알림"
+  | "daily_move"                            // 오늘의 내 종목 뉴스 묶음 (사용자당 하루 1개, 웹만) — "장기투자" 절. 구현: 2026-10-05 (Claude)
+  | "thesis_check";                         // 펀더멘털 점검 결과가 나빠짐 (웹만) — "장기투자" 절. 구현: 2026-10-05 (Claude)
+// system은 시험 알림 등 그 밖의 것. 리포트 실패 알림은 system이 아니라 report_failed다.
+// day_plan·day_review(단타 장 전 계획·장 후 AI 복기)는 추천 워크플로우 팀 몫으로 이름만 잡아 둔다 (Claude 코드는 보내지 않는다).
+// 화면은 모르는 kind도 기본 모양으로 보인다.
 
 interface Notification {
   id: number;
   kind: NotificationKind | string;
-  title: string;                  // "삼성전자 진입 체결"
-  body: string;                   // 한두 줄
+  title: string;                  // "삼성전자 진입 체결". 받는 사람의 주린이모드에 따라 쉬운 문장·전문가 문장 (아래 규칙의 "알림 문장")
+  body: string;                   // 한두 줄 (daily_move는 종목별 한 줄씩 최대 3줄 + 고정 문구)
   link: string | null;            // 웹 경로 ("/plans/3"). 프론트는 그대로 이동한다
   createdAt: string;
   readAt: string | null;
@@ -656,11 +850,11 @@ interface NotificationSettings {
 
 | 메서드·경로 | 요청 | 응답 |
 |---|---|---|
-| `GET /api/recommendations?status=open\|all&source=&sourceId=&symbol=` | 페이지. `status` 기본 `open`. `sourceId`는 `source`와 같이 (리포트·분석 화면이 자기 추천을 찾는다) | `200 {"count", "results": Recommendation[]}` (최신순, 팀 전체 공용) |
-| `GET /api/recommendations/{id}` | – | `200 Recommendation` · `404` |
-| `GET /api/recommendations/{id}/preview?budgetKrw=` | `budgetKrw` 선택 (양수, 원) | `200 RiskPreview` · `budgetKrw`가 숫자가 아니거나 0 이하 `400` · 증권사 조회 불가 `503` |
-| `POST /api/recommendations/{id}/activate` | `{"budgetKrw"?: number, "token"?: string, "acknowledged"?: boolean}` | `201 TradePlanDetail` · 활성화할 수 없으면 `400 {"detail": 사유들을 "; "로 이은 것}` · `token`이 만료·위조면 `400` · `404` · 증권사 조회 불가 `503`. `acknowledged`: 실행 확인 체크리스트를 모두 켰는지 → `activated` 사건 details `{via, budgetKrw, acknowledged}`에 남긴다 (없으면 `false`, 불리언이 아니면 `400`. 서버가 활성화를 막지는 않는다 — 체크리스트는 화면 테스트로 보장) — (2026-10-04 합의, 컨셉 계획 B5 — 미구현, 담당 1) |
-| `POST /api/recommendations/demo` | `{"symbol"?: string}` (없으면 시연 종목 목록에서 고른다) | `201 Recommendation` (source `demo`) · 시연 추천이 꺼져 있으면(`AUTOTRADE_DEMO=off`) `403` · 하루 한도(`AUTOTRADE_DEMO_PER_USER`, 기본 5) 초과 `429` · 없는 종목·일봉 부족 `400` · 증권사 조회 불가 `503` |
+| `GET /api/recommendations?status=open\|all&source=&sourceId=&symbol=` | 페이지. `status` 기본 `open`. `sourceId`는 `source`와 같이 (리포트·분석 화면이 자기 추천을 찾는다) | `200 {"count", "results": Recommendation[]}` (최신순, 팀 전체 공용. `day`는 `source=day`일 때만, 내 것만 — 구현: 2026-10-05 (Claude)) |
+| `GET /api/recommendations/{id}` | – | `200 Recommendation` · `404` (남의 `day` 추천도 `404` — 구현: 2026-10-05 (Claude)) |
+| `GET /api/recommendations/{id}/preview?budgetKrw=` | `budgetKrw` 선택 (양수, 원) | `200 RiskPreview` (장마감 기준 — 구현: 2026-10-05 (Claude)) · `budgetKrw`가 숫자가 아니거나 0 이하 `400` · 증권사 조회 불가 `503` |
+| `POST /api/recommendations/{id}/activate` | `{"budgetKrw"?: number, "token"?: string, "acknowledged"?: boolean}` | `201 TradePlanDetail` (첫 주문 접수가 거절된 드문 경우도 `201` — 계획 `status: "failed"`, 아래 규칙) · 활성화할 수 없으면 `400 {"detail": 사유들을 "; "로 이은 것, "reasonCodes": string[]}` (`reasonCodes[i]`는 `detail`을 이은 사유 i번째의 코드 — 같은 길이·같은 순서, 미리 보기의 사유 + 장중 확인의 `price_passed` + 동시 활성화의 `plan_exists`. `Response`를 직접 돌려준다 — 구현: 2026-10-05 (Claude)) · 입력 오류(`budgetKrw`·`acknowledged` 형식, `token`이 만료·위조, `day` 추천(구현: 2026-10-05 (Claude)))는 `400 {"detail"}` (`reasonCodes` 없음) · `404` · 증권사 조회 불가 `503`. `acknowledged`: 실행 확인 체크리스트를 모두 켰는지 → `activated` 사건 details `{via, budgetKrw, acknowledged}`에 남긴다 (없으면 `false`, 불리언이 아니면 `400`. 서버가 활성화를 막지는 않는다 — 체크리스트는 화면 테스트로 보장) — (2026-10-04 합의, 컨셉 계획 B5 — 구현: 2026-10-05 (Claude)) |
+| `POST /api/recommendations/demo` | `{"symbol"?: string}` (없으면 시연 종목 목록에서 고른다) | `201 Recommendation` (source `demo`. 진입가는 직전 장마감 종가, ATR은 완성 일봉으로 — 구현: 2026-10-05 (Claude)) · 시연 추천이 꺼져 있으면(`AUTOTRADE_DEMO=off`) `403` · 하루 한도(`AUTOTRADE_DEMO_PER_USER`, 기본 5) 초과 `429` · 없는 종목·일봉 부족 `400` · 증권사 조회 불가 `503` |
 | `GET /api/trade-plans?status=active\|all` | 페이지. 기본 `active`(진행 중 셋) | `200 {"count", "results": TradePlan[]}` (**내 것만**, 최신순) |
 | `GET /api/trade-plans/{id}` | – | `200 TradePlanDetail` · 남의 계획 `404` |
 | `POST /api/trade-plans/{id}/cancel` | – | `200 TradePlanDetail` · 이미 끝난 계획 `400` · 남의 계획 `404` |
@@ -671,14 +865,21 @@ interface NotificationSettings {
 | `POST /api/notification-settings/test` | – | `202 {"detail": string, "discord": "queued" \| "not_configured" \| "disabled"}` (웹 알림 하나를 만들고, 가능하면 Discord로도 보낸다) · 1분에 한 번만 (넘으면 `429`) |
 
 규칙:
-- **활성화** = 그 순간 리스크 엔진으로 수량을 정하고(`RiskPreview`와 같은 계산) 계획을 `active`로 만든 뒤, 바로 한 번 진행해
-  **진입 지정가 주문**(가격 = `entryPrice`, 목표·손절 = 추천 값, 기한 = `holdingDays`를 달력 일수로 바꾼 값)을 낸다. 주문은 기존 모의 주문
+- **활성화** = 그 순간 리스크 엔진으로 수량을 정하고(`RiskPreview`와 **같은 계산 — 종가·종가 기준 자산**(구현: 2026-10-05 (Claude)), 화면에 보인 수량이 주문 수량이 된다) 계획을 `active`로 만든 뒤, 바로 한 번 진행해
+  **진입 지정가 주문**(가격 = `entryPrice`, 목표·손절 = 추천 값, 기한 = `holdingDays`를 달력 일수로 바꾼 값. DAY는 기한 없음·style `"day"` — 구현: 2026-10-05 (Claude))을 낸다. 주문은 기존 모의 주문
   (`POST /api/orders`와 같은 `trading.service.buy`, 요청자 `plan:<계획 id>`)이라 "내 주식"·주문 목록에도 보인다.
+  **활성화 점검**(미리 보기 계산 + 아래 장중 확인)에서 막히면 `400 {"detail", "reasonCodes"}`이고 아무것도 만들지 않는다. 점검을 통과해 계획을 만든 뒤 첫 주문 접수가
+  거절되면(점검과 접수 사이의 드문 경합 — 그사이 현금이 줄었거나 같은 종목 주문이 생김 등) 활성화는 `201`이고 계획은 이미 `failed`(`failureReason` "주문할 수 없음: …", `failed` 사건)로 돌아온다.
+  화면은 `201`의 `status`를 보고 실패를 보인다. 증권사 조회의 일시 오류로 첫 주문을 못 내면 계획은 `active`로 남고 엔진 루프가 다시 낸다.
+- **활성화의 장중 확인** (구현: 2026-10-05 (Claude)): 미리 보기와 같은 계산을 통과한 뒤 하나를 더 본다. 그 시장이 정규장 중이고 장중 확인 가격이 이미
+  목표가 이상이거나 손절가 이하면 활성화하지 않는다 (`400`, `reasonCodes`에 `price_passed`. 문장: "장중 가격이 이미 목표가 이상이에요" / "장중 가격이 이미 손절가 이하예요" —
+  장중 가격 숫자는 문장에 넣지 않는다). 정규장 밖이면 이 확인은 없다 (종가 기준 판단만).
 - 엔진 루프(`run_engine`)가 진행 중 계획을 계속 진행한다: 체결되면 `holding`, 지정가가 그날 정규장에 체결되지 않아 취소되면 진입 기한 안에서
   다음 정규장에 **다시 주문**(`order_requeued`), 기한이 지나면 주문을 취소하고 `expired`, 보유 중 목표·손절·기한으로 청산되면 `closed`.
   모의 주문을 "내 주식"에서 직접 취소하면 계획은 `cancelled`, 직접 매도하면 `closed`(`MANUAL`)가 된다.
-  재주문 때는 리스크 엔진을 다시 돌려 **수량을 새 계산값 이하로 줄여** 낸다(늘리지 않는다). 그때 막히면(지금 가격이 목표가 이상·손절가 이하, 매수 가능 금액 부족 등)
-  계획은 `failed`로 끝난다. 엔진이 체결 시점에 취소한 진입 주문(현금 부족 등)도 `failed`다 (`cancelled`는 사용자가 멈춘 경우만).
+  재주문 때는 리스크 엔진을 다시 돌려 **수량을 새 계산값 이하로 줄여** 낸다(늘리지 않는다. 재주문의 계산은 지금처럼 장중 확인 가격). 그때 막히면(지금 가격이 목표가 이상·손절가 이하, 매수 가능 금액 부족 등)
+  계획은 `failed`로 끝난다 (`failureReason` "다시 주문할 수 없음: 장중 가격이 이미 목표가 이상이에요" 등 — 장중 가격 숫자를 넣지 않는다, 공통 규칙). 엔진이 체결 시점에 취소한 진입 주문(현금 부족 등)도 `failed`다 (`cancelled`는 사용자가 멈춘 경우만).
+  DAY 계획은 재주문하지 않는다 (구현: 2026-10-05 (Claude)): 진입 주문이 15:15에 "단타 진입 마감"으로 취소되면 계획은 `expired`(진입 기한 = 15:15), 보유는 15:15 뒤 `closed`(`EOD`)다.
 - **중단**(`cancel`): `active`·`entry_pending`이면 주문을 취소하고 `cancelled`. `holding`이면 전량 매도를 요청하고(정규장 밖이면 매도 예약)
   `exit_requested`를 남긴다 — 계획은 매도가 끝나면 `closed`(`MANUAL`)가 된다. 이미 매도 예약이 있으면 사건을 다시 남기지 않고 지금 계획을 `200`으로 돌려준다.
 - AI가 준 진입·목표·손절은 추천을 만들 때 **호가 단위로 내려** 맞춘다 (모의 주문에 들어가는 값과 같게). 미국 종목의 예산 제한은 소수점(금액) 기준이다.
@@ -690,19 +891,42 @@ interface NotificationSettings {
   `DISCORD_WEBHOOK_URL` 채널 하나로 보내고(없고 `OPENCLAW_TARGET`이 있으면 openclaw로), 주인의 `discordUserId`가 있으면 멘션한다. Discord 전송은 엔진 루프가 보낸다
   (실패하면 1회 재시도 → 첨부 없이 글만 → 그래도 안 되면 실패로 기록. 웹 알림은 그대로 남는다. 한 바퀴에 15초까지만 보내고 나머지는 다음 바퀴로).
   AI가 쓴 글 속의 멘션(`<@…>`·`@everyone`)은 무력화하고, 우리가 붙인 받는 사람 멘션만 울린다. 시험 API의 `not_configured`는 Webhook·openclaw가 모두 없다는 뜻이다.
+- **알림 문장** (2026-10-04 합의, 컨셉 계획 B6 — 구현: 2026-10-05 (Claude)): 웹 알림의 `title`·`body`는 **받는 사람의 주린이모드**를 따른다.
+  켬(진단 전 기본)이면 쉬운 문장("모의 계좌에서 삼성전자를 70,600원에 3주 샀어요. 77,000원이 되면 팔고, 67,700원 아래로 내려가면 손실이 더 커지지 않게 팔아요."),
+  끔이면 전문가 문장(2026-10-04 전 문장 — 이미 "모의 주문 #…"이 들어 있다). 문장은 `backend/autotrade/text.py`에 모은다. Discord(팀 공용 채널 하나)는 받는 사람과 무관하게
+  쉬운 문장 + 숫자 한 줄로 하나만 보내고 맨 앞에 **`[AI 리포트 데스크 · 모의투자]`**를 붙인다. `PlanEvent.message`·`failureReason`은 원래 용어 그대로다 (전문가 보기).
+  - **주문·체결·청산·예약·계획 활성화를 말하는 쉬운 문장에는 "모의"를 꼭 넣는다** ("모의 계좌에서 …", "모의 자동매매 …") — 공용 채널·초보 화면에서 실제 매매로 읽히지 않게.
+    테스트(`autotrade/tests`): `text.py`의 쉬운 문장 중 그 kind(`plan_activated`·`order_placed`·`order_requeued`·`filled`·`closed`·`cancelled`·`expired`·`failed`)마다 "모의"가 들어 있고,
+    Discord 글이 `[AI 리포트 데스크 · 모의투자]`로 시작한다.
+  - 권유 표현은 쓰지 않는다 — 공통 규칙 "금지 표현"의 `PERSUASION` (`forbidden_phrases(text)`가 빈 목록인지 쉬운 문장·전문가 문장 전부 테스트).
+- **Discord로 보내지 않는 알림** (웹 알림만): `daily_move`·`thesis_check`(사용자별 묶음이라 팀 채널 하나에 사람 수만큼 쌓이고, 등락 설명이 공개 채널에서 권유로 읽힐 수 있다),
+  그리고 DAY 계획의 상태 알림(하루 최대 10건 × 사람 수가 팀 채널을 채우지 않게). 구현: 2026-10-05 (Claude).
 - 프론트 폴링: 알림 개수 15초, 진행 중 계획 5초, 추천 목록 30초.
 
-### 실행 불가 사유 코드 (`RiskPreview.reasonCodes`, 2026-10-04 합의, 컨셉 계획 B4 — 미구현, 담당 1)
+### 실행 불가 사유 코드 (`RiskPreview.reasonCodes`, 2026-10-04 합의, 컨셉 계획 B4 — 구현: 2026-10-05 (Claude))
 
-화면이 사유 문장을 맞추지 않고 코드로 쉬운 문장(담당 5의 `lib`, 컨셉 계획 4-5)을 고른다. 서버는 **이 표의 코드만** 낸다 (새 사유를 더하면 이 표를 먼저 고친다).
-화면은 모르는 코드면 같은 자리의 `reasons[i]` 원문을 보인다. `reasons`(사람이 읽는 원문)와 활성화 `400`의 `detail`은 그대로다.
+화면이 사유 문장을 맞추지 않고 코드로 쉬운 문장(`frontend/src/lib/plainText.ts`, 컨셉 계획 4-5)을 고른다. 서버는 **이 표의 코드만** 낸다 (새 사유를 더하면 이 표를 먼저 고친다).
+화면은 모르는 코드면 같은 자리의 사유 원문(`reasons[i]`, 또는 `detail`을 `"; "`로 나눈 i번째)을 보인다. 사람이 읽는 원문(`reasons`, `400`의 `detail`)은 그대로 둔다.
+
+**코드가 나가는 자리** (이 밖의 응답에는 `reasonCodes`가 없다):
+
+| 자리 | 형식 |
+|---|---|
+| `RiskPreview.reasonCodes` (`GET /api/recommendations/{id}/preview`), `DayPreview.reasonCodes` (`POST /api/day/preview`) | `reasons`와 같은 길이·같은 순서 |
+| 활성화 거절 `POST /api/recommendations/{id}/activate` → `400 {"detail", "reasonCodes"}` | `detail`을 이은 사유와 같은 길이·같은 순서 (`price_passed`·`plan_exists` 포함) |
+| 단타 계획 거절 `POST /api/day/plans` → `400 {"detail", "reasonCodes"}`, 단타 미리 보기의 잠김 `400` | 같은 규칙 |
+| 장기 매수의 비중 점검 거절 `POST /api/orders`(long) → `400 {"detail", "reasonCodes"}` | 같은 규칙 (`cash_short`·`position_limit`·`total_limit`) |
+
+`400` 본문에 `reasonCodes`가 있으면 "실행 불가 사유", 없으면 입력 오류다 (화면이 둘을 나눈다). 본문에 `detail` 밖의 필드가 있으므로 `Response`를 직접 돌려준다 (`config.api`의 예외는 `detail` 밖을 버린다).
+엔진 `RiskAssessment.codes`·`assess_position`의 `codes`가 사유와 같은 길이·순서로 코드를 내고, `autotrade/risk.preview`가 (코드, 문장) 짝으로 중복을 지운다.
+엔진 접수 점검의 거절 `OrderRejected.codes`(`buy_checks`)에는 이 표 밖의 내부 코드(`invalid_order`·`market_closed`·`order_too_large`·`fx_unavailable`)도 있다 — API로 내지 않는다 (`trading.service`가 `400 {"detail"}`로 바꾸고, 쉬운 알림 문장은 이 표에 있는 코드만 쓴다. 2026-10-05 구현).
 
 | 코드 | 조건 (지금 `reasons` 원문을 내는 곳) |
 |---|---|
 | `reward_risk_low` | 손익비가 최소 기준(2.0)보다 낮음 (리스크 엔진 `assess`) |
 | `ev_negative` | 비용을 반영한 기대값이 0 이하 (`assess`) |
-| `daily_loss_limit` | 일일 손실 한도 도달 (`assess`) |
-| `daily_trades_limit` | 일일 매매 건수 한도 도달 (`assess`) |
+| `daily_loss_limit` | 일일 손실 한도 도달 (`assess`. DAY 한도는 style day 주문의 손실만, SWING 한도(AI 추천 계획)는 style swing 주문의 손실만 센다 — 2026-10-05 구현, 장기 보유 손실은 어느 한도에도 세지 않는다) |
+| `daily_trades_limit` | 일일 매매 건수 한도 도달 (`assess`. SWING에는 건수 한도가 없어 지금은 DAY의 하루 10건(style day 주문 수, 취소 포함)에서만 나온다) |
 | `warning_stock` | 매수 유의 종목 (투자경고 등, `assess`) |
 | `size_too_small` | 리스크 엔진이 정한 수량이 1주 미만 (미국 종목은 최소 주문 금액 미만) — 예산과 무관 (`assess`) |
 | `budget_too_small` | 예산(`budgetKrw`)으로 줄인 수량이 1주 미만 (미국 종목은 최소 주문 금액 미만) (`risk.preview`) |
@@ -710,14 +934,366 @@ interface NotificationSettings {
 | `plan_exists` | 같은 종목에 진행 중인 내 계획이 있음 |
 | `position_exists` | 같은 종목에 진행 중인 모의 주문이 있음 (같은 종목은 포지션 하나만) |
 | `halted` | 중단 스위치가 켜져 있음 (새 모의 매수 중단) |
-| `price_passed` | 지금 가격이 이미 목표가 이상이거나 손절가 이하 |
+| `price_passed` | 가격이 이미 목표가 이상이거나 손절가 이하 — 미리 보기는 종가로 본다. 활성화는 정규장 중이면 장중 확인 가격으로 한 번 더 보고(문장 "장중 가격이 이미 …"), 재주문은 장중 확인 가격으로 본다 |
+| `day_entry_closed` | 지금은 단타 계획을 만들 수 없는 시각 — 오늘이 국내 거래일이 아니거나 지금이 15:15 KST 이후 (`DaySession.acceptingPlans`가 false). `/api/day/preview`(`activatable` false)·`/api/day/plans`(`400`). `trading.service`도 style day 주문 접수를 같은 규칙으로 막지만, 그 경우(활성화와 접수 사이에 15:15가 지난 경합)는 계획 `failed`의 `failureReason` 문장으로만 남는다. 구현: 2026-10-05 (Claude) |
+| `day_trading_locked` | 단타 연습장이 잠겨 있음 (주린이모드 켬 또는 단타 연습 퀴즈 미통과) — `/api/day/preview`·`/api/day/plans`. 구현: 2026-10-05 (Claude) |
+| `cash_short` | 장기 보유 매수 금액(수량 × 지정가 또는 직전 종가, 수수료 포함)이 매수 가능 금액보다 큼 (`assess_position`) — `POST /api/orders`(long). 구현: 2026-10-05 (Claude) |
+| `position_limit` | 장기 보유 매수가 종목당 비중 한도(100%)를 넘음 (`assess_position`). 한도가 100%라 거의 나오지 않는다 — `POST /api/orders`(long). 구현: 2026-10-05 (Claude) |
+| `total_limit` | 장기 보유 매수 뒤 총 투자 금액이 총 금액 한도(`MAX_TOTAL_INVEST_KRW`)를 넘음 (`assess_position`) — `POST /api/orders`(long). 구현: 2026-10-05 (Claude) |
 
-### 리포트 끝 알림 (2026-10-04 합의, 컨셉 계획 B7 — 미구현, 담당 1·4)
+### 리포트 끝 알림 (2026-10-04 합의, 컨셉 계획 B7 — 2026-10-04 규칙 바뀜, 구현: 2026-10-05 (Claude))
 
-리포트 하나가 끝나면 신청자에게 알림이 **한 번만** 간다 (웹 알림 + Discord, `notifications.service.notify`).
-- **완성** — 팀원 신청 리포트(`source: "user"`)가 `completed`로 끝나면 runner(담당 3)가 부르는 `auto.after_finish(report)`(담당 1)가 보낸다.
-  이 리포트로 추천이 생기면(`verdict` buy이고 `0 < stop < entry < target` — `00-공통.md` 10절) `report_completed`를 보내지 않고, 추천 알림(`recommendation`)의 본문 첫 줄을 "리포트가 완성됐어요"로 한다.
-  추천이 생기지 않으면(지켜보기·부정적·가격 조건이 맞지 않음) `report_completed` 하나 (`link`: `/reports/{id}`).
-- **실패** — `failed`로 끝나면(엔진 재시작 정리 `engine_restarted` 포함) 담당 4의 `healing.notify_failure(report, reason)` 한 곳에서 `report_failed`를 신청자에게 보낸다
-  (`link`: `/reports/{id}`, 본문은 실패 사유 코드(`00-공통.md` 9절)의 쉬운 문장). 예전 계획의 `system`은 쓰지 않는다.
-- **자동 리포트**(`source: "auto"`)는 웹 알림을 만들지 않고 01 T1-5의 Discord 발송(PDF 첨부 또는 실패 글)만 한다.
+리포트 하나가 끝나면 신청자에게 알림이 **한 번만** 간다 (웹 알림 + Discord, `notifications.service.notify`). **알림은 모두 새 파일 `backend/reports/alerts.py`(Claude 담당)가 보낸다** —
+팀원의 runner·healing은 사용자 알림을 보내지 않아도 된다 (`docs/DECISIONS.md` 14-5, `docs/tasks/00-공통.md` 8절). `backend/reports/auto.py`는 팀 파일(자동 리포트 B9)이라 Claude는 고치지 않는다.
+- **보내는 자리 둘** (어느 쪽이 먼저 처리해도 한 번):
+  - `alerts.notify_finished(report) -> None` — 끝난 리포트 하나를 바로 처리한다. 예외를 밖으로 내지 않는다. 팀 코드(runner 또는 팀의 `auto.after_finish`)가 리포트를 끝낸 뒤 불러도 되고 부르지 않아도 된다.
+  - `alerts.sweep_finished(now, log) -> int` — `run_engine`의 "리포트 알림" 단계(추천 수집 다음)가 매 바퀴 부른다. 최근 24시간 안에 끝난 리포트 중 아직 알림이 없는 것을 처리하고 보낸 수를 돌려준다.
+    그래서 팀 코드가 `notify_finished`를 부르지 않아도 엔진 루프 한 바퀴 안에 간다.
+- **대상**: 팀원 신청 리포트만. 자동 리포트(`source: "auto"`. 열이 없으면 `"user"`로 본다)는 건너뛴다 — 자동 리포트의 PDF·Discord 발송은 추천 워크플로우 팀 몫이다
+  (B9, 01 T1-5의 자동 리포트 부분 — 팀 파일 `auto.py`의 `auto.after_finish(report)`, runner가 끝난 리포트마다 부른다. `00-공통.md` 8절).
+- **완성** (`completed`): 이 리포트로 추천이 있으면(`verdict` buy이고 `0 < stop < entry < target` — `00-공통.md` 10절) `report_completed`를 보내지 않는다 —
+  추천 알림(`recommendation`)의 본문 첫 줄 "리포트가 완성됐어요"가 그 역할이다. 판단 전에 추천을 만들 수 있으면 먼저 만든다(`autotrade.sources.from_report`, 이미 있으면 그대로).
+  추천이 없으면(지켜보기·부정적·가격 조건이 맞지 않음) `report_completed` 하나 (`link`: `/reports/{id}`).
+- **실패** (`failed`, 엔진 재시작 정리 포함): `report_failed` 하나 (`link`: `/reports/{id}`). 본문은 실패 사유 코드(`00-공통.md` 9절의 `join_blocked`·`review_failed`·`timeout`·`engine_restarted`·`exception`)의
+  쉬운 문장 (`backend/reports/text.py`). 사유는 Trace의 마지막 `workflow_failed.details.reason`이고, 없거나 모르는 코드면 "리포트를 만들지 못했어요. 다시 만들 수 있어요".
+- **중복 방지**: 같은 사용자에게 같은 kind·같은 `link`의 알림이 이미 있으면 보내지 않는다 (두 경로가 겹치거나 엔진이 다시 떠도 한 번).
+- 예전 계획의 `system` kind와 `healing.notify_failure`의 사용자 알림은 쓰지 않는다.
+
+---
+
+# 장기투자 (`backend/longterm`) — 오늘의 내 종목 뉴스 · 산 이유와 펀더멘털 점검
+
+작성 2026-10-04 (2026-10-04 합의 — 구현: 2026-10-05 (Claude)). 확장 1단계다. 원문은 `docs/투자서비스확장계획.md` 3-2, 조사는
+`docs/research/장기투자_뉴스·펀더멘털_조사.md` 4~5장, 결정은 `docs/DECISIONS.md` 14-3.
+
+- 장기 보유(`style: "long"`, "모의 트레이딩" 절의 "보유 방식")에는 자동 매도가 없다. 대신 매일 장 마감 뒤 **오늘의 내 종목 뉴스**를, 정기공시가 나오면 **펀더멘털 점검**을 준다.
+- **숫자와 판정은 결정론적 코드가 한다.** 등락 분해·근거 목록·펀더멘털 판정은 코드다. LLM은 오늘의 내 종목 뉴스의 설명 문장(종목당 하루 0~1회)에만 쓴다.
+  장기 "매수 추천"·매도 권유·자동 매도는 없다.
+- 오늘의 내 종목 뉴스는 **국내(KR) 종목만** 만든다 (화면 "국내 종목만"). 펀더멘털 점검은 국내 일반 기업에만 적용한다.
+- 화면 고정 문구 (오늘의 내 종목 뉴스 카드·알림): "등락의 원인을 단정하지 않습니다. 같은 날 나온 소식을 모은 것이며 투자 권유가 아닙니다."
+  펀더멘털 점검(종목 상세의 지표 표·산 이유 점검): "공시 숫자를 정해진 기준으로 본 것이며 투자 권유가 아닙니다" — 서버가 `caption` 필드로 낸다. 종합 판정은 중립 표기("기준 충족"·"주의"·"확인 필요"·"적용하지 않음")로 보인다.
+- 출처 표기: 시세 = `MarketStatus.quoteProvider`, 공시·재무 = "금융감독원 OpenDART", 뉴스 제목 = "Google 뉴스 검색 결과", 시장 = 대용 ETF 이름("KODEX 200 기준").
+
+## 타입
+
+```ts
+// ── 오늘의 내 종목 뉴스 ──
+interface DailyMoveEvidence {     // 근거 하나. LLM은 이 id로만 말한다 — 구현: 2026-10-05 (Claude)
+  id: string;                     // "E1", "E2" … (기록 하나 안에서 유일)
+  kind: "disclosure" | "flow" | "broker" | "news";
+                                  // disclosure 그날 DART 공시(사실) · flow 수급(숫자 — 외국인·기관·개인 각각 하나씩, 최대 3개) · broker 증권사 목표가 헤드라인(제목 파싱) · news 뉴스 제목(신뢰 낮음)
+  text: string;                   // 한 줄: 공시 제목 / "외국인 순매수 = 거래량의 12.0%" / 헤드라인 / 뉴스 제목. 제어 문자를 지우고 200자로 자른 것
+  source: string;                 // 출처 이름: "금융감독원 OpenDART" · 시세 출처(quoteProvider) · 매체 이름(헤드라인·뉴스)
+  at: string | null;              // 게시·접수 시각 (ISO). 날짜만 아는 자료(공시 접수일·수급)는 null — 날짜는 DailyMove.date
+  url: string | null;             // 공시면 DART 공시 원문 주소 (접수번호 rcept_no로 만든다). 그 밖은 null (뉴스 링크는 내지 않는다)
+  reliability: "high" | "medium" | "low";   // disclosure·flow high · broker medium · news low
+}
+
+interface DailyMove {             // 종목 하나의 하루 기록 (longterm.DailyMoveNote — 종목·날짜당 하나, 팀 공용) — 구현: 2026-10-05 (Claude)
+  symbol: string; name: string; market: "KR";
+  date: string;                   // 거래일 YYYY-MM-DD
+  asOf: string;                   // 그날 정규장 종료 시각 (장마감 기준)
+  close: number;                  // 그날 종가
+  prevClose: number;              // 전 거래일 종가
+  changeRate: number;             // 종목 등락률 = close / prevClose − 1
+  marketProxy: { symbol: string; name: string; changeRate: number | null };
+                                  // 시장 대용 ETF: 코스피 종목 "069500" "KODEX 200", 코스닥 종목 "229200" "KODEX 코스닥150". 등락률을 못 받으면 changeRate null
+  excessChangeRate: number | null;   // 시장 대비 초과 등락 = changeRate − marketProxy.changeRate (β=1, 회계식 분해이지 원인이 아니다). 시장 등락이 없으면 null
+  sectorChangeRate: null;         // 업종 등락. v1은 업종 자료가 없어 늘 null (화면 "업종 자료 없음")
+  volatility20: number | null;    // 최근 20거래일 일간 등락률의 표준편차 (소수). 일봉이 모자라면 null
+  flows: { foreign: number | null; institution: number | null; individual: number | null } | null;
+                                  // 그날 투자자별 순매수 수량 ÷ 그날 거래량 (소수, 음수 = 순매도). 수급 자료가 없으면 null
+  headline: string;               // 한 줄 제목 (60자까지)
+  summary: string[];              // 설명 문장 1~3개 (각 120자까지)
+  drivers: string[];              // 설명이 기댄 근거 id (evidence[].id). 템플릿이면 []
+  uncertain: boolean;             // 근거가 약함 (근거가 뉴스 제목뿐 등) → 화면 "뚜렷한 소식을 찾지 못했어요"
+  method: "template" | "llm";     // template: 템플릿 문장 (LLM 생략 규칙·LLM 설정 없음·검사 2번 위반) · llm: 검사를 통과한 LLM 설명
+  evidence: DailyMoveEvidence[];  // 그날 근거 목록 (없으면 [])
+  missing: string[];              // 비운 칸과 이유 한 줄씩 ("공시: DART 키가 없어 받지 못했어요", "업종: 업종 자료 없음"). 없으면 []
+  createdAt: string;
+}
+
+// ── 산 이유와 펀더멘털 점검 ──
+type FundamentalKey =             // 구현: 2026-10-05 (Claude)
+  | "revenueGrowth" | "operatingIncomeGrowth" | "operatingMargin" | "roe" | "debtRatio"
+  | "currentRatio" | "interestCoverage" | "operatingCashFlow" | "earningsQuality";   // 아래 "지표와 판정" 표 순서
+type ThesisAxis = "growth" | "profitability" | "balance_sheet";   // 점검 축: 성장 · 수익성 · 재무 안정 — 구현: 2026-10-05 (Claude)
+type CheckStatus = "ok" | "warn" | "bad" | "na";   // 구현: 2026-10-05 (Claude)
+// ok ✓ · warn △ · bad ✗ · na 판정 없음 (자료 없음 · 적용하지 않음 · 기준선이 필요한데 없음)
+type FundamentalsOverall = "solid" | "caution" | "review" | "na";   // 구현: 2026-10-05 (Claude)
+// 화면 표기는 중립 문구로 (2026-10-05 확정 — 좋다·나쁘다로 읽히는 "견조"·"점검 필요"는 쓰지 않는다. 값은 그대로):
+// solid "기준 충족" · caution "주의" · review "확인 필요" · na "적용하지 않음" (적용하지 않는 종목이거나 판정한 지표가 없음 — 이유는 reason·note).
+// 나쁜 순서 solid < caution < review
+
+interface FundamentalsRow {        // 구현: 2026-10-05 (Claude)
+  key: FundamentalKey;
+  label: string;                  // 화면 이름 ("매출 성장")
+  axis: ThesisAxis;               // 이 지표가 속한 점검 축
+  value: number | null;           // 최신 값 (unit 기준). 자료가 없으면 null
+  unit: "ratio" | "times" | "krw";   // ratio 비율(소수, 0.12 = 12%) · times 배 · krw 원
+  baseline: number | null;        // 기준선 = 산 이유를 처음 저장할 때의 값 (같은 unit). 기준선을 쓰지 않는 지표이거나 기준선이 없으면 null
+  change: number | null;          // value − baseline (ratio면 %p를 소수로: −0.02 = −2%p). 둘 중 하나가 null이면 null
+  status: CheckStatus;
+  note: string | null;            // 판정 이유 한 줄 ("기준선 대비 −3.4%p", "2개 보고서 연속 감소", "근사: 영업이익 ÷ 금융비용", "기준선이 있어야 판정해요").
+                                  // value와 다른 지표로 판정한 행(earningsQuality)은 판정한 지표 이름과 값을 꼭 적는다 ("판정: 영업외 손익이 세전이익의 62%")
+}
+
+interface ThesisCheck {           // 산 이유 점검 한 번 (longterm.ThesisCheck) — 구현: 2026-10-05 (Claude)
+  id: number;
+  checkedAt: string;              // 점검 시각
+  trigger: "filing" | "weekly";   // filing: 그날 새 정기공시 · weekly: 매주 월요일 전체 재점검
+  period: string | null;          // 점검에 쓴 보고서의 표시 이름 ("2026 반기보고서"). 자료가 없으면 null
+  receivedAt: string | null;      // 그 보고서 접수일 YYYY-MM-DD
+  overall: FundamentalsOverall;
+  previousOverall: FundamentalsOverall | null;   // 직전 점검의 종합 (첫 점검이면 null)
+  rows: FundamentalsRow[];        // 9개 지표 (기준선 비교 포함)
+  newBad: FundamentalKey[];       // 이번에 새로 bad가 된 지표 (직전 점검에서 bad가 아니던 것. 첫 점검이면 bad 전부)
+  notified: boolean;              // 이 점검으로 thesis_check 알림을 보냈는지
+  caption: string;                // 고정 문구 "공시 숫자를 정해진 기준으로 본 것이며 투자 권유가 아닙니다" (서버가 늘 이 값을 낸다. 화면은 판정 옆에 그대로 보인다)
+}
+
+interface Thesis {                // 산 이유 (longterm.InvestmentThesis — 사용자·종목당 하나) — 구현: 2026-10-05 (Claude)
+  symbol: string; name: string; market: Market;
+  reasons: string[];              // 산 이유 1~3개 (각 1~100자)
+  axes: ThesisAxis[];             // 점검할 축 (사용자가 고른 것, 중복 없음). 비면 셋 다로 본다. 판정은 바꾸지 않고, 화면·알림이 이 축의 지표를 먼저 보인다
+  baseline: Partial<Record<FundamentalKey, number | null>>;
+                                  // 기준선: 처음 저장할 때의 지표 값 (FundamentalsRow.value와 같은 unit). 자료가 없으면 {} (다음 점검에서 채운다).
+                                  // 9개 지표 값을 모두 담는다 — 판정에 쓰는 것은 operatingMargin·roe·debtRatio 셋 (2026-10-05 구현)
+  baselinePeriod: string | null;  // 기준선의 보고서 (ThesisCheck.period와 같은 형식)
+  active: boolean;                // 점검 대상인지 = 이 종목을 장기 보유(style long, 체결 대기·보유 중 — 장기 보유 매수 예약이 있어도) 중인지. 서버가 정한다 (보유가 끝나면 false — 점검·알림을 멈춘다)
+  lastCheck: ThesisCheck | null;  // 가장 최근 점검 (아직 없으면 null)
+  createdAt: string; updatedAt: string;
+}
+
+interface FundamentalsView {      // GET /api/stocks/{symbol}/fundamentals — 보유 여부와 상관없이 그 종목의 최근 지표와 절대 기준 판정 — 구현: 2026-10-05 (Claude)
+  symbol: string; name: string; market: Market;
+  applicable: boolean;            // 일반 기업용 점검을 적용하는지. 금융업·ETF·ETN·리츠·미국 종목은 false
+  reason: string | null;          // applicable이 false거나 자료가 없을 때의 이유 한 줄 ("금융업은 일반 기업용 점검을 적용하지 않아요", "공시 자료를 받지 못했어요")
+  overall: FundamentalsOverall;   // rows로 계산한 종합 (아래 규칙). applicable이 false면 "na"
+  rows: FundamentalsRow[];        // 9개 지표 (표 순서). baseline·change는 늘 null (기준선이 필요한 판정은 절대 기준 부분만). applicable이 false면 []
+  asOf: { period: string | null; receivedAt: string | null } | null;   // 지표의 출처 보고서와 접수일. 자료가 없으면 null
+  source: string;                 // "금융감독원 OpenDART"
+  caption: string;                // 고정 문구 "공시 숫자를 정해진 기준으로 본 것이며 투자 권유가 아닙니다" (ThesisCheck.caption과 같은 값. applicable이 false여도 낸다)
+  thesis: Thesis | null;          // 이 종목에 대한 내 산 이유와 최근 점검 (없으면 null). 기준선 비교 판정은 thesis.lastCheck에 있다
+}
+```
+
+### 지표와 판정 (엔진 `judge/fundamentals_check.py`, 순수 함수. 제안값 E-5 — 과거 공시 몇 종목으로 검산한 뒤 확정)
+
+| key | 화면 이름 | 축 | unit | 값 (DART `fundamentals`) | ok ✓ | warn △ | bad ✗ |
+|---|---|---|---|---|---|---|---|
+| `revenueGrowth` | 매출 성장 | growth | ratio | 최신 보고서 누적 매출의 전년 같은 기간 대비 (`interimRevenueGrowth`, 없으면 `annualRevenueGrowth`) | ≥ 0 | −0.10 이상 0 미만 | < −0.10, 또는 2개 보고서 연속 감소 |
+| `operatingIncomeGrowth` | 영업이익 성장 | growth | ratio | 같은 방식 (`interim…`·`annualOperatingIncomeGrowth`). 비교 기간 흑자 → 지금 적자면 값 null | ≥ 0 | −0.20 이상 0 미만 | < −0.20, 또는 적자 전환 (값이 null이어도 bad, `note` "적자 전환") |
+| `operatingMargin` | 영업이익률(TTM) | profitability | ratio | `ratios.operatingMargin` | change ≥ −0.01 | −0.03 ≤ change < −0.01 | change < −0.03, 또는 값이 음수 |
+| `roe` | ROE(TTM) | profitability | ratio | **순이익(TTM) ÷ 자본총계(최신 보고서 기말)** = `ttm.netIncome ÷ balance.totalEquity` (자본총계가 0 이하·없으면 null). 보고서 종류(연간·분기)와 상관없이 늘 12개월 기준이라 기준선과 비교할 수 있다. DART 공시 지표 `reported.roe`는 분기 보고서면 누적·연환산 아님이라 **쓰지 않는다** (평균 자본이 아니라 기말 자본 — 근사, `note`에 적는다) | 값 > 0 이고 change ≥ −0.02 | 값 > 0 이고 change < −0.02 | 값 ≤ 0 |
+| `debtRatio` | 부채비율 | balance_sheet | ratio | `reported.debtRatio` (1.5 = 150%) | change ≤ +0.20 | +0.20 < change ≤ +0.50 | change > +0.50 |
+| `currentRatio` | 유동비율 | balance_sheet | ratio | `reported.currentRatio` | ≥ 1.0 | 0.8 이상 1.0 미만 | < 0.8 |
+| `interestCoverage` | 이자보상배율(근사) | balance_sheet | times | **같은 기간끼리**: 영업이익 ÷ 금융비용, 둘 다 최신 보고서의 같은 누적 기간(`nonOperating.period` — 금융비용은 `nonOperating.financeCosts`, 영업이익은 그 기간의 `interim.operatingIncome`, 연간 보고서면 `annual.operatingIncome`). 분자·분모 기간이 같아 연환산이 필요 없다 (TTM 영업이익을 누적 금융비용으로 나누지 않는다). 금융비용이 0이거나 없으면 null | ≥ 3 | 1 이상 3 미만 | < 1 |
+| `operatingCashFlow` | 영업현금흐름 | profitability | krw | 현금흐름표 영업활동현금흐름 누적 (`ifrs-full_CashFlowsFromUsedInOperatingActivities`, 파싱 추가). 비교하는 순이익도 **같은 누적 기간** 값. 아래 칸의 흑자 = 순이익 > 0, 적자 = 순이익 ≤ 0 | 영업현금흐름 > 0 이고 순이익 흑자 | 순이익 흑자인데 영업현금흐름 ≤ 0 (처음), 또는 순이익 적자인데 영업현금흐름 > 0 | 순이익 흑자·영업현금흐름 ≤ 0이 2개 보고서 연속, 또는 순이익 적자이고 영업현금흐름 ≤ 0 |
+| `earningsQuality` | 이익의 질 | profitability | times | 순이익 ÷ 영업이익 (`netIncomeToOperatingIncome`) — 보이는 값. **판정은 다른 지표** `nonOperatingShareOfPretaxIncome`(영업외 손익 ÷ 세전이익)로 하고 `note`에 그 지표와 값을 적는다 ("판정: 영업외 손익이 세전이익의 62%") | 판정 지표의 절댓값 < 0.5 | 영업외 손익이 세전이익의 절반 이상 (판정 지표의 절댓값 ≥ 0.5) | (없음 — 경고만) |
+
+- **판정 우선순위는 bad > warn > ok** (2026-10-05 확정): 한 행에서 여러 칸의 조건이 함께 맞으면 앞의 것을 고른다 (예: `operatingMargin`이 음수면 change와 상관없이 bad, `revenueGrowth`가 −5%여도 2개 보고서 연속 감소면 bad).
+- 판정에 쓰는 값이 null이면 그 행은 `na`다 — 보통 `value`. 예외: `earningsQuality`는 판정 지표(`nonOperatingShareOfPretaxIncome`)가 null이면 `na`(`value`가 있어도), `operatingCashFlow`는 영업현금흐름·같은 기간 순이익 중 하나라도 null이면 `na`, `operatingIncomeGrowth`의 적자 전환은 값이 null이어도 bad.
+- **종합**: bad가 하나라도 있으면 `review`("확인 필요"), warn이 둘 이상이면 `caution`("주의"), 나머지는 `solid`("기준 충족"). `na` 행은 세지 않는다. 판정한 행이 하나도 없거나 `applicable`이 false면 `na`("적용하지 않음").
+- **기간을 맞춘다**: 기준선과 비교하는 지표는 보고서 종류에 따라 값의 기간이 바뀌지 않아야 한다 — `operatingMargin`·`roe`는 TTM, `debtRatio`는 기말 잔액이라 연간·분기 보고서를 섞어도 비교된다.
+  누적 기간 값(`reported.*`의 손익 지표, 누적 금융비용 등)을 TTM 값과 섞지 않는다.
+- 기준선을 쓰는 지표는 `operatingMargin`·`roe`·`debtRatio` 셋이다. 기준선이 없으면(`FundamentalsView`, 기준선을 아직 못 잡은 점검) **절대 기준 부분만** 본다:
+  `operatingMargin`은 음수면 bad, `roe`는 0 이하면 bad, 그 밖은 `na`("기준선이 있어야 판정해요"). `debtRatio`는 `na`.
+- "2개 보고서 연속" 조건은 산 이유 점검(`ThesisCheck`)에서 직전 점검(다른 보고서 기간)과 비교할 때만 본다 (`FundamentalsView`는 보지 않는다).
+- 판정은 모든 지표에 한다. `Thesis.axes`는 판정·종합을 바꾸지 않는다.
+- 적용하지 않음: 금융업(은행·보험·증권 등 — DART 회사 개황의 업종으로 가린다), ETF·ETN, 리츠, 미국 종목 → `applicable: false`, `rows: []`.
+
+## 엔드포인트
+
+| 메서드·경로 | 요청 | 응답 |
+|---|---|---|
+| `GET /api/longterm/daily-moves?date=` | `date` 선택 (YYYY-MM-DD) | `200 {"date": string \| null, "results": DailyMove[]}` — 내가 지금 보유(EXIT_WATCHING) 중인 국내 종목 중 그날 기록이 있는 것 (종목 이름순). `date`가 없으면 내 보유 종목의 기록이 있는 가장 최근 날짜, 기록이 하나도 없으면 `{"date": null, "results": []}` · 잘못된 `date` `400` (2026-10-05: 봉투 이름 `items` → `results`, 공통 규칙 "목록 봉투") |
+| `GET /api/longterm/daily-moves/{symbol}?date=` | `date` 선택 | `200 DailyMove` (보유 여부와 상관없이 팀 공용 기록. `date`가 없으면 그 종목의 가장 최근 기록) · 기록이 없으면 `404` · 잘못된 `date` `400` |
+| `GET /api/longterm/theses` | – | `200 {"results": Thesis[]}` (내 것만, `updatedAt` 최신순) |
+| `PUT /api/longterm/theses/{symbol}` | `{"reasons": string[], "axes"?: ThesisAxis[]}` | `200 Thesis` — 없으면 만들고, 있으면 `reasons`·`axes`만 바꾼다 (`axes`를 빼면 그대로, 새로 만들 때는 `[]`). 처음 만들 때만 DART로 기준선을 잡는다 (조회가 실패하면 `baseline: {}`로 만들고 다음 점검에서 채운다 — 요청은 성공). `reasons`가 1~3개가 아님·빈 문자열·100자 넘음(앞뒤 공백을 지운 뒤), `axes`에 모르는 값·중복, 모르는 키면 `400` · 없는 종목 `404` |
+| `DELETE /api/longterm/theses/{symbol}` | – | `204` (산 이유와 점검 기록을 지운다) · 없으면 `404` |
+| `GET /api/stocks/{symbol}/fundamentals` | – | `200 FundamentalsView` (DART 자료는 종목별 하루 캐시) · 없는 종목 `404` · DART 조회 실패·키 없음도 `200` (`rows`의 값이 null, `reason`에 이유) |
+
+규칙 (만드는 시각과 알림 — `run_engine`의 "장기투자" 단계 `longterm.jobs.tick`, 설정 `LONGTERM_JOBS` 기본 on):
+- **오늘의 내 종목 뉴스**
+  - 대상: 팀원 누군가가 보유(EXIT_WATCHING) 중인 국내 종목의 합집합 (보유 방식과 무관). 종목·날짜당 한 번 만든다 (`DailyMoveNote(symbol, day)` 유일 — 여러 사람이 같은 종목을 가져도, 엔진이 다시 떠도 한 번).
+  - 시각: 국내 거래일, KR 기준일이 오늘이 된 뒤 `DAILY_MOVE_AT`(기본 16:30 KST) 이후 하루 한 번.
+  - 순서: ① 숫자 분해(`changeRate`·`marketProxy`·`excessChangeRate`·`volatility20`·`flows`) ② 근거 목록 (입력은 제어 문자 제거·길이 제한)
+    ③ LLM 생략 — |초과 등락| < 0.01이면서 |초과 등락| < `volatility20`이고 그날 공시·헤드라인이 없으면 템플릿 ("오늘은 시장과 비슷하게 움직였어요").
+       `volatility20`이나 초과 등락이 null이면 비교할 수 없으므로 생략하지 않는다 (2026-10-05 구현에서 분명히 함)
+    ④ LLM 1회 (`DAILY_MOVE_MODEL` → 없으면 `APPROVER` → 없으면 템플릿. 출력 `{headline, summary, drivers, uncertain}`)
+    ⑤ 검사: `drivers`의 id가 근거 목록에 있음, 문장의 숫자가 분해·근거 숫자와 맞음, 금지 표현 없음 — 공통 규칙 "금지 표현"의 `forbidden_phrases(headline + summary, causal=True)`가 빈 목록
+    (권유 `PERSUASION` 매수·매도 모두 + 인과 단정 `CAUSAL` + 예측 `PREDICTION`. 따로 목록을 두지 않는다), 근거가 뉴스 제목뿐이면 `uncertain: true`. 템플릿 문장도 같은 검사를 통과해야 한다 (테스트).
+    위반이면 1번 다시 요청하고, 또 위반이면 템플릿.
+  - 알림 `daily_move`: 그날 기록이 생긴 국내 보유 종목이 있는 사용자마다 하루 1개 묶음, **웹만** (Discord로 보내지 않는다). 제목 "오늘의 내 종목 뉴스 · N종목",
+    본문은 종목별 한 줄(등락률 · 시장 대비) 최대 3줄 + 고정 문구. `link`: `/` (홈의 오늘의 내 종목 뉴스 카드).
+  - 속도 (2026-10-05 구현): 엔진 루프 한 바퀴에 최대 3종목을 만든다. 실패(그날 봉이 아직 없음 등)한 종목은 10분 뒤 다시, 3번까지 한다.
+    알림은 그날 대상 종목이 모두 끝난 뒤(만들었거나 3번 실패해 포기) 보낸다 (엔진이 다시 떠도 사용자당 하루 1개).
+- **펀더멘털 점검**
+  - 대상: `active`인 산 이유.
+  - 시각: 국내 거래일 `THESIS_CHECK_AT`(기본 18:00 KST) 이후 하루 한 번 — 그날 정기공시(DART 공시 검색 `pblntf_ty=A`, 마지막 쪽까지)가 접수된 종목을 점검한다 (`trigger: "filing"`).
+    매주 월요일 같은 시각 이후에는 `active` 전부를 다시 점검한다 (`trigger: "weekly"`, 휴장일이어도 한다).
+  - 기준선이 빈 산 이유는 그 점검에서 기준선을 채운다 (그 점검의 기준선 비교는 `na`).
+  - 속도 (2026-10-05 구현): 산 이유 하나는 하루 한 번, 엔진 루프 한 바퀴에 최대 5개를 점검한다. DART 키가 없으면 점검 기록을 남기지 않고,
+    DART에 그 회사 재무제표가 없으면 모든 지표가 `na`인 점검을 남긴다.
+  - "2개 보고서 연속" 조건을 보려고 점검마다 판정용 값(보고서·매출 성장률·같은 누적 기간의 순이익·영업현금흐름)을 함께 저장한다 (`thesis_checks.facts`, API에는 내지 않는다).
+  - 알림 `thesis_check`: `newBad`가 비어 있지 않거나, 직전 점검보다 종합이 나빠졌을 때만 (첫 점검은 `newBad`로만 판단) — **웹만**.
+    제목은 사실 문장("삼성전자 펀더멘털 점검: 확인할 항목이 생겼어요"), 본문은 바뀐 지표 이름과 값. 매도 권유를 넣지 않는다 (공통 규칙 "금지 표현" `PERSUASION` 검사를 테스트로). `link`: `/stocks/{symbol}`.
+- 자료가 없으면 그 칸을 비우고 이유를 `missing`(오늘의 내 종목 뉴스)·`reason`·`note`(펀더멘털)에 적는다. 자료: 일봉·수급은 증권사 조회, 공시·재무는 OpenDART, 뉴스·헤드라인은 Google 뉴스 RSS.
+
+---
+
+# 단타 연습 (`backend/daytrade`) — 분 단위 데이트레이딩 연습 (확장 2단계 a)
+
+작성 2026-10-04 (2026-10-04 합의 — 구현: 2026-10-05 (Claude)). 원문은 `docs/투자서비스확장계획.md` 3-4 (a), 조사는 `docs/research/단타_실시간시세_조사.md`,
+결정은 `docs/DECISIONS.md` 14-4.
+
+- **"분 단위 데이트레이딩 연습"**이다: 엔진 루프(약 5초) × 목표·손절 2회 연속 확인이라 손절이 10초 이상 늦을 수 있다. 화면에 그렇게 적는다.
+- **잠금**: 주린이모드 끔 + 단타 연습 퀴즈 통과(`InvestorProfile.dayTradingUnlocked`)일 때만 계획을 미리 보고 만든다. 서버가 막는다 (`400`, 사유 코드 `day_trading_locked`).
+  상태·분봉·계획 목록·복기는 잠겨도 볼 수 있다.
+- **국내(KR) 종목만**이다 (미국 종목은 `400`). 이 절의 시각(15:15·15:30)은 KST.
+- **세션 규칙 (하나로 정한다)**: 단타 계획은 **국내 거래일의 0시부터 15:15 KST 전까지만** 만든다 (장 전 계획 포함). 그래서 계획·주문의 세션은 늘 **만든 날(KST)**이다 —
+  진입 기한(`entryDeadline` = 추천 `validUntil`)은 그날 15:15, 진입 주문의 세션은 접수 시각(`createdAt`)의 KST 날짜, 하루 한도(주문 수·손실)를 세는 날짜도 그날이다.
+  15:15 이후와 국내 거래일이 아닌 날(주말·휴장일)은 만들 수 없다 (`day_entry_closed`). 다음 세션 계획을 미리 만들어 두는 기능은 없다 — 그날 0시부터 만든다.
+  국내 거래일은 장 달력(`market_calendar("KR")`, 없으면 주말만 거른다)으로 본다.
+- 단타 계획은 AI 추천·매매 계획(`backend/autotrade`)을 재사용한다: 사용자가 입력한 진입·목표·손절로 추천(`source: "day"`, `horizon: "DAY"`, **AI 아님**)을 만들고 곧바로 활성화한다.
+  수량·한도는 리스크 엔진의 `DAY` 한도, 주문·체결은 `trading.service`와 모의 체결기, 진행은 엔진 루프의 "자동매매" 단계다.
+- AI의 장 전 계획(`day_plan`)과 장 후 복기(`day_review`)는 추천 워크플로우 팀 몫이라 여기 없다. 복기 화면은 결정론 복기(`GET /api/day/review`)를 보이고 "AI 복기 — 준비 중"을 적는다.
+- 비용 문구를 늘 보인다: "단타는 비용이 손익을 크게 좌우해요" + 비용 합계 (수수료 `PAPER_COMMISSION_KR` 매수·매도 각각, 매도 거래세 0.20%).
+
+## 타입
+
+```ts
+interface MinuteCandle {          // 분봉 하나 — 구현: 2026-10-05 (Claude)
+  time: string;                   // 봉 시작 시각 ISO 8601 (+09:00)
+  open: number; high: number; low: number; close: number;
+  volume: number;                 // 그 봉의 거래량 (주)
+}
+
+interface MinuteCandles {         // GET /api/stocks/{symbol}/minute-candles — 구현: 2026-10-05 (Claude)
+  symbol: string;
+  date: string;                   // 세션 날짜 YYYY-MM-DD
+  minutes: number;                // 봉 간격 (분)
+  asOf: string | null;            // 그 세션 정규장 종료 시각. 봉이 없으면 null
+  candles: MinuteCandle[];        // 그 세션 정규장(09:00~15:30) 안에서 받은 봉, 과거 → 최신. 없으면 []
+  partial: boolean;               // 증권사에서 그 세션을 09:00부터 끝까지 다 받지 못함 (쪽 수 한도·증권사가 주는 과거 범위 밖).
+                                  // true면 candles는 받은 구간만이거나 []. 화면은 "일부 구간만 있어요"(봉이 있을 때) / "이 날짜의 분봉은 받을 수 없어요"(봉이 없을 때)
+}
+
+type DayLockReason = "beginner_mode" | "quiz_not_passed";   // 주린이모드 켬 · 단타 연습 퀴즈 미통과 — 구현: 2026-10-05 (Claude)
+
+interface DaySession {            // 단타 계획의 세션 (위 "세션 규칙") — 구현: 2026-10-05 (Claude)
+  date: string;                   // acceptingPlans면 오늘(KST). 아니면 다음 국내 거래일 (그날 0시부터 만들 수 있다 — 화면 "10월 6일(화) 0시부터 만들 수 있어요")
+  acceptingPlans: boolean;        // 지금 단타 계획을 만들 수 있는지 = 오늘이 국내 거래일이고 지금이 15:15 KST 전. false면 미리 보기의 사유·계획 400에 day_entry_closed
+  opensAt: string;                // 그 세션 정규장 시작
+  entryCutoffAt: string;          // 단타 진입 마감 = 그 세션 15:15 KST. 이때 체결 대기 단타 주문은 취소되고 보유는 정리된다
+  closeAt: string;                // 그 세션 정규장 종료 (보통 15:30)
+  isOpen: boolean;                // 지금 국내 정규장 중인지
+}
+
+interface DayLimits {             // 리스크 엔진 LIMITS["DAY"] (docs/DECISIONS.md 13-2 E-6) — 구현: 2026-10-05 (Claude)
+  riskPerTrade: number;           // 건당 위험 한도 (자산 대비, 0.005)
+  maxDailyLoss: number;           // 하루 최대 손실 (자산 대비, 0.02)
+  maxDailyTrades: number;         // 하루 최대 단타 주문 수 (10)
+  minRewardRisk: number;          // 최소 손익비 (2.0)
+}
+
+interface DayStatus {             // GET /api/day/status — 구현: 2026-10-05 (Claude)
+  unlocked: boolean;              // lockReasons가 비었음 (= InvestorProfile.dayTradingUnlocked)
+  lockReasons: DayLockReason[];
+  session: DaySession;
+  limits: DayLimits;
+  today: {
+    orders: number;               // 오늘(KST) 낸 단타(style day) 주문 수 — 하루 한도(maxDailyTrades)와 같은 셈 (취소 포함, 리스크 엔진이 세는 값. 단타 주문은 그날 세션 것만 있으므로 = 오늘 세션의 주문 수).
+                                  // 2026-10-05: 이름 trades → orders (체결 수로 읽히지 않게)
+    lossKrw: number;              // 오늘 확정된 단타 손실 합 (양수, 이익과 상계하지 않는다 — 리스크 엔진이 세는 값)
+    lossLimitKrw: number;         // 하루 손실 한도 금액 = 총자산(장마감 기준) × maxDailyLoss
+  };
+}
+
+interface TradeCosts {            // 한 번 사고팔 때의 비용 (원) — 구현: 2026-10-05 (Claude)
+  commissionKrw: number;          // 매수 수수료 + 매도 수수료 (각각 금액 × PAPER_COMMISSION_KR). 셋 다 반올림하지 않는다 (엔진 체결 계산과 같게 — 화면이 반올림)
+  taxKrw: number;                 // 매도 거래세 (매도 금액 × 0.002)
+  totalKrw: number;               // commissionKrw + taxKrw
+}
+
+interface DayPreview extends RiskPreview {   // POST /api/day/preview. RiskPreview는 "AI 추천" 절 (DAY 한도로 계산, 장마감 기준) — 구현: 2026-10-05 (Claude)
+  session: DaySession;            // 이 계획이 들어갈 세션
+  costsAtTarget: TradeCosts;      // quantity주를 entryPrice에 사서 targetPrice에 팔 때의 비용
+  costsAtStop: TradeCosts;        // quantity주를 entryPrice에 사서 stopPrice에 팔 때의 비용
+}
+// DayPreview.activatable = approved && session.acceptingPlans && 같은 종목의 진행 중 계획·주문 없음 && 중단 스위치 꺼짐 (아직 추천이 없으므로 open 조건은 없다).
+// acceptingPlans가 false면 reasons·reasonCodes에 day_entry_closed가 들어간다 (미리 보기는 200 — 숫자를 연습해 볼 수 있다)
+
+interface DayReviewItem {         // 단타 계획 하나의 결정론 복기 (DB 사실 그대로) — 구현: 2026-10-05 (Claude)
+  plan: TradePlan;
+  entryAt: string | null;         // 진입 체결 시각 (체결되지 않았으면 null)
+  entryPrice: number | null;      // 진입 체결가 (plan.entryPrice는 지정가)
+  exitAt: string | null;          // 청산 시각
+  exitPrice: number | null;       // 청산가
+  exitReason: ExitReason | null;  // TARGET · STOP · MANUAL · EOD
+  pnlKrw: number | null;          // 실현 손익 (비용 포함). 청산 전이면 null
+  costsKrw: number;               // 이 계획 주문의 수수료 + 세금 합 (체결된 것만, 없으면 0)
+  events: PlanEvent[];            // 계획의 사건 (step 오름차순)
+}
+
+interface DayReview {             // GET /api/day/review — 구현: 2026-10-05 (Claude)
+  date: string;                   // 세션 날짜
+  plans: DayReviewItem[];         // 그 세션의 내 단타 계획 (활성화 순)
+  totals: {
+    filled: number;               // 진입 체결된 계획 수 (2026-10-05: 이름 trades → filled)
+    wins: number;                 // 청산 손익(pnlKrw) > 0인 수
+    losses: number;               // 청산 손익 ≤ 0인 수
+    pnlKrw: number;               // 실현 손익 합 (비용 포함)
+    costsKrw: number;             // 비용 합 (수수료 + 세금)
+  };
+}
+```
+
+## 엔드포인트
+
+| 메서드·경로 | 요청 | 응답 |
+|---|---|---|
+| `GET /api/stocks/{symbol}/minute-candles?date=&minutes=1` | `date` 기본 = KR 기준일, `minutes` 기본 1 (1·3·5·10·15·30·60 — 엔진 클라이언트는 45도 받지만 API는 `400`) | `200 MinuteCandles` (받지 못한 구간은 `partial: true`, 아래 규칙) · `date`가 기준일보다 뒤이거나 형식 오류, `minutes`가 허용 값이 아님, 미국 종목 `400` · 없는 종목 `404` · 증권사 조회 불가 `503` |
+| `GET /api/day/status` | – | `200 DayStatus` (잠겨도 된다) |
+| `POST /api/day/preview` | `{"symbol", "entryPrice", "targetPrice", "stopPrice", "budgetKrw"?}` | `200 DayPreview` (만들 수 없는 시각이면 `activatable: false` + `day_entry_closed`) · 잠김 `400 {"detail", "reasonCodes": ["day_trading_locked"]}` · 입력 오류 `400 {"detail"}` · 증권사 조회 불가 `503` |
+| `POST /api/day/plans` | `{"symbol", "entryPrice", "targetPrice", "stopPrice", "budgetKrw"?, "acknowledged": true}` | `201 TradePlanDetail` (`recommendation.source`는 `"day"`. 첫 주문 접수가 거절된 드문 경우도 `201` — 계획 `failed`, 아래 규칙) · 만들 수 없으면 `400 {"detail": 사유들을 "; "로 이은 것, "reasonCodes": string[]}` (잠김·만들 수 없는 시각 `day_entry_closed`·리스크 엔진 거절·같은 종목 진행 중·중단 스위치·장중 확인 — **이때는 추천·계획을 하나도 만들지 않는다**) · 입력 오류 `400 {"detail"}` · 증권사 조회 불가 `503` |
+| `GET /api/day/plans?date=` | `date` 기본 = 오늘(KST) | `200 {"date": string, "results": TradePlan[]}` (그 세션의 내 단타 계획 = `entryDeadline`의 KST 날짜(= 만든 날)가 `date`인 것, 최신순) · 형식 오류 `400` |
+| `GET /api/day/review?date=` | `date` 기본 = KR 기준일 | `200 DayReview` · 형식 오류이거나 오늘(KST)보다 뒤 `400` |
+
+- 두 `POST`의 입력 검사: `symbol`(국내 종목), `entryPrice`·`targetPrice`·`stopPrice`(양수 숫자. 호가 단위로 내려 맞춘 뒤 `0 < stop < entry < target`), `budgetKrw`(선택, 양수), 모르는 키 → `400 {"detail"}`.
+  가격·`budgetKrw`는 JSON 숫자여야 한다 (숫자 문자열 `"71000"`도 `400` — 2026-10-05 구현. 일반 활성화의 `budgetKrw`는 숫자 문자열도 받는다).
+  `400`의 `reasonCodes` 유무로 화면이 "실행 불가 사유"(코드 표)와 입력 오류를 나눈다.
+- `acknowledged`는 **필수이고 `true`여야** 한다 (실행 확인 체크리스트: 손절 시 손실 · 15:15 강제 정리 · 비용). 없거나 `true`가 아니면 `400 {"detail"}`.
+
+규칙:
+- **계획 만들기** 순서: ① 입력·잠김·세션 검사(`acceptingPlans`가 아니면 `day_entry_closed`) ② 활성화 점검 — "AI 추천" 절의 활성화와 같은 계산(미리 보기와 같은 종가 계산, `DAY` 한도, 정규장 중이면 장중 확인)을
+  **행을 만들기 전에** 한다. 여기서 막히면 `400 {"detail", "reasonCodes"}`이고 아무것도 만들지 않는다 ③ 추천(`source: "day"`, `horizon: "DAY"`, `requestedBy` = 내 닉네임, `holdingDays` 1, `probability` 0.5 가정(`probabilityAssumed: true`),
+  `confidence`·`riskLevel` null, `summary` "단타 연습 계획 (직접 입력, AI 아님)", `reasons`·`risks` [], `validUntil` = 오늘 15:15 KST)을 만들고 곧바로 활성화해 계획을 만든다
+  (`via: "web"`, `activated` 사건 details `{via, budgetKrw, acknowledged}`) ④ 그 자리에서 진입 지정가 주문(`entryPrice`, style `"day"`, 보유 기한 없음)을 낸다.
+  ③은 한 트랜잭션이 아니다 (2026-10-05 구현 — 활성화가 증권사를 부르므로 그동안 DB 트랜잭션을 열어 두지 않는다): 추천을 만든 뒤 활성화가 그사이 경합으로 막히거나(`400` — 같은 종목 계획이 생김 등)
+  증권사 조회가 실패하면(`503`) 방금 만든 추천을 지운다 — 막힌 요청은 여전히 아무것도 남기지 않는다.
+  ④의 접수가 거절되면(②와 ④ 사이의 드문 경합 — 15:15가 지남·현금이 줄어듦 등) 다른 활성화와 같이 `201`이고 계획은 `failed`(`failureReason` "주문할 수 없음: …")다 — 화면은 `status`를 보고 실패를 보인다.
+  증권사 조회의 일시 오류로 ④를 못 하면 계획은 `active`로 남고 엔진 루프가 진입 기한(15:15) 안에서 다시 낸다 (기한이 지나면 `expired`).
+- **리스크**: 엔진 `LIMITS["DAY"]` (건당 위험 0.5% · 하루 최대 손실 2% · 하루 최대 단타 주문 10건 · 최소 손익비 2.0). 하루 주문 수·손실은 **style day 주문만** 센다
+  (엔진·백엔드 `paper_today`의 style 인자). 한도에 닿으면 그날 새 단타 계획을 막는다 (`daily_loss_limit`·`daily_trades_limit`). AI 경로(`TRADABLE_HORIZONS`)에는 `DAY`를 넣지 않는다.
+- **진입 마감·강제 정리** (엔진 `PaperExecutor.sync`, 상수 `DAY_CLOSE_AT` 15:15): 단타 주문의 세션 날짜 = **주문 접수 시각(`created_at`)의 KST 날짜**다 (세션 규칙상 늘 그렇다 — 따로 열을 두지 않는다).
+  확인 시각이 **그 세션 날짜의 15:15 KST 이후**면 (오늘 날짜가 아니라 주문의 세션 날짜로 비교한다) —
+  체결 대기 단타 주문은 체결을 시도하지 않고 먼저 취소한다 (`note` "단타 진입 마감" → 계획 `expired`. 장이 닫혀 있어도 취소한다). 보유 중 단타 주문은 정규장 중이면 2회 확인 없이 바로 장중 확인 가격으로 청산한다
+  (`exitReason` `EOD`, 화면 "장 마감 전 정리" → 계획 `closed`). 장이 닫혀 놓친 보유(엔진이 멈춰 있었음 등)는 다음 정규장 첫 확인에서 같은 방식으로 정리한다 (밤을 넘기지 않는 것이 원칙이고, 놓친 경우만).
+  새 단타 진입은 세션 규칙대로 15:15부터 막는다 (`day_entry_closed` — `/api/day/*`가 먼저 막고, `trading.service.buy`도 style day 주문을 "오늘이 국내 거래일이고 15:15 전"일 때만 받는다).
+- 단타 계획은 재주문하지 않는다. 계획 중단(`POST /api/trade-plans/{id}/cancel`)·"내 주식"에서의 직접 매도는 다른 계획과 같다.
+- 알림: 단타 계획의 상태 알림은 **웹만** (Discord로 보내지 않는다). 추천 알림(`recommendation`)은 보내지 않는다.
+- **분봉은 완성된 정규장 세션만** 보인다 (공통 규칙 "장마감 기준"): 장 전·장중에는 직전 세션 분봉(계획용), KR 기준일이 오늘이 된 뒤(15:40 이후)에는 그날 분봉(복기용).
+  진입·청산 가격은 체결 사실이라 그대로 보인다.
+- **분봉 조회 (엔진, 두 클라이언트 같은 공개 메서드)**: `minute_candles(symbol: str, day: str, minutes: int = 1) -> tuple[list[dict], bool]` —
+  (`day`(YYYY-MM-DD, KST) 정규장 09:00~15:30 안의 봉 과거 → 최신, **`complete`** = 세션 시작(09:00)까지 받았는지). 봉은 `{"timestamp": ISO+09:00, "openPrice","highPrice","lowPrice","closePrice","volume"}`(엔진 내부 토스 형식, 문자열).
+  **두 번째 값은 `partial`이 아니라 `complete`다** (2026-10-05 구현에서 분명히 함): `True`면 API `partial: false`, `False`면 `partial: true` (백엔드 `market.minute_candles`가 `partial = not complete`).
+  - 양 끝을 포함한다 (09:00 봉과 15:30 장 마감 단일가 봉). 정규장 시각은 09:00~15:30 고정이다 (수능일처럼 시간이 바뀐 날은 다루지 않는다).
+  - `minutes`는 엔진 `kiwoom.MINUTE_STEPS` (1·3·5·10·15·30·45·60) 중 하나, `day`는 `YYYY-MM-DD` — 아니면 `ValueError`. 미국 종목은 클라이언트의 조회 오류(`KiwoomApiError`, 토스는 그 하위 `TossApiError`).
+  - 토스: `/api/v1/candles` `interval=1m`, 한 쪽 최대 200봉, 최신부터 `before` 커서로 쪽을 넘겨 `day` 09:00보다 앞선 봉이 나올 때까지 (`minutes > 1`이면 1분봉을 09:00 기준으로 묶는다).
+    시간외(NXT 08:00~08:50·15:40~20:00, KRX 애프터 16:00~20:00) 봉도 섞여 오므로 정규장 밖 봉은 버린다. 하루치(08:00~20:00)가 약 720봉이라 1분봉 정규장 390봉을 채우려면 최신 세션도 두 쪽 이상이다.
+  - 키움: `ka10080`(`tic_scope` = `minutes`, `upd_stkpc_tp=1`, **`base_dt` = `day`**)에 연속 조회(`cont-yn`·`next-key`)로 `day` 09:00까지. 응답 형식은 실측 전이라 방어적으로 파싱한다
+    (`docs/KIWOOM.md` 4·5장). 키움이 준 `minutes > 1` 봉은 09:00 기준으로 다시 묶지 않는다 — 봉 시각이 시작인지 끝인지 실측 전이다 (토스는 1분봉을 받아 엔진이 묶는다).
+  - 한 번 부를 때 쪽 수 한도 `MINUTE_MAX_PAGES = 20` (토스는 대략 최근 5거래일까지 닿는다). 한도에 걸리거나 증권사가 더 오래된 봉을 주지 않으면 두 번째 값이 `False`다 → API `partial: true`.
+  - 백엔드 캐시는 종목·날짜·간격별: 다 받은(`partial: false`) 지난 세션은 하루, `partial: true`는 5분. 증권사 조회 실패(`503`)는 캐시하지 않는다.

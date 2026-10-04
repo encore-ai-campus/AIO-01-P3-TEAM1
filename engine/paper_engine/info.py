@@ -7,6 +7,7 @@ import json
 from .config import ROOT
 from .records.redis_client import Redis
 from .records.store import Store
+from .report import NEWS_PROVIDER, news_items
 from .scheduler import ReservationBook, load_scan_result
 from .strategies import StrategyBook
 
@@ -55,7 +56,8 @@ def _analysis_view(entry: dict, run_file: str, log: dict) -> dict:
         "paperBuy": log.get("paperBuy"), "symbol": snap.get("symbol"), "name": snap.get("name"),
         "lastPrice": snap.get("lastPrice"), "indicators": snap.get("indicators"),
         "fundamentals": snap.get("fundamentals"),
-        "news": [n.get("title") for n in (snap.get("news") or [])][:8],
+        "news": [n["title"] for n in news_items(snap)],  # 예전 형식 (제목만)
+        "newsItems": news_items(snap), "newsProvider": NEWS_PROVIDER,  # 매체·게시 시각과 출처 표기 (U12)
         "brokerReports": snap.get("brokerReports"),
         "webResearch": [
             {"researcher": r.get("id"), "findings": [

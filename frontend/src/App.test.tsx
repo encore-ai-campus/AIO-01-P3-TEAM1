@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import * as db from "./mocks/db";
 import { server } from "./mocks/server";
 import { renderApp } from "./test/render";
+import { freezeTime } from "./test/time";
 
 const toast = () => screen.getByRole("status");
 
@@ -36,9 +37,17 @@ describe("로그인", () => {
     expect((await screen.findByRole("alert")).textContent).toBe("아이디 또는 비밀번호가 올바르지 않습니다.");
   });
 
+  it("로그인 화면에 서비스 이름과 모의 계좌 안내", async () => {
+    renderApp("/", null);
+    expect(await screen.findByRole("heading", { name: "AI 리포트 데스크" })).toBeTruthy();
+    expect(screen.getByText("실제 주문은 나가지 않아요. 모든 매매는 모의 계좌에서만 이뤄집니다.")).toBeTruthy();
+    expect(screen.queryByText(/팀 모의매매/)).toBeNull();
+  });
+
   it("API가 401을 주면 로그인 화면으로 간다", async () => {
     renderApp("/portfolio");
-    await screen.findByRole("heading", { name: "내 주식" });
+    await screen.findByRole("heading", { name: "모의투자" }); // F-trade: 페이지 제목 "내 주식" → "모의투자"
+    await screen.findByRole("list", { name: "보유 종목" }); // 계좌를 한 번 받아 그린 뒤에 세션을 끊는다
     db.setSession(null);
     server.use(http.get("*/api/account", () => HttpResponse.json({ detail: "로그인이 필요합니다." }, { status: 401 })));
     fireEvent.click(screen.getByRole("tab", { name: "체결 내역" }));
@@ -47,8 +56,8 @@ describe("로그인", () => {
   });
 });
 
-describe("홈", () => {
-  it("내 자산 카드와 AI 분석 카드를 그린다", async () => {
+describe("홈 (전문가 보기 — 앨리스는 주린이모드 끔)", () => {
+  it("내 자산 카드와 AI 교차검증 분석 카드를 그린다", async () => {
     renderApp("/");
     const asset = await screen.findByRole("region", { name: "내 자산" });
     const acc = db.account(1);
@@ -56,7 +65,8 @@ describe("홈", () => {
     expect(within(asset).getByText("투자금액")).toBeTruthy();
     expect(within(asset).getByText(`${acc.investedKrw.toLocaleString("ko-KR")}원`)).toBeTruthy();
 
-    const cards = await screen.findAllByRole("article");
+    const dash = await screen.findByRole("region", { name: "AI 교차검증 분석" });
+    const cards = await within(dash).findAllByRole("article");
     // BUY 먼저 → 최신순, 종목당 최신 분석 하나
     expect(cards.map((c) => c.getAttribute("aria-label"))).toEqual([
       "삼성전자 AI 분석",
@@ -77,9 +87,10 @@ describe("홈", () => {
 
   it("BUY 필터는 BUY 판정만", async () => {
     renderApp("/");
-    await screen.findAllByRole("article");
-    fireEvent.click(screen.getByRole("button", { name: "BUY" }));
-    await waitFor(() => expect(screen.getAllByRole("article")).toHaveLength(3));
+    const dash = await screen.findByRole("region", { name: "AI 교차검증 분석" });
+    await within(dash).findAllByRole("article");
+    fireEvent.click(within(dash).getByRole("button", { name: "BUY" }));
+    await waitFor(() => expect(within(dash).getAllByRole("article")).toHaveLength(3));
   });
 });
 
@@ -133,18 +144,20 @@ describe("종목 상세 주문", () => {
     await waitFor(() => expect(toast().textContent).toContain("삼성전자 10주 71,200원에 매도 체결"));
   });
 
-  it("AI 분석을 요청하면 작업이 끝난 뒤 분석 상세로 간다", async () => {
+  it("AI 교차검증 분석을 요청하면 작업이 끝난 뒤 분석 상세로 간다", async () => {
     renderApp("/stocks/005380");
-    const btn = await screen.findByRole("button", { name: "AI 분석 요청" });
+    const btn = await screen.findByRole("button", { name: "AI 교차검증 분석" }); // D-1 보조 버튼 이름
     await screen.findByText(/오늘 남은 횟수 4회/);
     fireEvent.click(btn);
-    expect(await screen.findByRole("heading", { name: "현대차 AI 분석" }, { timeout: 3000 })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "이 종목 주문하기" })).toBeTruthy();
+    // F-trade: 분석 상세 제목 "{name} AI 분석" → "{name} AI 교차검증 분석"
+    expect(await screen.findByRole("heading", { name: "현대차 AI 교차검증 분석" }, { timeout: 3000 })).toBeTruthy();
+    const order = screen.getByRole("link", { name: "이 종목 주문하기" }); // 전문가 보기(앨리스): 주문 화면으로 목표가·손절가를 채워 간다
+    expect(order.getAttribute("href")).toMatch(/^\/stocks\/005380\?analysis=\d+$/);
   });
 });
 
-describe("My Page", () => {
-  it("실시간 수익률·투자금액을 보이고 공개 체크박스가 PATCH를 보낸다", async () => {
+describe("마이", () => {
+  it("수익률·투자금액을 보이고 공개 체크박스가 PATCH를 보낸다", async () => {
     const patches: unknown[] = [];
     server.events.on("request:start", async ({ request }) => {
       if (request.method === "PATCH") patches.push(await request.clone().json());
@@ -153,8 +166,9 @@ describe("My Page", () => {
     renderApp("/my", "carol");
     const acc = db.account(3);
     const sign = acc.profitRate > 0 ? "+" : "";
-    expect(await screen.findByText(`${sign}${(acc.profitRate * 100).toFixed(2)}%`)).toBeTruthy();
-    expect(screen.getByText("투자금액")).toBeTruthy();
+    const mine = await screen.findByRole("region", { name: "내 수익률" });
+    expect(await within(mine).findByText(`${sign}${(acc.profitRate * 100).toFixed(2)}%`)).toBeTruthy();
+    expect(within(mine).getByText("투자금액")).toBeTruthy();
 
     const box = screen.getByRole("checkbox", { name: "내 정보 공개" }) as HTMLInputElement;
     expect(box.checked).toBe(false);
@@ -169,7 +183,8 @@ describe("My Page", () => {
   it("보유가 있으면 투자금액은 매수 원금 합계", async () => {
     renderApp("/my");
     const acc = db.account(1);
-    expect(await screen.findByText(`${acc.investedKrw.toLocaleString("ko-KR")}원`)).toBeTruthy();
+    const mine = await screen.findByRole("region", { name: "내 수익률" });
+    expect(await within(mine).findByText(`${acc.investedKrw.toLocaleString("ko-KR")}원`)).toBeTruthy();
   });
 });
 
@@ -186,10 +201,42 @@ describe("랭킹", () => {
     expect(screen.getByText(`${me.rank}위`)).toBeTruthy();
   });
 
+  it("평가에 쓴 종가의 기준 시각(보유한 시장마다)과 계산 시각, 뒤로 가기", async () => {
+    freezeTime("2026-10-06T10:00:00+09:00"); // KR·뉴욕 기준일 모두 10월 5일(월)
+    renderApp("/ranking");
+    const section = await screen.findByRole("region", { name: "수익률 순위" });
+    expect(await within(section).findByText("10월 5일(월) 15:30 장마감 기준")).toBeTruthy();
+    expect(within(section).getByText("10월 5일(월) 16:00(뉴욕) 장마감 기준")).toBeTruthy();
+    expect(within(section).getByText(/계산$/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "뒤로 가기" })).toBeTruthy();
+  });
+
   it("내가 비공개면 공개 안내를 보인다", async () => {
     renderApp("/ranking", "carol");
-    expect(await screen.findByText("My Page에서 공개를 켜면 랭킹에 나옵니다")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "My Page로 가기" })).toBeTruthy();
+    expect(await screen.findByText("마이에서 공개를 켜면 랭킹에 나옵니다")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "마이로 가기" })).toBeTruthy();
+  });
+});
+
+describe("알림 화면", () => {
+  it("알림마다 종류 이름을 보인다 (리포트 완성·실패, 오늘의 내 종목 뉴스, 펀더멘털 점검)", async () => {
+    const at = new Date().toISOString();
+    const item = (id: number, kind: string, title: string, link: string | null) => ({ id, kind, title, body: "본문", link, createdAt: at, readAt: null });
+    const results = [
+      item(1, "report_completed", "삼성전자 리포트가 완성됐어요", "/reports/2"),
+      item(2, "report_failed", "에코프로비엠 리포트를 만들지 못했어요", "/reports/1"),
+      item(3, "daily_move", "오늘 내 종목 2개의 소식", "/portfolio"),
+      item(4, "thesis_check", "셀트리온 펀더멘털 점검 결과", "/stocks/068270"),
+      item(5, "something_new", "모르는 종류", null),
+    ];
+    server.use(http.get("*/api/notifications", () => HttpResponse.json({ count: results.length, results, unreadCount: results.length })));
+    renderApp("/notifications");
+    const list = await screen.findByRole("list", { name: "알림 목록" });
+    const rows = within(list).getAllByRole("listitem");
+    const labels = ["리포트 완성", "리포트 만들지 못함", "오늘의 내 종목 뉴스", "펀더멘털 점검", "알림"]; // 모르는 종류는 "알림"
+    expect(rows).toHaveLength(labels.length);
+    labels.forEach((label, i) => expect(within(rows[i]).getByText(label)).toBeTruthy());
+    expect(within(list).getByRole("button", { name: "안 읽음: 삼성전자 리포트가 완성됐어요" })).toBeTruthy();
   });
 });
 

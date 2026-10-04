@@ -1,5 +1,10 @@
-"""모의 트레이딩 API (docs/API.md "모의 트레이딩"). 로그인은 전역 설정이 확인한다 (안 했으면 401)."""
+"""모의 트레이딩 API (docs/API.md "모의 트레이딩"). 로그인은 전역 설정이 확인한다 (안 했으면 401).
+
+가격(시세·종목 상세·계좌 평가·랭킹)은 장마감 기준이다. 분봉(단타 연습)도 완성된 정규장 세션만 낸다.
+"""
 import math
+import re
+from datetime import date
 
 from rest_framework import status
 from rest_framework.exceptions import NotFound
@@ -9,12 +14,14 @@ from rest_framework.views import APIView
 from config.api import Rejected, page
 
 from . import market, service
-from .models import PaperFill, PaperOrder
+from .models import LONG, SWING, PaperFill, PaperOrder
 from .payloads import fill_json, order_json
 from .service import ACTIVE, LIMIT, MARKET
 from .store import account_for, order_row
 
 MAX_SEARCH, MAX_QUOTES, MAX_EQUITY_DAYS = 50, 50, 365
+WEB_STYLES = (SWING, LONG)  # POST /api/orders가 받는 보유 방식 (day는 단타 계획만 만든다)
+DAY_TEXT = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 def _int_param(request, key: str, default: int, low: int, high: int) -> int:
@@ -57,6 +64,21 @@ def _days(data: dict) -> int | None:
     return int(value)
 
 
+def _style(data: dict) -> str | None:
+    """POST /api/orders의 style: 없으면 None (서버가 추론), "swing"·"long"만 받는다 ("day"·모르는 값은 400)."""
+    value = data.get("style")
+    if value is None:
+        return None
+    if value not in WEB_STYLES:
+        raise Rejected("style은 swing 또는 long입니다 (단타 주문은 단타 연습장에서 만듭니다).")
+    return value
+
+
+def _candle(c: dict) -> dict:
+    return {"date": c["timestamp"][:10], "open": float(c["openPrice"]), "high": float(c["highPrice"]),
+            "low": float(c["lowPrice"]), "close": float(c["closePrice"]), "volume": float(c["volume"])}
+
+
 class MarketView(APIView):
     def get(self, request):
         return Response(service.market_status(service.now()))
@@ -72,15 +94,39 @@ class StockSearchView(APIView):
 
 class StockDetailView(APIView):
     def get(self, request, symbol: str):
+        """StockDetail (장마감 기준): 일봉은 기준일 이하 완성 봉만, asOf는 마지막 봉 날짜의 정규장 종료 시각."""
         item = market.stock_item(symbol)
         if item is None:
             raise NotFound("종목을 찾을 수 없습니다.")
         symbol = item["symbol"]
-        candles = [{"date": c["timestamp"][:10], "open": float(c["openPrice"]), "high": float(c["highPrice"]),
-                    "low": float(c["lowPrice"]), "close": float(c["closePrice"]), "volume": float(c["volume"])}
-                   for c in market.candles(symbol)]
+        candles = [_candle(c) for c in market.completed_candles(symbol)]
+        as_of = market.session_end(item["market"], candles[-1]["date"]) if candles else None
         return Response({**item, "currency": market.CURRENCY[item["market"]], "quote": market.quotes([symbol])[0],
-                         "candles": candles, "warnings": market.warnings(symbol)})
+                         "candles": candles, "asOf": as_of, "warnings": market.warnings(symbol)})
+
+
+class MinuteCandlesView(APIView):
+    def get(self, request, symbol: str):
+        """MinuteCandles: 국내 종목의 완성된 정규장 세션 분봉 (date 기본 = KR 기준일, 기준일보다 뒤면 400)."""
+        item = market.stock_item(symbol)
+        if item is None:
+            raise NotFound("종목을 찾을 수 없습니다.")
+        if item["market"] != "KR":
+            raise Rejected("분봉은 국내 종목만 볼 수 있습니다.")
+        text = request.query_params.get("minutes", "1")
+        if text not in {str(m) for m in market.MINUTE_STEPS}:
+            raise Rejected(f"minutes는 {', '.join(map(str, market.MINUTE_STEPS))} 중 하나입니다.")
+        basis = market.basis_day("KR")
+        day = request.query_params.get("date") or basis
+        if not DAY_TEXT.fullmatch(day):
+            raise Rejected("date는 YYYY-MM-DD 형식입니다.")
+        try:
+            date.fromisoformat(day)
+        except ValueError:
+            raise Rejected("date는 YYYY-MM-DD 형식입니다.") from None
+        if day > basis:
+            raise Rejected(f"아직 끝나지 않은 세션입니다. 분봉은 장마감 기준일({basis})까지 볼 수 있습니다.")
+        return Response(market.minute_candles(item["symbol"], day, int(text)))
 
 
 class QuotesView(APIView):
@@ -120,8 +166,13 @@ class OrdersView(APIView):
             raise Rejected("orderType은 MARKET 또는 LIMIT입니다.")
         quantity = _number(data, "quantity", required=True)
         limit = _number(data, "limitPrice", required=order_type == LIMIT)
-        out = service.buy(account_for(request.user), request.user.username, symbol, quantity, order_type, limit,
-                          _number(data, "targetPrice"), _number(data, "stopPrice"), _days(data), service.now())
+        style = _style(data)
+        try:
+            out = service.buy(account_for(request.user), request.user.username, symbol, quantity, order_type, limit,
+                              _number(data, "targetPrice"), _number(data, "stopPrice"), _days(data), service.now(),
+                              style=style)
+        except service.Blocked as e:  # 장기 보유 비중 점검: 사유 코드를 같이 낸다 (docs/API.md "실행 불가 사유 코드")
+            return Response(e.body(), status=status.HTTP_400_BAD_REQUEST)
         return Response(out, status=status.HTTP_201_CREATED)
 
 

@@ -5,6 +5,8 @@
 계획은 `docs/TEAM_PAPER_TRADING_PLAN.md`, 팀원이 이어서 개발할 일과 개발 환경 안내는 `TEAM_DEV_PLAN.md`, 과제 평가 기준은 `docs/프로젝트평가기준.md`, 클론 직후 설치·실행 절차는 `SETUP_PROMPT.md`, 작업자 간 공통 결정은 `docs/DECISIONS.md`, 웹 API 계약은 `docs/API.md`, 담당별 세부 작업과 담당 간 약속은 `docs/tasks/`(서비스 최종 흐름 AI 추천 → 계획 활성화 → 자동매매 → 알림은 `06-추천·자동매매.md`), 배포와 CI/CD는 `docs/DEPLOY.md`, 엔진 설계는 `docs/DESIGN.md`, 키움 API는 `docs/KIWOOM.md`.
 합의된 계획(2026-10-04, 팀장 결정 — `docs/DECISIONS.md` 13장): 서비스 이름 **"AI 리포트 데스크"** — 초보자도 리포트를 만들고·검토하고·모의 자동매매로 실행한다(`docs/컨셉변경계획.md`),
 주린이모드(계정 저장)와 투자 방식 확장 장기·스윙·단타(`docs/투자서비스확장계획.md`, **선물은 폐기**), AI 교차검증 분석은 사용자 화면에 남긴다. 조사 근거·약관 검토는 `docs/research/`.
+구현 상태(2026-10-05): 장마감 기준 가격·보유 방식(스윙·장기·단타)·장기투자(오늘의 내 종목 뉴스·펀더멘털 점검)·단타 연습·주린이모드·리포트 끝 알림·하루 리포트 한도는 만들었다
+(`docs/API.md`의 "구현: 2026-10-05 (Claude)", 결정 `docs/DECISIONS.md` 14장). 리포트 Agent 워크플로우·자동 리포트·단타 AI 계획·복기는 팀 몫으로 남았다.
 **남은 결정·확인 목록과 다음 세션 시작점은 `docs/결정필요사항.md`** (결정하면 상태를 고치고 원래 문서에 옮긴다).
 
 ## 안전 규칙 (반드시 준수)
@@ -55,8 +57,10 @@ engine/paper_engine/   매매 엔진 (선별, AI 교차검증, 리스크 엔진,
 backend/               Django: config/(설정, engine.py 엔진 접점, api.py 공통), accounts/(로그인·프로필·팀 계정),
                        trading/(팀원별 계좌·주문·시세·랭킹·run_engine), analysis/(AI 분석 색인·작업),
                        reports/(AI 리포트 구조: YAML Registry·Shared State·Trace·SSE·A4 PDF·선별. Agent·Orchestrator는 미구현),
-                       autotrade/(AI 추천·리스크 미리 보기·계획 활성화·자동매매 진행), notifications/(웹 알림·Discord Webhook 보낼 편지함). 테스트는 backend/<앱>/tests/
-frontend/              React + TypeScript + Vite + Tailwind CSS (로그인·홈·종목·내 주식·AI 분석·AI 리포트·랭킹·My Page)
+                       autotrade/(AI 추천·리스크 미리 보기·계획 활성화·자동매매 진행), notifications/(웹 알림·Discord Webhook 보낼 편지함),
+                       longterm/(장기투자: 오늘의 내 종목 뉴스·산 이유와 펀더멘털 점검), daytrade/(단타 연습: 상태·미리 보기·계획·복기 — 모델 없이 autotrade 재사용).
+                       accounts/에 투자자 프로필·주린이모드·단타 퀴즈, reports/에 리포트 끝 알림(alerts)·하루 한도(quota). 테스트는 backend/<앱>/tests/
+frontend/              React + TypeScript + Vite + Tailwind CSS (하단 탭 홈·종목·리포트·모의투자·마이, 주린이모드 쉬운 보기, AI 교차검증 분석, 단타 연습 /day, 랭킹)
 backtest/              백테스트 (AI 없음, DB 없이 단독 실행)
 deploy/                compose.dev.yml(로컬 Redis + 선택 PostgreSQL), docker-compose.yml(운영: nginx·web·engine·db·redis),
                        Dockerfile(web·engine), nginx/, .env.docker.example, remote_deploy.sh(서버 배포·되돌리기), smoke_test.sh
@@ -78,7 +82,7 @@ scripts/dev.sh status | stop | logs | db | db-stop | import-sqlite     # 주소�
 cd backend && uv run python manage.py migrate      # DB 표. 아래는 하나씩 직접 띄울 때
 cd backend && uv run python manage.py create_team_accounts   # 팀원 계정 5개 → team_accounts.txt (git 제외)
 cd backend && uv run python manage.py runserver    # Django (.env에 DJANGO_DEBUG=on. PostgreSQL을 쓰면 DJANGO_SECRET_KEY도 필요)
-cd backend && uv run python manage.py run_engine   # 웹 엔진 루프 (지정가 체결·청산·예약·일별 자산·AI 분석 작업·추천 수집·자동매매·알림 발송)
+cd backend && uv run python manage.py run_engine   # 웹 엔진 루프 (체결·청산·예약·일별 자산·AI 분석 작업·추천 수집·리포트 알림·자동 추천·자동매매·장기투자·알림 발송)
 cd backend && uv run python manage.py demo_recommend --symbol 005930   # 시연용 규칙 추천 (AI 아님). auto_recommend --force는 선별 상위로
 cd frontend && npm ci && npm run dev               # Vite (/api, /admin을 127.0.0.1:8000으로 프록시. 다른 포트면 VITE_API_TARGET=..., VITE_MOCK=1이면 가짜 API)
 cd frontend && npx eslint . && npx tsc --noEmit && npx vitest run && npx vite build

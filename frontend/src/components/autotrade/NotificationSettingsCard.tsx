@@ -1,4 +1,5 @@
-// My Page 알림 설정: Discord 사용자 ID(멘션용), "Discord로도 받기", Webhook 미설정 안내, 테스트 알림.
+// 마이의 알림 설정: Discord 사용자 ID(멘션용), "Discord로도 받기", Webhook 미설정 안내, 테스트 알림.
+// 웹 알림 문장은 받는 사람의 주린이모드를 따르고, Discord(팀 공용 채널)는 쉬운 문장 + 숫자 한 줄 하나로 간다 (docs/API.md B6).
 import { useState } from "react";
 import { useTestNotification, useUpdateNotificationSettings } from "../../api/autotrade";
 import { errorMessage } from "../../api/client";
@@ -130,6 +131,9 @@ export function NotificationSettingsCard() {
         알림 설정
       </h2>
       {!s.webhookConfigured && <Notice tone="warn">서버에 Discord Webhook이 설정되지 않아 웹 알림만 갑니다.</Notice>}
+      <p className="text-[13px] leading-relaxed text-mute">
+        웹 알림 문장은 주린이모드를 따라요. 오늘의 내 종목 뉴스·펀더멘털 점검·단타 연습 알림은 웹에만 와요.
+      </p>
       <DiscordToggle key={`t-${s.discordEnabled}`} s={s} />
       <div className="border-t border-line pt-4">
         <DiscordIdForm key={s.discordUserId ?? ""} s={s} />

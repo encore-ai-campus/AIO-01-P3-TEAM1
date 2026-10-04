@@ -6,15 +6,23 @@ HTML 파일을 그대로 돌려준다.
 """
 import shutil
 import subprocess
+from datetime import datetime
 from html import escape
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+from .notify import horizon_label
 
 CHROME_NAMES = ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser")
 PDF_TIMEOUT_SEC = 60
-HORIZON_LABEL = {"SWING": "스윙", "LONG_TERM": "장기"}
 DIRECTION_LABEL = {"POSITIVE": "호재", "NEGATIVE": "악재", "NEUTRAL": "중립"}
 MARKET_LABEL = {"KR": "국내", "US": "미국"}
 REPORT_DIRECTION_LABEL = {"UP": "상향", "DOWN": "하향", "KEEP": "유지"}
+KST = ZoneInfo("Asia/Seoul")
+# 뉴스 제목의 출처 표기 (docs/DECISIONS.md 14-7 U12): 제목은 Google 뉴스 RSS 검색 결과이고 저작권은 각 언론사에 있다
+NEWS_PROVIDER = "Google 뉴스 검색 결과"
+NEWS_CAPTION = f"뉴스 제목: {NEWS_PROVIDER}(각 언론사). 제목만 모은 것이며 본문·사실 여부는 확인하지 않았습니다."
+MAX_NEWS = 8
 
 CSS = """
 @page { size: A4; margin: 14mm 12mm; }
@@ -66,6 +74,33 @@ def _list(items) -> str:
     return "<ul>" + "".join(f"<li>{_e(i)}</li>" for i in items) + "</ul>" if items else ""
 
 
+def news_time(published_at) -> str | None:
+    """뉴스 게시 시각 ISO → 한국 시간 "YYYY-MM-DD HH:MM". 읽지 못하면 None."""
+    if not isinstance(published_at, str) or not published_at:
+        return None
+    try:
+        at = datetime.fromisoformat(published_at)
+    except ValueError:
+        return None
+    return f"{(at.astimezone(KST) if at.tzinfo else at):%Y-%m-%d %H:%M}"
+
+
+def news_items(snapshot: dict, limit: int = MAX_NEWS) -> list[dict]:
+    """스냅샷 뉴스 → [{"title", "source", "publishedAt"}] (제목이 있는 것만, 스냅샷 순서 = 최신순). 링크는 넣지 않는다."""
+    out = []
+    for n in snapshot.get("news") or []:
+        if isinstance(n, dict) and n.get("title"):
+            out.append({"title": str(n["title"]), "source": str(n["source"]) if n.get("source") else None,
+                        "publishedAt": str(n["publishedAt"]) if n.get("publishedAt") else None})
+    return out[:limit]
+
+
+def news_line(item: dict) -> str:
+    """뉴스 한 줄 (사람이 읽는 글): "제목 (매체 · 2026-09-28 14:05)". 매체·시각이 없으면 그 칸을 뺀다."""
+    meta = " · ".join(x for x in (item.get("source"), news_time(item.get("publishedAt"))) if x)
+    return f"{item['title']} ({meta})" if meta else item["title"]
+
+
 def _status(c: dict) -> tuple[str, str]:
     """(표시 이름, css 종류)"""
     if c.get("selected"):
@@ -91,7 +126,7 @@ def _candidate(c: dict, currency: str) -> str:
     entry, target, stop = s["entry_price"], s["target_price"], s["stop_price"]
     a = c.get("assessment") or {}
     rows = [
-        ("기간", f'{HORIZON_LABEL.get(s.get("horizon"), s.get("horizon"))} · 보유 {s.get("holding_days")}거래일'),
+        ("기간", f'{horizon_label(s.get("horizon"))} · 보유 {s.get("holding_days")}거래일'),
         ("가격", f"진입 {_money(entry, currency)} / 목표 {_money(target, currency)} "
                  f"({_pct(target / entry - 1, True)}) / 손절 {_money(stop, currency)} "
                  f"({_pct(stop / entry - 1, True)})"),
@@ -170,9 +205,9 @@ def _snapshot(snapshot: dict) -> str:
              ("60일", _pct(ind.get("change60d"), True))]
     html = ("<table><tr>" + "".join(f"<th>{k}</th>" for k, _ in cells) + "</tr><tr>"
             + "".join(f'<td class="n">{v}</td>' for _, v in cells) + "</tr></table>")
-    news = [n.get("title") for n in (snapshot.get("news") or [])][:8]
+    news = [news_line(n) for n in news_items(snapshot)]
     if news:
-        html += "<h3>뉴스 제목</h3>" + _list(news)
+        html += f'<h3>뉴스 제목</h3>{_list(news)}<p class="small">{_e(NEWS_CAPTION)}</p>'
     if "brokerReports" in snapshot:
         html += _broker_reports(snapshot["brokerReports"], currency)
     return html

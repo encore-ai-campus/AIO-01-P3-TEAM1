@@ -9,6 +9,7 @@ import pytest
 from analysis import jobs
 from django.core.cache import cache
 from paper_engine.config import Config
+from paper_engine.data.kiwoom import KiwoomApiError, minute_session
 from rest_framework.test import APIClient
 
 from config import engine
@@ -35,6 +36,7 @@ class FakeClient:
         self.fx = 1400.0
         self.calls: list[str] = []
         self.fail = False
+        self.minute: dict[tuple[str, str], tuple[list[dict], bool]] = {}  # (종목, 날짜) → minute_candles가 돌려줄 값
 
     def _hit(self, name: str) -> None:
         self.calls.append(name)
@@ -97,6 +99,26 @@ class FakeClient:
                  "highPrice": f"{c * 1.01:g}", "lowPrice": f"{c * 0.99:g}", "closePrice": f"{c:g}", "volume": "1000"}
                 for i, c in enumerate(closes)][-count:]
 
+    def minute_candles(self, symbol, day, minutes=1):
+        """(분봉, 세션 시작까지 받았는지) — 엔진 minute_candles와 같은 인자·형식. 그 날짜 09:00~15:29를 minutes분씩,
+        종가는 현재가의 99.6%~100.4%를 오간다. 주말은 ([], True). self.minute[(종목, 날짜)]를 넣으면 그 값을 돌려준다.
+        간격·날짜가 잘못되면 ValueError, 미국 종목은 KiwoomApiError (국내만)."""
+        self._hit("minute_candles")
+        if (symbol, day) in self.minute:
+            return self.minute[(symbol, day)]
+        start, _ = minute_session(day, minutes)
+        if not symbol[:1].isdigit():
+            raise KiwoomApiError(0, {"return_code": None, "return_msg": f"분봉은 국내 종목만 지원: {symbol}"})
+        if start.weekday() >= 5:
+            return [], True
+        base, bars = self.price[symbol], []
+        for i, offset in enumerate(range(0, 390, minutes)):
+            close = base * (1 + 0.002 * (i % 5 - 2))
+            bars.append({"timestamp": (start + timedelta(minutes=offset)).isoformat(), "openPrice": f"{base:.0f}",
+                         "highPrice": f"{max(base, close) * 1.001:.0f}", "lowPrice": f"{min(base, close) * 0.999:.0f}",
+                         "closePrice": f"{close:.0f}", "volume": f"{100 * minutes}"})
+        return bars, True
+
 
 @pytest.fixture(autouse=True)
 def engine_setup(monkeypatch, tmp_path):
@@ -127,6 +149,23 @@ def switch(fake: FakeClient, **open_):
 def set_price(fake: FakeClient, symbol: str, price: float):
     fake.price[symbol] = price
     cache.clear()
+
+
+CSAT_OPEN = datetime(2026, 11, 19, 10, tzinfo=KST)  # 2026-11-19 수능일: KRX 정규장 10:00~16:30
+
+
+def csat_candles(client, live: dict):
+    """수능일 일봉을 주는 daily_candles (client.now 기준): 17·18일 봉, 19일 개장 뒤에는 오늘 봉 (종가 = live[종목], 장중에 바뀐다).
+    17·18일 종가는 기준 가격(client.price)의 97%·100%."""
+    def daily_candles(symbol, count=200):
+        client._hit("daily_candles")
+        base = client.price[symbol]
+        rows = [("2026-11-17", base * 0.97), ("2026-11-18", base)]
+        if client.now >= CSAT_OPEN:
+            rows.append(("2026-11-19", live[symbol]))
+        return [{"timestamp": f"{day}T00:00:00+09:00", "openPrice": f"{base:g}", "highPrice": f"{max(base, c):g}",
+                 "lowPrice": f"{min(base, c):g}", "closePrice": f"{c:g}", "volume": "1000"} for day, c in rows][-count:]
+    return daily_candles
 
 
 @pytest.fixture

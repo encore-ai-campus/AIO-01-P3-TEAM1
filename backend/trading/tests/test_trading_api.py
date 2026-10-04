@@ -1,4 +1,8 @@
-"""모의 트레이딩 API (docs/API.md "모의 트레이딩"). 증권사는 가짜 클라이언트(conftest.FakeClient)다."""
+"""모의 트레이딩 API (docs/API.md "모의 트레이딩"). 증권사는 가짜 클라이언트(conftest.FakeClient)다.
+
+가짜 장 달력은 지금 정규장이 열려 있거나(1시간 전 ~ 1시간 뒤) 곧 열린다 → 장마감 기준일은 늘 어제(KST)이고,
+화면 가격(시세·평가·랭킹)은 어제 봉의 종가 = 현재가 × 0.98 (CLOSE), 그 전 종가 = 현재가 × 0.97이다. 체결은 현재가(장중)로 한다.
+"""
 from datetime import timedelta
 
 import pytest
@@ -8,6 +12,7 @@ from django.utils import timezone
 from paper_engine.judge.risk import SELL_TAX_RATE
 
 from config import engine
+from trading import market
 from trading.models import PaperAccount, PaperOrder, Reservation
 
 from .conftest import login, set_price, switch
@@ -16,13 +21,14 @@ pytestmark = pytest.mark.django_db
 
 ORDER_KEYS = {"id", "symbol", "name", "market", "currency", "orderType", "limitPrice", "quantity", "status",
               "entryPrice", "fillPrice", "filledAt", "targetPrice", "stopPrice", "expireDate", "exitPrice",
-              "exitReason", "closedAt", "pnlKrw", "note", "createdAt"}
-POSITION_KEYS = {"orderId", "symbol", "name", "market", "currency", "quantity", "avgPrice", "lastPrice", "costKrw",
-                 "valueKrw", "profitKrw", "profitRate", "targetPrice", "stopPrice", "expireDate", "filledAt"}
+              "exitReason", "closedAt", "pnlKrw", "note", "createdAt", "style"}
+POSITION_KEYS = {"orderId", "symbol", "name", "market", "currency", "style", "quantity", "avgPrice", "lastPrice",
+                 "costKrw", "valueKrw", "profitKrw", "profitRate", "targetPrice", "stopPrice", "expireDate", "filledAt"}
 SUMMARY_KEYS = {"initialCapitalKrw", "cashKrw", "holdingsValueKrw", "equityKrw", "investedKrw", "profitKrw",
-                "profitRate", "pendingKrw", "buyingPowerKrw", "positions", "notes", "asOf"}
+                "profitRate", "pendingKrw", "buyingPowerKrw", "positions", "notes", "pricesAsOf", "asOf"}
 RESERVATION_KEYS = {"id", "kind", "symbol", "name", "market", "quantity", "orderId", "targetPrice", "stopPrice",
-                    "days", "runAt", "createdAt"}
+                    "days", "style", "runAt", "createdAt"}
+CLOSE, PREV = 0.98, 0.97  # 가짜 일봉: 어제 종가 = 현재가 × 0.98, 그저께 = × 0.97
 
 
 def buy(api, **body):
@@ -47,6 +53,7 @@ def test_account_created_on_first_use(api, user):
     assert body["cashKrw"] == body["equityKrw"] == body["initialCapitalKrw"] == body["buyingPowerKrw"] == 10_000_000
     assert body["investedKrw"] == 0 and body["profitKrw"] == 0 and body["profitRate"] == 0
     assert body["pendingKrw"] == 0 and body["positions"] == [] and body["notes"] == []
+    assert body["pricesAsOf"] == {}  # 보유가 없으면 비어 있다
     api.get("/api/account")
     assert PaperAccount.objects.count() == 1
 
@@ -59,36 +66,41 @@ def test_market_buy_price_move_and_sell(api, fake):
     order = result["order"]
     assert set(order) == ORDER_KEYS
     assert order["status"] == "EXIT_WATCHING" and order["orderType"] == "MARKET"
+    assert order["style"] == "long" and order["expireDate"] is None  # 목표·손절·기한이 없으면 장기 보유
     assert order["fillPrice"] == 70000 and order["quantity"] == 10 and order["filledAt"].endswith("+09:00")
 
+    # 체결은 장중 확인 가격(70,000), 평가는 직전 장마감 종가(68,600)
     cost = 700_000 * 1.001
+    close = 70000 * CLOSE
     body = api.get("/api/account").json()
     assert body["cashKrw"] == pytest.approx(10_000_000 - cost)
-    assert body["holdingsValueKrw"] == pytest.approx(700_000)
-    assert body["equityKrw"] == pytest.approx(10_000_000 - 700)
+    assert body["holdingsValueKrw"] == pytest.approx(10 * close)
+    assert body["equityKrw"] == pytest.approx(10_000_000 - cost + 10 * close)
     assert body["investedKrw"] == pytest.approx(700_000)
-    assert body["profitRate"] == pytest.approx(-700 / 10_000_000)
+    assert body["profitRate"] == pytest.approx((10 * close - cost) / 10_000_000)
+    assert set(body["pricesAsOf"]) == {"KR"} and body["pricesAsOf"]["KR"].endswith("+09:00")
     position = body["positions"][0]
     assert set(position) == POSITION_KEYS
-    assert position["orderId"] == order["id"] and position["avgPrice"] == 70000 and position["lastPrice"] == 70000
-    assert position["costKrw"] == pytest.approx(700_000) and position["profitKrw"] == pytest.approx(0)
+    assert position["orderId"] == order["id"] and position["avgPrice"] == 70000 and position["style"] == "long"
+    assert position["lastPrice"] == pytest.approx(close)
+    assert position["costKrw"] == pytest.approx(700_000) and position["profitKrw"] == pytest.approx(10 * close - 700_000)
 
     set_price(fake, "005930", 75000)
     body = api.get("/api/account").json()
     position = body["positions"][0]
-    assert position["lastPrice"] == 75000 and position["valueKrw"] == pytest.approx(750_000)
-    assert position["profitKrw"] == pytest.approx(50_000)
-    assert position["profitRate"] == pytest.approx(50_000 / 700_000)
-    assert body["equityKrw"] == pytest.approx(10_000_000 - cost + 750_000)
+    assert position["lastPrice"] == pytest.approx(75000 * CLOSE) and position["valueKrw"] == pytest.approx(735_000)
+    assert position["profitKrw"] == pytest.approx(35_000)
+    assert position["profitRate"] == pytest.approx(35_000 / 700_000)
+    assert body["equityKrw"] == pytest.approx(10_000_000 - cost + 735_000)
 
     response = api.post(f"/api/orders/{order['id']}/sell")
     assert response.status_code == 200
     sold = response.json()["order"]
-    assert sold["status"] == "CLOSED" and sold["exitReason"] == "MANUAL" and sold["exitPrice"] == 75000
+    assert sold["status"] == "CLOSED" and sold["exitReason"] == "MANUAL" and sold["exitPrice"] == 75000  # 매도는 장중
     proceeds = 750_000 - 750 - 750_000 * SELL_TAX_RATE["KR"]
     assert sold["pnlKrw"] == pytest.approx(proceeds - cost)
     body = api.get("/api/account").json()
-    assert body["positions"] == [] and body["investedKrw"] == 0
+    assert body["positions"] == [] and body["investedKrw"] == 0 and body["pricesAsOf"] == {}
     assert body["cashKrw"] == pytest.approx(10_000_000 - cost + proceeds)
 
     fills = api.get("/api/fills").json()
@@ -109,8 +121,25 @@ def test_account_uses_fill_price_when_quotes_fail(api, fake):
     body = response.json()
     assert body["positions"][0]["lastPrice"] is None
     assert body["holdingsValueKrw"] == pytest.approx(700_000)
-    assert any("시세를 조회하지 못해" in n for n in body["notes"])
-    assert any("체결가로 평가" in n and "005930" in n for n in body["notes"])
+    assert body["pricesAsOf"] == {}
+    assert any("종가를 조회하지 못해" in n for n in body["notes"])
+    assert any(n.startswith("종가를 받지 못해 체결가로 평가") and "005930" in n for n in body["notes"])
+
+
+def test_account_values_unpriced_holding_at_fill_price(api, fake):
+    """한 종목의 종가만 받지 못하면 그 종목만 체결가로 평가하고 안내한다 (종가가 있는 시장만 pricesAsOf)."""
+    buy(api)
+    broken = fake.daily_candles
+
+    def candles(symbol, count=200):
+        if symbol == "005930":
+            raise OSError("일봉 조회 실패")
+        return broken(symbol, count)
+    fake.daily_candles = candles
+    cache.clear()
+    body = api.get("/api/account").json()
+    assert body["positions"][0]["lastPrice"] is None and body["holdingsValueKrw"] == pytest.approx(700_000)
+    assert body["notes"] == ["종가를 받지 못해 체결가로 평가: 005930"] and body["pricesAsOf"] == {}
 
 
 # --- 주문 규칙 ---
@@ -119,6 +148,7 @@ def test_limit_order_waits(api, fake):
     response = buy(api, orderType="LIMIT", limitPrice=69000)
     order = response.json()["order"]
     assert response.status_code == 201 and order["status"] == "ENTRY_PENDING" and order["limitPrice"] == 69000
+    assert order["style"] == "long"
     body = api.get("/api/account").json()
     assert body["pendingKrw"] == pytest.approx(690_000 * 1.001)
     assert body["buyingPowerKrw"] == pytest.approx(10_000_000 - 690_000 * 1.001)
@@ -140,6 +170,7 @@ def test_market_order_outside_session_is_reserved(api, fake):
     reservation = result["reservation"]
     assert set(reservation) == RESERVATION_KEYS
     assert reservation["kind"] == "BUY" and reservation["quantity"] == 10 and reservation["days"] == 10
+    assert reservation["style"] == "swing" and Reservation.objects.get().style == "swing"
     assert reservation["targetPrice"] == 77000 and reservation["runAt"] is not None
     assert not PaperOrder.objects.exists()
     assert [r["id"] for r in api.get("/api/reservations").json()["results"]] == [reservation["id"]]
@@ -155,6 +186,7 @@ def test_order_validation(api, fake):
     assert buy(api, orderType="STOP").status_code == 400
     assert "정수" in buy(api, quantity=1.5).json()["detail"]
     assert "함께" in buy(api, targetPrice=77000).json()["detail"]
+    assert "함께" in buy(api, days=5).json()["detail"]  # 기한만 주면 스윙인데 목표·손절이 없다
     assert "기한" in buy(api, targetPrice=77000, stopPrice=66000, days=0).json()["detail"]
     response = buy(api, symbol="035720")  # 종목 목록에는 있지만 가격이 없다
     assert response.status_code == 400 and response.json()["detail"] == "확인된 가격이 없어 주문하지 않음"
@@ -169,8 +201,16 @@ def test_duplicate_symbol_rejected(api, fake):
 
 
 def test_buying_power_shortage_rejected(api, fake):
-    response = buy(api, quantity=150)  # 1,050만원 > 1,000만원
+    # 스윙: 엔진 접수 점검 (장중 가격 1,050만원 > 1,000만원). 장중 가격으로 계산한 필요 금액은 문장에 넣지 않는다
+    response = buy(api, quantity=150, targetPrice=77000, stopPrice=66000)
     assert response.status_code == 400 and "매수 가능 금액 부족" in response.json()["detail"]
+    assert "reasonCodes" not in response.json()
+    # 장기 보유: 비중 점검 (직전 종가 68,600 × 150주 = 1,029만원 > 매수 가능 1,000만원, 자산의 100%도 넘음) → 사유 코드
+    response = buy(api, quantity=150)
+    assert response.status_code == 400 and set(response.json()) == {"detail", "reasonCodes"}
+    assert response.json()["reasonCodes"] == ["cash_short", "position_limit"]
+    assert len(response.json()["detail"].split("; ")) == 2  # 사유와 코드는 같은 길이·같은 순서
+    assert "70,000" not in response.json()["detail"]  # 장중 가격 숫자는 넣지 않는다
 
 
 def test_halt_switch_blocks_new_buys(api, fake):
@@ -181,7 +221,8 @@ def test_halt_switch_blocks_new_buys(api, fake):
 
 
 def test_modify_and_cancel(api, fake):
-    order = buy(api, orderType="LIMIT", limitPrice=69000).json()["order"]
+    order = buy(api, orderType="LIMIT", limitPrice=69000, targetPrice=75000, stopPrice=65000).json()["order"]
+    assert order["style"] == "swing"
     response = api.patch(f"/api/orders/{order['id']}", {"targetPrice": 80000, "stopPrice": 60000, "days": 5},
                          format="json")
     assert response.status_code == 200
@@ -209,6 +250,7 @@ def test_sell_outside_session_is_reserved(api, fake):
     result = response.json()
     assert result["order"]["status"] == "EXIT_WATCHING"
     assert result["reservation"]["kind"] == "SELL" and result["reservation"]["orderId"] == order["id"]
+    assert result["reservation"]["style"] is None  # 매도 예약에는 보유 방식이 없다
     again = api.post(f"/api/orders/{order['id']}/sell")
     assert again.status_code == 400 and "매도 예약이 이미 있음" in again.json()["detail"]
 
@@ -264,25 +306,40 @@ def test_ranking(fake, django_user_model):
 
 def test_quotes(api, fake):
     body = api.get("/api/quotes?symbols=005930,000000,AAPL,005930").json()
-    assert body["asOf"]
+    assert body["asOf"]  # 응답 시각
     quotes = {q["symbol"]: q for q in body["quotes"]}
     assert list(quotes) == ["005930", "AAPL"]  # 모르는 종목은 빠진다
     samsung = quotes["005930"]
-    assert set(samsung) == {"symbol", "name", "currency", "price", "prevClose", "change", "changeRate"}
-    assert samsung["name"] == "삼성전자" and samsung["currency"] == "KRW"
-    assert isinstance(samsung["price"], float) and samsung["price"] == 70000
-    assert samsung["prevClose"] == pytest.approx(68600) and samsung["change"] == pytest.approx(1400)
-    assert samsung["changeRate"] == pytest.approx(70000 / 68600 - 1)
-    assert quotes["AAPL"]["currency"] == "USD"
+    assert set(samsung) == {"symbol", "name", "currency", "price", "prevClose", "change", "changeRate", "asOf",
+                            "basis"}
+    assert samsung["name"] == "삼성전자" and samsung["currency"] == "KRW" and samsung["basis"] == "close"
+    # 장마감 기준: 가격은 직전 정규장 종가(어제), prevClose는 그 전 종가 (현재가 70,000이 아니다)
+    assert isinstance(samsung["price"], float) and samsung["price"] == pytest.approx(70000 * CLOSE)
+    assert samsung["prevClose"] == pytest.approx(70000 * PREV)
+    assert samsung["change"] == pytest.approx(70000 * (CLOSE - PREV))
+    assert samsung["changeRate"] == pytest.approx(CLOSE / PREV - 1)
+    yesterday = f"{timezone.localdate() - timedelta(days=1)}"
+    calendar = market.calendar("KR")  # 서버가 쓴 (캐시한) 장 달력
+    assert samsung["asOf"] == calendar["previousBusinessDay"]["integrated"]["regularMarket"]["endTime"]
+    assert calendar["previousBusinessDay"]["date"] == yesterday
+    assert quotes["AAPL"]["currency"] == "USD" and quotes["AAPL"]["price"] == pytest.approx(200 * CLOSE)
     assert api.get("/api/quotes").json()["quotes"] == []
     too_many = ",".join(f"{i:06d}" for i in range(51))
     assert api.get(f"/api/quotes?symbols={too_many}").status_code == 400
 
 
+def test_quote_without_close_is_null(api, fake):
+    """일봉을 받지 못한 종목(종목 목록에는 있음)은 가격·기준 시각이 null이다."""
+    quote = api.get("/api/quotes?symbols=035720").json()["quotes"][0]
+    assert (quote["price"], quote["prevClose"], quote["change"], quote["asOf"], quote["basis"]) == (
+        None, None, None, None, "close")
+
+
 def test_quotes_are_cached(api, fake):
     api.get("/api/quotes?symbols=005930")
     api.get("/api/quotes?symbols=005930")
-    assert fake.calls.count("prices") == 1 and fake.calls.count("daily_candles") == 1
+    assert fake.calls.count("prices") == 0  # 현재가는 화면 시세에 쓰지 않는다
+    assert fake.calls.count("daily_candles") == 1  # 종목·기준일마다 일봉 1번
 
 
 def test_search(api, fake):
@@ -299,25 +356,40 @@ def test_search(api, fake):
 
 def test_stock_detail(api, fake):
     body = api.get("/api/stocks/000660").json()
-    assert set(body) == {"symbol", "name", "exchange", "market", "currency", "quote", "candles", "warnings"}
+    assert set(body) == {"symbol", "name", "exchange", "market", "currency", "quote", "candles", "asOf", "warnings"}
     assert (body["symbol"], body["exchange"], body["market"], body["currency"]) == ("000660", "KOSPI", "KR", "KRW")
-    assert body["quote"]["price"] == 200000 and body["warnings"] == ["투자경고"]
-    assert len(body["candles"]) == 3
+    assert body["quote"]["price"] == pytest.approx(200000 * CLOSE) and body["warnings"] == ["투자경고"]
+    assert len(body["candles"]) == 2  # 오늘 미완성 봉은 없다 (기준일 = 어제까지)
     candle = body["candles"][-1]
     assert set(candle) == {"date", "open", "high", "low", "close", "volume"}
-    assert candle["close"] == 200000 and isinstance(candle["volume"], float)
+    assert candle["date"] == f"{timezone.localdate() - timedelta(days=1)}"
+    assert candle["close"] == pytest.approx(200000 * CLOSE) and isinstance(candle["volume"], float)
     assert body["candles"][0]["date"] < body["candles"][-1]["date"]
+    assert body["asOf"] == body["quote"]["asOf"]  # 마지막 봉 = 종가 봉
     assert api.get("/api/stocks/999999").status_code == 404
 
 
 def test_market_status(api, fake):
     body = api.get("/api/market").json()
     assert body["brokerReady"] is True and body["halted"] is False
+    assert body["quoteProvider"] == "키움증권 REST API"
     kr = body["markets"][0]
+    assert set(kr) == {"market", "isOpen", "opensAt", "closesAt", "closeDate", "lastCloseAt"}
     assert kr["market"] == "KR" and kr["isOpen"] is True and kr["opensAt"] and kr["closesAt"]
+    assert kr["closeDate"] == f"{timezone.localdate() - timedelta(days=1)}"  # 정규장 중이면 어제가 기준일
+    assert kr["lastCloseAt"] == market.calendar("KR")["previousBusinessDay"]["integrated"]["regularMarket"][
+        "endTime"]
     switch(fake, KR=False)
     kr = api.get("/api/market").json()["markets"][0]
-    assert kr["isOpen"] is False and kr["opensAt"] and kr["closesAt"] is None
+    assert kr["isOpen"] is False and kr["opensAt"] and kr["closesAt"] is None and kr["closeDate"]
+
+
+def test_market_status_quote_provider_for_toss(api, fake, monkeypatch):
+    import dataclasses
+
+    from .conftest import CFG
+    monkeypatch.setattr(engine, "engine_config", lambda: dataclasses.replace(CFG, broker="toss"))
+    assert api.get("/api/market").json()["quoteProvider"] == "토스증권 Open API(개발)"
 
 
 def test_broker_missing(api):
@@ -327,6 +399,7 @@ def test_broker_missing(api):
     assert buy(api).status_code == 503
     body = api.get("/api/market").json()
     assert body["brokerReady"] is False and body["markets"][0]["isOpen"] is False
+    assert body["markets"][0]["closeDate"] is None and body["markets"][0]["lastCloseAt"] is None
     assert api.get("/api/account").status_code == 200
     assert api.get("/api/ranking").status_code == 200
 

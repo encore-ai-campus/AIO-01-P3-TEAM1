@@ -1,11 +1,18 @@
-"""notify: 사용자별 웹 알림 + Discord 보낼 편지함 메시지 하나 (docs/DECISIONS.md 12-4)."""
+"""notify: 사용자별 웹 알림 + Discord 보낼 편지함 메시지 하나 (docs/DECISIONS.md 12-4).
+
+알림 문장 (B6): 웹 알림은 받는 사람의 주린이모드로 쉬운 문장·전문가 문장을 고르고, Discord는 쉬운 문장 + 숫자 한 줄 하나에
+머리말 "[AI 리포트 데스크 · 모의투자]". daily_move·thesis_check는 웹만.
+"""
 import pytest
+from accounts.models import InvestorProfile
 from django.db import transaction
 
 from notifications import service
 from notifications.models import Notification, NotificationSetting, OutboxMessage
 
 from .conftest import BASE
+
+H = service.HEADER
 
 pytestmark = pytest.mark.django_db
 
@@ -25,7 +32,7 @@ def test_notify_one_user_makes_web_row_and_outbox_message(webhook, alice):
     assert list(Notification.objects.all()) == created
     (m,) = OutboxMessage.objects.all()
     assert m.status == "pending" and m.kind == "filled" and m.attempts == 0 and m.embed is None
-    assert m.content == f"**삼성전자 진입 체결**\n71,000원 × 28주\n▶ 웹에서 보기: {BASE}/plans/3"
+    assert m.content == f"{H} **삼성전자 진입 체결**\n71,000원 × 28주\n▶ 웹에서 보기: {BASE}/plans/3"
 
 
 def test_notify_list_mentions_enabled_users_with_discord_id(webhook, alice, bob, make_user):
@@ -36,7 +43,7 @@ def test_notify_list_mentions_enabled_users_with_discord_id(webhook, alice, bob,
     created = service.notify([alice, bob, carol, dave, alice], "closed", "청산", "목표가 도달")
     assert sorted(n.user.username for n in created) == ["alice", "bob", "carol", "dave"]  # 같은 사람은 한 번
     (m,) = OutboxMessage.objects.all()
-    assert m.content == f"<@{ALICE_ID}> <@{BOB_ID}>\n**청산**\n목표가 도달"  # 링크가 없으면 링크 줄도 없다
+    assert m.content == f"{H} **청산**\n<@{ALICE_ID}> <@{BOB_ID}>\n목표가 도달"  # 링크가 없으면 링크 줄도 없다
 
 
 def test_notify_none_means_all_active_users_without_mentions(webhook, alice, bob, make_user):
@@ -45,7 +52,7 @@ def test_notify_none_means_all_active_users_without_mentions(webhook, alice, bob
     created = service.notify(None, "recommendation", "새 추천", "삼성전자", link="/recommendations/1")
     assert sorted(n.user.username for n in created) == ["alice", "bob"]
     (m,) = OutboxMessage.objects.all()
-    assert m.content.startswith("**새 추천**") and "<@" not in m.content
+    assert m.content.startswith(f"{H} **새 추천**") and "<@" not in m.content
 
 
 def test_notify_skips_outbox_when_everyone_turned_discord_off_or_discord_false(webhook, alice, bob):
@@ -127,9 +134,9 @@ def test_notify_defuses_mentions_in_text_and_embed(webhook, alice):
                    embed=embed)
     (m,) = OutboxMessage.objects.all()
     zw = service.ZERO_WIDTH_SPACE
-    first, *rest = m.content.split("\n")
-    assert first == f"<@{ALICE_ID}>"  # 우리가 붙인 멘션 줄만 울린다
-    assert rest == [f"**AI 추천 @{zw}everyone**", f"요약 <@{zw}111111111111111111> @{zw}here"]
+    first, mention, *rest = m.content.split("\n")
+    assert mention == f"<@{ALICE_ID}>"  # 우리가 붙인 멘션 줄만 울린다
+    assert first == f"{H} **AI 추천 @{zw}everyone**" and rest == [f"요약 <@{zw}111111111111111111> @{zw}here"]
     assert m.embed["title"] == f"@{zw}here 급등" and m.embed["description"] == f"<@{zw}111111111111111111> 보세요"
     assert m.embed["fields"][0]["value"] == f"@{zw}everyone <@{zw}&222> <@{zw}!333333333333333333>"
     assert m.embed["fields"][0]["inline"] is True
@@ -164,3 +171,59 @@ def test_notify_with_openclaw_only_is_pending(alice, monkeypatch):
     assert not service.webhook_configured() and service.discord_configured()
     service.notify(alice, "system", "제목", "본문")
     assert OutboxMessage.objects.get().status == "pending"  # 엔진 루프가 openclaw로 보낸다
+
+
+# --- 알림 문장 (B6) ---
+
+def mode(user, beginner: bool):
+    InvestorProfile.objects.create(user=user, beginner_mode=beginner)
+
+
+def test_web_wording_follows_each_recipients_beginner_mode(webhook, alice, bob, make_user):
+    carol = make_user("carol")  # 프로필 행이 없으면 주린이모드 켬 (쉬운 문장)
+    mode(alice, True)
+    mode(bob, False)
+    created = service.notify([alice, bob, carol], "filled", "모의 계좌에서 삼성전자 3주를 70,600원에 샀어요",
+                             "77,000원이 되면 팔아요.", expert_title="삼성전자 진입 체결",
+                             expert_body="70,600원 × 3주. 목표 77,000원 / 손절 67,700원 자동 감시",
+                             numbers="체결 70,600원 × 3주 · 목표 77,000원 · 손절 67,700원", link="/plans/3")
+    by_user = {n.user.username: (n.title, n.body) for n in created}
+    assert by_user["alice"] == by_user["carol"] == ("모의 계좌에서 삼성전자 3주를 70,600원에 샀어요", "77,000원이 되면 팔아요.")
+    assert by_user["bob"] == ("삼성전자 진입 체결", "70,600원 × 3주. 목표 77,000원 / 손절 67,700원 자동 감시")
+    (m,) = OutboxMessage.objects.all()  # Discord는 받는 사람과 무관하게 쉬운 문장 + 숫자 한 줄 하나
+    assert m.content == (f"{H} **모의 계좌에서 삼성전자 3주를 70,600원에 샀어요**\n77,000원이 되면 팔아요.\n"
+                         f"체결 70,600원 × 3주 · 목표 77,000원 · 손절 67,700원\n▶ 웹에서 보기: {BASE}/plans/3")
+
+
+def test_expert_falls_back_to_easy_part_and_reads_modes_once(webhook, alice, bob, django_assert_max_num_queries):
+    mode(bob, False)
+    (n,) = service.notify(bob, "system", "쉬운 제목", "쉬운 본문", expert_title="전문가 제목")
+    assert (n.title, n.body) == ("전문가 제목", "쉬운 본문")  # 전문가 본문이 없으면 쉬운 본문
+    with django_assert_max_num_queries(8):  # 받는 사람 수와 무관 (주린이모드는 한 번에 읽는다)
+        service.notify([alice, bob], "system", "제목", "본문", expert_title="전문가", discord=False)
+
+
+def test_mode_lookup_failure_sends_easy_wording(webhook, alice, monkeypatch, capsys):
+    mode(alice, False)
+
+    def boom(ids):
+        raise RuntimeError("DB 끊김")
+    monkeypatch.setattr(service.investor_modes, "beginner_modes", boom)
+    with transaction.atomic():
+        (n,) = service.notify(alice, "system", "쉬운", "본문", expert_title="전문가")
+    assert n.title == "쉬운" and "주린이모드를 읽지 못해" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("kind", ["daily_move", "thesis_check"])
+def test_web_only_kinds_never_go_to_discord(webhook, alice, kind):
+    created = service.notify(alice, kind, "오늘의 내 종목 뉴스", "삼성전자 +1.2%", link="/longterm")
+    assert len(created) == 1 and not OutboxMessage.objects.exists()
+
+
+def test_notice_send_passes_both_wordings(webhook, alice, bob):
+    mode(bob, False)
+    notice = service.Notice("쉬운 제목", "쉬운 본문", "전문가 제목", "전문가 본문", numbers="숫자 한 줄")
+    created = notice.send([alice, bob], "closed", link="/plans/9")
+    assert {n.user.username: n.title for n in created} == {"alice": "쉬운 제목", "bob": "전문가 제목"}
+    (m,) = OutboxMessage.objects.all()
+    assert m.content.startswith(f"{H} **쉬운 제목**") and "숫자 한 줄" in m.content and "전문가" not in m.content

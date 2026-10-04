@@ -1,4 +1,5 @@
-// docs/API.md의 모든 엔드포인트를 흉내 내는 MSW 핸들러.
+// docs/API.md의 모든 엔드포인트를 흉내 내는 MSW 핸들러. 화면이 부르는 엔드포인트는 모두 여기 있어야 한다
+// (테스트는 onUnhandledRequest: "error"). 같은 앞부분의 경로는 구체적인 것(/quota 등)을 :id보다 먼저 둔다.
 import { delay, http, HttpResponse, type DefaultBodyType, type StrictRequest } from "msw";
 import type { ChaosRequest, OrderRequest } from "../api/types";
 import * as db from "./db";
@@ -11,7 +12,8 @@ function setCsrfCookie(value: string) {
   if (typeof document !== "undefined") document.cookie = `csrftoken=${value}; path=/`;
 }
 
-const detail = (status: number, message: string) => HttpResponse.json({ detail: message }, { status });
+const detail = (status: number, message: string, extra: Record<string, unknown> | null = null) =>
+  HttpResponse.json({ detail: message, ...extra }, { status });
 
 type Req = StrictRequest<DefaultBodyType>;
 type Ctx = { request: Req; params: Record<string, string | readonly string[] | undefined> };
@@ -33,13 +35,13 @@ function route(fn: (user: MockUser, ctx: Ctx) => unknown | Promise<unknown>, opt
       if (body === undefined) return new HttpResponse(null, { status: 204 });
       return HttpResponse.json(body as never, { status: opts.status ?? 200 });
     } catch (err) {
-      if (err instanceof db.MockError) return detail(err.status, err.message);
+      if (err instanceof db.MockError) return detail(err.status, err.message, err.extra);
       throw err;
     }
   };
 }
 
-const json = async <T>(request: Req) => ((await request.json().catch(() => ({}))) ?? {}) as T;
+const json = async <T = Record<string, unknown>>(request: Req) => ((await request.json().catch(() => ({}))) ?? {}) as T;
 const num = (v: unknown) => Number(v);
 const page = <T>(url: URL, rows: T[]) => {
   const limit = Math.max(1, Number(url.searchParams.get("limit") ?? 20));
@@ -90,6 +92,26 @@ export const handlers = [
     "*/api/me/profile",
     route(async (u, { request }) => db.updateProfile(u, await json(request))),
   ),
+  http.get(
+    "*/api/me/investor-profile",
+    route((u) => db.investorProfile(u.id)),
+  ),
+  http.put(
+    "*/api/me/investor-profile",
+    route(async (u, { request }) => db.submitInvestorProfile(u.id, await json(request))),
+  ),
+  http.patch(
+    "*/api/me/investor-profile",
+    route(async (u, { request }) => db.patchInvestorProfile(u.id, await json(request))),
+  ),
+  http.get(
+    "*/api/me/day-trading-quiz",
+    route((u) => db.dayQuiz(u.id)),
+  ),
+  http.post(
+    "*/api/me/day-trading-quiz",
+    route(async (u, { request }) => db.submitDayQuiz(u.id, await json(request))),
+  ),
 
   // 모의 트레이딩
   http.get(
@@ -101,6 +123,17 @@ export const handlers = [
     route((_u, ctx) => {
       const url = urlOf(ctx);
       return { results: db.search(url.searchParams.get("q") ?? "", Number(url.searchParams.get("limit") ?? 20)) };
+    }),
+  ),
+  http.get(
+    "*/api/stocks/:symbol/fundamentals",
+    route((u, { params }) => db.fundamentals(u.id, String(params.symbol))),
+  ),
+  http.get(
+    "*/api/stocks/:symbol/minute-candles",
+    route((_u, ctx) => {
+      const sp = urlOf(ctx).searchParams;
+      return db.minuteCandles(String(ctx.params.symbol), sp.get("date"), sp.get("minutes"));
     }),
   ),
   http.get(
@@ -172,9 +205,9 @@ export const handlers = [
   ),
   http.get(
     "*/api/analyses",
-    route((_u, ctx) => {
-      const url = urlOf(ctx);
-      return page(url, db.listAnalyses(url.searchParams.get("symbol"), url.searchParams.get("verdict")));
+    route((u, ctx) => {
+      const sp = urlOf(ctx).searchParams;
+      return page(urlOf(ctx), db.listAnalyses(sp.get("symbol"), sp.get("verdict"), sp.get("mine") === "1" ? u : null));
     }),
   ),
   http.get(
@@ -206,10 +239,17 @@ export const handlers = [
     route(() => sampleScreening()),
   ),
   http.get(
+    "*/api/reports/quota",
+    route((u) => db.reportQuota(u.id)),
+  ),
+  http.get(
     "*/api/reports",
-    route((_u, ctx) => {
-      const url = urlOf(ctx);
-      return page(url, db.listReports(url.searchParams.get("symbol")));
+    route((u, ctx) => {
+      const sp = urlOf(ctx).searchParams;
+      return page(
+        urlOf(ctx),
+        db.listReports(sp.get("symbol"), { source: sp.get("source"), mineUserId: sp.get("mine") === "1" ? u.id : null }),
+      );
     }),
   ),
   http.post(
@@ -293,5 +333,53 @@ export const handlers = [
     "*/api/notification-settings/test",
     route((u) => db.testNotification(u.id), { status: 202 }),
   ),
+
+  // 장기투자
+  http.get(
+    "*/api/longterm/daily-moves",
+    route((u, ctx) => db.dailyMoves(u.id, urlOf(ctx).searchParams.get("date"))),
+  ),
+  http.get(
+    "*/api/longterm/daily-moves/:symbol",
+    route((_u, ctx) => db.dailyMoveOne(String(ctx.params.symbol), urlOf(ctx).searchParams.get("date"))),
+  ),
+  http.get(
+    "*/api/longterm/theses",
+    route((u) => ({ results: db.listTheses(u.id) })),
+  ),
+  http.put(
+    "*/api/longterm/theses/:symbol",
+    route(async (u, { request, params }) => db.putThesis(u.id, String(params.symbol), await json(request))),
+  ),
+  http.delete(
+    "*/api/longterm/theses/:symbol",
+    route((u, { params }) => {
+      db.deleteThesis(u.id, String(params.symbol));
+      return undefined;
+    }),
+  ),
+
+  // 단타 연습
+  http.get(
+    "*/api/day/status",
+    route((u) => db.dayStatus(u.id)),
+  ),
+  http.post(
+    "*/api/day/preview",
+    route(async (u, { request }) => db.dayPreview(u.id, await json(request))),
+  ),
+  http.get(
+    "*/api/day/plans",
+    route((u, ctx) => db.listDayPlans(u.id, urlOf(ctx).searchParams.get("date"))),
+  ),
+  http.post(
+    "*/api/day/plans",
+    route(async (u, { request }) => db.createDayPlan(u, await json(request)), { status: 201 }),
+  ),
+  http.get(
+    "*/api/day/review",
+    route((u, ctx) => db.dayReview(u.id, urlOf(ctx).searchParams.get("date"))),
+  ),
+
   http.get("*/api/health", () => HttpResponse.json({ status: "ok" })),
 ];

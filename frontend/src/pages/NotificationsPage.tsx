@@ -1,4 +1,5 @@
 // /notifications: 내 알림 (최신순, 안 읽은 것 강조). 누르면 읽음 처리 + link로 이동. "모두 읽음".
+// 알림마다 종류 이름(lib/plainText.ts NOTIFICATION_KIND_TEXT)을 보인다. 문장은 서버가 받는 사람의 주린이모드에 맞춰 만든다.
 import { Link, useNavigate } from "react-router";
 import { useMarkRead } from "../api/autotrade";
 import { errorMessage } from "../api/client";
@@ -9,6 +10,7 @@ import { useToast } from "../components/toast";
 import { Card, EmptyState, ErrorState, PageHeader, SkeletonCard } from "../components/ui";
 import { cn } from "../lib/cn";
 import { formatRelative } from "../lib/format";
+import { notificationKindText } from "../lib/plainText";
 
 const KIND_ICON: Record<string, IconName> = {
   recommendation: "sparkle",
@@ -21,6 +23,10 @@ const KIND_ICON: Record<string, IconName> = {
   expired: "clock",
   failed: "alert",
   system: "bell",
+  report_completed: "doc",
+  report_failed: "alert",
+  daily_move: "chart",
+  thesis_check: "shield",
 };
 
 export function NotificationsPage() {
@@ -56,9 +62,9 @@ export function NotificationsPage() {
       />
       <div className="mx-auto max-w-[760px] space-y-3">
         <p className="px-1 text-[14px] text-sub">
-          추천·자동매매 단계마다 알림이 쌓입니다. 안 읽은 알림 <b className="text-ink tabular-nums">{unread}</b>개. Discord로도 받으려면{" "}
+          리포트 완성·모의 자동매매 단계·오늘의 내 종목 뉴스 알림이 쌓여요. 안 읽은 알림 <b className="text-ink tabular-nums">{unread}</b>개. Discord로도 받으려면{" "}
           <Link to="/my" className="font-semibold text-brand underline">
-            My Page 알림 설정
+            마이 &gt; 알림 설정
           </Link>
           .
         </p>
@@ -91,6 +97,7 @@ export function NotificationsPage() {
                     <Icon name={KIND_ICON[n.kind] ?? "bell"} className="size-4" />
                   </span>
                   <span className="min-w-0 flex-1">
+                    <span className="block text-[12px] font-semibold text-mute">{notificationKindText(n.kind)}</span>
                     <span className="flex items-center gap-1.5">
                       <span className={cn("truncate text-[15px]", n.readAt ? "font-medium text-sub" : "font-bold text-ink")}>{n.title}</span>
                       {!n.readAt && (

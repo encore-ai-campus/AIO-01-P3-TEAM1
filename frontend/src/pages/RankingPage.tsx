@@ -1,7 +1,10 @@
+// 랭킹: 내 정보 공개를 켠 팀원의 수익률 순위. 수익률은 직전 장마감 종가로 평가한다 (Ranking.pricesAsOf).
+// 하단 탭에서 빠져서 홈·마이의 랭킹 카드로 들어온다.
 import { Link } from "react-router";
 import { errorMessage } from "../api/client";
 import { useRanking } from "../api/queries";
 import type { RankingEntry } from "../api/types";
+import { PricesAsOfLine } from "../components/AssetCard";
 import { Card, EmptyState, ErrorState, Flash, PageHeader, RateText, SkeletonCard } from "../components/ui";
 import { cn } from "../lib/cn";
 import { formatDateTime } from "../lib/format";
@@ -38,7 +41,7 @@ export function RankingPage() {
   const { data, isPending, isError, error, refetch } = useRanking();
   return (
     <>
-      <PageHeader title="랭킹" />
+      <PageHeader title="랭킹" back />
       <div className="space-y-3 lg:max-w-[640px]">
         {isPending ? (
           <SkeletonCard lines={6} />
@@ -62,23 +65,26 @@ export function RankingPage() {
                 </div>
               ) : (
                 <div>
-                  <p className="text-[16px] font-semibold">My Page에서 공개를 켜면 랭킹에 나옵니다</p>
+                  <p className="text-[16px] font-semibold">마이에서 공개를 켜면 랭킹에 나옵니다</p>
                   <p className="mt-1 text-[14px] text-sub">
                     지금 내 수익률은 <RateText rate={data.me.profitRate} className="font-semibold" />이고, 다른 팀원에게는 보이지 않습니다.
                   </p>
                   <Link to="/my" className="mt-3 inline-flex h-11 items-center rounded-xl bg-brand px-4 text-[15px] font-semibold text-white hover:bg-brand-dark">
-                    My Page로 가기
+                    마이로 가기
                   </Link>
                 </div>
               )}
             </Card>
 
             <section aria-labelledby="rank-title" className="overflow-hidden rounded-2xl bg-card">
-              <div className="flex items-baseline justify-between px-5 pt-5 pb-2">
-                <h2 id="rank-title" className="text-[17px] font-bold">
-                  수익률 순위
-                </h2>
-                <span className="text-[12px] text-mute">{formatDateTime(data.asOf)} 기준</span>
+              <div className="px-5 pt-5 pb-2">
+                <div className="flex items-baseline justify-between gap-3">
+                  <h2 id="rank-title" className="text-[17px] font-bold">
+                    수익률 순위
+                  </h2>
+                  <span className="text-[12px] text-mute">{formatDateTime(data.asOf)} 계산</span>
+                </div>
+                <PricesAsOfLine pricesAsOf={data.pricesAsOf} className="mt-0.5" />
               </div>
               {data.results.length === 0 ? (
                 <EmptyState>아직 수익률을 공개한 팀원이 없습니다.</EmptyState>
@@ -90,7 +96,7 @@ export function RankingPage() {
                 </ol>
               )}
             </section>
-            <p className="px-1 text-[13px] text-mute">수익률 = 총자산 ÷ 초기 자금 − 1. 내 정보 공개를 켠 팀원만 나옵니다.</p>
+            <p className="px-1 text-[13px] text-mute">수익률 = 총자산 ÷ 초기 자금 − 1 (보유 종목은 직전 장마감 종가로 평가). 내 정보 공개를 켠 팀원만 나옵니다.</p>
           </>
         )}
       </div>

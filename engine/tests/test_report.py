@@ -87,6 +87,16 @@ def test_report_has_all_evaluation_material_and_escapes_html():
         "symbols": 1, "scenarios": 3, "picks": 1, "rejected": 2, "failed": 0}
 
 
+
+def test_report_horizon_labels_follow_notify():
+    """기간 줄의 투자 기간 이름은 notify.horizon_label 하나를 쓴다 (DAY = 단타, 모르는 값은 그대로)."""
+    log = as_log(candidate())
+    assert "스윙 · 보유 10거래일" in report.build_html(log)
+    for horizon, label in (("DAY", "단타"), ("LONG_TERM", "장기"), ("WEEKLY", "WEEKLY")):
+        card = log["results"][0]["candidates"][0]
+        card["final"]["horizon"] = card["scenario"]["horizon"] = horizon
+        assert f"{label} · 보유 10거래일" in report.build_html(log)
+
 def test_report_includes_screening_and_handles_old_or_empty_logs():
     screen = {"market": "KR", "rankCount": 100, "eligibleCount": 65, "checked": 30, "analyzed": ["096770"],
               "picks": [{"symbol": "096770", "name": "SK이노베이션", "score": 79.0, "close": 146_400,

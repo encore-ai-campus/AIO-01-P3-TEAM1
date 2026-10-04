@@ -1,8 +1,8 @@
 import pytest
 
 from paper_engine.notify import format_report
-from paper_engine.judge.risk import AccountContext, assess
-from paper_engine.judge.scenario import Scenario
+from paper_engine.judge.risk import LIMITS, AccountContext, RiskLimits, assess, assess_position
+from paper_engine.judge.scenario import HORIZONS, TRADABLE_HORIZONS, Scenario
 
 
 def scenario(**kw):
@@ -155,7 +155,8 @@ def test_scenario_validation():
     with pytest.raises(ValueError):
         scenario(probability=1.2)
     with pytest.raises(ValueError):
-        scenario(horizon="DAY")
+        scenario(horizon="MONTH")
+    assert scenario(horizon="DAY", holding_days=1).horizon == "DAY"  # 단타 연습 계획의 한도용 (AI 경로에는 없다)
 
 
 def test_report_contains_key_numbers():
@@ -164,3 +165,86 @@ def test_report_contains_key_numbers():
     assert "[통과] 삼성전자" in text
     assert "10주" in text
     assert "20일선 지지" in text
+
+
+# --- 단타(DAY) 한도 · 사유 코드 · 장기 보유 점검 (docs/DECISIONS.md 14-3·14-4, docs/API.md "실행 불가 사유 코드") ---
+
+def test_day_horizon_has_its_own_limits_and_is_not_tradable_by_ai():
+    assert "DAY" in HORIZONS and "DAY" not in TRADABLE_HORIZONS
+    assert LIMITS["DAY"] == RiskLimits(risk_per_trade=0.005, max_position=None, min_reward_risk=2.0,
+                                       max_daily_loss=0.02, max_daily_trades=10)
+    assert LIMITS["LONG_TERM"].max_position == 1.0
+    assert LIMITS["SWING"].max_position is None and LIMITS["SWING"].max_daily_trades is None
+
+
+def test_day_sizes_with_half_percent_risk():
+    s = scenario(horizon="DAY", holding_days=1, stop_price=90_000, target_price=125_000)
+    swing = assess(scenario(stop_price=90_000, target_price=125_000), account())
+    day = assess(s, account())
+    assert swing.quantity == 9 and day.quantity == 4  # 위험 한도 10만원 → 5만원 (1주당 손실 약 11,078원)
+    assert day.approved and day.limited_by == "건당 위험 한도" and day.codes == []
+
+
+def test_day_daily_trades_and_loss_limits():
+    s = scenario(horizon="DAY", holding_days=1)
+    assert assess(s, account(daily_trades=9)).approved
+    r = assess(s, account(daily_trades=10))
+    assert not r.approved and r.codes == ["daily_trades_limit"] and "10건" in r.reasons[0]
+    r = assess(s, account(daily_loss_krw=200_000))  # 자산 1천만원의 2%
+    assert r.codes == ["daily_loss_limit"]
+    assert assess(scenario(), account(daily_loss_krw=200_000)).approved  # 스윙은 3%
+    assert assess(scenario(), account(daily_trades=50)).approved  # 스윙에는 건수 한도가 없다
+
+
+def test_codes_align_with_reasons():
+    r = assess(scenario(target_price=109_000, probability=0.2),
+               account(warnings=["투자경고"], daily_loss_krw=300_000, buying_power=50_000))
+    assert r.codes == ["reward_risk_low", "ev_negative", "warning_stock", "daily_loss_limit", "size_too_small"]
+    assert len(r.codes) == len(r.reasons)
+    assert r.reasons[2] == "매수 유의 종목: 투자경고" and r.reasons[-1].startswith("매수 가능 수량이 1주 미만")
+    s = scenario(symbol="META", currency="USD", entry_price=723.2, target_price=800, stop_price=690)
+    tiny = assess(s, account(buying_power=0.5, fx_rate=1_400), fractional=True)
+    assert tiny.codes[-1] == "size_too_small" and len(tiny.codes) == len(tiny.reasons)
+    assert assess(scenario(), account()).codes == []
+
+
+def test_assess_position_passes_within_cash_and_limits():
+    ok, reasons, codes = assess_position(70_000, 10, account(commission_rate=0.001), LIMITS["LONG_TERM"])
+    assert ok and reasons == [] and codes == []
+
+
+def test_assess_position_cash_short_includes_commission():
+    a = account(buying_power=700_000, commission_rate=0.001)
+    assert assess_position(70_000, 9, a, LIMITS["LONG_TERM"])[0]
+    ok, reasons, codes = assess_position(70_000, 10, a, LIMITS["LONG_TERM"])  # 700,700 > 700,000
+    assert not ok and codes == ["cash_short"]
+    assert reasons == ["매수 금액 700,700이 매수 가능 금액 700,000보다 큼"]
+
+
+def test_assess_position_position_limit():
+    limits = RiskLimits(risk_per_trade=0.02, max_position=0.5, min_reward_risk=2.5, max_daily_loss=0.03)
+    ok, reasons, codes = assess_position(100_000, 30, account(position_value=2_500_000), limits)
+    assert not ok and codes == ["position_limit"] and reasons == ["종목당 비중 한도(50%)를 넘음"]
+    assert assess_position(100_000, 25, account(position_value=2_500_000), limits)[0]  # 정확히 50%는 통과
+    # 100%(LONG_TERM)는 자산 전부까지 — 매수 가능 금액이 먼저 막는다
+    ok, _, codes = assess_position(100_000, 101, account(buying_power=20_000_000), LIMITS["LONG_TERM"])
+    assert codes == ["position_limit"]
+    assert assess_position(100_000, 100, account(), LIMITS["LONG_TERM"])[0]
+
+
+def test_assess_position_total_limit_in_krw_and_codes_order():
+    s_ok = assess_position(100, 10, account(buying_power=5_000, fx_rate=1_400, max_total_krw=1_400_000,
+                                            invested_krw=0), LIMITS["LONG_TERM"])
+    assert s_ok[0]
+    ok, reasons, codes = assess_position(100, 10, account(buying_power=500, fx_rate=1_400, max_total_krw=1_400_000,
+                                                          invested_krw=1_000_000), LIMITS["LONG_TERM"])
+    assert not ok and codes == ["cash_short", "total_limit"] and len(reasons) == 2
+    assert reasons[0] == "매수 금액 1,000이 매수 가능 금액 500보다 큼"
+    assert reasons[1] == "총 금액 한도 1,400,000원을 넘음 (남은 한도 400,000원)"
+
+
+def test_assess_position_rejects_bad_input():
+    with pytest.raises(ValueError):
+        assess_position(0, 1, account(), LIMITS["LONG_TERM"])
+    with pytest.raises(ValueError):
+        assess_position(100, 0, account(), LIMITS["LONG_TERM"])

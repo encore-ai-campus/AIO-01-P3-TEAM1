@@ -3,13 +3,34 @@
 export class ApiError extends Error {
   readonly status: number;
   readonly detail: string;
+  /** 오류 응답 본문 전체 (예: 429 리포트 한도의 {detail, limit, used}). JSON 객체가 아니면 null. */
+  readonly body: Record<string, unknown> | null;
+  /**
+   * 400 본문의 실행 불가 사유 코드 (docs/API.md "실행 불가 사유 코드"). detail을 "; "로 나눈 사유와 같은 길이·같은 순서.
+   * null이면 사유 코드가 없는 오류 (입력 오류 등) — 화면이 둘을 나눈다.
+   */
+  readonly reasonCodes: string[] | null;
 
-  constructor(status: number, detail: string) {
+  constructor(status: number, detail: string, body: Record<string, unknown> | null = null) {
     super(detail);
     this.name = "ApiError";
     this.status = status;
     this.detail = detail;
+    this.body = body;
+    const codes = body?.reasonCodes;
+    this.reasonCodes = Array.isArray(codes) ? codes.filter((c): c is string => typeof c === "string") : null;
   }
+
+  /** 본문의 숫자 필드 (429 리포트 한도의 limit·used 등). 없으면 null. */
+  num(key: string): number | null {
+    const v = this.body?.[key];
+    return typeof v === "number" && Number.isFinite(v) ? v : null;
+  }
+}
+
+/** 실행 불가 사유 코드가 있는 400인지 (없으면 입력 오류). */
+export function isBlocked(err: unknown): err is ApiError & { reasonCodes: string[] } {
+  return err instanceof ApiError && err.status === 400 && err.reasonCodes !== null;
 }
 
 /** 오류에서 사람이 읽을 메시지를 꺼낸다. */
@@ -76,9 +97,10 @@ export async function request<T>(method: string, path: string, body?: unknown, o
     onUnauthorized?.();
   }
   if (!res.ok) {
-    const data = (await res.json().catch(() => null)) as { detail?: unknown } | null;
-    const detail = typeof data?.detail === "string" ? data.detail : `요청에 실패했습니다 (${res.status}).`;
-    throw new ApiError(res.status, detail);
+    const data = (await res.json().catch(() => null)) as unknown;
+    const body = data && typeof data === "object" && !Array.isArray(data) ? (data as Record<string, unknown>) : null;
+    const detail = typeof body?.detail === "string" ? body.detail : `요청에 실패했습니다 (${res.status}).`;
+    throw new ApiError(res.status, detail, body);
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
@@ -87,6 +109,7 @@ export async function request<T>(method: string, path: string, body?: unknown, o
 export const api = {
   get: <T>(path: string, opts?: Options) => request<T>("GET", path, undefined, opts),
   post: <T>(path: string, body?: unknown) => request<T>("POST", path, body ?? {}),
+  put: <T>(path: string, body: unknown) => request<T>("PUT", path, body),
   patch: <T>(path: string, body: unknown) => request<T>("PATCH", path, body),
   del: <T = void>(path: string) => request<T>("DELETE", path),
 };

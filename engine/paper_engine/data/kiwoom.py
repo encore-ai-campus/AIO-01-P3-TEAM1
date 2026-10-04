@@ -22,7 +22,8 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from datetime import time as dt_time
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -41,6 +42,12 @@ OUTLIER_GAP = 0.03          # 현재가가 호가 기준 가격에서 이만큼 
 QUOTE_CHUNK = 50            # ka10095 한 번에 묻는 종목 수 (문서에 상한이 없다. 실측 전이라 보수적으로)
 FX_CACHE_SEC = 60           # 환율 TR은 초당 1회라 잠시 캐시한다
 
+# 분봉 (minute_candles, docs/API.md "단타 연습"). 국내 정규장 봉만 돌려준다.
+MINUTE_STEPS = (1, 3, 5, 10, 15, 30, 45, 60)   # 받는 봉 간격(분) = ka10080 tic_scope 값. 토스도 같은 값만 받는다
+MINUTE_MAX_PAGES = 20                           # 한 번 부를 때 쪽 수 상한. 넘으면 세션 시작까지 못 받은 것(partial)
+KR_REGULAR_OPEN, KR_REGULAR_CLOSE = dt_time(9, 0), dt_time(15, 30)   # 국내 정규장 (KST). 15:30 봉은 장 마감 단일가
+_DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
+
 # 호출 간격. 공식 안내: 계좌(토큰)별 조회 TR 초당 5회(국내·미국), 미국 피크(09~10시 KST) 초당 3회,
 # 환전 TR 초당 1회, 미국 종목리스트(usa10099) 분당 5회. 여러 프로세스가 토큰을 같이 쓰므로 여유를 둔다.
 CALL_INTERVAL_SEC = 0.25
@@ -58,7 +65,7 @@ TR_PATHS = {
     "ka10027": "/api/dostk/rkinfo", "ka10032": "/api/dostk/rkinfo",
     "ka10059": "/api/dostk/stkinfo", "ka10095": "/api/dostk/stkinfo",
     "ka10099": "/api/dostk/stkinfo", "ka10100": "/api/dostk/stkinfo",
-    "ka10081": "/api/dostk/chart",
+    "ka10080": "/api/dostk/chart", "ka10081": "/api/dostk/chart",
     "usa06012": "/api/us/chart",
     "usa10098": "/api/us/stkinfo", "usa10099": "/api/us/stkinfo",
     "usa20100": "/api/us/mrkcond", "usa20101": "/api/us/mrkcond",
@@ -386,6 +393,36 @@ class KiwoomClient:
         calendar = self.market_calendar(market_country)
         return drop_incomplete(self.daily_candles(symbol, count), calendar, self._now())
 
+    def minute_candles(self, symbol: str, day: str, minutes: int = 1) -> tuple[list[dict], bool]:
+        """(분봉, 세션 시작까지 받았는지). day(YYYY-MM-DD, KST)의 국내 정규장 09:00~15:30 봉만, 과거 → 최신.
+        항목: timestamp(봉 시작 "2026-10-01T09:00:00+09:00"), openPrice, highPrice, lowPrice, closePrice, volume (그 봉의
+        거래량, 문자열 숫자, 수정주가). minutes는 MINUTE_STEPS 중 하나 (아니면 ValueError). 국내 종목만 (미국은 KiwoomApiError).
+
+        ka10080 주식분봉차트조회(tic_scope = minutes, upd_stkpc_tp=1, base_dt = day)를 연속 조회로 day 09:00보다 앞선 봉이
+        나올 때까지 따라간다. MINUTE_MAX_PAGES쪽 안에 거기까지 닿지 못하거나 키움이 더 오래된 봉을 주지 않으면 두 번째 값이
+        False다 (받은 구간만 돌려준다). 시간외 봉과 다른 날짜의 봉은 버린다.
+        응답 형식은 실측 전이라 방어적으로 읽는다 (_kr_minute_candle): 시각·종가를 읽을 수 없는 행은 버린다.
+        """
+        start, end = minute_session(day, minutes)
+        if not _is_kr(symbol):
+            raise _unsupported(f"분봉은 국내 종목만 지원: {symbol}")
+        body = {"stk_cd": symbol, "tic_scope": str(minutes), "upd_stkpc_tp": "1", "base_dt": start.strftime("%Y%m%d")}
+        bars: dict[str, dict] = {}
+        reached = False
+        for page_no, (rows, _) in enumerate(self._pages("ka10080", body, "stk_min_pole_chart_qry"), 1):
+            for row in rows if isinstance(rows, list) else []:
+                bar = _kr_minute_candle(row) if isinstance(row, dict) else None
+                if bar is None:
+                    continue
+                at = datetime.fromisoformat(bar["timestamp"])
+                if at < start:
+                    reached = True
+                elif at <= end:
+                    bars.setdefault(bar["timestamp"], bar)
+            if reached or page_no >= MINUTE_MAX_PAGES:
+                break
+        return [bars[t] for t in sorted(bars)], reached
+
     def market_calendar(self, market_country: str) -> dict:
         """장 운영 정보 (data/calendar.py 형식). market_country는 KR | US."""
         if self._calendar is None:
@@ -691,6 +728,84 @@ def _kr_candle(row: dict) -> dict | None:
             "openPrice": _price(row.get("open_pric")), "highPrice": _price(row.get("high_pric")),
             "lowPrice": _price(row.get("low_pric")), "closePrice": _price(row.get("cur_prc")),
             "volume": _number(row.get("trde_qty")) or "0"}
+
+
+def _kr_minute_candle(row: dict) -> dict | None:
+    """ka10080 한 행 → 내부 분봉. 시각이나 종가를 읽을 수 없으면 None.
+
+    가정(실측 전 — docs/research/단타_실시간시세_조사.md 2-2): cntr_tm은 봉 시작 시각 YYYYMMDDHHmmss(KST)다 (공지 #25, 2025-10: 체결일 cntr_dt를 빼고
+    cntr_tm에 날짜를 넣었다). 옛 형식(cntr_tm HHmmss + cntr_dt)도 읽는다. 가격은 일봉처럼 방향 부호가 붙은 문자열이고,
+    trde_qty는 그 봉의 거래량(acc_trde_qty는 누적이라 쓰지 않는다). 시가·고가·저가가 없으면 종가로 채운다.
+    """
+    at = _minute_time(row)
+    close = _price(row.get("cur_prc"))
+    if at is None or not close:
+        return None
+    return {"timestamp": at.isoformat(),
+            "openPrice": _price(row.get("open_pric")) or close, "highPrice": _price(row.get("high_pric")) or close,
+            "lowPrice": _price(row.get("low_pric")) or close, "closePrice": close,
+            "volume": _number(row.get("trde_qty")) or "0"}
+
+
+def _minute_time(row: dict) -> datetime | None:
+    """분봉 행의 시각 (KST, 초는 버린다)."""
+    clock = re.sub(r"\D", "", str(row.get("cntr_tm") or ""))
+    if len(clock) in (12, 14):
+        day, clock = clock[:8], clock[8:]
+    elif len(clock) in (4, 6):
+        day = re.sub(r"\D", "", str(row.get("cntr_dt") or row.get("dt") or ""))
+    else:
+        return None
+    try:
+        at = datetime.strptime(day + clock[:4], "%Y%m%d%H%M")
+    except ValueError:
+        return None
+    return at.replace(tzinfo=KST)
+
+
+def minute_session(day: str, minutes: int) -> tuple[datetime, datetime]:
+    """분봉 조회 인자를 확인하고 그 날짜 국내 정규장 (시작, 끝)을 KST로 돌려준다. 잘못된 인자는 ValueError."""
+    if isinstance(minutes, bool) or minutes not in MINUTE_STEPS:
+        raise ValueError(f"분봉 간격은 {MINUTE_STEPS} 중 하나여야 합니다: {minutes!r}")
+    if not isinstance(day, str) or not _DAY.fullmatch(day):
+        raise ValueError(f"날짜는 YYYY-MM-DD여야 합니다: {day!r}")
+    d = datetime.strptime(day, "%Y-%m-%d").date()
+    return datetime.combine(d, KR_REGULAR_OPEN, KST), datetime.combine(d, KR_REGULAR_CLOSE, KST)
+
+
+def bar_time(value) -> datetime | None:
+    """봉 시각 문자열(ISO 8601) → KST 시각 (초는 버린다). 시간대가 없으면 KST로 본다. 읽을 수 없으면 None."""
+    text = str(value or "").strip()
+    if text.endswith(("Z", "z")):
+        text = text[:-1] + "+00:00"
+    try:
+        at = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    at = at.replace(tzinfo=KST) if at.tzinfo is None else at.astimezone(KST)
+    return at.replace(second=0, microsecond=0)
+
+
+def bucket_minutes(candles: list[dict], minutes: int, start: datetime) -> list[dict]:
+    """1분봉(과거 → 최신, 내부 형식) → minutes분봉. 정규장 시작(start)부터 minutes분씩 묶는다 (봉 시각 = 묶음 시작).
+    시가는 첫 봉, 종가는 마지막 봉, 고가·저가는 최대·최소, 거래량은 합."""
+    if minutes == 1:
+        return candles
+    groups: dict[datetime, list[dict]] = {}
+    for c in candles:
+        at = datetime.fromisoformat(c["timestamp"])
+        slot = int((at - start).total_seconds() // 60) // minutes
+        groups.setdefault(start + timedelta(minutes=slot * minutes), []).append(c)
+    out = []
+    for at in sorted(groups):
+        group = groups[at]
+        highs = [Decimal(c["highPrice"]) for c in group]
+        lows = [Decimal(c["lowPrice"]) for c in group]
+        volume = sum((Decimal(c["volume"]) for c in group), Decimal(0))
+        out.append({"timestamp": at.isoformat(), "openPrice": group[0]["openPrice"],
+                    "highPrice": format(max(highs).normalize(), "f"), "lowPrice": format(min(lows).normalize(), "f"),
+                    "closePrice": group[-1]["closePrice"], "volume": format(volume.normalize(), "f")})
+    return out
 
 
 def _us_candle(row: dict) -> dict | None:

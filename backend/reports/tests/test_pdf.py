@@ -1,4 +1,8 @@
-"""AI 리포트 A4 PDF: HTML 구성(종목 한 쪽·선별 표지)과 PDF API. 실제 Chrome·증권사는 부르지 않는다 (가짜 render·가짜 일봉)."""
+"""AI 리포트 A4 PDF: HTML 구성(종목 한 쪽·선별 표지)과 PDF API. 실제 Chrome·증권사는 부르지 않는다 (가짜 render·가짜 완성 일봉).
+
+양식(docs/DECISIONS.md 14-7 "PDF"): 이름 "AI 리포트 데스크", 맨 위 쉬운 요약 상자 + 통일 면책 문장, 완성 일봉 차트 + "YYYY-MM-DD 종가 기준",
+시세 지표의 장마감 기준 시각, 꼬리말 통일 면책 문장, 양식 판 번호가 붙은 파일 이름.
+"""
 import re
 import subprocess
 from datetime import datetime, timedelta, timezone
@@ -6,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 from paper_engine import report as engine_report
+from paper_engine.wording import forbidden_phrases
 from trading import market
 
 from config import engine
@@ -17,12 +22,15 @@ from .conftest import make_report
 pytestmark = pytest.mark.django_db
 
 RESULTS = {
-    "market_agent": {"trend": "up", "summary": "상승 추세", "price": 72000, "changePct": 1.25, "rsi": 61.3,
+    "market_agent": {"trend": "up", "summary": "상승 추세", "price": 72000, "changePct": 1.25,
+                     "asOf": "2026-10-02T15:30:00+09:00", "rsi": 61.3,
                      "volatilityPct": 2.4, "volumeRank": 3, "support": 70000, "resistance": 75000, "signals": [],
                      "evidence": []},
     "fundamental_agent": {"summary": "양호", "metrics": {"per": 12.5, "pbr": 1.1, "roe": 9.0}, "recentFilings": [],
                           "evidence": []},
     "report_agent": {"title": "삼성전자 리포트", "verdict": "buy", "oneLiner": "단기 반등 구간, 분할 접근", "markdown": "# x",
+                     "plainSummary": ["거래가 늘며 값이 오르는 흐름이에요", "실적이 나아지고 있다는 공시가 있었어요",
+                                      "환율이 바뀌면 손실이 더 클 수도 있어요"],
                      "reasons": ["수급 개선", "실적 바닥 통과", "거래대금 증가"],
                      "risks": ["환율 변동", "반도체 가격", "외국인 매도"],
                      "targets": {"entry": 72000, "target": 77000, "stop": 69000, "holdingDays": 10, "probability": 0.55},
@@ -43,9 +51,24 @@ def candle_rows(n=80, start=70000):
     return rows
 
 
+def no_live_candles(symbol):
+    raise AssertionError("PDF 차트는 장중 미완성 봉이 섞인 market.candles가 아니라 completed_candles를 쓴다")
+
+
 @pytest.fixture
 def candles(monkeypatch):
-    monkeypatch.setattr(market, "candles", lambda symbol: candle_rows())
+    """완성 일봉 80개 (2026-07-01 ~ 2026-09-18)."""
+    monkeypatch.setattr(market, "completed_candles", lambda symbol: candle_rows())
+    monkeypatch.setattr(market, "candles", no_live_candles)
+
+
+def pdf_name(report, suffix=".pdf") -> str:
+    return f"{report.id}.v{pdf.TEMPLATE_VERSION}{suffix}"
+
+
+def text_of(html: str) -> str:
+    """HTML에서 사람이 읽는 글자만 (스타일·태그를 지운다)."""
+    return re.sub(r"<[^>]+>", " ", re.sub(r"<style>.*?</style>", " ", html, flags=re.S))
 
 
 @pytest.fixture
@@ -87,15 +110,25 @@ def test_report_html_has_every_section(user, candles):
     report, trace = full_report(user)
     html = pdf.build_report_html(report, trace)
     assert "@page { size: A4; margin: 12mm }" in html and '"Noto Sans CJK KR", "Apple SD Gothic Neo", sans-serif' in html
-    # ① 머리
+    # ① 머리: 서비스 이름, AI 의견 배지(권유가 아닌 말), 한 줄 요약
+    assert "<title>삼성전자 AI 리포트 · AI 리포트 데스크</title>" in html
     assert "삼성전자" in html and "005930" in html and "2026-10-04" in html
-    assert ">매수<" in html and "단기 반등 구간, 분할 접근" in html
-    # ② SVG 차트: 캔들, 20일 이동평균, 진입·목표·손절 가로선
+    assert "2026-10-04 · AI 리포트 데스크 · AI 의견" in html and ">긍정적<" in html and ">매수<" not in html
+    assert "단기 반등 구간, 분할 접근" in html
+    # ①-2 맨 위 쉬운 요약 상자 (plainSummary 세 줄) + 통일 면책 문장 — 차트보다 먼저
+    easy = html.split('<div class="easy">')[1].split("</div>")[0]
+    assert "<h2>쉬운 요약</h2>" in easy and easy.count("<li>") == 3
+    assert "거래가 늘며 값이 오르는 흐름이에요" in easy and "환율이 바뀌면 손실이 더 클 수도 있어요" in easy
+    assert pdf.DISCLAIMER in easy
+    assert html.index('<div class="easy">') < html.index("<h2>가격 차트</h2>")
+    # ② SVG 차트: 완성 일봉 캔들, 20일 이동평균, 진입·목표·손절 가로선, 범례의 종가 기준 날짜(마지막 완성 봉)
     assert "<svg" in html and "<polyline" in html and html.count("<rect") > 60
     assert "진입 72,000" in html and "목표 77,000" in html and "손절 69,000" in html
-    # ③ 지표 카드
+    assert "2026-09-18 종가 기준 · 일봉(최근 60일)" in html
+    # ③ 지표 카드와 그 기준 시각 (MarketResult의 종가·asOf)
     for text in ("+1.25%", "3위", "61.3", "2.40%", "12.5배", "1.10배"):
         assert text in html
+    assert "시세 지표: 종가 72,000원 · 10월 2일(금) 15:30 장마감 기준" in html
     # ④ 점수·확률 막대
     assert "검토 점수" in html and "88점" in html and "신뢰도" in html and "74%" in html and "55%" in html
     # ⑤ 근거·리스크·리스크 점검
@@ -104,24 +137,51 @@ def test_report_html_has_every_section(user, candles):
     assert "뉴스 Agent — model-b (demo)" in html and "작성 Agent — model-c" in html
     assert "장애 1건 · 자동 복구 1건" in html and "복구 시간 합 3.0초" in html
     assert "뉴스 Agent: timeout 실패 1회 (model-a → model-b) → model-b로 복구" in html
-    assert "비용 $0.0345" in html and "KST" in html and "AI는 제안만 합니다" in html
+    assert "비용 $0.0345" in html and "KST · AI 리포트 데스크" in html
+    assert html.count(pdf.DISCLAIMER) == 2 and "AI는 제안만 합니다" not in html  # 위 상자와 꼬리말, 통일 문장 하나
+    assert html.index(pdf.DISCLAIMER, html.index('<div class="foot">')) > 0
+    assert forbidden_phrases(text_of(html)) == []
 
 
 def test_empty_results_report_still_renders(user, monkeypatch):
     def down(symbol):
         raise RuntimeError("시세 조회 불가")
-    monkeypatch.setattr(market, "candles", down)
+    monkeypatch.setattr(market, "completed_candles", down)
+    monkeypatch.setattr(market, "candles", no_live_candles)
     report = make_report(user, status=Report.COMPLETED)
     html = pdf.build_report_html(report, [])
-    assert "시세 자료 없음" in html and "<svg" not in html
-    assert html.count("자료 없음") >= 5 and "판정 없음" in html and "Agent 실행 기록 없음" in html
-    assert "삼성전자" in html and "AI는 제안만 합니다" in html
+    assert "시세 자료 없음" in html and "<svg" not in html and "종가 기준 ·" not in html
+    assert html.count("자료 없음") >= 5 and "AI 의견 없음" in html and "Agent 실행 기록 없음" in html
+    easy = html.split('<div class="easy">')[1].split("</div>")[0]
+    assert '<p class="empty">자료 없음</p>' in easy and pdf.DISCLAIMER in easy  # 쉬운 요약이 없어도 상자와 면책 문장
+    assert "시세 지표 기준 시각: 자료 없음" in html
+    assert "삼성전자" in html and html.count(pdf.DISCLAIMER) == 2
+    assert forbidden_phrases(text_of(html)) == []
+
+
+def test_market_basis_label(user, candles):
+    """시세 지표 기준 줄: asOf가 있으면 그 시장 현지 시각의 장마감 기준 (미국은 뉴욕), 읽지 못하면 자료 없음 (가격도 숨긴다)."""
+    def html_for(symbol, market_agent):
+        return pdf.build_report_html(make_report(user, symbol, status=Report.COMPLETED,
+                                                 results={"market_agent": market_agent}), [])
+
+    us = html_for("AAPL", {"price": 180.5, "asOf": "2026-10-02T16:00:00-04:00"})
+    assert "시세 지표: 종가 180.50달러 · 10월 2일(금) 16:00(뉴욕) 장마감 기준" in us
+    utc = html_for("005930", {"price": 72000, "asOf": "2026-10-02T06:30:00+00:00"})  # 국내는 KST로 바꿔 적는다
+    assert "10월 2일(금) 15:30 장마감 기준" in utc
+    no_price = html_for("005930", {"asOf": "2026-10-02T15:30:00+09:00"})
+    assert "시세 지표: 10월 2일(금) 15:30 장마감 기준" in no_price
+    for bad in ("어제", "2026-10-02T15:30:00", None, 20261002):  # 형식이 틀림 · 시간대 없음 · 없음 · 숫자
+        html = html_for("005930", {"price": 72000, "asOf": bad})
+        assert "시세 지표 기준 시각: 자료 없음" in html and "종가 72,000원" not in html, bad
 
 
 def test_report_html_escapes_values(user, candles):
     evil = "<script>alert(1)</script>"
     report = make_report(user, status=Report.COMPLETED, results={
-        "report_agent": {"verdict": evil, "oneLiner": evil, "reasons": [evil], "risks": [evil], "targets": {}},
+        "market_agent": {"asOf": evil, "price": 1},
+        "report_agent": {"verdict": evil, "oneLiner": evil, "plainSummary": [evil], "reasons": [evil], "risks": [evil],
+                         "targets": {}},
         "risk_agent": {"level": evil, "warnings": [evil], "summary": evil}})
     report.name = evil
     report.save()
@@ -138,10 +198,19 @@ def test_report_html_has_no_login_id_or_secrets(user, candles):
 
 
 def test_chart_handles_us_market_and_missing_targets(user, monkeypatch):
-    monkeypatch.setattr(market, "candles", lambda symbol: candle_rows(30, 180))
+    monkeypatch.setattr(market, "completed_candles", lambda symbol: candle_rows(30, 180))
+    monkeypatch.setattr(market, "candles", no_live_candles)
     report = make_report(user, "AAPL", status=Report.COMPLETED, results={"report_agent": {"targets": {"entry": None}}})
     html = pdf.build_report_html(report, [])
     assert "<svg" in html and "진입" not in html.split("</svg>")[0]  # 값이 없는 가로선은 그리지 않는다
+    assert "2026-07-30 종가 기준" in html
+
+
+def test_as_of_formatter():
+    assert pdf._as_of("2026-10-05T15:30:00+09:00", "KR") == "10월 5일(월) 15:30 장마감 기준"
+    assert pdf._as_of("2026-10-05T20:00:00+00:00", "US") == "10월 5일(월) 16:00(뉴욕) 장마감 기준"  # 서머타임(EDT)
+    assert pdf._as_of("2026-12-04T21:00:00+00:00", "US") == "12월 4일(금) 16:00(뉴욕) 장마감 기준"  # 표준시(EST)
+    assert pdf._as_of("2026-10-05T15:30:00", "KR") is None and pdf._as_of("x", "KR") is None
 
 
 # --- 선별 표지 ---
@@ -160,12 +229,19 @@ SCREENING = {
 
 def test_screening_cover(user):
     done = make_report(user, status=Report.COMPLETED, results=RESULTS)
-    html = pdf.build_screening_html(SCREENING, [done])
+    running = make_report(user, "AAPL", status=Report.RUNNING,
+                          results={"report_agent": {"verdict": "avoid", "oneLiner": "검토 전 초안"}})
+    html = pdf.build_screening_html(SCREENING, [done, running])
+    assert "<title>선별 요약 · KR · AI 리포트 데스크</title>" in html
     assert "선별 요약 · KR" in html and "<svg" in html and html.count("<rect") >= 4
     assert "삼성전자" in html and "82.5점" in html and "1위 · 9,500억" in html
     assert "RSI 과열 — 2종목" in html and "종목 유형 ETF — 1종목" in html
     assert "&lt;b&gt;추세 약함&lt;/b&gt;" in html and "<b>추세" not in html
     assert "삼성전자 (005930)" in html and "단기 반등 구간" in html and "선별 2 · 탈락 3 · 제외 1" in html
+    assert "<th>AI 의견</th><th>한 줄 요약</th>" in html and "<td>긍정적</td>" in html
+    assert "검토 전 초안" not in html and "<td>부정적</td>" not in html  # 완성 전 리포트의 초안은 목록 카드처럼 내지 않는다
+    assert pdf.DISCLAIMER in html and "AI는 제안만 합니다" not in html
+    assert forbidden_phrases(text_of(html)) == []
 
 
 def test_screening_cover_empty():
@@ -212,8 +288,8 @@ def test_pdf_is_made_once_then_reused(api, user, files, candles, monkeypatch):
     assert b"".join(first.streaming_content) == b"%PDF-fake"
     html, path, chrome_bin = calls[0]
     assert "단기 반등 구간" in html and chrome_bin is None and path.parent == files / "reports"
-    assert (files / "reports" / f"{report.id}.pdf").exists()
-    assert [p.name for p in (files / "reports").iterdir()] == [f"{report.id}.pdf"]  # 임시 파일이 남지 않는다
+    assert (files / "reports" / pdf_name(report)).exists()
+    assert [p.name for p in (files / "reports").iterdir()] == [pdf_name(report)]  # 임시 파일이 남지 않는다
     second = api.get(url(report))
     assert second.status_code == 200 and b"".join(second.streaming_content) == b"%PDF-fake"
     assert len(calls) == 1  # 남은 파일을 쓴다
@@ -233,7 +309,7 @@ def test_pdf_without_chrome_serves_html(api, user, files, candles, monkeypatch):
     response = api.get(url(report))
     assert response.status_code == 200 and response["Content-Type"].startswith("text/html")
     assert "단기 반등 구간" in b"".join(response.streaming_content).decode()
-    assert [p.name for p in (files / "reports").iterdir()] == [f"{report.id}.html"]
+    assert [p.name for p in (files / "reports").iterdir()] == [pdf_name(report, ".html")]
     again = api.get(url(report))  # 남은 HTML을 다시 쓴다
     assert again.status_code == 200 and again["Content-Type"].startswith("text/html")
 
@@ -248,4 +324,24 @@ def test_pdf_render_failure_falls_back_to_html(api, user, files, candles, monkey
                         lambda html, path, chrome_bin=None: engine_report.render_pdf(html, path, chrome_bin, boom))
     response = api.get(url(report))
     assert response.status_code == 200 and response["Content-Type"].startswith("text/html")
-    assert [p.name for p in (files / "reports").iterdir()] == [f"{report.id}.html"]
+    assert [p.name for p in (files / "reports").iterdir()] == [pdf_name(report, ".html")]
+
+
+def test_pdf_of_older_template_is_made_again(api, user, files, candles, monkeypatch):
+    """양식 판이 오르면 예전 판 파일(판 번호 없는 <id>.pdf = 1판)을 쓰지 않고 새로 만든 뒤 지운다. 다른 리포트 파일은 그대로."""
+    calls = []
+    monkeypatch.setattr(pdf, "render_pdf", fake_render(calls))
+    report, _ = full_report(user)
+    folder = files / "reports"
+    folder.mkdir()
+    (folder / f"{report.id}.pdf").write_bytes(b"%PDF-old")
+    (folder / f"{report.id}.html").write_text("old", encoding="utf-8")
+    (folder / f"{report.id + 1}.pdf").write_bytes(b"%PDF-other")
+    response = api.get(url(report))
+    assert response.status_code == 200 and b"".join(response.streaming_content) == b"%PDF-fake"
+    assert len(calls) == 1 and "AI 리포트 데스크" in calls[0][0]
+    assert sorted(p.name for p in folder.iterdir()) == sorted([pdf_name(report), f"{report.id + 1}.pdf"])
+
+
+def test_file_stem():
+    assert pdf._file_stem(7, 1) == "7" and pdf._file_stem(7, 2) == "7.v2"

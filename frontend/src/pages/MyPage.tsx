@@ -1,14 +1,21 @@
+// 마이: 주린이모드 스위치 · 투자 성향·경험 진단 · 단타 연습 입구(주린이모드 끔) · 내 수익률(장마감 기준) · 랭킹 · 알림 설정 · 계정.
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { api, errorMessage } from "../api/client";
 import { keys, useAccount, useEquity, useMe } from "../api/queries";
 import type { Me } from "../api/types";
+import { PricesAsOfLine } from "../components/AssetCard";
 import { NotificationSettingsCard } from "../components/autotrade/NotificationSettingsCard";
+import { RankingCard } from "../components/home/RankingCard";
 import { Icon } from "../components/Icon";
 import { LineChart } from "../components/LineChart";
+import { BeginnerModeCard } from "../components/my/BeginnerModeCard";
+import { DayQuizEntry } from "../components/my/DayQuizEntry";
+import { InvestorDiagnosisCard } from "../components/my/InvestorDiagnosisCard";
 import { useToast } from "../components/toast";
 import { Card, ErrorState, Flash, PageHeader, Row, Skeleton, SkeletonCard, Spinner } from "../components/ui";
+import { useBeginnerMode } from "../hooks/useBeginnerMode";
 import { cn } from "../lib/cn";
 import { formatKrw, formatRate, formatSignedKrw, trendClass } from "../lib/format";
 
@@ -47,6 +54,7 @@ function AccountSection() {
         </Flash>
       </p>
       <p className={cn("text-[15px] font-semibold tabular-nums", trendClass(acc.profitKrw))}>{formatSignedKrw(acc.profitKrw)}</p>
+      <PricesAsOfLine pricesAsOf={acc.pricesAsOf} className="mt-1" />
       <dl className="mt-4 grid grid-cols-2 gap-3">
         <div className="rounded-xl bg-fill p-3">
           <dt className="text-[13px] text-sub">투자금액</dt>
@@ -67,7 +75,7 @@ function AccountSection() {
         <Row label="초기 자금">{formatKrw(acc.initialCapitalKrw)}</Row>
       </dl>
       <div className="mt-4 border-t border-line pt-4">
-        <h3 className="mb-2 text-[15px] font-semibold text-sub">일별 자산 추이 (30일)</h3>
+        <h3 className="mb-2 text-[15px] font-semibold text-sub">일별 자산 추이 (30일 · 장마감 기준)</h3>
         {equity ? (
           <LineChart points={equity.points.map((p) => ({ day: p.day, value: p.equityKrw }))} label="일별 자산 추이" />
         ) : (
@@ -161,6 +169,7 @@ export function MyPage() {
   const navigate = useNavigate();
   const toast = useToast();
   const { data: me } = useMe();
+  const { beginnerMode } = useBeginnerMode();
   const logout = useMutation({
     mutationFn: () => api.post<void>("/api/auth/logout"),
     onSuccess: () => {
@@ -174,11 +183,18 @@ export function MyPage() {
   if (!me) return null;
   return (
     <>
-      <PageHeader title="My Page" />
+      <PageHeader title="마이" />
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-6">
-        <AccountSection />
+        <div className="min-w-0 space-y-3">
+          <BeginnerModeCard />
+          <InvestorDiagnosisCard />
+          {!beginnerMode && <DayQuizEntry />}
+          <AccountSection />
+        </div>
         <div className="space-y-3">
-          <Card>
+          <RankingCard />
+          <NotificationSettingsCard />
+          <Card aria-label="계정">
             <p className="text-[20px] font-bold">{me.nickname}</p>
             <p className="text-[14px] text-mute">@{me.username}</p>
           </Card>
@@ -188,7 +204,6 @@ export function MyPage() {
               <NicknameForm key={me.nickname} me={me} />
             </div>
           </Card>
-          <NotificationSettingsCard />
           <button
             type="button"
             onClick={() => logout.mutate()}

@@ -6,12 +6,20 @@
 알림 하나 = 받는 사람별 웹 알림 행 + Discord 보낼 편지함 메시지 하나. Discord 전송은 엔진 루프의 dispatch.tick()이 한다.
 Discord로 보낼 곳(Webhook·openclaw)이 없으면 편지함 메시지를 skipped로 남기고 콘솔에 출력한다.
 편지함에 넣는 글(제목·본문·embed)의 멘션(<@…>·@everyone·@here)은 무력화하고, 우리가 붙이는 받는 사람 멘션 줄만 울린다.
+
+알림 문장 (컨셉 계획 B6 — docs/API.md "알림 문장", docs/DECISIONS.md 14-7):
+- 웹 알림의 제목·본문은 **받는 사람의 주린이모드**를 따른다. 켬(행이 없으면 켬)이면 쉬운 문장(title·body),
+  끔이면 전문가 문장(expert_title·expert_body, 없으면 쉬운 문장). 주린이모드는 accounts.modes.beginner_modes로 한 번에 읽는다.
+- Discord(팀 공용 채널 하나)는 받는 사람과 무관하게 쉬운 문장 + 숫자 한 줄(numbers)로 하나만 보내고 맨 앞에 HEADER를 붙인다.
+- daily_move·thesis_check는 웹 알림만 (사용자별 묶음이 팀 채널에 쌓이지 않게). 단타 계획 알림은 부르는 쪽이 discord=False로 보낸다.
 """
 import os
 import re
 import sys
+from dataclasses import dataclass
 from functools import cache
 
+from accounts import modes as investor_modes
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from paper_engine.config import ROOT, load_env
@@ -23,6 +31,8 @@ from .models import Notification, NotificationSetting, OutboxMessage
 
 DEFAULT_PUBLIC_BASE_URL = "http://localhost:5173"
 DEFAULT_LINK_LABEL = "웹에서 보기"
+HEADER = "[AI 리포트 데스크 · 모의투자]"  # Discord 글의 맨 앞 (D-5 서비스 이름 + 실제 매매로 읽히지 않게)
+WEB_ONLY_KINDS = frozenset({"daily_move", "thesis_check"})  # Discord로 보내지 않는 kind
 TITLE_MAX_LEN = 200
 NO_WEBHOOK = "Discord 설정(DISCORD_WEBHOOK_URL·OPENCLAW_TARGET)이 없어 Discord로 보내지 않음"
 _MENTION = re.compile(r"@(?=everyone|here|[!&]?\d)")
@@ -68,14 +78,33 @@ def settings_of(user) -> NotificationSetting:
     return setting
 
 
+@dataclass(frozen=True)
+class Notice:
+    """알림 문장 한 벌 (B6): 쉬운 문장(주린이모드 켬·Discord) + 전문가 문장(끔) + Discord 숫자 한 줄.
+
+    문장은 부르는 앱이 모아 둔다 (autotrade/text.py, reports/text.py). send는 이 모듈의 notify를 부른다.
+    """
+    title: str
+    body: str
+    expert_title: str | None = None
+    expert_body: str | None = None
+    numbers: str | None = None  # Discord에만 붙이는 숫자 한 줄 (예: "체결 70,600원 × 3주 · 목표 77,000원 · 손절 67,700원")
+
+    def send(self, users, kind: str, **options) -> list:
+        return notify(users, kind, self.title, self.body, expert_title=self.expert_title,
+                      expert_body=self.expert_body, numbers=self.numbers, **options)
+
+
 def notify(users, kind: str, title: str, body: str, *, link: str | None = None, discord: bool = True,
-           discord_link: str | None = None, link_label: str | None = None, embed: dict | None = None) -> list:
+           discord_link: str | None = None, link_label: str | None = None, embed: dict | None = None,
+           expert_title: str | None = None, expert_body: str | None = None, numbers: str | None = None) -> list:
     """알림을 만든다. 만든 웹 알림(Notification) 목록을 돌려준다. 예외를 밖으로 내지 않는다 (알림 실패가 매매를 막지 않게).
 
     users: User 하나, User 목록, 또는 None(= 활성 사용자 전체. Discord에는 멘션 없이 한 번만).
-    kind: docs/API.md NotificationKind. title·body: 사람이 읽는 말 (비밀 값·로그인 아이디를 넣지 않는다).
+    kind: docs/API.md NotificationKind. title·body: 쉬운 문장 (비밀 값·로그인 아이디·장중 가격 숫자를 넣지 않는다).
+    expert_title·expert_body: 주린이모드를 끈 사람의 웹 알림 문장 (없으면 쉬운 문장). numbers: Discord에 붙일 숫자 한 줄.
     link: 웹 경로 ("/plans/3"). 웹 알림과 Discord 메시지에 쓴다.
-    discord: False면 웹 알림만. discord_link: Discord 메시지에만 쓸 경로 (예: 서명된 활성화 링크). 없으면 link.
+    discord: False면 웹 알림만 (WEB_ONLY_KINDS는 늘 웹만). discord_link: Discord 메시지에만 쓸 경로 (예: 서명된 활성화 링크).
     link_label: Discord 메시지의 링크 앞 글 ("계획 활성화"). embed: Discord embed 하나 (title·description·url·color·fields).
     """
     try:
@@ -84,21 +113,47 @@ def notify(users, kind: str, title: str, body: str, *, link: str | None = None, 
     except Exception as e:
         _warn(f"알림 받는 사람을 정하지 못함 ({kind} {title}): {type(e).__name__}: {e}")
         return []
+    modes = _beginner_modes(recipients) if expert_title is not None or expert_body is not None else {}
     created = []
     try:
         with transaction.atomic():
             created = Notification.objects.bulk_create(
-                Notification(user=user, kind=kind, title=title[:TITLE_MAX_LEN], body=body, link=link)
+                _row(user, kind, link, *_wording(modes.get(user.pk, True), title, body, expert_title, expert_body))
                 for user in recipients)
     except Exception as e:
         _warn(f"웹 알림 만들기 실패 ({kind} {title}): {type(e).__name__}: {e}")
-    if discord and recipients:
+    if discord and kind not in WEB_ONLY_KINDS and recipients:
         try:
             with transaction.atomic():
-                _enqueue(recipients, users is None, kind, title, body, discord_link or link, link_label, embed)
+                _enqueue(recipients, users is None, kind, title, body, discord_link or link, link_label, embed,
+                         numbers)
         except Exception as e:
             _warn(f"Discord 보낼 편지함 넣기 실패 ({kind} {title}): {type(e).__name__}: {e}")
     return created
+
+
+def _wording(easy: bool, title: str, body: str, expert_title: str | None, expert_body: str | None) -> tuple[str, str]:
+    """받는 사람의 웹 알림 (제목, 본문): 주린이모드 켬이면 쉬운 문장, 끔이면 전문가 문장 (없는 쪽은 쉬운 문장)."""
+    if easy:
+        return title, body
+    return (title if expert_title is None else expert_title), (body if expert_body is None else expert_body)
+
+
+def _row(user, kind: str, link: str | None, title: str, body: str) -> Notification:
+    return Notification(user=user, kind=kind, title=title[:TITLE_MAX_LEN], body=body, link=link)
+
+
+def _beginner_modes(recipients: list) -> dict[int, bool]:
+    """받는 사람별 주린이모드 {user id: 켬?} (accounts.modes.beginner_modes — 한 번의 쿼리, 행이 없으면 켬).
+
+    읽지 못하면 {} (모두 켬 — 쉬운 문장). 바깥 트랜잭션을 깨지 않게 savepoint 안에서 읽는다.
+    """
+    try:
+        with transaction.atomic():
+            return dict(investor_modes.beginner_modes([user.pk for user in recipients]))
+    except Exception as e:
+        _warn(f"주린이모드를 읽지 못해 쉬운 문장으로 보냄: {type(e).__name__}: {e}")
+        return {}
 
 
 def _recipients(users) -> list:
@@ -110,18 +165,24 @@ def _recipients(users) -> list:
 
 
 def _enqueue(recipients: list, broadcast: bool, kind: str, title: str, body: str, path: str | None,
-             link_label: str | None, embed: dict | None) -> OutboxMessage | None:
-    """Discord 메시지 하나를 편지함에 넣는다. 받는 사람이 모두 Discord를 껐으면 넣지 않는다."""
+             link_label: str | None, embed: dict | None, numbers: str | None = None) -> OutboxMessage | None:
+    """Discord 메시지 하나를 편지함에 넣는다. 받는 사람이 모두 Discord를 껐으면 넣지 않는다.
+
+    글: "[AI 리포트 데스크 · 모의투자] **제목**" → 받는 사람 멘션 줄 → 쉬운 본문 → 숫자 한 줄 → 링크 줄.
+    """
     settings = {s.user_id: s for s in NotificationSetting.objects.filter(user__in=[u.pk for u in recipients])}
     enabled = [u for u in recipients if u.pk not in settings or settings[u.pk].discord_enabled]
     if not enabled:
         return None
     mentions = [] if broadcast else [f"<@{settings[u.pk].discord_user_id}>" for u in enabled
                                      if u.pk in settings and settings[u.pk].discord_user_id]
-    lines = [" ".join(mentions)] if mentions else []
-    lines.append(f"**{defuse(title)}**")
+    lines = [f"{HEADER} **{defuse(title)}**"]
+    if mentions:
+        lines.append(" ".join(mentions))
     if body:
         lines.append(defuse(body))
+    if numbers:
+        lines.append(defuse(numbers))
     if path:
         lines.append(f"▶ {link_label or DEFAULT_LINK_LABEL}: {public_url(path)}")
     content = "\n".join(lines)

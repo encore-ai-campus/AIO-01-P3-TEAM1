@@ -19,7 +19,7 @@ ORDER_COLUMNS = (
     "id", "account_id", "requested_by", "trade_id", "symbol", "name", "market", "currency", "order_type",
     "limit_price", "quantity", "entry_price", "target_price", "stop_price", "expire_date", "status",
     "filled_quantity", "fill_price", "fill_fx_rate", "filled_at", "exit_price", "exit_fx_rate", "exit_reason",
-    "closed_at", "pnl", "pnl_krw", "signal_count", "note", "created_at")
+    "closed_at", "pnl", "pnl_krw", "signal_count", "note", "created_at", "style")
 FILL_COLUMNS = ("id", "order_id", "side", "price", "quantity", "amount", "commission", "tax", "fx_rate",
                 "cash_change_krw", "reason", "filled_at")
 DATETIME_COLUMNS = {"filled_at", "closed_at", "created_at"}
@@ -122,12 +122,16 @@ class AccountStore:
         fills = PaperFill.objects.filter(account_id=self.account_id, order_id=order_id).order_by("id")
         return [fill_row(f) for f in fills]
 
-    def paper_today(self, day: str) -> tuple[int, float]:
-        """(그 날(KST) 낸 모의 주문 수, 그 날 확정 손실 원화). 손실은 양수다."""
+    def paper_today(self, day: str, style: str | None = None) -> tuple[int, float]:
+        """(그 날(KST) 낸 모의 주문 수, 그 날 확정 손실 원화). 손실은 양수다.
+
+        style(swing | long | day)을 주면 그 보유 방식의 주문만 센다 (단타 한도는 style day 주문만 — docs/DECISIONS.md 14-4).
+        """
         start = datetime.combine(date.fromisoformat(day), time.min, tzinfo=KST)
         end = start + timedelta(days=1)
-        count = self._orders().filter(created_at__gte=start, created_at__lt=end).count()
-        loss = self._orders().filter(closed_at__gte=start, closed_at__lt=end, pnl_krw__lt=0).aggregate(
+        orders = self._orders() if style is None else self._orders().filter(style=style)
+        count = orders.filter(created_at__gte=start, created_at__lt=end).count()
+        loss = orders.filter(closed_at__gte=start, closed_at__lt=end, pnl_krw__lt=0).aggregate(
             total=Sum("pnl_krw"))["total"]
         return count, float(-loss) if loss else 0.0
 

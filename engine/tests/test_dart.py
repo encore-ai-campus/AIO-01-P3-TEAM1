@@ -126,7 +126,8 @@ def test_disclosures_separate_insider_reports():
     ]
     d = summarize_disclosures(rows)
     assert d["insiderOwnershipReportCount"] == 1
-    assert d["items"] == [{"date": "2026-09-18", "title": "최대주주등소유주식변동신고서", "filer": "삼성전자"}]
+    assert d["items"] == [{"date": "2026-09-18", "title": "최대주주등소유주식변동신고서", "filer": "삼성전자",
+                           "rceptNo": None}]  # 응답에 접수번호가 없으면 None
 
 
 def full_row(account_id, this_add, prev_add, sj_div="CIS"):

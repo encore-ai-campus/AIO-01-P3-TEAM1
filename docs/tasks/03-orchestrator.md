@@ -1,9 +1,15 @@
 # 03. Orchestrator (담당 3)
 
+> **할 일 (2026-10-05 단순화 — `TEAM_DEV_PLAN.md` 11장)**: ① 추천 워크플로우: Orchestrator·Guard·runner·Handoff·실패 사유 코드 · ② UI/UX: 진행 단계 표시 확인 · ③ 추가 기능 논의: 단타 AI 팀(`day_plan`·`day_review`) 설계 · ④ 테스트: 오케스트레이션 테스트, 장애 시험.
+> 그 밖의 확정된 변경은 Claude가 구현한다(`docs/DECISIONS.md` 14장). 아래 세부 표는 워크플로우 개발의 약속·참고로 남긴다.
+
 목표: 실행 계획대로 Worker를 **병렬·순차로 돌리고**, Join Guard·부분 실패 정책·검토 반복·Handoff를 판단하며, State와 Trace를 남기고, `run_engine` 루프에서 리포트를 집어 실행한다.
 `TEAM_DEV_PLAN.md` 4-2의 C~G·J. 약속은 `00-공통.md` 8절(지키는 것), 9절(Trace 사건), 4절(스키마). 산출물 책임: **설계서 ① 총괄** (흐름·Handoff·공유 상태·정상·재시도·실패·종료).
 
 가장 무거운 역할이다. 밀리면 Handoff(T3-7)부터 줄인다.
+
+> **2026-10-05**: B7 줄·T3-4·T3-12는 `docs/DECISIONS.md` 14-2 표로 읽는다 (줄은 고치지 않았다) — 팀원 리포트의 완성·실패 알림은 Claude의 `reports/alerts.py`가 보낸다 (`00-공통.md` 8절).
+> runner는 끝난 리포트마다 `auto.after_finish(report)`(1, 자동 리포트만)만 부르면 되고 `healing.notify_failure`는 부르지 않아도 된다 (T3-12 완료 기준의 "`notify_failure` 호출 1번"도 빠진다). 알림에 관해 3이 지킬 것은 실패로 끝낼 때 `workflow_failed.details.reason`을 9절 사유 코드로 남기는 것이다.
 
 ## 받는 것 · 주는 것
 

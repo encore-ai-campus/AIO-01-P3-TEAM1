@@ -119,10 +119,11 @@ class Desk:
 
     def account_context(self, symbol: str, currency: str, liquidity: float | None, warnings: list[str],
                         cap_krw: float | None = None):
-        """리스크 엔진 입력 (모의 계좌 기준)."""
+        """리스크 엔진 입력 (모의 계좌 기준). AI 경로는 SWING만 매매하므로(TRADABLE_HORIZONS) 하루 주문 수·손실은
+        style swing 주문만 센다 — 단타(style day) 주문은 단타 DAY 한도에만 들어간다 (docs/DECISIONS.md 14-4)."""
         return self.executor.account_context(
             symbol, currency, self.fx_if_needed(currency), self.held_prices(), liquidity, warnings,
-            self.cfg.max_total_invest_krw, cap_krw, date.today())
+            self.cfg.max_total_invest_krw, cap_krw, date.today(), style=ex.SWING)
 
     def find_listed(self, query: str) -> dict:
         """매수할 종목. 종목코드면 바로 조회하고, 아니면 전체 종목 목록에서 이름이 같은 종목을 찾는다."""

@@ -1,4 +1,5 @@
-// AI 추천 → 계획 활성화 → 내 자동매매 → 알림 화면 (가짜 API: src/mocks).
+// AI 추천 → 계획 활성화 → 내 자동매매 → 알림 화면 (가짜 API: src/mocks). 앨리스는 주린이모드 끔(전문가 보기)이다.
+// 쉬운 보기(새 계획 제안 → 실행 확인 → 모의 자동매매)와 모의투자 탭은 src/trade.test.tsx.
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import * as db from "./mocks/db";
@@ -12,17 +13,17 @@ const alice = () => {
 };
 
 describe("AI 추천 목록", () => {
-  it("진행 중 추천을 최신순으로, 출처 배지(시연용은 AI 아님 표시)와 함께 보인다", async () => {
+  it("진행 중 추천을 최신순으로, 출처 배지(연습용 예시는 AI 아님 표시)와 함께 보인다", async () => {
     renderApp("/recommendations");
     const list = await screen.findByRole("list", { name: "추천 목록" });
     const cards = within(list).getAllByRole("link");
     expect(cards.map((c) => c.getAttribute("aria-label"))).toEqual(["NAVER 추천 보기", "SK하이닉스 추천 보기", "에코프로비엠 추천 보기"]);
-    expect(within(cards[0]).getByText("시연용 · AI 아님")).toBeTruthy();
+    expect(within(cards[0]).getByText("연습용 예시 · AI 아님")).toBeTruthy();
     expect(within(cards[0]).getByText("(가정)")).toBeTruthy(); // 확률을 AI가 주지 않음
     expect(within(cards[1]).getByText("AI 리포트")).toBeTruthy();
     expect(within(cards[1]).getByText("리스크 보통")).toBeTruthy();
     expect(within(cards[1]).getByText("+12.2%")).toBeTruthy(); // 목표 수익률 203,000 / 181,000 - 1
-    expect(within(cards[2]).getByText("AI 분석")).toBeTruthy();
+    expect(within(cards[2]).getByText("AI 교차검증 분석")).toBeTruthy();
     expect(cards[1].getAttribute("href")).toBe("/recommendations/91");
 
     fireEvent.click(screen.getByRole("button", { name: "전체" }));
@@ -31,12 +32,12 @@ describe("AI 추천 목록", () => {
     expect(within(expired).getByText("만료")).toBeTruthy();
   });
 
-  it("시연용 추천 만들기: 성공하면 상세로, 꺼져 있으면 서버 메시지를 그대로", async () => {
+  it("연습용 예시 계획 만들기: 성공하면 상세로, 꺼져 있으면 서버 메시지를 그대로", async () => {
     renderApp("/recommendations");
     fireEvent.change(await screen.findByLabelText("종목 코드 (선택)"), { target: { value: "005380" } });
     fireEvent.click(screen.getByRole("button", { name: "만들기" }));
     expect(await screen.findByRole("heading", { name: "현대차 추천" })).toBeTruthy();
-    expect(screen.getByText(/시연용 규칙 추천입니다 \(AI 아님\)/)).toBeTruthy();
+    expect(screen.getByText(/연습용 예시 계획입니다 \(AI 아님\)/)).toBeTruthy();
 
     db.options.demoEnabled = false;
     renderApp("/recommendations");
@@ -44,19 +45,20 @@ describe("AI 추천 목록", () => {
     expect(await screen.findByText("시연용 추천이 꺼져 있습니다 (AUTOTRADE_DEMO=off).")).toBeTruthy();
   });
 
-  it("하단 탭과 왼쪽 메뉴에서 추천·자동매매·알림으로 간다", async () => {
-    renderApp("/");
+  it("추천·자동매매는 하단 탭과 왼쪽 메뉴의 모의투자 탭 안이고, 알림은 왼쪽 메뉴에 있다", async () => {
+    renderApp("/recommendations");
     const tabs = await screen.findByRole("navigation", { name: "하단 탭" });
-    expect(within(tabs).getByRole("link", { name: "추천" }).getAttribute("href")).toBe("/recommendations");
+    const trade = within(tabs).getByRole("link", { name: "모의투자" });
+    expect(trade.getAttribute("href")).toBe("/portfolio");
+    expect(trade.getAttribute("aria-current")).toBe("page"); // /recommendations도 모의투자 탭
     const side = screen.getByRole("navigation", { name: "주 메뉴" });
-    expect(within(side).getByRole("link", { name: "AI 추천" })).toBeTruthy();
-    expect(within(side).getByRole("link", { name: "내 자동매매" }).getAttribute("href")).toBe("/plans");
+    expect(within(side).getByRole("link", { name: "모의투자" }).getAttribute("aria-current")).toBe("page");
     expect(within(side).getByRole("link", { name: /^알림/ }).getAttribute("href")).toBe("/notifications");
   });
 });
 
 describe("추천 상세 · 활성화", () => {
-  it("예산 → 리스크 미리 보기 → 계획 활성화 → 계획 화면", async () => {
+  it("예산 → 리스크 미리 보기(종가 기준) → 요약 확인 → 계획 활성화 → 계획 화면", async () => {
     renderApp("/recommendations/91");
     expect(await screen.findByRole("heading", { name: "SK하이닉스 추천" })).toBeTruthy();
     expect(screen.getByRole("figure", { name: "가격 사다리" })).toBeTruthy();
@@ -64,6 +66,8 @@ describe("추천 상세 · 활성화", () => {
     const preview = screen.getByRole("region", { name: "리스크 미리 보기" });
     await within(preview).findByText("리스크 엔진 통과");
     expect(within(preview).getByText("건당 위험 한도")).toBeTruthy();
+    expect(within(preview).getByText("직전 종가")).toBeTruthy();
+    expect(within(preview).getByText(/장마감 기준$/)).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText("예산 (원, 선택)"), { target: { value: "1,000,000" } });
     await waitFor(() => expect(within(preview).getByText("예산")).toBeTruthy(), { timeout: 3000 });
@@ -74,11 +78,14 @@ describe("추천 상세 · 활성화", () => {
       if (request.url.endsWith("/activate")) seen.push(await request.clone().json());
     });
     const button = screen.getByRole("button", { name: "계획 활성화" });
+    // 전문가 보기는 체크 셋(손절 시 손실·보유 기간 끝 매도·AI 제안/모의)을 한 줄 요약 확인으로 켠다
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("checkbox", { name: "위 내용을 확인했습니다" }));
     await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(button);
     expect(await screen.findByRole("heading", { name: "SK하이닉스 자동매매" })).toBeTruthy();
     server.events.removeAllListeners();
-    expect(seen).toEqual([{ budgetKrw: 1_000_000 }]);
+    expect(seen).toEqual([{ budgetKrw: 1_000_000, acknowledged: true }]);
     expect(screen.getAllByText("체결 대기").length).toBeGreaterThan(0);
     const events = screen.getByRole("list", { name: "계획 사건" });
     expect(within(events).getByText("SK하이닉스 5주 181,000원 지정가 매수 주문 접수")).toBeTruthy();
@@ -96,10 +103,13 @@ describe("추천 상세 · 활성화", () => {
     renderApp("/recommendations/92?t=demo-92");
     expect(await screen.findByText("Discord에서 연 활성화 링크")).toBeTruthy();
     await within(screen.getByRole("region", { name: "리스크 미리 보기" })).findByText("리스크 엔진 통과");
-    fireEvent.click(screen.getByRole("button", { name: "계획 활성화" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "위 내용을 확인했습니다" }));
+    const button = screen.getByRole("button", { name: "계획 활성화" });
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(button);
     expect(await screen.findByRole("heading", { name: "에코프로비엠 자동매매" })).toBeTruthy();
     server.events.removeAllListeners();
-    expect(seen).toEqual([{ token: "demo-92" }]);
+    expect(seen).toEqual([{ token: "demo-92", acknowledged: true }]);
     expect(screen.getByText("Discord 링크로 활성화")).toBeTruthy();
   });
 
@@ -160,7 +170,7 @@ describe("내 자동매매", () => {
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText(/보유 수량을 전량 매도합니다/)).toBeTruthy();
     fireEvent.click(within(dialog).getByRole("button", { name: "전량 매도하고 중단" }));
-    await waitFor(() => expect(screen.getByRole("note").textContent).toContain("청산 완료 · 직접 매도"));
+    await waitFor(() => expect(screen.getByRole("note").textContent).toContain("청산 완료 · 사용자 매도")); // docs/API.md "청산 사유" 표
   });
 
   it("시간이 지나면 체결 → 목표가 청산까지 진행하고 사건·알림이 쌓인다", async () => {
@@ -238,9 +248,12 @@ describe("다른 화면과 잇기", () => {
     expect(await screen.findByRole("heading", { name: "이 분석의 AI 추천 → 계획 활성화" })).toBeTruthy();
   });
 
-  it("내 주식 위쪽에 내 자동매매 링크", async () => {
+  it("모의투자 탭 위쪽에 진행 중 자동매매와 전체 보기 링크", async () => {
+    db.activate(alice(), 91, {});
     renderApp("/portfolio");
-    const link = await screen.findByRole("link", { name: /AI 추천을 활성화한 계획/ });
-    expect(link.getAttribute("href")).toBe("/plans");
+    const live = await screen.findByRole("list", { name: "진행 중 계획" });
+    expect(within(live).getByRole("link", { name: "SK하이닉스 계획 보기" })).toBeTruthy();
+    const section = screen.getByRole("heading", { name: "진행 중 자동매매" }).closest("section")!;
+    expect(within(section).getByRole("link", { name: /모두 보기/ }).getAttribute("href")).toBe("/plans");
   });
 });

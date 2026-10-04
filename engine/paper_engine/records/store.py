@@ -99,12 +99,13 @@ CREATE TABLE IF NOT EXISTS paper_orders (
     status TEXT NOT NULL,            -- ENTRY_PENDING | EXIT_WATCHING | CLOSED | CANCELED
     filled_quantity REAL, fill_price REAL, fill_fx_rate REAL, filled_at TEXT,
     exit_price REAL, exit_fx_rate REAL,
-    exit_reason TEXT,                -- TARGET | STOP | EXPIRED | MANUAL
+    exit_reason TEXT,                -- TARGET | STOP | EXPIRED | MANUAL | EOD
     closed_at TEXT,
     pnl REAL, pnl_krw REAL,          -- 실현 손익 (종목 통화, 원화). 수수료·세금 포함
     signal_count INTEGER NOT NULL DEFAULT 0,  -- 청산 조건 연속 확인 횟수
     note TEXT,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    style TEXT NOT NULL DEFAULT 'swing'  -- 보유 방식 swing | long | day (docs/API.md "보유 방식")
 );
 CREATE TABLE IF NOT EXISTS paper_fills (
     id INTEGER PRIMARY KEY,
@@ -115,7 +116,7 @@ CREATE TABLE IF NOT EXISTS paper_fills (
     commission REAL NOT NULL, tax REAL NOT NULL,
     fx_rate REAL NOT NULL,           -- 종목 통화 1단위의 원화 가치 (KRW는 1)
     cash_change_krw REAL NOT NULL,   -- 현금 증감 (매수 음수, 매도 양수)
-    reason TEXT NOT NULL,            -- ENTRY | TARGET | STOP | EXPIRED | MANUAL
+    reason TEXT NOT NULL,            -- ENTRY | TARGET | STOP | EXPIRED | MANUAL | EOD
     filled_at TEXT NOT NULL
 );
 -- 일별 자산. 국내 장 마감 시장 기록 직후 하루 한 번.
@@ -167,6 +168,11 @@ class Store:
             for table, column, sql in MIGRATIONS:
                 if column in self._columns(table):
                     self.db.execute(sql)
+            if "style" not in self._columns("paper_orders"):
+                # 보유 방식 (2026-10-04). 기존 주문은 목표·손절·기한이 모두 없으면 long, 아니면 swing (웹 마이그레이션과 같은 규칙)
+                self.db.execute("ALTER TABLE paper_orders ADD COLUMN style TEXT NOT NULL DEFAULT 'swing'")
+                self.db.execute("UPDATE paper_orders SET style='long' WHERE target_price IS NULL "
+                                "AND stop_price IS NULL AND expire_date IS NULL")
 
     def add_candidate(self, c: Candidate, name: str, created_at: str, created_date: str,
                       commission_rate: float, sell_tax_rate: float, run_file: str = "") -> int:
@@ -356,12 +362,18 @@ class Store:
     def order_fills(self, order_id: int) -> list[sqlite3.Row]:
         return self.db.execute("SELECT * FROM paper_fills WHERE order_id=? ORDER BY id", (order_id,)).fetchall()
 
-    def paper_today(self, day: str) -> tuple[int, float]:
-        """(오늘 낸 모의 주문 수, 오늘 확정 손실 원화). 손실은 양수다."""
-        count = self.db.execute("SELECT COUNT(*) FROM paper_orders WHERE substr(created_at,1,10)=?",
-                                (day,)).fetchone()[0]
-        loss = self.db.execute("SELECT COALESCE(-SUM(pnl_krw), 0) FROM paper_orders "
-                               "WHERE substr(closed_at,1,10)=? AND pnl_krw < 0", (day,)).fetchone()[0]
+    def paper_today(self, day: str, style: str | None = None) -> tuple[int, float]:
+        """(오늘 낸 모의 주문 수, 오늘 확정 손실 원화). 손실은 양수다.
+
+        style(swing | long | day)을 주면 그 보유 방식의 주문만 센다 (단타 한도는 style day 주문만 — docs/DECISIONS.md 14-4).
+        """
+        where, args = "", ()
+        if style is not None:
+            where, args = " AND style=?", (style,)
+        count = self.db.execute(f"SELECT COUNT(*) FROM paper_orders WHERE substr(created_at,1,10)=?{where}",
+                                (day, *args)).fetchone()[0]
+        loss = self.db.execute(f"SELECT COALESCE(-SUM(pnl_krw), 0) FROM paper_orders "
+                               f"WHERE substr(closed_at,1,10)=? AND pnl_krw < 0{where}", (day, *args)).fetchone()[0]
         return count, float(loss)
 
     def closed_paper_orders(self, since: str | None = None) -> list[sqlite3.Row]:

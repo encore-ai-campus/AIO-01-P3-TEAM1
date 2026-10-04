@@ -16,3 +16,7 @@ def no_real_broker_keys(monkeypatch):
         monkeypatch.setenv(key, "")
     # 매일 자동 추천(선별 = 증권사 조회 100번 이상)은 테스트가 직접 켤 때만. autotrade.conf는 빈 값이면 .env를 읽으므로 off로 덮는다
     monkeypatch.setenv("AUTO_RECOMMEND", "off")
+    # 장기투자 예약 작업(증권사·DART·뉴스·LLM 조회)도 테스트가 직접 켤 때만. 빈 값이 아니라 off (빈 값은 .env 값으로 넘어간다)
+    monkeypatch.setenv("LONGTERM_JOBS", "off")
+    # 리포트 하루 한도(reports.quota)는 개발자 .env 값과 상관없이 기본값 3으로 고정한다 (다른 값이 필요한 테스트는 자기가 덮는다)
+    monkeypatch.setenv("AI_DAILY_REPORTS_PER_USER", "3")

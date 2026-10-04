@@ -1,4 +1,5 @@
-// 손절–진입–목표를 한 막대에 위치·퍼센트로 보이고 지금 가격을 표시한다 (CSS만).
+// 손절–진입–목표를 한 막대에 위치·퍼센트로 보이고 직전 종가를 표시한다 (CSS만).
+// 가격은 장마감 기준이라 표시는 "종가"다 (기준 시각은 화면이 <AsOf>로 옆에 붙인다). easy면 쉬운 이름(사는 가격·목표 가격·손절 가격).
 import type { Currency } from "../../api/types";
 import { priceLadder } from "../../lib/autotrade";
 import { cn } from "../../lib/cn";
@@ -10,18 +11,21 @@ export function PriceLadder({
   target,
   last,
   currency,
+  easy = false,
 }: {
   stop: number;
   entry: number;
   target: number;
+  /** 직전 장마감 종가 (없으면 표시하지 않는다). */
   last: number | null;
   currency: Currency;
+  easy?: boolean;
 }) {
   const l = priceLadder(stop, entry, target, last);
   const marks = [
-    { key: "stop", label: "손절", price: stop, pos: l.stop, cls: "text-down", dot: "bg-down" },
-    { key: "entry", label: "진입", price: entry, pos: l.entry, cls: "text-ink", dot: "bg-ink" },
-    { key: "target", label: "목표", price: target, pos: l.target, cls: "text-up", dot: "bg-up" },
+    { key: "stop", label: easy ? "손절 가격" : "손절", price: stop, pos: l.stop, cls: "text-down", dot: "bg-down" },
+    { key: "entry", label: easy ? "사는 가격" : "진입", price: entry, pos: l.entry, cls: "text-ink", dot: "bg-ink" },
+    { key: "target", label: easy ? "목표 가격" : "목표", price: target, pos: l.target, cls: "text-up", dot: "bg-up" },
   ];
   return (
     <figure aria-label="가격 사다리" className="select-none">
@@ -29,7 +33,7 @@ export function PriceLadder({
         {l.last !== null && last !== null && (
           <div className="absolute top-0 -translate-x-1/2 text-center" style={{ left: `${l.last}%` }}>
             <span className="block rounded-md bg-ink px-1.5 py-0.5 text-[11px] font-bold whitespace-nowrap text-white tabular-nums">
-              지금 {formatPrice(last, currency)}
+              종가 {formatPrice(last, currency)}
             </span>
           </div>
         )}
@@ -61,7 +65,7 @@ export function PriceLadder({
       </ol>
       {l.outside && (
         <figcaption className="mt-1 text-[12px] text-mute">
-          지금 가격이 {l.outside === "below" ? "손절가보다 낮습니다" : "목표가보다 높습니다"}.
+          직전 종가가 {l.outside === "below" ? (easy ? "손절 가격보다 낮아요" : "손절가보다 낮습니다") : easy ? "목표 가격보다 높아요" : "목표가보다 높습니다"}.
         </figcaption>
       )}
     </figure>

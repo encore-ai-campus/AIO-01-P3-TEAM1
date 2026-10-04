@@ -31,15 +31,16 @@ import type {
 } from "./types";
 
 /**
- * 폴링 간격 (ms). 시세(quote, stock)와 시세로 계산하는 계좌(account)는 로그인해 있는 동안 탭이 가려져도 계속 받는다.
+ * 폴링 간격 (ms, docs/API.md 공통 규칙). 화면의 가격은 장마감 기준(직전 종가)이라 하루 한 번 바뀌므로 시세는 60초,
+ * 체결·현금은 장중에 바뀌므로 계좌 10초, 주문·매매 계획 5초.
+ * 시세(quote, stock)와 계좌(account)는 로그인해 있는 동안 탭이 가려져도 계속 받는다.
  * 나머지는 탭이 보이지 않으면 멈추고, 돌아오면 바로 다시 받는다.
- * (가려진 탭의 타이머는 브라우저가 늦춘다: 보통 1초에 한 번, Chrome은 5분 넘게 가려지면 1분에 한 번.)
  */
 export const POLL = {
-  quote: 1000,
-  stock: 1000,
-  account: 2000,
-  ranking: 5000,
+  quote: 60_000,
+  stock: 60_000,
+  account: 10_000,
+  ranking: 30_000,
   orders: 5000,
   job: 5000,
   market: 30000,
@@ -47,13 +48,29 @@ export const POLL = {
   reports: 30000,
   report: 3000, // SSE가 없거나 끊겼을 때 리포트 Snapshot 다시 받기
   notifications: 15000, // 안 읽은 알림 수
-  plan: 5000, // 진행 중 계획
+  plan: 5000, // 진행 중 계획 (단타 계획 목록 포함)
   recommendations: 30000,
+  dayStatus: 30_000, // 단타 세션(15:15 진입 마감)·오늘 한도
 };
 
-const live = (ms: number) => ({ refetchInterval: ms, refetchIntervalInBackground: false });
-/** 시세 추적용: 탭이 가려져도 계속 받는다. */
-const always = (ms: number) => ({ refetchInterval: ms, refetchIntervalInBackground: true });
+/** 탭이 보일 때만 ms마다 다시 받는다. */
+export const live = (ms: number) => ({ refetchInterval: ms, refetchIntervalInBackground: false });
+/** 시세·계좌용: 탭이 가려져도 계속 받는다. */
+export const always = (ms: number) => ({ refetchInterval: ms, refetchIntervalInBackground: true });
+
+export interface AnalysisParams {
+  symbol?: string;
+  verdict?: Verdict;
+  mine?: boolean; // 내가 요청한 분석만 (?mine=1)
+  limit?: number;
+}
+
+export interface ReportParams {
+  symbol?: string;
+  source?: "user" | "auto";
+  mine?: boolean; // 내가 신청한 리포트만 (?mine=1)
+  limit?: number;
+}
 
 export const keys = {
   me: ["me"] as const,
@@ -67,13 +84,14 @@ export const keys = {
   reservations: ["reservations"] as const,
   fills: ["fills"] as const,
   ranking: ["ranking"] as const,
-  analyses: (params: { symbol?: string; verdict?: Verdict; limit?: number }) => ["analyses", params] as const,
+  analyses: (params: AnalysisParams) => ["analyses", params] as const,
   analysis: (id: number) => ["analysis", id] as const,
   quota: ["quota"] as const,
   job: (id: number) => ["job", id] as const,
   reportPlan: ["reportPlan"] as const,
-  reports: (params: { symbol?: string; source?: string; limit?: number }) => ["reports", params] as const,
+  reports: (params: ReportParams) => ["reports", params] as const,
   report: (id: number) => ["report", id] as const,
+  reportQuota: ["reports", "quota"] as const,
   recommendations: (params: RecommendationParams) => ["recommendations", params] as const,
   recommendation: (id: number) => ["recommendation", id] as const,
   preview: (id: number, budgetKrw: number | null) => ["recommendation", id, "preview", budgetKrw] as const,
@@ -81,6 +99,20 @@ export const keys = {
   plan: (id: number) => ["plan", id] as const,
   notifications: (unread: boolean) => ["notifications", unread] as const,
   notificationSettings: ["notificationSettings"] as const,
+  // 계정: 투자자 프로필·단타 연습 퀴즈 (훅은 api/profile.ts)
+  investorProfile: ["investorProfile"] as const,
+  dayQuiz: ["dayQuiz"] as const,
+  // 장기투자 (훅은 api/longterm.ts)
+  dailyMoves: (date: string | null) => ["longterm", "dailyMoves", date] as const,
+  dailyMove: (symbol: string, date: string | null) => ["longterm", "dailyMove", symbol, date] as const,
+  theses: ["longterm", "theses"] as const,
+  fundamentals: (symbol: string) => ["fundamentals", symbol] as const,
+  // 단타 연습 (훅은 api/day.ts). "day"로 시작하는 키는 프로필이 바뀌면 함께 다시 받는다
+  minuteCandles: (symbol: string, date: string | null, minutes: number) => ["minuteCandles", symbol, date, minutes] as const,
+  dayStatus: ["day", "status"] as const,
+  dayPreview: (input: object | null) => ["day", "preview", input] as const,
+  dayPlans: (date: string | null) => ["day", "plans", date] as const,
+  dayReview: (date: string | null) => ["day", "review", date] as const,
 };
 
 export interface RecommendationParams {
@@ -118,7 +150,10 @@ export function useEquity(days = 30) {
   });
 }
 
-/** 여러 종목 현재가를 한 번에 (최대 50개). 종목 → Quote 맵으로 돌려준다. */
+/**
+ * 여러 종목 시세를 한 번에 (최대 50개). 종목 → Quote 맵으로 돌려준다.
+ * 가격은 장마감 기준(직전 종가)이고, 기준 시각은 각 Quote.asOf다 (응답 맨 위 asOf는 응답 시각이라 쓰지 않는다).
+ */
 export function useQuotes(symbols: string[]) {
   const list = [...new Set(symbols)].sort().slice(0, 50);
   return useQuery({
@@ -182,12 +217,13 @@ export function useRanking() {
   return useQuery({ queryKey: keys.ranking, queryFn: () => api.get<Ranking>("/api/ranking"), ...live(POLL.ranking) });
 }
 
-export function useAnalyses(params: { symbol?: string; verdict?: Verdict; limit?: number } = {}) {
+/** AI 교차검증 분석 목록 (팀 공용, 최신순). mine이면 내가 요청한 것만. */
+export function useAnalyses(params: AnalysisParams = {}) {
   return useQuery({
     queryKey: keys.analyses(params),
     queryFn: () =>
       api.get<Page<AnalysisSummary>>(
-        `/api/analyses${qs({ symbol: params.symbol, verdict: params.verdict, limit: params.limit ?? 50 })}`,
+        `/api/analyses${qs({ symbol: params.symbol, verdict: params.verdict, mine: params.mine ? 1 : null, limit: params.limit ?? 50 })}`,
       ),
     ...live(POLL.analyses),
   });
@@ -228,11 +264,14 @@ export function useReportPlan() {
   });
 }
 
-/** 리포트 목록 (팀 전체 공용, 최신순). 상세 Snapshot·SSE는 api/reports.ts의 useReportLive. */
-export function useReports(params: { symbol?: string; source?: "user" | "auto"; limit?: number } = {}) {
+/** 리포트 목록 (팀 전체 공용, 최신순). mine이면 내가 신청한 것만. 상세 Snapshot·SSE는 api/reports.ts의 useReportLive. */
+export function useReports(params: ReportParams = {}) {
   return useQuery({
     queryKey: keys.reports(params),
-    queryFn: () => api.get<Page<ReportSummary>>(`/api/reports${qs({ symbol: params.symbol, source: params.source, limit: params.limit ?? 50 })}`),
+    queryFn: () =>
+      api.get<Page<ReportSummary>>(
+        `/api/reports${qs({ symbol: params.symbol, source: params.source, mine: params.mine ? 1 : null, limit: params.limit ?? 50 })}`,
+      ),
     ...live(POLL.reports),
   });
 }

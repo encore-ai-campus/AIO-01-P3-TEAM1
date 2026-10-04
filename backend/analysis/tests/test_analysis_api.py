@@ -67,6 +67,9 @@ def test_detail_reads_run_file(api, runs):
     assert [(s["proposer"], s["selected"]) for s in detail["scenarios"]] == [("gpt", False), ("claude", True)]
     assert detail["best"]["proposer"] == "claude"
     assert detail["news"] == ["수주 공시", "실적 전망"]
+    assert detail["newsItems"] == [{"title": "수주 공시", "source": None, "publishedAt": None},  # 링크는 내지 않는다
+                                   {"title": "실적 전망", "source": None, "publishedAt": None}]
+    assert detail["newsProvider"] == "Google 뉴스 검색 결과" and detail["dataAsOf"] is None
     assert detail["research"] == [{"researcher": "gpt-research", "findings": [
         {"claim": "수주 공시", "direction": "POSITIVE", "date": "2026-09-28", "sourceTitle": "출처"}]}]
     assert detail["indicators"] == {"rsi14": 55.0, "sma20": 98_000.5, "change5d": None}
@@ -77,12 +80,61 @@ def test_detail_reads_run_file(api, runs):
     assert detail["errors"] == ["모델 응답 에러: gpt 시간 초과"] and detail["scenarios"] == []
 
 
+def test_detail_news_items_and_data_as_of(api, runs):
+    """U12 약관 대응: 뉴스 제목 + 매체 + 게시 시각(한국 시간 ISO)과 출처 표기. 지표 기준일은 스냅숏의 lastCandleDate."""
+    e = entry(candidates=[candidate()])
+    e["snapshot"]["news"] = [
+        {"title": "수주 공시", "source": "연합뉴스", "publishedAt": "2026-10-01T23:30:00+00:00",
+         "url": "https://example.com/1"},
+        {"title": "", "source": "제목 없음"}, "문자열",
+        {"title": "실적 전망", "source": "", "publishedAt": "시각 아님"}]
+    e["snapshot"]["lastCandleDate"] = "2026-10-01"
+    write_run(runs, "a.json", run_log(e))
+    detail = api.get(f"/api/analyses/{api.get('/api/analyses').json()['results'][0]['id']}").json()
+    assert detail["news"] == ["수주 공시", "실적 전망"]  # newsItems와 같은 항목·같은 순서
+    assert detail["newsItems"] == [
+        {"title": "수주 공시", "source": "연합뉴스", "publishedAt": "2026-10-02T08:30:00+09:00"},
+        {"title": "실적 전망", "source": None, "publishedAt": None}]
+    assert detail["newsProvider"] == "Google 뉴스 검색 결과"
+    assert detail["dataAsOf"] == "2026-10-01"
+    assert detail["priceAtAnalysis"] == 100_000  # 분석 시각 가격 그대로 (장마감 기준의 일부러 둔 예외)
+
+
+@pytest.mark.parametrize("value", [None, 20261001, "어제", "2026-1"])
+def test_data_as_of_ignores_bad_values(value):
+    from analysis import index
+    assert index.data_as_of({"lastCandleDate": value}) is None
+
+
+def test_list_mine_filters_by_login_id(api, user, runs, django_user_model):
+    from accounts.models import profile_of
+    profile = profile_of(user)
+    profile.nickname = "앨리스"
+    profile.save()
+    django_user_model.objects.create_user(username="bob", password="pw-bob-123")
+    write_run(runs, "a.json", run_log(entry(symbol="005930"), requested_by="alice", started="2026-10-01T09:00:00+09:00"))
+    write_run(runs, "b.json", run_log(entry(symbol="000660", name="SK하이닉스"), requested_by="bob"))
+    write_run(runs, "c.json", run_log(entry(symbol="035420", name="NAVER"), requested_by=None,
+                                      strategy={"id": 1, "name": "기본"}))
+    write_run(runs, "d.json", run_log(entry(symbol="005380", name="현대차"), requested_by="cli",
+                                      started="2026-10-02T10:00:00+09:00"))
+    write_run(runs, "e.json", run_log(entry(symbol="035720", name="카카오"), requested_by="alice",
+                                      started="2026-10-02T11:00:00+09:00"))
+    assert api.get("/api/analyses").json()["count"] == 5
+    mine = api.get("/api/analyses?mine=1").json()
+    assert mine["count"] == 2
+    assert [(r["symbol"], r["requestedBy"]) for r in mine["results"]] == [("035720", "앨리스"), ("005930", "앨리스")]
+    assert api.get("/api/analyses?mine=true&symbol=005930").json()["count"] == 1
+    assert api.get("/api/analyses?mine=0").json()["count"] == 5  # 1·true가 아니면 거르지 않는다
+
+
 def test_detail_without_run_file_uses_summary_only(api, runs):
     write_run(runs, "a.json", run_log(entry(candidates=[candidate()])))
     summary = api.get("/api/analyses").json()["results"][0]
     (runs / "a.json").unlink()
     detail = api.get(f"/api/analyses/{summary['id']}").json()
-    assert detail == summary | {"scenarios": [], "news": [], "research": [], "indicators": {}, "errors": []}
+    assert detail == summary | {"scenarios": [], "news": [], "newsItems": [], "newsProvider": "Google 뉴스 검색 결과",
+                                "dataAsOf": None, "research": [], "indicators": {}, "errors": []}
     assert api.get("/api/analyses/999").status_code == 404
 
 

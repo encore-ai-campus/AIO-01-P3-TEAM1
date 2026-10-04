@@ -1,18 +1,32 @@
 """autotrade 테스트 공용. trading 테스트의 가짜 조회 클라이언트·엔진 설정·로그인 fixture를 그대로 쓰고,
 시연 추천이 ATR을 계산할 수 있게 일봉 30개를 주는 가짜와 알림 기록기를 더한다. 실제 증권사·AI·Discord를 부르지 않는다.
+
+가격은 장마감 기준이다: 미리 보기의 lastPrice·priceAtCreation은 직전 정규장 종가 (CandleClient에서 오늘 봉은 미완성 —
+종가 = 어제 봉 = 지금 가격 × (0.9 + 0.1 × 28/29)). 시각에 기대는 테스트는 clock fixture로 지금 시각을 고정한다
+(django.utils.timezone.now와 장 달력·일봉을 함께 — KST와 UTC 날짜가 다른 0~9시에도 같은 결과).
 """
 from datetime import datetime, timedelta
 
 import pytest
+from django.core.cache import cache
 from django.db import connection
+from django.utils import timezone
 from notifications import service as notices
+from paper_engine.data.calendar import MarketCalendar
 from trading.tests.conftest import KST, FakeClient, api, engine_setup, login, set_price, switch, user  # noqa: F401
 
 from autotrade import sources
 from autotrade.models import Recommendation
 from config import engine
 
-__all__ = ["login", "set_price", "switch", "make_rec"]
+__all__ = ["login", "set_price", "switch", "make_rec", "close_of", "CLOSE_RATE"]
+
+CLOSE_RATE = 0.9 + 0.1 * 28 / 29  # CandleClient의 어제 봉 종가 ÷ 지금 가격
+
+
+def close_of(price: float) -> float:
+    """CandleClient에서 지금 가격이 price일 때 직전 정규장 종가 (어제 봉)."""
+    return float(f"{price * CLOSE_RATE:g}")
 
 
 class CandleClient(FakeClient):
@@ -22,11 +36,14 @@ class CandleClient(FakeClient):
         super().__init__()
         self.short = False
 
+    def today(self):
+        return datetime.now(KST).date()
+
     def daily_candles(self, symbol, count=200):
         if self.short:
             return super().daily_candles(symbol, count)
         self._hit("daily_candles")
-        today = datetime.now(KST).date()
+        today = self.today()
         last = self.price[symbol]
         closes = [last * (0.9 + 0.1 * i / 29) for i in range(30)]
         return [{"timestamp": f"{today - timedelta(days=29 - i)}T00:00:00+09:00", "openPrice": f"{c:g}",
@@ -39,6 +56,43 @@ def fake(monkeypatch):
     client = CandleClient()
     monkeypatch.setattr(engine, "broker_client", lambda: client)
     return client
+
+
+class ClockClient(CandleClient):
+    """지금 시각(now)을 고정한 가짜: 장 달력은 엔진 MarketCalendar(공휴일 키 없음)로 now 기준, 일봉은 now의 KST 날짜까지."""
+
+    def __init__(self, now: datetime):
+        super().__init__()
+        self.now = now
+        self.calendars = MarketCalendar()
+
+    def today(self):
+        return self.now.astimezone(KST).date()
+
+    def market_calendar(self, market):
+        self._hit("market_calendar")
+        return self.calendars.calendar(market, self.now)
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    """clock("2026-09-22T10:00:00") — 지금 시각을 KST로 고정하고(timezone.now·가짜 장 달력·일봉) 캐시를 비운다.
+
+    기본은 2026-09-22(화) 10:00 KST: 국내 정규장 중(기준일 9/21), 뉴욕은 9/21 21:00(장 마감 뒤). clock.client가 가짜다.
+    """
+    state = {}
+    monkeypatch.setattr(timezone, "now", lambda: state["now"])
+
+    def set_now(text: str, tz=KST) -> datetime:
+        state["now"] = datetime.fromisoformat(text).replace(tzinfo=tz)
+        set_now.client.now = state["now"]
+        cache.clear()
+        return state["now"]
+
+    set_now.client = ClockClient(datetime(2026, 9, 22, 10, 0, tzinfo=KST))
+    monkeypatch.setattr(engine, "broker_client", lambda: set_now.client)
+    set_now("2026-09-22T10:00:00")
+    return set_now
 
 
 class Notices:

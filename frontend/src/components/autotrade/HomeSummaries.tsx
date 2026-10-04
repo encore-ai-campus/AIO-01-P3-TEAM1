@@ -1,38 +1,26 @@
-// 홈의 "AI 추천"(진행 중 추천 최대 3개 → 목록)과 "진행 중 자동매매"(있을 때만) 요약.
+// 전문가 보기 홈의 "새 계획 제안"(열린 추천 최대 3개 → 목록)과 "진행 중 자동매매"(있을 때만) 요약.
+// 쉬운 보기 홈은 components/home/LivePlans.tsx (쉬운 문장).
 import { Link } from "react-router";
 import { usePlans, useRecommendations } from "../../api/queries";
 import { timeLeft } from "../../lib/autotrade";
 import { formatPrice, formatRate } from "../../lib/format";
+import { SectionHead } from "../home/SectionHead";
 import { Icon } from "../Icon";
 import { Skeleton } from "../ui";
 import { PlanStatusChip, SourceBadge } from "./Badges";
 import { PlanRow } from "./PlanRow";
-
-function SectionHead({ id, title, to, more }: { id: string; title: string; to: string; more: string }) {
-  return (
-    <div className="flex items-center justify-between gap-3 px-1">
-      <h2 id={id} className="text-[19px] font-bold">
-        {title}
-      </h2>
-      <Link to={to} className="flex items-center gap-0.5 text-[14px] font-semibold text-mute hover:text-sub">
-        {more}
-        <Icon name="chevron" className="size-4" />
-      </Link>
-    </div>
-  );
-}
 
 export function HomeRecommendations() {
   const { data, isPending } = useRecommendations({ status: "open", limit: 3 });
   const list = (data?.results ?? []).slice(0, 3);
   return (
     <section aria-labelledby="home-rec-title" className="space-y-3">
-      <SectionHead id="home-rec-title" title="AI 추천" to="/recommendations" more={data ? `전체 ${data.count}개` : "전체"} />
+      <SectionHead id="home-rec-title" title="새 계획 제안" to="/recommendations" more={data ? `전체 ${data.count}개` : "전체"} />
       {isPending ? (
         <Skeleton className="h-24 w-full rounded-2xl" />
       ) : list.length === 0 ? (
         <Link to="/recommendations" className="block rounded-2xl bg-card px-5 py-4 text-[15px] text-mute hover:text-sub">
-          지금 활성화할 수 있는 추천이 없습니다. 시연용 추천을 만들어 볼 수 있습니다.
+          지금 활성화할 수 있는 계획 제안이 없습니다. 연습용 예시 계획(AI 아님)을 만들 수 있습니다.
         </Link>
       ) : (
         <ul aria-label="AI 추천 요약" className="divide-y divide-line overflow-hidden rounded-2xl bg-card">

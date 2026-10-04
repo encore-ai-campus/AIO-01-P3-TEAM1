@@ -30,7 +30,7 @@ export function ExampleBanner() {
   );
 }
 
-/** 예시 시나리오 고르기. 고르면 재생이 시작된다 (화면이 "실행 과정" 탭으로 옮긴다). */
+/** 예시 시나리오 고르기. 고르면 재생이 시작된다 (화면이 "진행 기록" 탭으로 옮긴다). */
 export function ScenarioPicker({ replay, onStart }: { replay: Replay; onStart?: () => void }) {
   return (
     <div>
@@ -65,7 +65,7 @@ export function ScenarioPicker({ replay, onStart }: { replay: Replay; onStart?: 
   );
 }
 
-/** 재생 중에 "실행 과정" 탭 위에 붙는 띠: 예시 표시 + 재생 버튼. */
+/** 재생 중에 "진행 기록" 탭 위에 붙는 띠: 예시 표시 + 재생 버튼. */
 export function ReplayBar({ replay }: { replay: Replay }) {
   return (
     <div className="space-y-2 rounded-2xl bg-card p-3">

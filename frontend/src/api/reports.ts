@@ -6,7 +6,16 @@ import { useEffect, useState } from "react";
 import { ApiError, api } from "./client";
 import { keys, POLL } from "./queries";
 import { sampleRecoveryStats, sampleScreening } from "../lib/reportSamples";
-import type { ChaosRequest, RecoveryStats, ReportDetail, ReportStatus, ScreeningResult, SharedState, TraceEvent } from "./types";
+import type {
+  ChaosRequest,
+  RecoveryStats,
+  ReportDetail,
+  ReportQuota,
+  ReportStatus,
+  ScreeningResult,
+  SharedState,
+  TraceEvent,
+} from "./types";
 
 /** 화면에 보이는 전달 방식: 실시간 SSE / Snapshot(폴링·완료된 기록) / 대기(실행 전이라 연결하지 않음). */
 export type Delivery = "sse" | "snapshot" | "idle";
@@ -107,7 +116,10 @@ export function useReportLive(id: number) {
   return { ...query, delivery };
 }
 
-/** 리포트 신청. 같은 사람이 같은 종목으로 신청해 아직 끝나지 않은 리포트가 있으면 서버가 그것을 돌려준다. */
+/**
+ * 리포트 신청. 같은 사람이 같은 종목으로 신청해 아직 끝나지 않은 리포트가 있으면 서버가 그것을 돌려준다.
+ * 하루 한도를 넘으면 429 — ApiError.num("limit")·num("used")로 읽는다 (그때 한도도 다시 받는다).
+ */
 export function useRequestReport() {
   const qc = useQueryClient();
   return useMutation({
@@ -115,8 +127,21 @@ export function useRequestReport() {
       api.post<ReportDetail>("/api/reports", chaos?.enabled ? { symbol, chaos } : { symbol }),
     onSuccess: (r) => {
       qc.setQueryData(keys.report(r.id), r);
-      void qc.invalidateQueries({ queryKey: ["reports"] });
+      void qc.invalidateQueries({ queryKey: ["reports"] }); // 목록과 한도(keys.reportQuota)
     },
+    onError: (err) => {
+      if (err instanceof ApiError && err.status === 429) void qc.invalidateQueries({ queryKey: keys.reportQuota });
+    },
+  });
+}
+
+/** 오늘 내 리포트 한도 ("오늘 ○번 더 만들 수 있어요"). 신청하면 useRequestReport가 다시 받게 한다. */
+export function useReportQuota(enabled = true) {
+  return useQuery({
+    queryKey: keys.reportQuota,
+    queryFn: () => api.get<ReportQuota>("/api/reports/quota"),
+    enabled,
+    staleTime: 30_000,
   });
 }
 

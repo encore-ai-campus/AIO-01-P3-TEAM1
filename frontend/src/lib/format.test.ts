@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { freezeTime } from "../test/time";
 import {
+  formatAsOf,
   formatDate,
   formatDateTime,
+  formatDayLabel,
   formatKrw,
   formatPercent,
   formatPrice,
@@ -50,8 +53,11 @@ describe("format", () => {
   });
 
   it("시각은 한국 시간으로", () => {
-    const year = new Date().getFullYear();
-    expect(formatDateTime(`${year}-10-02T00:05:00Z`)).toBe("10.02 09:05");
+    // 올해(KST)면 연도를 뺀다. 시각을 고정한다 — 지역 시간대의 연도로 만들면 1월 1일 0~9시(KST)에 해가 갈려 깨진다
+    freezeTime("2026-10-06T10:00:00+09:00");
+    expect(formatDateTime("2026-10-02T00:05:00Z")).toBe("10.02 09:05");
+    expect(formatDateTime("2025-12-31T16:00:00Z")).toBe("01.01 01:00"); // UTC로는 작년이지만 KST로 올해
+    expect(formatDateTime("2025-12-31T14:00:00Z")).toBe("2025.12.31 23:00"); // KST로 작년이면 연도
     expect(formatDateTime("2020-01-03T09:00:00+09:00")).toBe("2020.01.03 09:00");
     expect(formatDate("2026-10-02")).toBe("2026.10.02");
     const now = new Date("2026-10-02T10:00:00+09:00");
@@ -64,5 +70,22 @@ describe("format", () => {
     expect(formatRequester("strategy:3")).toBe("전략 3");
     expect(formatRequester("cli")).toBe("엔진 CLI");
     expect(formatRequester("alice")).toBe("alice");
+  });
+
+  it("장마감 기준: 그 시장의 현지 시각으로, 미국은 (뉴욕)", () => {
+    expect(formatAsOf("2026-10-02T15:30:00+09:00", "KR")).toBe("10월 2일(금) 15:30 장마감 기준");
+    expect(formatAsOf("2026-10-02T06:30:00Z")).toBe("10월 2일(금) 15:30 장마감 기준"); // 기본 KR
+    // 서머타임(EDT, -04:00)과 표준시(EST, -05:00) 모두 뉴욕 16:00
+    expect(formatAsOf("2026-10-02T16:00:00-04:00", "US")).toBe("10월 2일(금) 16:00(뉴욕) 장마감 기준");
+    expect(formatAsOf("2026-12-04T21:00:00Z", "US")).toBe("12월 4일(금) 16:00(뉴욕) 장마감 기준");
+    expect(formatAsOf(null)).toBe("-");
+    expect(formatAsOf("nope")).toBe("-");
+  });
+
+  it("날짜 라벨은 요일까지", () => {
+    expect(formatDayLabel("2026-10-06")).toBe("10월 6일(화)");
+    expect(formatDayLabel("2026-10-02")).toBe("10월 2일(금)");
+    expect(formatDayLabel(null)).toBe("-");
+    expect(formatDayLabel("오늘")).toBe("오늘");
   });
 });

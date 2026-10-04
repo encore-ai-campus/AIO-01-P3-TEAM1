@@ -41,6 +41,8 @@ INSTALLED_APPS = [
     "reports",
     "autotrade",
     "notifications",
+    "longterm",
+    "daytrade",
 ]
 
 MIDDLEWARE = [

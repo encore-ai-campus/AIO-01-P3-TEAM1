@@ -11,9 +11,9 @@ class PaperAccountAdmin(admin.ModelAdmin):
 
 @admin.register(PaperOrder)
 class PaperOrderAdmin(admin.ModelAdmin):
-    list_display = ("id", "account", "symbol", "name", "order_type", "quantity", "status", "fill_price",
+    list_display = ("id", "account", "symbol", "name", "style", "order_type", "quantity", "status", "fill_price",
                     "exit_price", "exit_reason", "pnl_krw", "created_at")
-    list_filter = ("status", "market", "order_type", "exit_reason")
+    list_filter = ("status", "style", "market", "order_type", "exit_reason")
     search_fields = ("symbol", "name", "account__name", "requested_by")
 
 
@@ -32,5 +32,5 @@ class EquityDailyAdmin(admin.ModelAdmin):
 
 @admin.register(Reservation)
 class ReservationAdmin(admin.ModelAdmin):
-    list_display = ("id", "account", "kind", "symbol", "name", "quantity", "order", "created_at")
-    list_filter = ("kind", "market")
+    list_display = ("id", "account", "kind", "symbol", "name", "style", "quantity", "order", "created_at")
+    list_filter = ("kind", "style", "market")

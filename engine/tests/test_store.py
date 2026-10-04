@@ -165,7 +165,7 @@ def test_paper_tables_follow_decisions():
         "id", "account_id", "requested_by", "trade_id", "symbol", "name", "market", "currency", "order_type",
         "limit_price", "quantity", "entry_price", "target_price", "stop_price", "expire_date", "status",
         "filled_quantity", "fill_price", "fill_fx_rate", "filled_at", "exit_price", "exit_fx_rate", "exit_reason",
-        "closed_at", "pnl", "pnl_krw", "signal_count", "note", "created_at"}
+        "closed_at", "pnl", "pnl_krw", "signal_count", "note", "created_at", "style"}
     assert columns["paper_fills"] == {"id", "order_id", "side", "price", "quantity", "amount", "commission", "tax",
                                       "fx_rate", "cash_change_krw", "reason", "filled_at"}
     assert columns["equity_daily"] == {"account_id", "day", "cash_krw", "holdings_value_krw", "equity_krw",
@@ -220,3 +220,40 @@ def test_equity_days_and_last_fx_rate():
     oid = paper_order(store, "2026-09-29T23:00:00+09:00", symbol="AAPL", market="US", currency="USD")
     store.add_fill(oid, "BUY", 200, 1, 0, 0, 1_395.5, -279_100, "ENTRY", "2026-09-29T23:00:00+09:00", {})
     assert store.last_fx_rate("USD") == 1_395.5 and store.last_fx_rate("KRW") is None
+
+
+def test_paper_order_style_defaults_to_swing_and_filters_today():
+    store = Store(":memory:")
+    swing = paper_order(store, "2026-09-29T10:00:00+09:00", "CLOSED", closed_at="2026-09-29T11:00:00+09:00",
+                        pnl=-3.0, pnl_krw=-3.0)
+    day = paper_order(store, "2026-09-29T10:05:00+09:00", "CLOSED", closed_at="2026-09-29T15:15:00+09:00",
+                      pnl=-7.0, pnl_krw=-7.0, style="day", expire_date=None)
+    paper_order(store, "2026-09-29T10:10:00+09:00", style="day", symbol="000660")
+    paper_order(store, "2026-09-29T10:20:00+09:00", style="long", symbol="035720", target_price=None,
+                stop_price=None, expire_date=None)
+    assert store.paper_order(swing)["style"] == "swing" and store.paper_order(day)["style"] == "day"
+    assert store.paper_today("2026-09-29") == (4, 10.0)
+    assert store.paper_today("2026-09-29", style="day") == (2, 7.0)
+    assert store.paper_today("2026-09-29", style="swing") == (1, 3.0)
+    assert store.paper_today("2026-09-29", style="long") == (1, 0.0)
+    assert store.paper_today("2026-09-30", style="day") == (0, 0.0)
+
+
+def test_style_column_is_added_to_old_db(tmp_path):
+    """style 열이 없던 DB: 열을 더하고 목표·손절·기한이 모두 없는 주문은 long, 나머지는 swing으로 채운다."""
+    import sqlite3
+    path = tmp_path / "old.db"
+    Store(path).db.close()
+    db = sqlite3.connect(path)
+    db.execute("ALTER TABLE paper_orders DROP COLUMN style")
+    base = ("alice", "005930", "삼성전자", "KR", "KRW", "MARKET", 1, 100.0, "EXIT_WATCHING", "2026-09-01T10:00:00+09:00")
+    for target, stop, expire in ((110.0, 90.0, "2026-10-01"), (None, None, None), (None, None, "2026-10-01")):
+        db.execute("INSERT INTO paper_orders (account_id, requested_by, symbol, name, market, currency, order_type, "
+                   "quantity, entry_price, status, created_at, target_price, stop_price, expire_date) "
+                   "VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?)", (*base, target, stop, expire))
+    db.commit()
+    db.close()
+    store = Store(path)
+    assert [r["style"] for r in store.paper_orders()] == ["swing", "long", "swing"]
+    Store(path)  # 두 번 열어도 그대로
+    assert [r["style"] for r in Store(path).paper_orders()] == ["swing", "long", "swing"]

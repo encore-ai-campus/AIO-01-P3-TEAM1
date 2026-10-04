@@ -1,5 +1,7 @@
-"""AI 리포트 API: 실행 계획, 신청, 목록, 상세(Snapshot). 종목 확인은 가짜 (증권사를 부르지 않는다)."""
-from datetime import timedelta
+"""AI 리포트 API: 실행 계획, 신청, 목록(?mine=1 — B8), 상세(Snapshot), 목록·상세의 AI 의견·한 줄 요약(B3).
+종목 확인은 가짜 (증권사를 부르지 않는다). 하루 한도(D-7)는 test_quota.py."""
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from django.utils import timezone
@@ -11,8 +13,18 @@ from .conftest import make_report
 
 pytestmark = pytest.mark.django_db
 
-SUMMARY_KEYS = {"id", "symbol", "name", "market", "status", "currentStep", "requestedBy", "createdAt", "startedAt",
-                "finishedAt"}
+SUMMARY_KEYS = {"id", "symbol", "name", "market", "status", "currentStep", "requestedBy", "opinion", "oneLiner",
+                "createdAt", "startedAt", "finishedAt"}
+KST = ZoneInfo("Asia/Seoul")
+DRAFT = {"title": "삼성전자 리포트", "verdict": "buy", "oneLiner": "단기 반등 구간, 분할 접근", "markdown": "# x",
+         "plainSummary": ["거래가 늘고 있어요", "실적이 나아지고 있어요", "환율이 바뀌면 손실이 날 수 있어요"],
+         "reasons": [], "risks": [], "targets": {}, "confidence": 70, "citations": []}
+
+
+@pytest.fixture(autouse=True)
+def report_limit(monkeypatch):
+    """하루 리포트 한도를 기본값으로 고정한다 (개발자 .env의 값과 상관없이)."""
+    monkeypatch.setenv("AI_DAILY_REPORTS_PER_USER", "3")
 
 
 def post(client, body):
@@ -54,6 +66,7 @@ def test_create_report(api, user, stocks):
     assert (body["symbol"], body["name"], body["market"], body["status"], body["currentStep"], body["requestedBy"]) == (
         "005930", "삼성전자", "KR", "requested", None, "앨리스")
     assert body["startedAt"] is None and body["finishedAt"] is None and body["createdAt"].endswith("+09:00")
+    assert body["opinion"] is None and body["oneLiner"] is None  # 완성 전
     assert body["content"] is None and body["trace"] == []
     assert body["state"] == {"taskId": f"report-{body['id']}", "status": "requested", "currentStep": None,
                              "results": {}, "errors": {}, "completedAgents": [], "failedAgents": []}
@@ -122,6 +135,78 @@ def test_list_filter_page_and_nickname(api, user, other):
     assert api.get("/api/reports?symbol=000660").json() == {"count": 0, "results": []}
     page = api.get("/api/reports?limit=1&offset=1").json()
     assert page["count"] == 3 and [r["id"] for r in page["results"]] == [apple.id]
+
+
+def test_list_mine(api, user, other):
+    """B8: ?mine=1이면 내가 신청한 것만 (종목과 같이 쓸 수 있다). 1이 아닌 값은 팀 전체."""
+    now = timezone.now()
+    mine_kr = make_report(user, created_at=now - timedelta(hours=3))
+    theirs = make_report(other, created_at=now - timedelta(hours=2))
+    mine_us = make_report(user, "AAPL", created_at=now - timedelta(hours=1))
+
+    assert [r["id"] for r in api.get("/api/reports?mine=1").json()["results"]] == [mine_us.id, mine_kr.id]
+    assert api.get("/api/reports?mine=1").json()["count"] == 2
+    assert [r["id"] for r in api.get("/api/reports?mine=1&symbol=005930").json()["results"]] == [mine_kr.id]
+    assert api.get("/api/reports?mine=1&symbol=000660").json() == {"count": 0, "results": []}
+    for value in ("0", "", "true"):
+        assert api.get(f"/api/reports?mine={value}").json()["count"] == 3, value
+    assert [r["id"] for r in api.get("/api/reports?mine=1&limit=1&offset=1").json()["results"]] == [mine_kr.id]
+    assert theirs.id not in [r["id"] for r in api.get("/api/reports?mine=1").json()["results"]]
+
+
+# --- AI 의견·한 줄 요약 (B3) ---
+
+def test_opinion_and_one_liner_only_when_completed(api, user):
+    """대기·실행 중·실패면 report_agent 결과가 있어도 null, completed일 때만 verdict·oneLiner 그대로 (목록·상세 같은 값)."""
+    report = make_report(user, results={"report_agent": DRAFT})
+    pending = api.get(f"/api/reports/{report.id}").json()
+    assert (pending["status"], pending["opinion"], pending["oneLiner"]) == ("requested", None, None)
+
+    state.start(report)
+    running = api.get(f"/api/reports/{report.id}").json()
+    assert (running["status"], running["opinion"], running["oneLiner"]) == ("running", None, None)
+
+    state.finish(report, "completed", content="# 삼성전자 리포트")
+    done = api.get(f"/api/reports/{report.id}").json()
+    assert (done["opinion"], done["oneLiner"]) == ("buy", "단기 반등 구간, 분할 접근")
+    listed = api.get("/api/reports").json()["results"][0]
+    assert (listed["id"], listed["opinion"], listed["oneLiner"]) == (report.id, "buy", "단기 반등 구간, 분할 접근")
+
+    failed = make_report(user, "AAPL", results={"report_agent": DRAFT | {"verdict": "avoid"}})
+    state.finish(failed, "failed")  # 검토를 통과하지 못한 초안은 내지 않는다
+    body = api.get(f"/api/reports/{failed.id}").json()
+    assert (body["status"], body["opinion"], body["oneLiner"]) == ("failed", None, None)
+
+
+@pytest.mark.parametrize("draft, expected", [
+    ({"verdict": "hold", "oneLiner": "  지켜보기  "}, ("hold", "지켜보기")),
+    ({"verdict": "avoid", "oneLiner": "가" * 90}, ("avoid", "가" * 80)),       # 80자까지
+    ({"verdict": "BUY", "oneLiner": "   "}, (None, None)),                      # 모르는 의견·빈 문장
+    ({"verdict": None, "oneLiner": 123}, (None, None)),                         # 문자열이 아님
+    ({}, (None, None)),
+    ("초안이 dict가 아님", (None, None)),
+])
+def test_opinion_tolerates_bad_shapes(api, user, draft, expected):
+    report = make_report(user, status=Report.COMPLETED, results={"report_agent": draft})
+    body = api.get(f"/api/reports/{report.id}").json()
+    assert (body["opinion"], body["oneLiner"]) == expected
+
+
+def test_opinion_without_report_agent_result(api, user):
+    report = make_report(user, status=Report.COMPLETED, results={"market_agent": {"trend": "up"}})
+    body = api.get(f"/api/reports/{report.id}").json()
+    assert (body["opinion"], body["oneLiner"]) == (None, None)
+    Report.objects.filter(pk=report.pk).update(results=[])  # 결과 열이 dict가 아니어도 깨지지 않는다
+    assert api.get(f"/api/reports/{report.id}").json()["opinion"] is None
+
+
+def test_created_at_is_kst(api, user, stocks, monkeypatch):
+    """신청 시각은 한도를 센 시각과 같다 (KST로 낸다)."""
+    fixed = datetime(2026, 10, 5, 0, 30, tzinfo=KST)  # KST 자정 직후 = UTC로는 전날
+    monkeypatch.setattr(timezone, "now", lambda: fixed)
+    body = post(api, {"symbol": "005930"}).json()
+    assert body["createdAt"] == "2026-10-05T00:30:00+09:00"
+    assert Report.objects.get(pk=body["id"]).created_at == fixed
 
 
 # --- 상세 (Snapshot) ---

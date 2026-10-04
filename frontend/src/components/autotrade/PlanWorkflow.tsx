@@ -1,8 +1,11 @@
 // 자동매매 워크플로우 그래프 (활성화 → 리스크 점검 → 진입 주문 → 체결 대기 → 보유 감시 → 청산)와 사건 타임라인.
-import type { PlanEvent } from "../../api/types";
-import { eventKindOf, type StepState, type Workflow } from "../../lib/autotrade";
+// 쉬운 보기는 단계 넷(EasySteps: 주문 → 사는 가격 기다리는 중 → 목표·손절 지켜보는 중 → 팔았어요)과
+// 화면이 kind + details로 만든 쉬운 문장(lib/plainText.ts planEventSentence)을 보인다. 서버의 원래 message는 전문가 보기.
+import type { Currency, PlanEvent } from "../../api/types";
+import { type EasyStep, eventKindOf, type StepState, type Workflow } from "../../lib/autotrade";
 import { cn } from "../../lib/cn";
 import { formatDateTime } from "../../lib/format";
+import { planEventSentence } from "../../lib/plainText";
 import { Icon, type IconName } from "../Icon";
 
 const STATE: Record<StepState, { label: string; node: string; icon: IconName; text: string }> = {
@@ -61,9 +64,38 @@ export function WorkflowGraph({ wf }: { wf: Workflow }) {
   );
 }
 
-/** 계획 사건 타임라인 (step 오름차순). 모르는 kind도 메시지를 그대로 보인다. */
-export function PlanTimeline({ events }: { events: PlanEvent[] }) {
-  if (events.length === 0) return <p className="text-[14px] text-mute">아직 사건이 없습니다.</p>;
+/** 쉬운 보기의 단계 넷 (지금 단계는 aria-current="step"). */
+export function EasySteps({ steps }: { steps: EasyStep[] }) {
+  return (
+    <ol aria-label="모의 자동매매 단계" className="grid grid-cols-4 gap-1">
+      {steps.map((s, i) => {
+        const st = STATE[s.state];
+        return (
+          <li key={s.key} aria-current={s.state === "current" ? "step" : undefined} className="relative flex flex-col items-center text-center">
+            {i > 0 && (
+              <span
+                aria-hidden="true"
+                className={cn("absolute top-[17px] -left-1/2 h-0.5 w-full", s.state === "todo" || s.state === "skipped" ? "bg-line" : "bg-brand")}
+              />
+            )}
+            <span className={cn("relative z-10 grid size-9 place-items-center rounded-full", st.node)}>
+              <Icon name={st.icon} className={cn("size-4", s.state === "current" && "animate-pulse")} />
+            </span>
+            <span className={cn("mt-1.5 text-[13px] leading-tight", st.text)}>{s.label}</span>
+            <span className="sr-only">{st.label}</span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/**
+ * 계획 사건 타임라인 (step 오름차순). 모르는 kind도 메시지를 그대로 보인다.
+ * easy면 쉬운 문장(planEventSentence — details가 모자라면 원래 message), 아니면 서버의 원래 message.
+ */
+export function PlanTimeline({ events, easy = false, currency = "KRW" }: { events: PlanEvent[]; easy?: boolean; currency?: Currency }) {
+  if (events.length === 0) return <p className="text-[14px] text-mute">{easy ? "아직 일어난 일이 없어요." : "아직 사건이 없습니다."}</p>;
   return (
     <ol aria-label="계획 사건" className="relative space-y-3 before:absolute before:top-2 before:bottom-2 before:left-[13px] before:w-0.5 before:bg-line">
       {[...events]
@@ -77,8 +109,8 @@ export function PlanTimeline({ events }: { events: PlanEvent[] }) {
               </span>
               <div className="min-w-0 pt-0.5">
                 <p className="text-[14px] leading-snug">
-                  <span className="mr-1.5 text-[12px] font-bold text-sub">{k.label}</span>
-                  {e.message}
+                  {!easy && <span className="mr-1.5 text-[12px] font-bold text-sub">{k.label}</span>}
+                  {easy ? planEventSentence(e, currency) : e.message}
                 </p>
                 <p className="text-[12px] text-mute tabular-nums">
                   #{e.step} · {formatDateTime(e.at)}
