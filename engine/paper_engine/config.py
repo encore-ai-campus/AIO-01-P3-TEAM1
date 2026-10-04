@@ -89,7 +89,8 @@ class Config:
     paper_capital_krw: float = 10_000_000  # 모의 계좌 초기 자금 (계좌를 처음 만들 때만 쓴다)
     commission: dict = field(default_factory=lambda: dict(DEFAULT_COMMISSION))  # 시장별 모의 수수료율
     max_total_invest_krw: float | None = None  # 자동 관리 포지션 총 금액 한도 (원). None이면 두지 않는다
-    openclaw_target: str | None = None  # 팀 채널 알림 대상 (channel:<ID>). 없으면 콘솔
+    discord_webhook_url: str | None = field(default=None, repr=False)  # 팀 Discord 채널 Webhook (비밀 값). 있으면 먼저 쓴다
+    openclaw_target: str | None = None  # 팀 채널 알림 대상 (channel:<ID>). Webhook도 이것도 없으면 콘솔
     openclaw_bin: str = "openclaw"
     redis_url: str | None = None  # 예약 주문·전략·생존 신호. 없으면 예약과 전략이 꺼진다
     backup_dir: Path | None = None  # 없으면 data/backups
@@ -192,6 +193,7 @@ def load_config(require_broker: bool = True) -> Config:
         paper_capital_krw=float(env.get("PAPER_CAPITAL_KRW") or 10_000_000),
         commission={"KR": _rate(env.get("PAPER_COMMISSION_KR")), "US": _rate(env.get("PAPER_COMMISSION_US"))},
         max_total_invest_krw=parse_limit(env.get("MAX_TOTAL_INVEST_KRW"), None),
+        discord_webhook_url=env.get("DISCORD_WEBHOOK_URL") or None,
         openclaw_target=env.get("OPENCLAW_TARGET") or None,
         openclaw_bin=env.get("OPENCLAW_BIN") or "openclaw",
         redis_url=env.get("REDIS_URL") or None,

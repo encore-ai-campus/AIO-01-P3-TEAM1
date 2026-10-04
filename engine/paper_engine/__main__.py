@@ -125,7 +125,7 @@ def _sec(cfg) -> SecClient | None:
 
 
 def _notifier(cfg) -> Notifier:
-    return make_notifier(cfg.openclaw_target, cfg.openclaw_bin)
+    return make_notifier(cfg)
 
 
 def _store(cfg) -> Store:

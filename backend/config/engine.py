@@ -9,6 +9,7 @@ import threading
 
 from paper_engine.config import ROOT, Config, load_config
 from paper_engine.data.broker import BrokerClient, make_client
+from paper_engine.notify import Notifier, make_notifier
 
 DATA_DIR = ROOT / "data"
 CACHE_DIR = ROOT / ".cache"
@@ -39,3 +40,11 @@ def broker_client() -> BrokerClient | None:
         if _client is None:
             _client = make_client(cfg, CACHE_DIR)
         return _client
+
+
+def notifier() -> Notifier:
+    """팀 채널 알림 (docs/DECISIONS.md 12-4): DISCORD_WEBHOOK_URL이 있으면 Webhook > OPENCLAW_TARGET이 있으면 openclaw > 콘솔.
+
+    테스트는 `monkeypatch.setattr(engine, "notifier", lambda: fake)`로 가짜를 끼운다.
+    """
+    return make_notifier(engine_config())

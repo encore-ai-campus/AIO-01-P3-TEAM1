@@ -1,13 +1,23 @@
-"""팀 채널 알림. .env에 OPENCLAW_TARGET이 있으면 openclaw로 팀 Discord 채널에, 없으면 콘솔로 보낸다.
+"""팀 채널 알림. 보낼 곳은 설정으로 고른다 (make_notifier): DISCORD_WEBHOOK_URL이 있으면 Discord Webhook,
+없고 OPENCLAW_TARGET이 있으면 openclaw로 팀 Discord 채널에, 둘 다 없으면 콘솔.
 
 알림 전용이다: 매수 추천, 모의 체결·청산, 전략 실행 결과, 일일 리포트 PDF, 오류.
 명령과 컨펌은 받지 않는다 (사용자 조작은 웹 화면에서 한다).
 """
+import json
+import mimetypes
+import re
+import secrets
 import subprocess
 import sys
+import time
+import urllib.error
+import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from .config import Config
 from .judge.risk import RiskAssessment
 from .judge.scenario import Scenario
 from .judge.verdict import PASS_SCORE, Candidate
@@ -16,6 +26,12 @@ HORIZON_LABEL = {"SWING": "스윙", "LONG_TERM": "장기"}
 DIRECTION_LABEL = {"POSITIVE": "호재", "NEGATIVE": "악재", "NEUTRAL": "중립"}
 DISCORD_MAX_LEN = 2000  # Discord 메시지 하나의 최대 길이
 OPENCLAW_TIMEOUT_SEC = 60
+DISCORD_FILE_LIMIT = 8 * 1024 * 1024  # Webhook 첨부 한도 (8MB). 넘으면 글만 보낸다
+WEBHOOK_TIMEOUT_SEC = 10
+WEBHOOK_RETRY_DELAY_SEC = 1           # 실패 뒤 다시 보내기 전 대기
+WEBHOOK_MAX_RETRY_AFTER_SEC = 5       # 429(너무 많은 요청)의 Retry-After를 이만큼까지만 기다린다
+# Discord는 기본 Python-urllib User-Agent를 막을 수 있다 (https://discord.com/developers/docs/reference#user-agent)
+WEBHOOK_USER_AGENT = "DiscordBot (paper-trading, 1.0)"
 
 
 class Notifier(Protocol):
@@ -90,9 +106,186 @@ class OpenclawError(Exception):
     pass
 
 
-def make_notifier(target: str | None, bin_: str = "openclaw") -> Notifier:
-    """OPENCLAW_TARGET이 있으면 팀 채널, 없으면 콘솔."""
-    return OpenclawNotifier(target, bin_) if target else ConsoleNotifier()
+@dataclass(frozen=True)
+class DeliveryResult:
+    """Webhook 전송 결과. attached: 첨부까지 갔는지. error: 실패 사유 (Webhook 주소는 넣지 않는다)."""
+    ok: bool
+    attached: bool
+    error: str | None = None
+
+
+class WebhookError(Exception):
+    """Webhook 한 번 보내기 실패. 메시지에 Webhook 주소를 넣지 않는다."""
+
+    def __init__(self, message: str, retry_after: float | None = None):
+        super().__init__(message)
+        self.retry_after = retry_after  # 429일 때 기다릴 초
+
+
+class WebhookNotifier:
+    """Discord Webhook으로 팀 채널에 보낸다 (docs/DECISIONS.md 12-4). 표준 라이브러리만 쓴다.
+
+    2,000자를 넘는 글은 나눠 차례로 보내고, embed·첨부는 마지막 조각에 붙인다. 멘션은 사용자(<@ID>)만 울린다 (@everyone 방지).
+    실패하면 1회 재시도 → 첨부가 있었으면 첨부 없이 글만 → 그래도 실패면 ok=False (TEAM_DEV_PLAN.md 6-4, DR-NOTI-01).
+    Webhook 주소는 비밀 값이다: 오류·로그에 넣지 않는다. 같은 내용을 콘솔에도 출력한다 (로그용).
+    """
+
+    def __init__(self, url: str, *, urlopen=urllib.request.urlopen, timeout: float = WEBHOOK_TIMEOUT_SEC,
+                 sleep=time.sleep):
+        self._url = url
+        self._urlopen = urlopen
+        self._timeout = timeout
+        self._sleep = sleep
+
+    def __repr__(self) -> str:
+        return "WebhookNotifier(<비밀 값>)"
+
+    def send(self, text: str) -> None:
+        print(text, flush=True)
+        result = self.deliver(text)
+        if not result.ok:
+            print(f"[Webhook 전송 실패] {result.error}", file=sys.stderr, flush=True)
+
+    def log(self, text: str) -> None:
+        print(text, flush=True)
+
+    def send_file(self, path: Path, caption: str = "") -> None:
+        print(f"{caption}\n첨부: {path}".strip(), flush=True)
+        result = self.deliver(caption, path=path)
+        if not result.ok:
+            print(f"[Webhook 파일 전송 실패] {result.error} (파일 위치: {path})", file=sys.stderr, flush=True)
+        elif not result.attached:
+            print(f"[Webhook] 첨부 없이 글만 보냄 (파일 위치: {path})", file=sys.stderr, flush=True)
+
+    def deliver(self, text: str, *, path: Path | str | None = None, embeds: list[dict] | None = None) -> DeliveryResult:
+        """보내고 결과를 돌려준다. 예외를 밖으로 내지 않는다."""
+        try:
+            return self._deliver(text or "", Path(path) if path else None, embeds or None)
+        except Exception as e:  # 알림 실패로 매매가 멈추면 안 된다
+            return DeliveryResult(False, False, self._safe(f"{type(e).__name__}: {e}"))
+
+    def _deliver(self, text: str, path: Path | None, embeds: list[dict] | None) -> DeliveryResult:
+        chunks = split_message(text) or [""]
+        for chunk in chunks[:-1]:
+            error = self._post_retry({"content": chunk})
+            if error:
+                return DeliveryResult(False, False, error)
+        last = {"content": chunks[-1]}
+        if embeds:
+            last["embeds"] = embeds
+        file, note = _read_attachment(path)
+        if file is None:
+            if note:
+                last["content"] = _with_note(last["content"], note)
+            error = self._post_retry(last)
+            return DeliveryResult(error is None, False, error)
+        error = self._post_retry(last, file)
+        if error is None:
+            return DeliveryResult(True, True)
+        fallback = dict(last, content=_with_note(last["content"], f"(첨부 전송 실패: {file[0]})"))
+        error = self._post_retry(fallback, retry=False)
+        return DeliveryResult(error is None, False, error)
+
+    def _post_retry(self, payload: dict, file: tuple[str, bytes] | None = None, retry: bool = True) -> str | None:
+        """보내고, 실패하면 한 번 더. 성공이면 None, 실패면 사유."""
+        error = None
+        for attempt in range(2 if retry else 1):
+            if attempt:
+                wait = WEBHOOK_RETRY_DELAY_SEC if error.retry_after is None else error.retry_after
+                self._sleep(min(max(wait, 0), WEBHOOK_MAX_RETRY_AFTER_SEC))
+            try:
+                self._post(payload, file)
+                return None
+            except WebhookError as e:
+                error = e
+        return str(error)
+
+    def _post(self, payload: dict, file: tuple[str, bytes] | None) -> None:
+        body = {k: v for k, v in payload.items() if v or k != "content"}
+        body["allowed_mentions"] = {"parse": ["users"]}
+        headers = {"User-Agent": WEBHOOK_USER_AGENT}
+        if file is None:
+            data = json.dumps(body, ensure_ascii=False).encode()
+            headers["Content-Type"] = "application/json"
+        else:
+            body["attachments"] = [{"id": 0, "filename": file[0]}]
+            data, content_type = _multipart(body, *file)
+            headers["Content-Type"] = content_type
+        request = urllib.request.Request(self._url, data=data, headers=headers, method="POST")
+        try:
+            with self._urlopen(request, timeout=self._timeout) as response:
+                response.read()
+        except urllib.error.HTTPError as e:
+            raise WebhookError(f"HTTP {e.code}", _retry_after(e) if e.code == 429 else None) from None
+        except urllib.error.URLError as e:
+            reason = "시간 초과" if isinstance(e.reason, TimeoutError) else self._safe(str(e.reason))
+            raise WebhookError(f"연결 실패: {reason}") from None
+        except TimeoutError:
+            raise WebhookError("연결 실패: 시간 초과") from None
+        except OSError as e:
+            raise WebhookError(f"연결 실패: {self._safe(f'{type(e).__name__}: {e}')}") from None
+
+    def _safe(self, text: str) -> str:
+        """오류 문자열에서 Webhook 주소(토큰)를 지운다."""
+        text = text.replace(self._url, "<webhook>") if self._url else text
+        return _WEBHOOK_PATH.sub("/api/webhooks/<비밀 값>", text)[:300]
+
+
+_WEBHOOK_PATH = re.compile(r"/api/webhooks/[^\s'\"]+")
+
+
+def _read_attachment(path: Path | None) -> tuple[tuple[str, bytes] | None, str | None]:
+    """(파일 이름, 내용)과 첨부를 못 할 때의 안내. 8MB를 넘거나 읽을 수 없으면 글만 보낸다."""
+    if path is None:
+        return None, None
+    try:
+        if path.stat().st_size > DISCORD_FILE_LIMIT:
+            return None, f"(첨부 생략: {path.name}, 8MB 초과)"
+        return (path.name, path.read_bytes()), None
+    except OSError:
+        return None, f"(첨부 생략: {path.name}을 읽을 수 없음)"
+
+
+def _with_note(content: str, note: str) -> str:
+    joined = f"{content}\n{note}" if content else note
+    return joined if len(joined) <= DISCORD_MAX_LEN else content
+
+
+def _retry_after(error: urllib.error.HTTPError) -> float:
+    """Discord 429의 기다릴 초 (Retry-After 헤더, 없으면 본문의 retry_after)."""
+    try:
+        return float(error.headers.get("Retry-After"))
+    except (TypeError, ValueError, AttributeError):
+        pass
+    try:
+        return float(json.loads(error.read() or b"{}").get("retry_after"))
+    except (TypeError, ValueError, AttributeError, OSError):
+        return WEBHOOK_RETRY_DELAY_SEC
+
+
+def _multipart(payload: dict, filename: str, content: bytes) -> tuple[bytes, str]:
+    """multipart/form-data 본문: payload_json + files[0]."""
+    boundary = f"paper-{secrets.token_hex(16)}"
+    safe_name = re.sub(r'[\r\n"]', "_", filename)
+    file_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    parts = [
+        f'--{boundary}\r\nContent-Disposition: form-data; name="payload_json"\r\n'
+        f"Content-Type: application/json\r\n\r\n".encode(),
+        json.dumps(payload, ensure_ascii=False).encode(), b"\r\n",
+        f'--{boundary}\r\nContent-Disposition: form-data; name="files[0]"; filename="{safe_name}"\r\n'
+        f"Content-Type: {file_type}\r\n\r\n".encode(),
+        content, f"\r\n--{boundary}--\r\n".encode(),
+    ]
+    return b"".join(parts), f"multipart/form-data; boundary={boundary}"
+
+
+def make_notifier(cfg: Config) -> Notifier:
+    """DISCORD_WEBHOOK_URL이 있으면 Webhook > OPENCLAW_TARGET이 있으면 openclaw > 콘솔."""
+    if cfg.discord_webhook_url:
+        return WebhookNotifier(cfg.discord_webhook_url)
+    if cfg.openclaw_target:
+        return OpenclawNotifier(cfg.openclaw_target, cfg.openclaw_bin)
+    return ConsoleNotifier()
 
 
 def split_message(text: str, limit: int = DISCORD_MAX_LEN) -> list[str]:
