@@ -270,9 +270,15 @@ describe("리포트 상세", () => {
     expect(traceItems()).toHaveLength(22);
   });
 
-  it("복구 지표 화면: 자동 복구율·평균 복구시간·유형별·최근 사례", async () => {
+  it("복구 지표는 리포트 목록이 아니라 관리자 화면에 있다", async () => {
     renderApp("/reports");
-    fireEvent.click(await screen.findByRole("link", { name: "복구 지표 보기" }));
+    await screen.findByRole("list", { name: "리포트 목록" });
+    expect(screen.queryByRole("link", { name: "복구 지표 보기" })).toBeNull();
+  });
+
+  it("관리자 화면의 복구 지표: 자동 복구율·평균 복구시간·유형별·최근 사례", async () => {
+    renderApp("/ops");
+    expect(await screen.findByRole("heading", { name: "관리자" })).toBeTruthy();
     expect(await screen.findByRole("heading", { name: "복구 지표" })).toBeTruthy();
     expect(await screen.findByText("85.7%")).toBeTruthy();
     expect(screen.getByText("3.42초")).toBeTruthy();

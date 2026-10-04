@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { errorMessage } from "../api/client";
 import { useReportPlan, useReports, useSearch } from "../api/queries";
-import { useRecoveryStats, useRequestReport, useScreening } from "../api/reports";
+import { useRequestReport, useScreening } from "../api/reports";
 import type { ChaosRequest, ExecutionPlan, StockItem } from "../api/types";
 import { Icon } from "../components/Icon";
 import { EduDocSection } from "../components/reports/EduDocSection";
@@ -12,7 +12,7 @@ import { ChaosForm } from "../components/reports/ChaosForm";
 import { AutoBadge, ExampleTag, InjectedBadge, ReportStatusBadge } from "../components/reports/StatusChip";
 import { Card, EmptyState, ErrorState, Notice, PageHeader, Segmented, Skeleton, Spinner } from "../components/ui";
 import { cn } from "../lib/cn";
-import { formatDateTime, formatLatency } from "../lib/format";
+import { formatDateTime } from "../lib/format";
 import { NOT_IMPLEMENTED, formatCost, policyName } from "../lib/reports";
 import { useDebounced } from "../lib/useDebounced";
 
@@ -179,28 +179,6 @@ function ReportList() {
   );
 }
 
-/** 맨 위 미니 카드: 자동 복구율·평균 복구시간. 누르면 /reports/health. */
-function RecoveryMini() {
-  const { data } = useRecoveryStats(7);
-  const s = data?.data;
-  return (
-    <Link to="/reports/health" aria-label="복구 지표 보기" className="flex items-center gap-3 rounded-2xl bg-card px-5 py-4 hover:bg-fill/60">
-      <span className="grid size-10 shrink-0 place-items-center rounded-full bg-ok-soft text-ok">
-        <Icon name="shield" className="size-5" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-1.5 text-[13px] text-mute">
-          최근 7일 복구 지표 {data?.example && <ExampleTag />}
-        </span>
-        <span className="block text-[16px] leading-snug font-bold tabular-nums">
-          {!s ? "불러오는 중" : s.failures === 0 ? "아직 장애가 없습니다" : `자동 복구율 ${s.autoRecoveryRate?.toFixed(1) ?? "-"}% · 평균 복구 ${formatLatency(s.meanRecoveryMs)}`}
-        </span>
-      </span>
-      <Icon name="chevron" className="size-4 shrink-0 text-mute" />
-    </Link>
-  );
-}
-
 const text = (v: unknown) => (typeof v === "string" || typeof v === "number" ? String(v) : "-");
 
 /** 오늘의 선별 결과: 상위 종목·점수, 탈락 사유 요약. */
@@ -280,7 +258,6 @@ export function ReportsPage() {
     <>
       <PageHeader title="AI 리포트" />
       <div className="space-y-3 lg:space-y-4">
-        <RecoveryMini />
         {plan && !plan.implemented && <Notice tone="warn">{NOT_IMPLEMENTED}</Notice>}
         <div className="grid gap-3 lg:grid-cols-2 lg:items-start lg:gap-4">
           <RequestCard plan={plan} />

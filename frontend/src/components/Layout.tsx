@@ -1,6 +1,8 @@
-import { NavLink, Outlet, useMatch } from "react-router";
+import type { MouseEvent } from "react";
+import { NavLink, Outlet, useMatch, useNavigate } from "react-router";
 import { useMe } from "../api/queries";
 import { cn } from "../lib/cn";
+import { ADMIN_PATH, useSecretTaps } from "../lib/secretTaps";
 import { NotificationMenuItem } from "./autotrade/NotificationBell";
 import { Icon, type IconName } from "./Icon";
 
@@ -31,6 +33,14 @@ export function Layout() {
   const { data: me } = useMe();
   // 종목 상세는 하단에 주문 버튼이 붙으므로 모바일 하단 탭을 숨긴다
   const onStock = useMatch("/stocks/:symbol");
+  // 숨은 관리자 입구: "리포트" 메뉴를 8번 연속 누르면 관리자 화면 (src/lib/secretTaps.ts)
+  const navigate = useNavigate();
+  const tapReports = useSecretTaps();
+  const onTabClick = (t: Tab) => (e: MouseEvent) => {
+    if (t.to !== REPORTS.to || !tapReports()) return;
+    e.preventDefault();
+    navigate(ADMIN_PATH);
+  };
 
   return (
     <div className="min-h-dvh">
@@ -45,6 +55,7 @@ export function Layout() {
               key={t.to}
               to={t.to}
               end={t.end}
+              onClick={onTabClick(t)}
               className={({ isActive }) =>
                 cn(
                   "flex h-12 items-center gap-3 rounded-xl px-3 text-[16px] font-semibold transition-colors",
@@ -95,6 +106,7 @@ export function Layout() {
                 <NavLink
                   to={t.to}
                   end={t.end}
+                  onClick={onTabClick(t)}
                   className={({ isActive }) =>
                     cn(
                       "flex h-16 flex-col items-center justify-center gap-1 text-[11px] font-semibold whitespace-nowrap",

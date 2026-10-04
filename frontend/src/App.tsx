@@ -1,10 +1,12 @@
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { Link, Route, Routes } from "react-router";
+import { Link, Navigate, Route, Routes } from "react-router";
 import { Layout } from "./components/Layout";
 import { AuthBridge, RequireAuth } from "./components/RequireAuth";
 import { ToastProvider } from "./components/ToastProvider";
 import { Card, EmptyState, PageHeader } from "./components/ui";
+import { ADMIN_PATH } from "./lib/secretTaps";
+import { AdminPage } from "./pages/AdminPage";
 import { AnalysisPage } from "./pages/AnalysisPage";
 import { HomePage } from "./pages/HomePage";
 import { LoginPage } from "./pages/LoginPage";
@@ -17,7 +19,6 @@ import { RankingPage } from "./pages/RankingPage";
 import { RecommendationPage } from "./pages/RecommendationPage";
 import { RecommendationsPage } from "./pages/RecommendationsPage";
 import { ReportPage } from "./pages/ReportPage";
-import { ReportsHealthPage } from "./pages/ReportsHealthPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { SearchPage } from "./pages/SearchPage";
 import { StockPage } from "./pages/StockPage";
@@ -62,7 +63,9 @@ export default function App() {
           <Route path="portfolio" element={<PortfolioPage />} />
           <Route path="analyses/:id" element={<AnalysisPage />} />
           <Route path="reports" element={<ReportsPage />} />
-          <Route path="reports/health" element={<ReportsHealthPage />} />
+          {/* 복구 지표는 관리자 화면으로 옮겼다 (예전 주소는 그리로 보낸다) */}
+          <Route path="reports/health" element={<Navigate to={ADMIN_PATH} replace />} />
+          <Route path="ops" element={<AdminPage />} />
           <Route path="reports/:id" element={<ReportPage />} />
           <Route path="recommendations" element={<RecommendationsPage />} />
           <Route path="recommendations/:id" element={<RecommendationPage />} />

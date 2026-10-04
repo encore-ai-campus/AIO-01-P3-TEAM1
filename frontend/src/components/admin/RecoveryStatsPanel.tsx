@@ -1,15 +1,16 @@
-// /reports/health: 복구 지표 (GET /api/reports/recovery-stats의 RecoveryStats를 그대로 그린다. 셈법은 docs/tasks/00-공통.md 9절).
+// 관리자 화면(/ops)의 복구 지표 (GET /api/reports/recovery-stats의 RecoveryStats를 그대로 그린다. 셈법은 docs/tasks/00-공통.md 9절).
+// 예전 /reports/health 화면을 옮겼다: 복구 지표는 운영·발표용이라 사용자 메뉴가 아니라 관리자 화면에서 본다.
 import { useId, useState } from "react";
 import { Link } from "react-router";
-import { errorMessage } from "../api/client";
-import { useReportPlan } from "../api/queries";
-import { useRecoveryStats } from "../api/reports";
-import type { RecoveryStats } from "../api/types";
-import { ExampleTag, InjectedBadge } from "../components/reports/StatusChip";
-import { Card, EmptyState, ErrorState, PageHeader, Segmented, SkeletonCard } from "../components/ui";
-import { cn } from "../lib/cn";
-import { formatDateTime, formatLatency } from "../lib/format";
-import { ERROR_LABEL, actorLabel } from "../lib/reports";
+import { errorMessage } from "../../api/client";
+import { useReportPlan } from "../../api/queries";
+import { useRecoveryStats } from "../../api/reports";
+import type { RecoveryStats } from "../../api/types";
+import { ExampleTag, InjectedBadge } from "../reports/StatusChip";
+import { Card, EmptyState, ErrorState, Segmented, SkeletonCard } from "../ui";
+import { cn } from "../../lib/cn";
+import { formatDateTime, formatLatency } from "../../lib/format";
+import { ERROR_LABEL, actorLabel } from "../../lib/reports";
 
 const DAYS = ["7", "30", "90"] as const;
 type Days = (typeof DAYS)[number];
@@ -137,7 +138,8 @@ function Recent({ rows, worker }: { rows: RecoveryStats["recent"]; worker: (id: 
   );
 }
 
-export function ReportsHealthPage() {
+/** 복구 지표: 기간 칩 → 자동 복구율·평균 복구시간 → 유형별·Worker별 막대 → 최근 사례. */
+export function RecoveryStatsPanel() {
   const [days, setDays] = useState<Days>("7");
   const { data, isPending, isError, error, refetch } = useRecoveryStats(Number(days));
   const { data: plan } = useReportPlan();
@@ -145,8 +147,10 @@ export function ReportsHealthPage() {
   const s = data?.data;
 
   return (
-    <>
-      <PageHeader title="복구 지표" back />
+    <section aria-labelledby="recovery-title" className="space-y-3 lg:space-y-4">
+      <h2 id="recovery-title" className="px-1 text-[18px] font-bold">
+        복구 지표
+      </h2>
       <div className="space-y-3 lg:space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <Segmented label="기간" value={days} onChange={setDays} options={DAYS.map((d) => ({ value: d, label: `${d}일` }))} />
@@ -180,6 +184,6 @@ export function ReportsHealthPage() {
           </>
         )}
       </div>
-    </>
+    </section>
   );
 }
