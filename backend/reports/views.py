@@ -2,9 +2,13 @@
 
 신청은 requested 행만 만든다. 실행(Agent·Orchestrator)은 아직 없다 (docs/DECISIONS.md 9-1).
 """
+from datetime import date
+from zoneinfo import ZoneInfo
+
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.http import FileResponse
+from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
@@ -18,6 +22,8 @@ from config.api import Rejected, page
 from .models import Report
 from .payloads import detail, nicknames, plan, summary
 from .pdf import ensure_report_file
+
+KST = ZoneInfo("Asia/Seoul")
 
 
 class PlanView(APIView):
@@ -85,3 +91,23 @@ class PdfView(APIView):
         path = ensure_report_file(report, list(report.trace_events.order_by("step")))
         content_type = "application/pdf" if path.suffix == ".pdf" else "text/html; charset=utf-8"
         return FileResponse(open(path, "rb"), content_type=content_type)
+
+
+class ScreeningView(APIView):
+    @extend_schema(responses=OpenApiTypes.OBJECT)
+    def get(self, request):
+        """ScreeningResult: 그날(기본 오늘, KST)의 선별 결과 (reports/auto.py가 남긴 파일). 없으면 404 (docs/tasks/01 T1-7)."""
+        from . import auto  # 선별 파일 읽기 (선별 자체는 엔진 루프·관리 명령이 한다)
+
+        market_ = (request.query_params.get("market") or "KR").strip().upper()
+        if market_ not in ("KR", "US"):
+            raise Rejected("market은 KR 또는 US입니다.")
+        text = (request.query_params.get("date") or "").strip()
+        try:
+            day = date.fromisoformat(text) if text else timezone.now().astimezone(KST).date()
+        except ValueError:
+            raise Rejected("date는 YYYY-MM-DD 형식입니다.") from None
+        result = auto.load(market_, day)
+        if result is None:
+            raise NotFound(f"{day} {market_} 선별 결과가 없습니다.")
+        return Response(result)

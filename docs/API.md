@@ -286,6 +286,7 @@ interface AnalysisQuota {
 담고 보여 주는 구조만 있다. 신청한 리포트는 `requested` 상태로 남는다.
 
 **2026-10-04 추가 (구현 전 계약)**: 장애 주입(`chaos`), 복구 요약(`recovery`), 자동 리포트(`source`), PDF, 복구 지표, 복구 Trace 사건.
+그중 PDF(`GET /api/reports/{id}/pdf`)와 선별 결과(`GET /api/reports/screening`)는 2026-10-04에 서버가 내기 시작했다 (표의 "구현" 표시).
 담당별 할 일은 `docs/tasks/`, 셈법과 모듈 경계는 `docs/tasks/00-공통.md`. 아래에서 "(추가)"로 표시한 것은 아직 서버가 내지 않는다.
 
 ## 타입
@@ -404,7 +405,8 @@ interface ScreeningResult {       // (추가) 자동 리포트의 그날 선별 
   picks: Record<string, unknown>[];     // 점수 순. symbol · name · score · tradingAmountRank 등
   dropped: Record<string, unknown>[];   // 규칙에서 떨어진 종목과 사유
   excluded: Record<string, unknown>[];  // ETF 등 제외 종목과 사유
-  reportIds: number[];                  // 그날 만든 리포트
+  reportIds: number[];                  // 그날 만든 리포트 (자동 리포트 신청 T1-4가 채운다)
+  recommendationIds: number[];          // 그날 만든 자동 추천 (AUTO_RECOMMEND=demo — 아래 "AI 추천" 절)
 }
 
 interface ReportDetail extends ReportSummary {   // Snapshot
@@ -427,9 +429,9 @@ interface ReportDetail extends ReportSummary {   // Snapshot
 | `GET /api/reports?symbol=&source=` | 페이지, `symbol`·`source`(`user`\|`auto`) 선택 | (추가 `source`) |
 | `GET /api/reports/{id}` | – | `200 ReportDetail` · `404` (**Snapshot API**: 새로고침·연결 복구에 쓴다) |
 | `GET /api/reports/{id}/events` | 헤더 `Last-Event-ID` 또는 `?after=<step>` | `200 text/event-stream` (**SSE**) · 미로그인 `401` JSON · `404` |
-| (추가) `GET /api/reports/{id}/pdf` | – | `200 application/pdf` (A4. 처음 부르면 만들어 저장하고 다음부터 그 파일) · 완성 전 `409 {"detail"}` · `404` · Chrome이 없으면 `200 text/html`(같은 내용) |
+| `GET /api/reports/{id}/pdf` | – | `200 application/pdf` (A4. 처음 부르면 만들어 `PAPER_ROOT/reports/<id>.pdf`에 저장하고 다음부터 그 파일. `pdf_path` 열이 생기면 그 열로) · 완성 전 `409 {"detail"}` · `404` · Chrome이 없으면 `200 text/html`(같은 내용) — 2026-10-04 구현 |
 | (추가) `GET /api/reports/recovery-stats?days=7` | `days` 1~90, 기본 7 | `200 RecoveryStats` |
-| (추가) `GET /api/reports/screening?market=KR&date=` | `date` 기본 오늘 | `200 ScreeningResult` · 그날 선별이 없으면 `404` |
+| `GET /api/reports/screening?market=KR&date=` | `date` 기본 오늘(KST) | `200 ScreeningResult` · 그날 선별이 없으면 `404` · 잘못된 `market`·`date` `400` — 2026-10-04 구현 (`reports/auto.py`가 남긴 파일을 읽는다) |
 
 SSE 형식 (실행 Event를 발생 즉시 한 방향으로 전달):
 - `event: trace` / `id: <step>` / `data: <TraceEvent JSON>` — `after`(또는 `Last-Event-ID`)보다 큰 step만, 순서대로.

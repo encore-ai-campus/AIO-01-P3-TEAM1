@@ -73,3 +73,36 @@ def test_select_without_broker_is_unavailable(screen, monkeypatch):
     with pytest.raises(Unavailable):
         auto.select("KR", now=NOW)
     assert calls == []
+
+
+# --- GET /api/reports/screening (T1-7) ---
+
+@pytest.fixture
+def screening_api(monkeypatch, tmp_path, django_user_model):
+    from rest_framework.test import APIClient
+
+    monkeypatch.setattr(engine, "RUNS_DIR", tmp_path / "runs")
+    client = APIClient()
+    client.force_authenticate(django_user_model.objects.create_user("alice", password="pw"))
+    return client
+
+
+def test_screening_api_reads_saved_file(screening_api):
+    auto.save({"market": "KR", "at": "2026-10-05T07:50:00+09:00", "rankCount": 100, "eligibleCount": 70, "checked": 30,
+               "picks": [{"symbol": "005930", "score": 80.0}], "dropped": [], "excluded": [], "reportIds": [],
+               "recommendationIds": [7]})
+    response = screening_api.get("/api/reports/screening?market=KR&date=2026-10-05")
+    assert response.status_code == 200
+    assert response.json()["picks"][0]["symbol"] == "005930" and response.json()["recommendationIds"] == [7]
+
+
+def test_screening_api_404_and_bad_input(screening_api):
+    assert screening_api.get("/api/reports/screening?date=2026-10-05").status_code == 404
+    assert screening_api.get("/api/reports/screening?market=JP").status_code == 400
+    assert screening_api.get("/api/reports/screening?date=10/05").status_code == 400
+
+
+def test_screening_api_needs_login(db):
+    from rest_framework.test import APIClient
+
+    assert APIClient().get("/api/reports/screening").status_code == 401
