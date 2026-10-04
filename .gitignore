@@ -10,6 +10,7 @@
 /deploy/.deployed_tag
 /deploy/deploy_history.log
 /team_accounts.txt
+/admin_account.txt
 /data/
 /runs/
 /reports/

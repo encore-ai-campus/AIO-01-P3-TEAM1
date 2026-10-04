@@ -4,11 +4,15 @@
 바꾸려면 이 파일을 먼저 고치고 양쪽 작업자에게 알린다. 프론트 타입(`frontend/src/api/types.ts`)은 지금은 이 문서를 보고
 손으로 쓰고, OpenAPI 자동 생성(`drf-spectacular` → `openapi-typescript`) 비교는 CI 단계(4E)에서 붙인다.
 
+**2026-10-04 합의 (구현 전 계약)**: 서비스 컨셉 변경(`docs/컨셉변경계획.md` 8장, 결정 `docs/DECISIONS.md` 13장)의 계약 변경 B3·B4·B5·B7·B8·B10을
+아래 각 절에 넣었다. "(2026-10-04 합의, 컨셉 계획 B○ — 미구현, 담당 ○)"로 표시한 것은 **아직 서버가 내지 않는다** (괄호의 담당이 만든다).
+B1(`ReportDraft.plainSummary`)은 HTTP가 아니라 리포트 출력 계약이라 `docs/tasks/00-공통.md` 10절에 있다 (화면은 `state.results.report_agent.plainSummary`로 읽는다).
+
 ## 공통 규칙
 
 - 경로는 `/api/...`, **끝 슬래시 없음**. 요청·응답은 JSON, 키는 **camelCase**.
 - 인증은 Django 세션 쿠키 + CSRF. 프론트는 같은 출처로 부른다 (개발: Vite가 `/api`를 `127.0.0.1:8000`으로 프록시).
-  - 변경 요청(POST·PATCH·DELETE, 로그인 포함)에는 `X-CSRFToken` 헤더가 필요하다. 프론트는 **요청할 때마다 `csrftoken` 쿠키 값을 읽어**
+  - 변경 요청(POST·PUT·PATCH·DELETE, 로그인 포함. PUT은 B10의 진단 제출이 처음 쓴다)에는 `X-CSRFToken` 헤더가 필요하다. 프론트는 **요청할 때마다 `csrftoken` 쿠키 값을 읽어**
     헤더에 넣는다 (로그인하면 값이 바뀐다). 쿠키가 아직 없으면 `GET /api/auth/csrf`를 먼저 불러 쿠키를 받는다.
     CSRF 검사에 걸리면 `403 {"detail": ...}`.
   - 로그인하지 않았으면 `401 {"detail": "로그인이 필요합니다."}`. 로그인·csrf·health만 로그인 없이 된다 (`/api/schema/`도 로그인 필요).
@@ -35,6 +39,34 @@ interface Me {
   nickname: string;       // 랭킹에 보이는 이름 (기본값은 아이디)
   isPublic: boolean;      // 내 정보 공개 (켜면 랭킹보드에 수익률이 나온다). 기본 false
   isStaff: boolean;
+  beginnerMode: boolean;  // 주린이모드 (켬 = 쉬운 보기, 끔 = 중급 이상 화면). 진단 전 기본 true. InvestorProfile.beginnerMode와 같은 값
+                          // (2026-10-04 합의, 컨셉 계획 B10 — 미구현, 담당 1)
+}
+
+// 투자자 프로필 (2026-10-04 합의, 컨셉 계획 B10 — 미구현, 담당 1). 문항·보기 값·점수표는 아래 "투자자 프로필" 절
+type ExperienceLevel = "intro" | "novice" | "intermediate" | "expert";   // 경험 단계: 입문 · 초급 · 중급 · 숙련
+type RiskProfile = "stable" | "stable_seeking" | "neutral" | "active" | "aggressive";
+// 투자 성향 5단계: 안정형 · 안정추구형 · 위험중립형 · 적극투자형 · 공격투자형
+
+interface InvestorAnswers {       // 투자 성향·경험 진단 7문항의 답 (영문 코드)
+  q1: "none" | "under_1y" | "1_3y" | "over_3y";
+  q2: ("deposit" | "fund_etf" | "kr_stock" | "us_stock" | "derivatives")[];   // 여럿 고름 (1개 이상)
+  q3: "never" | "yearly" | "monthly" | "daily";
+  q4: "unknown" | "heard" | "explain";
+  q5: "no_loss" | "loss_10" | "loss_20" | "more";
+  q6: "years" | "weeks" | "intraday";
+  q7: "practice" | "growth" | "short_term";
+}
+
+interface InvestorProfile {
+  beginnerMode: boolean;                    // 지금 주린이모드. 진단 전 기본 true
+  answers: InvestorAnswers | null;          // 진단 전이면 null (아래 여섯도 null)
+  experienceScore: number | null;           // 경험 점수 0~11
+  experienceLevel: ExperienceLevel | null;
+  riskScore: number | null;                 // 성향 점수 0~8
+  riskProfile: RiskProfile | null;
+  recommendedBeginnerMode: boolean | null;  // 진단이 추천하는 주린이모드 (경험 단계가 intro·novice면 true)
+  assessedAt: string | null;                // 마지막 진단 제출 시각
 }
 
 interface Quote {
@@ -228,6 +260,35 @@ interface AnalysisQuota {
 | `POST /api/auth/logout` | – | `204` |
 | `GET /api/auth/me` | – | `200 Me` · `401` |
 | `PATCH /api/me/profile` | `{"isPublic"?: boolean, "nickname"?: string}` | `200 Me` · 닉네임은 2~12자(NFKC 정규화 후), 다른 사람의 닉네임·아이디와 겹치거나 보이지 않는 문자가 있으면 `400` |
+| `GET /api/me/investor-profile` | – | `200 InvestorProfile` (진단 전이면 `beginnerMode: true`, 나머지는 null) — (2026-10-04 합의, 컨셉 계획 B10 — 미구현, 담당 1) |
+| `PUT /api/me/investor-profile` | `{"answers": InvestorAnswers}` (`answers` 필수) | `200 InvestorProfile` — 진단 제출. 서버가 아래 점수표로 `experienceScore`·`experienceLevel`·`riskScore`·`riskProfile`·`recommendedBeginnerMode`를 계산해 저장한다 (다시 내면 덮어쓴다). **`beginnerMode`는 바꾸지 않는다** · 빠진 문항·모르는 키·모르는 값, `q2`가 비었거나 `deposit`이 다른 보기와 같이 오면 `400` — (2026-10-04 합의, 컨셉 계획 B10 — 미구현, 담당 1) |
+| `PATCH /api/me/investor-profile` | `{"beginnerMode": boolean}` | `200 InvestorProfile` — 주린이모드 스위치만 (진단 전에도 된다) · 불리언이 아니면 `400` — (2026-10-04 합의, 컨셉 계획 B10 — 미구현, 담당 1) |
+
+#### 투자자 프로필과 주린이모드 (2026-10-04 합의, 컨셉 계획 B10 — 미구현, 담당 1)
+
+마이 메뉴의 투자 성향·경험 진단(7문항)과 주린이모드 스위치. 원문은 `docs/투자서비스확장계획.md` 2장, 결정은 `docs/DECISIONS.md` 13-2(E-1·E-2).
+
+- 주린이모드는 **계정(서버)에 저장**한다. 기기를 바꿔도 같고, 웹 알림 문장이 같은 모드를 따른다. 진단 전 기본값은 **켬**(`true`).
+  리포트 상세의 "이 화면만 자세히 보기"(`?view=expert`)는 화면만 바꾸고 이 값을 바꾸지 않는다 (서버 변경 없음).
+- 진단 제출(`PUT`)은 결과만 계산해 저장한다. 화면이 "진단 결과: 초급 · 위험중립형 → 주린이모드 켬 추천"을 보이고, 사용자가 추천을 받아들이면 `PATCH {beginnerMode}`를 부른다.
+- 점수 계산은 **결정론적 코드**다 (LLM 아님). 점수표는 이 절과 코드에 같이 두고, 바꾸면 이 절을 먼저 고친다 (E-2: 이 값으로 시작해 사용성 시험 뒤 조정).
+- **법정 적합성 진단이 아니다** (모의 투자 연습 도구라 권유·판매가 없다). 화면에 그렇게 적는다. 진단 결과는 본인만 본다 (랭킹·다른 팀원에게 내지 않는다).
+- 성향은 화면 안내에만 쓰고 리스크 엔진의 수량 계산은 바꾸지 않는다 (`docs/DECISIONS.md` 13-1 D-6).
+
+| 키 | 질문 | 보기 (값 — 화면 문구) | 점수 |
+|---|---|---|---|
+| `q1` | 주식 투자를 해 본 기간 | `none` 없음 · `under_1y` 1년 미만 · `1_3y` 1~3년 · `over_3y` 3년 이상 | 경험 0 · 1 · 2 · 3 |
+| `q2` | 거래해 본 상품 (여럿 고름, 1개 이상. `deposit`은 혼자만) | `deposit` 예적금만 · `fund_etf` 펀드·ETF · `kr_stock` 국내 주식 · `us_stock` 해외 주식 · `derivatives` 레버리지 ETF·선물·옵션 | 경험: `kr_stock` 1 + `us_stock` 1 + `derivatives` 2 (합계 최대 3). 성향: `derivatives`가 있으면 1 |
+| `q3` | 주식 거래 빈도 | `never` 해 본 적 없음 · `yearly` 1년에 몇 번 · `monthly` 한 달에 몇 번 · `daily` 거의 매일 | 경험 0 · 1 · 2 · 3 |
+| `q4` | "PER, 손절, 지정가"를 남에게 설명할 수 있나요 | `unknown` 모름 · `heard` 들어 봄 · `explain` 설명할 수 있음 | 경험 0 · 1 · 2 |
+| `q5` | 1,000만 원을 넣었다면 견딜 수 있는 손실 | `no_loss` 원금 손실은 싫다 · `loss_10` −10%까지 · `loss_20` −20%까지 · `more` 그 이상도 괜찮다 | 성향 0 · 1 · 2 · 3 |
+| `q6` | 주로 생각하는 투자 기간 | `years` 몇 년 이상 · `weeks` 몇 주 · `intraday` 하루 안 | 성향 0 · 1 · 2 |
+| `q7` | 투자 목적 | `practice` 연습·공부 · `growth` 꾸준한 자산 증식 · `short_term` 짧은 기간 수익 | 성향 0 · 1 · 2 |
+
+- **경험 점수** = `q1` + `q3` + `q4` + `q2`(경험), 0~11 → 0~2 `intro`(입문) · 3~5 `novice`(초급) · 6~8 `intermediate`(중급) · 9 이상 `expert`(숙련).
+- **성향 점수** = `q5` + `q6` + `q7` + `q2`(성향), 0~8 → 0~1 `stable`(안정형) · 2~3 `stable_seeking`(안정추구형) · 4~5 `neutral`(위험중립형) · 6 `active`(적극투자형) · 7 이상 `aggressive`(공격투자형).
+- **`recommendedBeginnerMode`** = 경험 단계가 `intro`·`novice`면 `true`, `intermediate`·`expert`면 `false` (성향은 추천에 쓰지 않는다).
+- 예: `q1 none, q2 [deposit], q3 never, q4 heard, q5 loss_10, q6 weeks, q7 practice` → 경험 1(`intro`), 성향 2(`stable_seeking`), 추천 켬.
 
 ### 모의 트레이딩 (`backend/trading`)
 
@@ -385,6 +446,9 @@ interface ReportSummary {
   chaosEnabled: boolean;        // (추가) 장애 주입을 켜고 신청했는지
   costUsd: number | null;       // (추가) LLM 비용 (끝나기 전엔 지금까지의 합)
   hasPdf: boolean;              // (추가) GET /api/reports/{id}/pdf 가 되는지
+  opinion: "buy" | "hold" | "avoid" | null;   // AI 의견 = results.report_agent.verdict. status가 completed일 때만, 그 밖은 null
+                                              // (2026-10-04 합의, 컨셉 계획 B3 — 미구현, 담당 4)
+  oneLiner: string | null;      // 한 줄 요약 = results.report_agent.oneLiner (80자). opinion과 같은 규칙 (2026-10-04 합의, 컨셉 계획 B3 — 미구현, 담당 4)
   createdAt: string; startedAt: string | null; finishedAt: string | null;
 }
 
@@ -426,7 +490,7 @@ interface ReportDetail extends ReportSummary {   // Snapshot
 | `GET /api/reports/plan` | – | `200 ExecutionPlan` (YAML Registry에서 읽은 실행 계획) |
 | `GET /api/reports?symbol=` | 페이지, `symbol` 선택 | `200 {"count", "results": ReportSummary[]}` (팀 전체 공용, 최신순) |
 | `POST /api/reports` | `{"symbol", "chaos"?: {"enabled", "probability"?, "errorTypes"?, "workers"?, "scope"?, "seed"?}}` | `201 ReportDetail` · 같은 사람이 같은 종목으로 신청해 아직 끝나지 않은 리포트가 있으면 그것을 `200`으로 · 없는 종목·잘못된 `chaos` `400` · (추가) 하루 한도 초과 `429 {"detail", "limit", "used"}` · (추가) AI 설정 없음 `503` · 증권사 조회 불가 `503` |
-| `GET /api/reports?symbol=&source=` | 페이지, `symbol`·`source`(`user`\|`auto`) 선택 | (추가 `source`) |
+| `GET /api/reports?symbol=&source=&mine=` | 페이지, `symbol`·`source`(`user`\|`auto`)·`mine`(`1`이면 내가 신청한 것만) 선택, 같이 쓸 수 있다 | (추가 `source`) · `mine=1` (2026-10-04 합의, 컨셉 계획 B8 — 미구현, 담당 1: `ReportsView.get` 한 줄. 자동 리포트는 신청자가 없어 빠진다) |
 | `GET /api/reports/{id}` | – | `200 ReportDetail` · `404` (**Snapshot API**: 새로고침·연결 복구에 쓴다) |
 | `GET /api/reports/{id}/events` | 헤더 `Last-Event-ID` 또는 `?after=<step>` | `200 text/event-stream` (**SSE**) · 미로그인 `401` JSON · `404` |
 | `GET /api/reports/{id}/pdf` | – | `200 application/pdf` (A4. 처음 부르면 만들어 `PAPER_ROOT/reports/<id>.pdf`에 저장하고 다음부터 그 파일. `pdf_path` 열이 생기면 그 열로) · 완성 전 `409 {"detail"}` · `404` · Chrome이 없으면 `200 text/html`(같은 내용) — 2026-10-04 구현 |
@@ -440,6 +504,16 @@ SSE 형식 (실행 Event를 발생 즉시 한 방향으로 전달):
 - 15초마다 `: keep-alive` 주석 줄. 서버는 한 연결을 60초 뒤 닫는다 (브라우저 `EventSource`가 `Last-Event-ID`로 다시 붙는다).
 - **SSE가 실행 상태의 유일한 저장소가 되면 안 된다.** 상태와 Trace는 DB에 있고, 프론트는 먼저 Snapshot을 받은 뒤 SSE로 이어 받는다.
   SSE가 끊기거나 안 되면 Snapshot을 3초 간격으로 다시 받는다 (폴링). `plan.implemented`가 false이고 status가 `requested`면 SSE를 열지 않는다.
+
+목록 카드의 결론과 매매 계획 연결 (2026-10-04 합의, 컨셉 계획 B3·B8 — 미구현):
+- `opinion`·`oneLiner`는 `status`가 `completed`일 때만 `state.results.report_agent`의 `verdict`·`oneLiner`를 그대로 낸다 (담당 4, `payloads.summary`).
+  대기·실행 중·실패면 `null`이다 — 실행 중의 `report_agent` 결과는 검토 전이거나 RETRY로 다시 쓰이는 중이고, 실패한 리포트의 초안은 검토를 통과하지 않았다.
+  `ReportDetail`은 `ReportSummary`를 이어받으므로 상세에도 같은 값이 있다. 쉬운 요약(B1)은 `state.results.report_agent.plainSummary`로 읽는다.
+- 리포트와 매매 계획(추천)의 연결은 리포트 API에 넣지 않는다 (reports → autotrade 역방향 의존을 만들지 않는다). 프론트가 추천 API로 맞춘다:
+  목록은 `GET /api/recommendations?source=report&status=open&limit=100` 한 번으로 받아 `sourceId`(= 리포트 id)로 카드에 붙이고,
+  상세(매매 계획 카드)는 `GET /api/recommendations?source=report&sourceId={리포트 id}&status=all`로 받는다 (기한이 지난 추천까지 와야 "기한 지남" 상태를 보인다).
+  두 쿼리는 지금 서버가 된다 (2026-10-04 `autotrade/views.py`로 확인. 페이지 상한은 100).
+- 하루 리포트 한도(`429`, 담당 2의 T2-9)는 **장애 주입 없이 `failed`로 끝난 리포트를 세지 않는다** (`docs/DECISIONS.md` 13-1 D-7 — 미구현, 담당 2). 장애 주입을 켠 리포트는 실패해도 센다.
 
 ---
 
@@ -494,6 +568,8 @@ interface RiskPreview {           // 리스크 엔진이 "내 계좌"로 계산�
   approved: boolean;              // 리스크 엔진 통과
   activatable: boolean;           // approved && 추천이 open && 같은 종목의 진행 중 계획·주문 없음 && 중단 스위치 꺼짐
   reasons: string[];              // 활성화할 수 없는 사유 (activatable이면 [])
+  reasonCodes: string[];          // reasons[i]의 사유 코드 = reasonCodes[i] (같은 길이·같은 순서). 코드 표는 아래 "실행 불가 사유 코드"
+                                  // (2026-10-04 합의, 컨셉 계획 B4 — 미구현, 담당 1)
   quantity: number;               // 주문할 수량 (국내는 정수 주)
   amountKrw: number;              // 매수 금액 (원화 환산)
   expectedProfitKrw: number;      // 목표가 도달 시 이익 (비용 반영)
@@ -529,7 +605,7 @@ interface TradePlan {
 }
 
 type PlanEventKind =
-  | "activated"        // 사용자가 활성화 (details: {via, budgetKrw})
+  | "activated"        // 사용자가 활성화 (details: {via, budgetKrw}. 2026-10-04 합의 B5 — 미구현, 담당 1: + acknowledged)
   | "risk_checked"     // 리스크 엔진 점검 (details: {approved, quantity, limitedBy, rewardRisk, reasons})
   | "order_placed"     // 진입 지정가 주문 접수 (details: {orderId, limitPrice, quantity})
   | "order_requeued"   // 지정가가 그날 체결되지 않아 다음 정규장에 다시 주문 (details: {orderId, previousOrderId}, 수량이 줄었으면 + {quantity, previousQuantity})
@@ -555,7 +631,9 @@ interface TradePlanDetail extends TradePlan {
 
 type NotificationKind =
   | "recommendation" | "plan_activated" | "order_placed" | "order_requeued" | "filled" | "closed"
-  | "cancelled" | "expired" | "failed" | "system";
+  | "cancelled" | "expired" | "failed" | "system"
+  | "report_completed" | "report_failed";   // (2026-10-04 합의, 컨셉 계획 B7 — 미구현, 담당 1·4) 리포트 완성 / 리포트 실패
+// system은 시험 알림 등 그 밖의 것. 리포트 실패 알림은 system이 아니라 report_failed다 (보내는 규칙은 아래 "리포트 끝 알림")
 
 interface Notification {
   id: number;
@@ -581,7 +659,7 @@ interface NotificationSettings {
 | `GET /api/recommendations?status=open\|all&source=&sourceId=&symbol=` | 페이지. `status` 기본 `open`. `sourceId`는 `source`와 같이 (리포트·분석 화면이 자기 추천을 찾는다) | `200 {"count", "results": Recommendation[]}` (최신순, 팀 전체 공용) |
 | `GET /api/recommendations/{id}` | – | `200 Recommendation` · `404` |
 | `GET /api/recommendations/{id}/preview?budgetKrw=` | `budgetKrw` 선택 (양수, 원) | `200 RiskPreview` · `budgetKrw`가 숫자가 아니거나 0 이하 `400` · 증권사 조회 불가 `503` |
-| `POST /api/recommendations/{id}/activate` | `{"budgetKrw"?: number, "token"?: string}` | `201 TradePlanDetail` · 활성화할 수 없으면 `400 {"detail": 사유들을 "; "로 이은 것}` · `token`이 만료·위조면 `400` · `404` · 증권사 조회 불가 `503` |
+| `POST /api/recommendations/{id}/activate` | `{"budgetKrw"?: number, "token"?: string, "acknowledged"?: boolean}` | `201 TradePlanDetail` · 활성화할 수 없으면 `400 {"detail": 사유들을 "; "로 이은 것}` · `token`이 만료·위조면 `400` · `404` · 증권사 조회 불가 `503`. `acknowledged`: 실행 확인 체크리스트를 모두 켰는지 → `activated` 사건 details `{via, budgetKrw, acknowledged}`에 남긴다 (없으면 `false`, 불리언이 아니면 `400`. 서버가 활성화를 막지는 않는다 — 체크리스트는 화면 테스트로 보장) — (2026-10-04 합의, 컨셉 계획 B5 — 미구현, 담당 1) |
 | `POST /api/recommendations/demo` | `{"symbol"?: string}` (없으면 시연 종목 목록에서 고른다) | `201 Recommendation` (source `demo`) · 시연 추천이 꺼져 있으면(`AUTOTRADE_DEMO=off`) `403` · 하루 한도(`AUTOTRADE_DEMO_PER_USER`, 기본 5) 초과 `429` · 없는 종목·일봉 부족 `400` · 증권사 조회 불가 `503` |
 | `GET /api/trade-plans?status=active\|all` | 페이지. 기본 `active`(진행 중 셋) | `200 {"count", "results": TradePlan[]}` (**내 것만**, 최신순) |
 | `GET /api/trade-plans/{id}` | – | `200 TradePlanDetail` · 남의 계획 `404` |
@@ -613,3 +691,33 @@ interface NotificationSettings {
   (실패하면 1회 재시도 → 첨부 없이 글만 → 그래도 안 되면 실패로 기록. 웹 알림은 그대로 남는다. 한 바퀴에 15초까지만 보내고 나머지는 다음 바퀴로).
   AI가 쓴 글 속의 멘션(`<@…>`·`@everyone`)은 무력화하고, 우리가 붙인 받는 사람 멘션만 울린다. 시험 API의 `not_configured`는 Webhook·openclaw가 모두 없다는 뜻이다.
 - 프론트 폴링: 알림 개수 15초, 진행 중 계획 5초, 추천 목록 30초.
+
+### 실행 불가 사유 코드 (`RiskPreview.reasonCodes`, 2026-10-04 합의, 컨셉 계획 B4 — 미구현, 담당 1)
+
+화면이 사유 문장을 맞추지 않고 코드로 쉬운 문장(담당 5의 `lib`, 컨셉 계획 4-5)을 고른다. 서버는 **이 표의 코드만** 낸다 (새 사유를 더하면 이 표를 먼저 고친다).
+화면은 모르는 코드면 같은 자리의 `reasons[i]` 원문을 보인다. `reasons`(사람이 읽는 원문)와 활성화 `400`의 `detail`은 그대로다.
+
+| 코드 | 조건 (지금 `reasons` 원문을 내는 곳) |
+|---|---|
+| `reward_risk_low` | 손익비가 최소 기준(2.0)보다 낮음 (리스크 엔진 `assess`) |
+| `ev_negative` | 비용을 반영한 기대값이 0 이하 (`assess`) |
+| `daily_loss_limit` | 일일 손실 한도 도달 (`assess`) |
+| `daily_trades_limit` | 일일 매매 건수 한도 도달 (`assess`) |
+| `warning_stock` | 매수 유의 종목 (투자경고 등, `assess`) |
+| `size_too_small` | 리스크 엔진이 정한 수량이 1주 미만 (미국 종목은 최소 주문 금액 미만) — 예산과 무관 (`assess`) |
+| `budget_too_small` | 예산(`budgetKrw`)으로 줄인 수량이 1주 미만 (미국 종목은 최소 주문 금액 미만) (`risk.preview`) |
+| `expired` | 추천의 활성화 기한(`validUntil`)이 지남 |
+| `plan_exists` | 같은 종목에 진행 중인 내 계획이 있음 |
+| `position_exists` | 같은 종목에 진행 중인 모의 주문이 있음 (같은 종목은 포지션 하나만) |
+| `halted` | 중단 스위치가 켜져 있음 (새 모의 매수 중단) |
+| `price_passed` | 지금 가격이 이미 목표가 이상이거나 손절가 이하 |
+
+### 리포트 끝 알림 (2026-10-04 합의, 컨셉 계획 B7 — 미구현, 담당 1·4)
+
+리포트 하나가 끝나면 신청자에게 알림이 **한 번만** 간다 (웹 알림 + Discord, `notifications.service.notify`).
+- **완성** — 팀원 신청 리포트(`source: "user"`)가 `completed`로 끝나면 runner(담당 3)가 부르는 `auto.after_finish(report)`(담당 1)가 보낸다.
+  이 리포트로 추천이 생기면(`verdict` buy이고 `0 < stop < entry < target` — `00-공통.md` 10절) `report_completed`를 보내지 않고, 추천 알림(`recommendation`)의 본문 첫 줄을 "리포트가 완성됐어요"로 한다.
+  추천이 생기지 않으면(지켜보기·부정적·가격 조건이 맞지 않음) `report_completed` 하나 (`link`: `/reports/{id}`).
+- **실패** — `failed`로 끝나면(엔진 재시작 정리 `engine_restarted` 포함) 담당 4의 `healing.notify_failure(report, reason)` 한 곳에서 `report_failed`를 신청자에게 보낸다
+  (`link`: `/reports/{id}`, 본문은 실패 사유 코드(`00-공통.md` 9절)의 쉬운 문장). 예전 계획의 `system`은 쓰지 않는다.
+- **자동 리포트**(`source: "auto"`)는 웹 알림을 만들지 않고 01 T1-5의 Discord 발송(PDF 첨부 또는 실패 글)만 한다.

@@ -20,6 +20,7 @@
 | `fake_worker` fixture | 4 (호출기 통합 테스트), 1 (자동 리포트 테스트) |
 | `runner.tick/recover/shutdown`, `run_engine` 연결, 끝난 뒤 `auto.after_finish` 호출 | 1 |
 | Trace 사건 전부 (9절) | 4 (지표), 5 (화면) |
+| (2026-10-04 합의) 리포트 실패 사유 코드 목록 (`00-공통.md` 9절, T3-12) | 4 (`notify_failure` 본문), 5 (사유 문장 표) |
 
 ## 2026-10-04 바뀐 것 — 리포트 다음 단계(AI 추천)는 이미 연결돼 있다
 
@@ -31,6 +32,18 @@
   T3-4의 `runner.tick()`은 **"분석 작업" 다음, "추천 수집" 앞**에 한 줄로 넣는다 ("알림 발송"이 마지막이게).
 - `failed`로 끝난 리포트·`verdict`가 buy가 아닌 리포트는 추천이 생기지 않는다 (정상).
 - 실패 알림(담당 4의 T4-8)도 같은 알림 통로(`notifications.service.notify`)를 쓰면 웹과 Discord에 같이 남는다.
+
+## 2026-10-04 합의 — 실패 사유 코드와 설계서의 "사용자 3단계 ↔ Agent" 표 (`docs/DECISIONS.md` 13장)
+
+서비스 컨셉이 "주식이 처음인 사람도 리포트를 ① 만들고 · ② 검토하고 · ③ 모의 자동매매로 실행하는 **AI 리포트 데스크**"로 바뀌었다 (`docs/컨셉변경계획.md`).
+**Orchestrator 구조·Trace 규칙·일정은 그대로다.** 담당 3에게 더해진 것은 아래 셋이다 (T3-12, T3-11 고침).
+
+| 바뀐 곳 | 내용 |
+|---|---|
+| 실패 사유 코드 (T3-12) | `workflow_failed.details.reason`을 `00-공통.md` 9절의 목록(`join_blocked`·`review_failed`·`timeout`·`engine_restarted`·`exception`)에서만 낸다. 화면·실패 알림이 이 코드로 쉬운 문장을 고른다 ("자료를 모으는 AI가 응답하지 않아 리포트를 쓸 수 없었어요" 등) |
+| 리포트 끝 알림 (B7) | runner는 끝난 리포트마다 `auto.after_finish(report)`(1)를 부르고(팀원 리포트의 완성 알림도 여기서 나간다), 실패로 끝나면 `healing.notify_failure(report, reason)`(4)를 한 번 부른다 (`00-공통.md` 8절) |
+| 설계서 ① (T3-11) | "목적과 대표 사용자 시나리오"에 컨셉 1-1의 시나리오 셋(정상 · 복구 · 실패)과 1-2의 **"사용자 3단계 ↔ Agent" 표**를 넣는다 |
+| 쉬운 요약 (B1) | 바뀌지 않는다. Join Guard가 검토(`review_agent`)에 초안 전체를 넘기는지만 확인한다 (`plainSummary`가 대조 대상이다) |
 
 ## 작업
 
@@ -46,14 +59,15 @@
 | T3-8 | **입력 Guard** — `guards.clean_text(text) -> (정리된 글, [지운 사유])`: 지시문 패턴(한·영: "이전 지시를 무시", "ignore previous instructions", "system prompt", "API 키", "비밀번호를 출력" 등), 비밀 값 모양(`sk-[A-Za-z0-9]{20,}`, 40자 이상 토큰), 지나치게 긴 본문 자르기(2,000자). 2가 쓴다 | `guards.py`, 테스트 | DR-SEC-01: 지시문이 든 뉴스가 결과의 `_guarded`와 `agent_completed.details.guarded`에 남는다 |
 | T3-9 | **비용 집계** — Worker마다 `ctx.llm.cost_usd`를 더해 `Report.cost_usd`에 저장(`state`에 `add_cost(report, usd)`를 더한다 — `state.py`는 공용이라 **함수 하나만** 더하고 4·2에게 알린다). `workflow_completed.details.costUsd` | `state.py`, `orchestrator.py` | |
 | T3-10 | **`AGENTS_IMPLEMENTED = True`**와 통합 — 2의 Worker·4의 호출기와 붙여 실제 키로 리포트 하나 끝까지 (10/7). 화면(5)에서 노드가 실시간으로 바뀌는지 같이 본다 | `registry.py` | 신청 → 몇 분 안에 본문. `uv run pytest` 통과 |
-| T3-11 | **설계서 ① 뼈대와 흐름** — 목적·대표 시나리오, 협업 구조와 선정 이유(가이드의 "에이전트별 컨테이너"에 대한 우리 선택 — `TEAM_DEV_PLAN.md` 7장), 실행 계획 그래프, 정상·재시도·실패·종료 흐름(순서도), Handoff 조건과 전달 데이터, 공유 상태 관리, 역할 중복·공백 점검. 2(역할 표), 4(복구 흐름)가 채울 자리를 남긴다 | `docs/설계서.md` | 10/8 초안 |
+| T3-11 | **설계서 ① 뼈대와 흐름** — 목적·대표 시나리오(2026-10-04 합의: 컨셉 계획 1-1의 대표 페르소나와 시나리오 셋 — ① 정상: 만들기 → 검토 통과 → 실행 ② 복구: 뉴스 AI 장애 → 대체 모델로 완성 → 실행 ③ 실패: 필수 AI 전부 실패 → 이유 안내 + 담당자 알림), **"사용자 3단계 ↔ Agent" 표**(컨셉 계획 1-2: ① 만들기 = Orchestrator → 조사 Agent 셋(병렬) → Join Guard → 작성 Agent, ② 검토 = 검토 Agent(PASS·RETRY·FAIL) → Handoff 리스크 점검 Agent·입력 Guard, ③ 실행 = 결정론적 코드(리스크 엔진 → 모의 체결기 → 알림, AI 아님), 공통 = Planner(`team_definitions.yaml`)·Memory Keeper(`state.py`), 서비스 전체 = Docker·CI/CD·인프라 장애 — 단계마다 "장애가 나면 사용자에게 보이는 것" 열 포함), 협업 구조와 선정 이유(가이드의 "에이전트별 컨테이너"에 대한 우리 선택 — `TEAM_DEV_PLAN.md` 7장), 실행 계획 그래프, 정상·재시도·실패·종료 흐름(순서도), Handoff 조건과 전달 데이터, 공유 상태 관리, 역할 중복·공백 점검. 2(역할 표), 4(복구 흐름)가 채울 자리를 남긴다 | `docs/설계서.md` | 10/8 초안 |
+| T3-12 | **실패 사유 코드** (2026-10-04 합의, 컨셉 계획 4-4·9장) — `workflow_failed.details.reason`은 `00-공통.md` 9절 "리포트 실패 사유 코드"에서만: Join 막힘 `join_blocked`(T3-5), 검토 실패 `review_failed`(T3-6), 시간 초과 `timeout`(T3-5 — 필수 Worker의 시간 초과를 `join_blocked`·`timeout` 중 어느 쪽으로 낼지 정해 9절 표에 적는다), 엔진 재시작 `engine_restarted`(T3-4), 그 밖 예외 `exception`(T3-3). 새 경우는 9절 표에 코드를 먼저 더하고 5에게 알린다. runner는 실패로 끝난 리포트(`run_report`가 failed로 돌려줌·`recover()`)마다 4의 `healing.notify_failure(report, reason)`를 한 번 부르고(없으면 `getattr`로 건너뜀), 끝난 리포트마다 `auto.after_finish(report)`를 부른다 (둘 다 예외를 삼킨다) | `orchestrator.py`, `runner.py`, 테스트 | 테스트: 실패 경로마다 `reason`이 목록 안이고, 실패 1건에 `notify_failure` 호출 1번 |
 
 ## 일정
 
 - **10/5(월) 오전**: T3-1 (첫 PR), T3-2. 오후: T3-3, T3-4 (뼈대 PR).
 - **10/6(화)**: T3-5, T3-6.
 - **10/7(수)**: T3-7, T3-8, T3-9, T3-10 (2·4와 함께 실제 실행).
-- **10/8(목)**: T3-11, 통합에서 나온 문제 수정.
+- **10/8(목)**: T3-11(사용자 3단계 ↔ Agent 표 포함), 통합에서 나온 문제 수정. T3-12는 T3-3~T3-6을 만들면서 같이 (실패 경로를 만들 때 코드를 정한다).
 
 ## 주의
 
