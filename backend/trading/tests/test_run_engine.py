@@ -99,7 +99,7 @@ def test_without_broker_only_analysis_runs(monkeypatch, api):
     monkeypatch.setattr(jobs, "tick", lambda: called.append(1))
     out, err = run_once()
     assert called == [1] and err == ""
-    assert "분석 작업만" in out
+    assert "분석 작업·추천 수집·알림 발송만" in out
 
 
 def test_step_error_is_logged_and_loop_continues(monkeypatch, fake):

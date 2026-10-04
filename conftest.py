@@ -14,3 +14,5 @@ NOTIFY_ENV = ("DISCORD_WEBHOOK_URL", "OPENCLAW_TARGET")
 def no_real_broker_keys(monkeypatch):
     for key in BROKER_ENV + NOTIFY_ENV:
         monkeypatch.setenv(key, "")
+    # 매일 자동 추천(선별 = 증권사 조회 100번 이상)은 테스트가 직접 켤 때만. autotrade.conf는 빈 값이면 .env를 읽으므로 off로 덮는다
+    monkeypatch.setenv("AUTO_RECOMMEND", "off")
