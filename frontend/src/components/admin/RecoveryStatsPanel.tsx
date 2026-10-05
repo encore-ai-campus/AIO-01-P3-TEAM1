@@ -7,7 +7,8 @@ import { useReportPlan } from "../../api/queries";
 import { useRecoveryStats } from "../../api/reports";
 import type { RecoveryStats } from "../../api/types";
 import { ExampleTag, InjectedBadge } from "../reports/StatusChip";
-import { Card, EmptyState, ErrorState, Segmented, SkeletonCard } from "../ui";
+import { Card, EmptyState, ErrorState, Segmented, SkeletonCard, Spinner } from "../ui";
+import { useRevealAfterLoading } from "../../hooks/useMotionState";
 import { cn } from "../../lib/cn";
 import { formatDateTime, formatLatency } from "../../lib/format";
 import { ERROR_LABEL, actorLabel } from "../../lib/reports";
@@ -21,7 +22,7 @@ function Big({ label, value, sub, tone }: { label: string; value: string; sub: s
   return (
     <Card className="py-4">
       <p className="text-[13px] text-mute">{label}</p>
-      <p className={cn("mt-0.5 text-[32px] leading-tight font-bold tracking-tight tabular-nums", tone === "ok" && "text-ok")}>{value}</p>
+      <p className={cn("mt-0.5 text-[32px] leading-tight font-bold tracking-tight tabular-nums", tone === "ok" && "text-ok-ink")}>{value}</p>
       <p className="mt-1 text-[13px] text-sub">{sub}</p>
     </Card>
   );
@@ -54,8 +55,8 @@ function Bars({ title, rows }: { title: string; rows: { label: string; failures:
               </span>
             </div>
             <div aria-hidden="true" className="mt-1 flex h-3 overflow-hidden rounded-full bg-fill">
-              <div className="bg-ok" style={{ width: `${(r.recovered / max) * 100}%` }} />
-              <div className="bg-up" style={{ width: `${((r.failures - r.recovered) / max) * 100}%` }} />
+              <div className="bg-ok transition-[width] duration-base ease-standard" style={{ width: `${(r.recovered / max) * 100}%` }} />
+              <div className="bg-up transition-[width] duration-base ease-standard" style={{ width: `${((r.failures - r.recovered) / max) * 100}%` }} />
             </div>
           </li>
         ))}
@@ -64,9 +65,10 @@ function Bars({ title, rows }: { title: string; rows: { label: string; failures:
   );
 }
 
+// '미복구'는 실패 글자라 up-ink (연빨강 위 text-up은 3.3:1, up-ink는 5:1)
 function Outcome({ recovered }: { recovered: boolean }) {
   return (
-    <span className={cn("inline-flex h-6 items-center rounded-md px-1.5 text-[12px] font-bold", recovered ? "bg-ok-soft text-ok" : "bg-up-soft text-up")}>
+    <span className={cn("inline-flex h-6 items-center rounded-md px-1.5 text-[12px] font-bold", recovered ? "bg-ok-soft text-ok-ink" : "bg-up-soft text-up-ink")}>
       {recovered ? "복구" : "미복구"}
     </span>
   );
@@ -82,7 +84,7 @@ function Recent({ rows, worker }: { rows: RecoveryStats["recent"]; worker: (id: 
       <ul aria-label="최근 장애 사례" className="mt-2 divide-y divide-line lg:hidden">
         {rows.map((x, i) => (
           <li key={i}>
-            <Link to={`/reports/${x.reportId}?tab=run`} className="block px-5 py-3 hover:bg-fill/60">
+            <Link to={`/reports/${x.reportId}?tab=run`} className="press-row block px-5 py-3 hover:bg-fill/60">
               <span className="flex flex-wrap items-center gap-1.5 text-[15px] font-semibold">
                 {worker(x.worker)}
                 <Outcome recovered={x.recovered} />
@@ -125,7 +127,8 @@ function Recent({ rows, worker }: { rows: RecoveryStats["recent"]; worker: (id: 
                 </td>
                 <td className="tabular-nums">{formatLatency(x.recoveryMs)}</td>
                 <td className="text-right">
-                  <Link to={`/reports/${x.reportId}?tab=run`} className="font-semibold text-brand">
+                  {/* 파란 글자는 brand-ink (brand는 흰 바탕 3.7:1 — 버튼 바탕·아이콘용) */}
+                  <Link to={`/reports/${x.reportId}?tab=run`} className="font-semibold text-brand-ink hover:underline">
                     리포트 #{x.reportId}
                   </Link>
                 </td>
@@ -138,13 +141,26 @@ function Recent({ rows, worker }: { rows: RecoveryStats["recent"]; worker: (id: 
   );
 }
 
-/** 복구 지표: 기간 칩 → 자동 복구율·평균 복구시간 → 유형별·Worker별 막대 → 최근 사례. */
+/**
+ * 복구 지표: 기간 칩 → 자동 복구율·평균 복구시간 → 유형별·Worker별 막대 → 최근 사례.
+ * 기간을 바꾸는 동안 틀은 그대로 두고 앞 기간 수치를 흐리게 남긴다 (발표 중 전체가 스켈레톤으로 깜빡이면 비교가 안 된다).
+ * 새 수치가 오면 숫자는 바뀌고 막대는 폭이 미끄러진다.
+ */
 export function RecoveryStatsPanel() {
   const [days, setDays] = useState<Days>("7");
-  const { data, isPending, isError, error, refetch } = useRecoveryStats(Number(days));
+  const { data, isPending, isError, error, refetch, isFetching } = useRecoveryStats(Number(days));
   const { data: plan } = useReportPlan();
   const worker = (id: string) => actorLabel(plan, id);
-  const s = data?.data;
+  // 앞 기간의 결과 (새 기간을 받는 동안 보인다). 렌더 중 조건부 파생 상태 — api/reports.ts의 훅은 그대로 쓴다
+  const [shown, setShown] = useState(data);
+  if (data && data !== shown) setShown(data);
+  const current = data ?? (isPending ? shown : undefined);
+  const stale = data === undefined && current !== undefined;
+  // 처음 기다린 끝에만 한 번 페이드 (기간을 바꿀 때는 흐림 → 선명으로 충분하다 — 다시 페이드하면 깜빡인다)
+  const reveal = useRevealAfterLoading(isPending);
+  const [revealed, setRevealed] = useState(false);
+  if (reveal && !revealed) setRevealed(true);
+  const s = current?.data;
 
   return (
     <section aria-labelledby="recovery-title" className="space-y-3 lg:space-y-4">
@@ -153,25 +169,32 @@ export function RecoveryStatsPanel() {
       </h2>
       <div className="space-y-3 lg:space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <Segmented label="기간" value={days} onChange={setDays} options={DAYS.map((d) => ({ value: d, label: `${d}일` }))} />
-          {data?.example && (
+          <div className="flex items-center gap-2">
+            {/* 화면 바탕 위라 트랙을 바탕과 다른 색으로 (surface=page) */}
+            <Segmented label="기간" surface="page" value={days} onChange={setDays} options={DAYS.map((d) => ({ value: d, label: `${d}일` }))} />
+            {stale && <Spinner className="text-mute-weak" />}
+          </div>
+          {current?.example && (
             <span className="flex items-center gap-1.5 text-[13px] text-mute">
               <ExampleTag /> 서버에 지표 API가 아직 없어 예시 수치를 보여 줍니다
             </span>
           )}
         </div>
-        {isPending ? (
+        {current === undefined && isPending ? (
           <SkeletonCard lines={5} />
-        ) : isError ? (
+        ) : isError && !data ? (
           <Card>
-            <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} />
+            <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} retrying={isFetching} />
           </Card>
         ) : !s || s.failures === 0 ? (
           <Card>
             <EmptyState>아직 장애가 없습니다.</EmptyState>
           </Card>
         ) : (
-          <>
+          <div
+            aria-busy={stale || undefined}
+            className={cn("space-y-3 transition-opacity duration-fast lg:space-y-4", stale && "opacity-60", revealed && "reveal-fade")}
+          >
             <div className="grid grid-cols-2 gap-3 lg:gap-4">
               <Big label="자동 복구율" value={formatRate(s.autoRecoveryRate)} sub={`장애 ${s.failures}건 중 ${s.recovered}건 복구 · 미복구 ${s.unrecovered}`} tone="ok" />
               <Big label="평균 복구시간" value={formatLatency(s.meanRecoveryMs)} sub={`리포트 ${s.reports}건 중 ${s.reportsWithFailures}건에 장애 · 주입 ${s.injected}건`} />
@@ -181,7 +204,7 @@ export function RecoveryStatsPanel() {
               <Bars title="Worker별" rows={s.byWorker.map((x) => ({ label: worker(x.worker), failures: x.failures, recovered: x.recovered }))} />
             </div>
             <Recent rows={s.recent} worker={worker} />
-          </>
+          </div>
         )}
       </div>
     </section>

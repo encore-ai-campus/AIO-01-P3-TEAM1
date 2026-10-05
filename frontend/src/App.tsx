@@ -1,7 +1,8 @@
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { Link, Navigate, Route, Routes } from "react-router";
+import { Navigate, Route, Routes, useLocation } from "react-router";
 import { Layout } from "./components/Layout";
+import { ScrollManager } from "./components/motion/ScrollManager";
 import { AuthBridge, RequireAuth } from "./components/RequireAuth";
 import { ToastProvider } from "./components/ToastProvider";
 import { Card, EmptyState, PageHeader } from "./components/ui";
@@ -38,16 +39,21 @@ export function Providers({ client, children }: { client: QueryClient; children:
   );
 }
 
+/** 없는 주소. 예전 알림·Discord 링크로 온 사람도 여기로 오므로 다음 행동(홈·리포트)을 엄지 자리에 큰 버튼으로 둔다. */
 function NotFound() {
+  const { pathname } = useLocation();
   return (
     <>
       <PageHeader title="페이지 없음" back />
-      <Card>
-        <EmptyState>
-          찾는 화면이 없습니다.{" "}
-          <Link to="/" className="font-semibold text-brand underline">
-            홈으로
-          </Link>
+      <Card className="lg:max-w-[640px]">
+        <EmptyState
+          icon="search"
+          title="찾는 화면이 없어요"
+          action={{ label: "홈으로", to: "/" }}
+          secondary={{ label: "리포트 보기", to: "/reports" }}
+        >
+          주소가 바뀌었거나 지워진 화면일 수 있어요.
+          <span className="mt-1 block font-mono text-[13px] break-all text-mute">{pathname}</span>
         </EmptyState>
       </Card>
     </>
@@ -56,34 +62,38 @@ function NotFound() {
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route element={<RequireAuth />}>
-        <Route element={<Layout />}>
-          <Route index element={<HomePage />} />
-          <Route path="search" element={<SearchPage />} />
-          <Route path="stocks/:symbol" element={<StockPage />} />
-          <Route path="portfolio" element={<PortfolioPage />} />
-          <Route path="analyses/:id" element={<AnalysisPage />} />
-          <Route path="reports" element={<ReportsPage />} />
-          {/* 복구 지표는 관리자 화면으로 옮겼다 (예전 주소는 그리로 보낸다) */}
-          <Route path="reports/health" element={<Navigate to={ADMIN_PATH} replace />} />
-          <Route path="ops" element={<AdminPage />} />
-          <Route path="reports/:id" element={<ReportPage />} />
-          <Route path="recommendations" element={<RecommendationsPage />} />
-          <Route path="recommendations/:id" element={<RecommendationPage />} />
-          <Route path="plans" element={<PlansPage />} />
-          <Route path="plans/:id" element={<PlanPage />} />
-          {/* 단타 연습장 (모의투자 탭 안. 주린이모드 끔 + 퀴즈 통과일 때 계획을 만든다) */}
-          <Route path="day" element={<DayPage />} />
-          <Route path="day/quiz" element={<DayQuizPage />} />
-          <Route path="day/review" element={<DayReviewPage />} />
-          <Route path="notifications" element={<NotificationsPage />} />
-          <Route path="ranking" element={<RankingPage />} />
-          <Route path="my" element={<MyPage />} />
-          <Route path="*" element={<NotFound />} />
+    <>
+      {/* 화면을 옮길 때의 스크롤 (새 화면은 맨 위, 뒤로 가기는 보던 자리) — 로그인 화면 포함 */}
+      <ScrollManager />
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route element={<RequireAuth />}>
+          <Route element={<Layout />}>
+            <Route index element={<HomePage />} />
+            <Route path="search" element={<SearchPage />} />
+            <Route path="stocks/:symbol" element={<StockPage />} />
+            <Route path="portfolio" element={<PortfolioPage />} />
+            <Route path="analyses/:id" element={<AnalysisPage />} />
+            <Route path="reports" element={<ReportsPage />} />
+            {/* 복구 지표는 관리자 화면으로 옮겼다 (예전 주소는 그리로 보낸다) */}
+            <Route path="reports/health" element={<Navigate to={ADMIN_PATH} replace />} />
+            <Route path="ops" element={<AdminPage />} />
+            <Route path="reports/:id" element={<ReportPage />} />
+            <Route path="recommendations" element={<RecommendationsPage />} />
+            <Route path="recommendations/:id" element={<RecommendationPage />} />
+            <Route path="plans" element={<PlansPage />} />
+            <Route path="plans/:id" element={<PlanPage />} />
+            {/* 단타 연습장 (모의투자 탭 안. 주린이모드 끔 + 퀴즈 통과일 때 계획을 만든다) */}
+            <Route path="day" element={<DayPage />} />
+            <Route path="day/quiz" element={<DayQuizPage />} />
+            <Route path="day/review" element={<DayReviewPage />} />
+            <Route path="notifications" element={<NotificationsPage />} />
+            <Route path="ranking" element={<RankingPage />} />
+            <Route path="my" element={<MyPage />} />
+            <Route path="*" element={<NotFound />} />
+          </Route>
         </Route>
-      </Route>
-    </Routes>
+      </Routes>
+    </>
   );
 }

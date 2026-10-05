@@ -1,4 +1,5 @@
 // 정책 안내: 부분 실패 정책 셋과 이 팀의 정책, Handoff 계약과 Guard, 함수 호출과 Handoff의 차이 (docs/교육용문서.md 그대로).
+// 색은 토큰만 (이 팀의 정책 강조는 brand-ink, Guard 확인 항목은 warn-ink — 다크에서도 읽히게).
 import type { ExecutionPlan } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { HANDOFF_FIELDS, HANDOFF_GUARD_CHECKS, POLICIES, actorLabel } from "../../lib/reports";
@@ -35,7 +36,7 @@ export function PolicyGuide({ plan }: { plan: ExecutionPlan }) {
                     aria-current={mine ? "true" : undefined}
                     className={cn("border-b border-line last:border-0", mine && "bg-brand-soft")}
                   >
-                    <th scope="row" className={cn("py-2.5 pr-3 pl-2 font-semibold whitespace-nowrap", mine && "text-brand-dark")}>
+                    <th scope="row" className={cn("py-2.5 pr-3 pl-2 font-semibold whitespace-nowrap", mine && "text-brand-ink")}>
                       {p.name}
                     </th>
                     <td className="py-2.5 pr-2">
@@ -58,7 +59,7 @@ export function PolicyGuide({ plan }: { plan: ExecutionPlan }) {
             <dd>{names(optional)}</dd>
           </div>
         </dl>
-        <p className="mt-2 text-[13px] leading-relaxed text-mute">
+        <p className="mt-2 text-[13px] leading-relaxed text-sub">
           앞 Agent가 실패하면 뒤 Agent는 실행하지 않습니다. 실패한 결과를 빈 Context나 고정된 성공 결과로 바꾸지 않습니다.
         </p>
       </div>
@@ -84,7 +85,7 @@ Support Agent → 책임과 최소 Context 이전 → Refund Agent가 책임 인
         <h4 className="mt-3 text-[14px] font-semibold text-sub">Guard가 확인하는 것</h4>
         <ul aria-label="Handoff Guard 확인 항목" className="mt-1 flex flex-wrap gap-1">
           {HANDOFF_GUARD_CHECKS.map((c) => (
-            <li key={c} className="rounded-md bg-warn-soft px-1.5 py-0.5 text-[12px] font-semibold text-[#9a5b00]">
+            <li key={c} className="rounded-md bg-warn-soft px-1.5 py-0.5 text-[12px] font-semibold text-warn-ink">
               {c}
             </li>
           ))}

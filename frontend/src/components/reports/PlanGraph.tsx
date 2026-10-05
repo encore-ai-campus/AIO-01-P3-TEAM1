@@ -1,21 +1,25 @@
 // 작업 계획(Planner) 그래프 (Execution Plan): step을 PC는 왼쪽→오른쪽, 모바일은 위→아래로 그린다.
 // 병렬 step은 Worker 노드를 점선 묶음으로 쌓고, join step 앞에는 Join Guard 노드, Handoff는 점선 화살표로 대상 Worker에 잇는다.
 // 노드 상태는 Trace에서 그 actor의 마지막 사건으로 정한다 (사건이 없으면 대기).
+// 상태가 바뀌는 순간: 테두리·강조 고리·바탕이 240ms로 바뀌고 상태 칩이 한 번 작게 나타난다 (처음 그릴 때는 움직이지 않는다 — 실시간 변화를 보여 주는 화면).
+// 색은 토큰만 (반전 칩은 text-on-ink, 주황 글자는 warn-ink — 다크에서도 읽히게). 카드 안 상자는 카드보다 작은 모서리(rounded-xl).
 import { Fragment } from "react";
 import type { ExecutionPlan, Handoff, PlanStep, TraceEvent, Worker } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { formatLatency } from "../../lib/format";
 import { attemptHistory, isCallFailure, reviewRounds } from "../../lib/recovery";
+import { useChanged } from "../../hooks/useMotionState";
 import { ERROR_LABEL, NODE_STATUS, forDetail, nodeView, type NodeStatus } from "../../lib/reports";
 import { Icon } from "../Icon";
+import { LiveDot } from "../ui";
 import { InjectedBadge, NodeStatusChip, RecoveredBadge } from "./StatusChip";
 
 type Role = "required" | "optional" | "handoff";
 
 const ROLE: Record<Role, { label: string; cls: string }> = {
-  required: { label: "필수", cls: "bg-ink text-white" },
+  required: { label: "필수", cls: "bg-ink text-on-ink" },
   optional: { label: "선택", cls: "border border-line bg-card text-sub" },
-  handoff: { label: "Handoff 대상", cls: "bg-warn-soft text-[#9a5b00]" },
+  handoff: { label: "Handoff 대상", cls: "bg-warn-soft text-warn-ink" },
 };
 
 function workerOf(plan: ExecutionPlan, id: string): Worker {
@@ -67,7 +71,7 @@ function Attempts({ worker, trace }: { worker: Worker; trace: TraceEvent[] }) {
       {h.attempts.map((a, i) => (
         <Fragment key={i}>
           {i > 0 && sep}
-          <li className={cn(chipCls, a.outcome === "ok" ? "bg-ok-soft text-ok" : "bg-up-soft text-up")}>
+          <li className={cn(chipCls, a.outcome === "ok" ? "bg-ok-soft text-ok-ink" : "bg-up-soft text-up-ink")}>
             {name(a.model)}
             <Icon name={a.outcome === "ok" ? "check" : "close"} className="size-3.5 shrink-0" />
             <span className="shrink-0">{a.outcome === "ok" ? "성공" : ERROR_LABEL[a.outcome]}</span>
@@ -77,9 +81,10 @@ function Attempts({ worker, trace }: { worker: Worker; trace: TraceEvent[] }) {
       {pending && (
         <>
           {sep}
-          <li className={cn(chipCls, "bg-brand-soft text-brand-dark")}>
+          <li className={cn(chipCls, "bg-brand-soft text-brand-ink")}>
             {name(pendingModel)}
-            <Icon name="play" className="size-3.5 shrink-0 animate-pulse" />
+            {/* 오래 이어질 수 있는 '시도 중'은 도는 아이콘 대신 살아 있음 점 */}
+            <LiveDot className="mx-0.5" />
             <span className="shrink-0">시도 중</span>
           </li>
         </>
@@ -99,11 +104,13 @@ function WorkerNode({ worker, role, trace }: { worker: Worker; role: Role; trace
   // 실제 실행 정보가 있으면 그것을, 없으면 Registry 값을 보인다
   const provider = v.provider ?? worker.provider;
   const model = v.model ?? worker.model;
+  // 이 화면에서 상태가 바뀐 뒤에만 칩이 한 번 작게 나타난다 (예시 재생·SSE로 바뀌는 순간을 눈이 따라가게)
+  const changed = useChanged(status);
   return (
     <article
       aria-label={worker.title}
       className={cn(
-        "rounded-xl border-2 bg-card p-2.5",
+        "rounded-xl border-2 bg-card p-2.5 transition-[border-color,box-shadow,background-color] duration-base ease-standard",
         NODE_STATUS[status].border,
         role === "handoff" && "border-dashed",
         status === "started" && "ring-4 ring-brand/15",
@@ -111,7 +118,7 @@ function WorkerNode({ worker, role, trace }: { worker: Worker; role: Role; trace
     >
       <div className="flex items-start justify-between gap-2">
         <h4 className="min-w-0 text-[14px] leading-tight font-bold">{worker.title}</h4>
-        <NodeStatusChip status={status} />
+        <NodeStatusChip key={status} status={status} className={changed ? "animate-pop-in" : undefined} />
       </div>
       <Attempts worker={worker} trace={trace} />
       {(h.recovered || h.injected) && (
@@ -120,8 +127,12 @@ function WorkerNode({ worker, role, trace }: { worker: Worker; role: Role; trace
           {h.injected && <InjectedBadge />}
         </div>
       )}
-      <details className="mt-1 text-[12px]">
-        <summary className="inline-flex min-h-7 cursor-pointer items-center text-mute select-none">자세히</summary>
+      <details className="group/node mt-1 text-[12px]">
+        {/* 보이는 높이는 32px, 누르는 곳은 위아래 6px씩 넓혀 44px (노드 카드가 길어지지 않게) */}
+        <summary className="relative -ml-1 inline-flex min-h-8 cursor-pointer list-none items-center gap-0.5 rounded-md px-1 text-mute select-none before:absolute before:inset-x-0 before:-inset-y-1.5 hover:bg-fill">
+          자세히
+          <Icon name="chevron-down" className="size-3.5 transition-transform duration-fast group-open/node:rotate-180" />
+        </summary>
         <p className="font-mono text-[11px] text-mute">{worker.id}</p>
         {worker.goal && <p className="mt-1 leading-snug text-sub">{worker.goal}</p>}
         <div className="mt-1.5">
@@ -167,7 +178,7 @@ function HandoffBranch({ h, plan, trace }: { h: Handoff; plan: ExecutionPlan; tr
       <div className="flex gap-2">
         <DashedArrow />
         <div className="min-w-0 py-1.5 text-[12px] leading-snug">
-          <p className="flex flex-wrap items-center gap-1 font-bold text-[#9a5b00]">
+          <p className="flex flex-wrap items-center gap-1 font-bold text-warn-ink">
             Handoff · 책임 이전 {guard.status !== "waiting" && <NodeStatusChip status={guard.status} />}
           </p>
           <p className="text-sub">{h.responsibility}</p>
@@ -194,7 +205,7 @@ function StepBox({ step, plan, trace, current }: { step: PlanStep; plan: Executi
     <section
       aria-label={`단계 ${step.title}`}
       className={cn(
-        "h-full rounded-2xl border p-3",
+        "h-full rounded-xl border p-3 transition-[border-color,box-shadow,background-color] duration-base ease-standard",
         current ? "border-brand bg-brand-soft/50 ring-2 ring-brand/30" : "border-line bg-fill/60",
       )}
     >
@@ -209,9 +220,9 @@ function StepBox({ step, plan, trace, current }: { step: PlanStep; plan: Executi
           >
             {parallel ? "병렬" : "순차"}
           </span>
-          {current && <span className="inline-flex h-5 items-center rounded bg-ink px-1.5 text-[11px] font-bold text-white">현재 단계</span>}
+          {current && <span className="inline-flex h-5 items-center rounded bg-ink px-1.5 text-[11px] font-bold text-on-ink">현재 단계</span>}
           {rounds > 0 && (
-            <span className="inline-flex h-5 items-center gap-0.5 rounded bg-warn-soft px-1.5 text-[11px] font-bold text-[#9a5b00]">
+            <span className="inline-flex h-5 items-center gap-0.5 rounded bg-warn-soft px-1.5 text-[11px] font-bold text-warn-ink">
               <Icon name="restart" className="size-3" />
               검토 뒤 다시 작성 {rounds}
               {maxRounds ? `/${maxRounds}` : ""}회
@@ -242,16 +253,23 @@ function StepBox({ step, plan, trace, current }: { step: PlanStep; plan: Executi
 
 function JoinNode({ step, plan, trace }: { step: PlanStep; plan: ExecutionPlan; trace: TraceEvent[] }) {
   const v = nodeView(trace, "join_guard", forDetail("step", step.id));
+  const changed = useChanged(v.status);
   const prev = plan.steps.filter((s) => step.dependsOn.includes(s.id));
   const optional = prev.flatMap((s) => s.optional);
   return (
-    <section aria-label="Join Guard" className={cn("h-full rounded-2xl border-2 border-dashed bg-card p-3", NODE_STATUS[v.status].border)}>
+    <section
+      aria-label="Join Guard"
+      className={cn(
+        "h-full rounded-xl border-2 border-dashed bg-card p-3 transition-[border-color,box-shadow,background-color] duration-base ease-standard",
+        NODE_STATUS[v.status].border,
+      )}
+    >
       <div className="flex flex-wrap items-center justify-between gap-1.5">
         <h3 className="flex items-center gap-1 text-[15px] font-bold">
           <Icon name="shield" className="size-4" />
           Join Guard
         </h3>
-        <NodeStatusChip status={v.status} />
+        <NodeStatusChip key={v.status} status={v.status} className={changed ? "animate-pop-in" : undefined} />
       </div>
       <p className="mt-1.5 text-[12px] leading-snug text-sub">
         병렬 완료만으로 Join하지 않습니다. 필수 결과와 계약을 확인한 뒤 &lsquo;{step.title}&rsquo;을 실행합니다.
@@ -306,9 +324,9 @@ export function PlanGraph({ plan, trace, currentStep }: { plan: ExecutionPlan; t
         ))}
       </ol>
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12px] text-sub">
-        <span className="font-semibold text-mute">범례</span>
+        <span className="font-semibold text-sub">범례</span>
         {LEGEND.map((s) => (
-          <NodeStatusChip key={s} status={s} />
+          <NodeStatusChip key={s} status={s} live={false} />
         ))}
         <span className="flex items-center gap-1">
           <Icon name="chevron" className="size-4" /> 순차 진행

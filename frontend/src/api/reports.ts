@@ -3,15 +3,18 @@
 // SSE가 끊기거나 안 되면 Snapshot을 3초 간격으로 다시 받는다. SSE는 상태의 저장소가 아니다 (DB가 원본).
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { ApiError, api } from "./client";
-import { keys, POLL } from "./queries";
+import { ApiError, api, qs } from "./client";
+import { keys, POLL, useRecommendations, useRiskPreview } from "./queries";
+import { pickRecommendation, planCardState } from "../lib/autotrade";
 import { sampleRecoveryStats, sampleScreening } from "../lib/reportSamples";
 import type {
   ChaosRequest,
+  Page,
   RecoveryStats,
   ReportDetail,
   ReportQuota,
   ReportStatus,
+  ReportSummary,
   ScreeningResult,
   SharedState,
   TraceEvent,
@@ -169,4 +172,46 @@ export function useScreening() {
     queryKey: ["reports", "screening"],
     queryFn: () => orSample<ScreeningResult>("/api/reports/screening?market=KR", sampleScreening),
   });
+}
+
+/**
+ * 한 종목의 최근 리포트 (오늘 리포트가 있는지 — 만들기 카드). 종목을 고르기 전에는 받지 않는다.
+ * 키가 종목 상세(useReports({symbol, limit: 20}))와 같아 캐시를 같이 쓴다.
+ */
+export function useSymbolReports(symbol: string | null) {
+  return useQuery({
+    queryKey: keys.reports({ symbol: symbol ?? "", limit: 20 }),
+    queryFn: () => api.get<Page<ReportSummary>>(`/api/reports${qs({ symbol, limit: 20 })}`),
+    enabled: symbol !== null,
+  });
+}
+
+/** 지금 시각을 ms마다 새로 둔다 (active일 때만). "계획 준비 중"이 "계획 없음"으로 바뀌는 때, 진행 화면의 "시작한 지 ○분". */
+export function useNow(active: boolean, ms = 30_000): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    const t = setInterval(() => setNow(Date.now()), ms);
+    return () => clearInterval(t);
+  }, [active, ms]);
+  return now;
+}
+
+/**
+ * 리포트의 매매 계획 (docs/컨셉변경계획.md 4-5): 이 리포트의 추천(만료 포함) 중 하나를 고르고, 열린 추천이면 리스크 미리 보기(예산 없음)로 상태를 정한다.
+ * 매매 계획 카드·계획 미니·쉬운 보기의 단계 막대와 안내 문장·세 가지 경우가 모두 이 훅을 쓴다 — 같은 추천·같은 상태를 보이게 (캐시도 같다).
+ */
+export function usePlanCardData(report: Pick<ReportSummary, "id" | "status" | "opinion" | "finishedAt">) {
+  const completed = report.status === "completed";
+  const recsQ = useRecommendations({ source: "report", sourceId: report.id, status: "all" }, completed);
+  const rec = recsQ.data ? pickRecommendation(recsQ.data.results) : null;
+  const previewQ = useRiskPreview(rec?.id ?? NaN, null, rec?.status === "open");
+  // 다른 추천의 이전 값(placeholder)은 이 추천의 금액이 아니다
+  const preview = rec && previewQ.data && !previewQ.isPlaceholderData ? previewQ.data : undefined;
+  const now = useNow(completed && report.opinion === "buy" && !rec);
+  // SSE 'end' 직후에는 완성인데 종료 시각이 아직 없다 (Snapshot으로 다시 받는 중). 추천은 완성 뒤에 생기므로 그동안 추천이 없다고
+  // '계획 없음'으로 정하지 않는다 — 머리 안내·단계 막대 ③·계획 카드가 '없음'으로 잠깐 뒤집혔다가 '준비 중'으로 돌아오지 않게
+  const settling = completed && report.opinion === "buy" && !report.finishedAt && !rec;
+  const state = settling ? "loading" : planCardState({ report, recs: recsQ.data?.results, preview, now });
+  return { state, rec, preview, recsQ, previewQ };
 }

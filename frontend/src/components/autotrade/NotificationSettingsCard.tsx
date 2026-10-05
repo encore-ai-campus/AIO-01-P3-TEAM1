@@ -1,15 +1,18 @@
-// 마이의 알림 설정: Discord 사용자 ID(멘션용), "Discord로도 받기", Webhook 미설정 안내, 테스트 알림.
+// 마이의 알림 설정: "Discord로도 받기" → (켰을 때만) Discord 사용자 ID(멘션용) → 테스트 알림.
+// 대부분은 웹 알림만 보고 Discord는 한 번 설정하므로 세부(ID·찾는 법)는 켰을 때만 펼친다 (아래 설정이 덜 묻히게).
 // 웹 알림 문장은 받는 사람의 주린이모드를 따르고, Discord(팀 공용 채널)는 쉬운 문장 + 숫자 한 줄 하나로 간다 (docs/API.md B6).
 import { useState } from "react";
 import { useTestNotification, useUpdateNotificationSettings } from "../../api/autotrade";
 import { errorMessage } from "../../api/client";
 import { useNotificationSettings } from "../../api/queries";
 import type { NotificationSettings } from "../../api/types";
+import { useRevealAfterLoading } from "../../hooks/useMotionState";
 import { checkDiscordId } from "../../lib/autotrade";
 import { cn } from "../../lib/cn";
 import { Icon } from "../Icon";
+import { Collapse } from "../motion/Collapse";
 import { useToast } from "../toast";
-import { Card, ErrorState, Notice, SkeletonCard, Spinner } from "../ui";
+import { Card, ErrorState, SkeletonCard, Spinner, Switch } from "../ui";
 
 function DiscordIdForm({ s }: { s: NotificationSettings }) {
   const toast = useToast();
@@ -30,7 +33,12 @@ function DiscordIdForm({ s }: { s: NotificationSettings }) {
         update.mutate(
           { discordUserId: check.value },
           {
-            onSuccess: (n) => toast(n.discordUserId ? "Discord 사용자 ID를 저장했습니다. 알림에 멘션합니다." : "Discord 사용자 ID를 지웠습니다."),
+            onSuccess: (n) => {
+              // 칸을 다시 그리지 않고(Enter로 저장해도 포커스가 남게) 저장된 값으로만 맞춘다
+              setRaw(n.discordUserId ?? "");
+              setTouched(false);
+              toast(n.discordUserId ? "Discord 사용자 ID를 저장했어요. 알림에 나를 멘션해요." : "Discord 사용자 ID를 지웠어요.", "success");
+            },
             onError: (err) => toast(errorMessage(err), "error"),
           },
         );
@@ -43,6 +51,7 @@ function DiscordIdForm({ s }: { s: NotificationSettings }) {
         <input
           id="discord-id"
           inputMode="numeric"
+          autoComplete="off"
           value={raw}
           maxLength={24}
           placeholder="숫자 17~20자리"
@@ -51,103 +60,126 @@ function DiscordIdForm({ s }: { s: NotificationSettings }) {
           aria-invalid={showError ? true : undefined}
           aria-describedby="discord-id-help discord-id-error"
           className={cn(
-            "h-12 min-w-0 flex-1 rounded-xl bg-fill px-3.5 text-[16px] tabular-nums outline-none focus:ring-2 focus:ring-brand",
+            "h-12 min-w-0 flex-1 rounded-xl bg-fill px-3.5 text-[16px] tabular-nums outline-none placeholder:text-mute-weak focus:ring-2 focus:ring-brand",
             showError && "ring-2 ring-up",
           )}
         />
         <button
           type="submit"
           disabled={!changed || update.isPending}
-          className="flex h-12 shrink-0 items-center gap-1.5 rounded-xl bg-brand px-4 text-[15px] font-semibold text-white hover:bg-brand-dark disabled:opacity-40"
+          className="press flex h-12 shrink-0 items-center gap-1.5 rounded-xl bg-brand px-4 text-[15px] font-semibold text-white hover:bg-brand-dark disabled:opacity-40"
         >
           {update.isPending && <Spinner />}
           저장
         </button>
       </div>
       {showError && (
-        <p id="discord-id-error" role="alert" className="text-[13px] font-medium text-up">
+        <p id="discord-id-error" role="alert" className="text-[13px] font-medium text-up-ink">
           {check.error}
         </p>
       )}
-      <p id="discord-id-help" className="text-[13px] leading-relaxed text-mute">
-        넣어 두면 Discord 알림에 나를 멘션합니다. 비우고 저장하면 지웁니다. 찾는 법: Discord 설정 → 고급 → 개발자 모드 켜기 → 내 프로필 우클릭 → ID 복사
+      <p id="discord-id-help" className="text-[13px] leading-relaxed text-sub">
+        넣어 두면 Discord 알림에 나를 멘션해요. 비우고 저장하면 지워요.
       </p>
+      <details className="group">
+        <summary className="-mx-2 flex min-h-11 w-fit cursor-pointer list-none items-center gap-1 rounded-xl px-2 text-[13px] font-semibold text-sub transition-colors hover:bg-fill/60 active:bg-fill [&::-webkit-details-marker]:hidden">
+          ID 찾는 법
+          <Icon name="chevron-down" className="size-4 text-mute-weak transition-transform duration-fast group-open:rotate-180" />
+        </summary>
+        <p className="pb-1 text-[13px] leading-relaxed text-sub">Discord 설정 → 고급 → 개발자 모드 켜기 → 내 프로필 우클릭 → ID 복사</p>
+      </details>
     </form>
   );
 }
 
-function DiscordToggle({ s }: { s: NotificationSettings }) {
+/** "Discord로도 받기" + 켰을 때만 사용자 ID. 누르자마자 바뀐 상태를 보이고, 실패하면 서버 값으로 돌아간다 (다시 그리지 않아 포커스가 남는다). */
+function DiscordSection({ s }: { s: NotificationSettings }) {
   const toast = useToast();
   const update = useUpdateNotificationSettings();
-  // 누르자마자 바뀐 상태를 보여 주고, 실패하면 되돌린다
-  const [checked, setChecked] = useState(s.discordEnabled);
+  const [pending, setPending] = useState<boolean | null>(null);
+  const on = pending ?? s.discordEnabled;
   return (
-    <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3">
-      <span>
-        <span className="block text-[16px] font-semibold">Discord로도 받기</span>
-        <span className="block text-[13px] text-mute">웹 알림은 항상 남습니다.</span>
-      </span>
-      <input
-        type="checkbox"
-        role="switch"
-        checked={checked}
-        disabled={update.isPending}
-        onChange={(e) => {
-          const on = e.target.checked;
-          setChecked(on);
+    <div>
+      <Switch
+        checked={on}
+        busy={update.isPending}
+        describedBy="discord-help"
+        className="min-h-11"
+        label={<span className="text-[16px] font-semibold">Discord로도 받기</span>}
+        onChange={(next) => {
+          if (update.isPending) return; // 저장 중에는 막지 않고(포커스 유지) 누름만 무시한다
+          setPending(next);
           update.mutate(
-            { discordEnabled: on },
+            { discordEnabled: next },
             {
-              onSuccess: (n) => toast(n.discordEnabled ? "알림을 Discord로도 보냅니다." : "Discord로는 보내지 않습니다 (웹 알림만)."),
+              onSuccess: (n) => {
+                setPending(null);
+                toast(n.discordEnabled ? "알림을 Discord로도 보내요." : "Discord로는 보내지 않아요. 웹 알림만 와요.", "success");
+              },
               onError: (err) => {
-                setChecked(!on);
+                setPending(null);
                 toast(errorMessage(err), "error");
               },
             },
           );
         }}
-        className="size-6 cursor-pointer accent-brand"
       />
-    </label>
+      {s.webhookConfigured ? (
+        <p id="discord-help" className="text-[13px] text-sub">
+          웹 알림은 항상 남아요.
+        </p>
+      ) : (
+        <p id="discord-help" className="flex items-start gap-1.5 text-[13px] leading-snug text-warn-ink">
+          <Icon name="alert" className="mt-px size-4 shrink-0" />
+          지금은 서버 설정 전이라 웹으로만 와요.
+        </p>
+      )}
+      <Collapse open={on}>
+        <div className="pt-4">
+          <div className="border-t border-line pt-4">
+            <DiscordIdForm s={s} />
+          </div>
+        </div>
+      </Collapse>
+    </div>
   );
 }
 
 export function NotificationSettingsCard() {
   const toast = useToast();
-  const { data: s, isPending, isError, error, refetch } = useNotificationSettings();
+  const { data: s, isPending, isError, error, refetch, isFetching } = useNotificationSettings();
   const test = useTestNotification();
+  const reveal = useRevealAfterLoading(isPending);
   if (isPending) return <SkeletonCard lines={4} />;
   if (isError) {
     return (
       <Card>
-        <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} />
+        <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} retrying={isFetching} />
       </Card>
     );
   }
   return (
-    <Card aria-labelledby="noti-settings-title" className="space-y-4">
-      <h2 id="noti-settings-title" className="flex items-center gap-1.5 text-[17px] font-bold">
-        <Icon name="bell" className="size-5" />
-        알림 설정
-      </h2>
-      {!s.webhookConfigured && <Notice tone="warn">서버에 Discord Webhook이 설정되지 않아 웹 알림만 갑니다.</Notice>}
-      <p className="text-[13px] leading-relaxed text-mute">
-        웹 알림 문장은 주린이모드를 따라요. 오늘의 내 종목 뉴스·펀더멘털 점검·단타 연습 알림은 웹에만 와요.
-      </p>
-      <DiscordToggle key={`t-${s.discordEnabled}`} s={s} />
-      <div className="border-t border-line pt-4">
-        <DiscordIdForm key={s.discordUserId ?? ""} s={s} />
+    <Card aria-labelledby="noti-settings-title" className={cn("space-y-4", reveal && "reveal-fade")}>
+      <div>
+        <h2 id="noti-settings-title" className="flex items-center gap-1.5 text-[17px] font-bold">
+          <Icon name="bell" className="size-5 text-mute-weak" />
+          알림 설정
+        </h2>
+        <p className="mt-1 text-[13px] leading-relaxed text-sub">
+          웹 알림 문장은 주린이모드를 따라요. 오늘의 내 종목 뉴스·펀더멘털 점검·단타 연습 알림은 웹에만 와요.
+        </p>
       </div>
+      <DiscordSection s={s} />
       <button
         type="button"
         disabled={test.isPending}
         onClick={() =>
           test.mutate(undefined, {
-            onSuccess: (r) => toast(r.detail),
+            onSuccess: (r) => toast(r.detail, "success"),
             onError: (err) => toast(errorMessage(err), "error"),
           })
         }
-        className="flex h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-fill text-[15px] font-semibold text-ink hover:bg-line disabled:opacity-40"
+        className="press flex h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-fill text-[15px] font-semibold text-ink hover:bg-line disabled:opacity-40"
       >
         {test.isPending ? <Spinner /> : <Icon name="bell" className="size-4" />}
         테스트 알림 보내기

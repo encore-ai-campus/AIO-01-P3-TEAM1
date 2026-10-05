@@ -1,5 +1,6 @@
 // /ops: 관리자 화면 (숨은 화면). 하단 탭·왼쪽 메뉴의 "리포트"를 8번 연속 누르면 열린다 (src/lib/secretTaps.ts).
 // 운영·발표용 화면을 모은다: 복구 지표(예전 /reports/health). 관리자(staff) 계정만 본다.
+// 순서: 안내 → 복구 지표(발표용 핵심 수치가 먼저) → 다른 관리 도구(외부 링크는 마지막).
 import { useMe } from "../api/queries";
 import { RecoveryStatsPanel } from "../components/admin/RecoveryStatsPanel";
 import { Icon } from "../components/Icon";
@@ -36,11 +37,11 @@ export function AdminPage() {
             href="/admin/"
             target="_blank"
             rel="noreferrer"
-            className="mt-3 flex items-center gap-3 rounded-xl bg-fill px-4 py-3.5 text-[15px] font-semibold hover:bg-line/60"
+            className="mt-3 flex min-h-12 items-center gap-3 rounded-xl bg-fill px-4 py-3.5 text-[15px] font-semibold transition-colors hover:bg-line/60 active:bg-line"
           >
-            <Icon name="shield" className="size-5 text-sub" />
+            <Icon name="shield" className="size-5 text-mute-weak" />
             <span className="flex-1">Django 관리자 (계정·주문·리포트·알림 표)</span>
-            <Icon name="chevron" className="size-4 text-mute" />
+            <Icon name="chevron" className="size-4 text-mute-weak" />
           </a>
         </Card>
       </div>

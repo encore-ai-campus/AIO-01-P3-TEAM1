@@ -4,9 +4,11 @@
 가격 차트·점수 막대는 SVG·CSS를 문자열로 직접 만든다 (외부 라이브러리 없음). PDF 변환은 엔진의 `render_pdf`(Chrome headless).
 Agent가 아직 결과를 다 못 채웠어도(`Report.results`가 비어 있어도) 있는 만큼만 그리고 없는 칸은 "자료 없음"으로 둔다.
 
-서비스 이름은 "AI 리포트 데스크"(D-5). 맨 위에 쉬운 요약 상자(`results.report_agent.plainSummary`, B1)와 통일 면책 문장을 두고,
-꼬리말도 같은 면책 문장이다. 가격은 장마감 기준이다: 차트는 완성 일봉(`trading.market.completed_candles` — 장중 미완성 봉 없음)으로
-그리고 범례에 "YYYY-MM-DD 종가 기준"을, 시세 지표 아래에 `market_agent`의 종가·`asOf`("… 장마감 기준")를 적는다.
+서비스 이름은 "종이배"(D-5, 2026-10-05 바뀜 — docs/DECISIONS.md 15-7). 쪽 머리에 로고(8~10mm)와 이름,
+오른쪽에 작은 글씨 "AI 리포트 · 모의투자 연습용"을 두고 가는 선을 긋는다 (면책 문장·날짜는 본문·꼬리말에 있어 머리에 다시 넣지 않는다).
+맨 위에 쉬운 요약 상자(`results.report_agent.plainSummary`, B1)와 통일 면책 문장을 두고, 꼬리말도 같은 면책 문장이다.
+가격은 장마감 기준이다: 차트는 완성 일봉(`trading.market.completed_candles` — 장중 미완성 봉 없음)으로 그리고
+범례에 "YYYY-MM-DD 종가 기준"을, 시세 지표 아래에 `market_agent`의 종가·`asOf`("… 장마감 기준")를 적는다.
 
 만든 파일은 `PAPER_ROOT/reports/<id>.v<TEMPLATE_VERSION>.pdf`(Chrome이 없으면 `.html`)로 두고 다시 쓴다. 양식을 바꾸면
 TEMPLATE_VERSION을 올린다 — 이름이 달라져 예전 양식 파일(판 번호 없는 `<id>.pdf` = 1판 포함)을 쓰지 않고 새로 만들며, 그때 예전 파일을 지운다.
@@ -33,9 +35,12 @@ from .payloads import KST, conclusion
 
 log = logging.getLogger(__name__)
 
-SERVICE_NAME = "AI 리포트 데스크"
+SERVICE_NAME = "종이배"  # 화면 frontend/src/lib/plainText.ts SERVICE_NAME과 같다
+BRAND_NOTE = "AI 리포트 · 모의투자 연습용"  # 쪽 머리 오른쪽 작은 글씨
 DISCLAIMER = "이 리포트는 AI가 만든 참고 자료이며 투자 권유가 아닙니다. 모든 매매는 모의 계좌에서만 이뤄집니다."  # 통일 면책 문장
-TEMPLATE_VERSION = 2       # 양식 판. 양식을 바꾸면 올린다 (예전 판 파일은 다음 요청 때 새로 만든다). 2: 2026-10 쉬운 요약·장마감 기준
+# 양식 판. 양식을 바꾸면 올린다 (예전 판 파일은 다음 요청 때 새로 만든다).
+# 2: 2026-10 쉬운 요약·장마감 기준. 3: 2026-10-05 서비스 이름 종이배·로고 머리
+TEMPLATE_VERSION = 3
 NO_DATA = "자료 없음"
 NO_VALUE = "–"
 CHART_DAYS = 60            # 차트에 그리는 최근 일봉 수
@@ -53,8 +58,24 @@ AGENT_LABEL = {"market_agent": "시세", "fundamental_agent": "재무", "news_ag
                "report_agent": "작성", "review_agent": "검토", "risk_agent": "리스크"}
 RISE, FALL, ACCENT = "#d2342f", "#2a62d2", "#e08a00"   # 상승 빨강·하락 파랑 (국내 관례), 이동평균 주황
 
+# 종이배 로고 (frontend/src/components/BrandMark.tsx와 같은 모양, 48px 이상 판 — 돛의 접힌 선 포함). brand 타일 + 흰 배.
+# 늘이기·그림자·물결·화살표를 더하지 않고, 배를 노란색으로 칠하지 않는다 (docs/DECISIONS.md 15-7).
+LOGO_SVG = ('<svg class="logo" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">'
+            '<rect width="32" height="32" rx="8" fill="#3182F6"/>'
+            '<path fill="#FFFFFF" d="M4.8 17.29A0.8 0.8 0 0 1 5.43 16L9.31 16A0.5 0.5 0 0 0 9.74 15.75L14.71 7.3A1.5 1.5 0 0 1 '
+            '17.29 7.3L22.26 15.75A0.5 0.5 0 0 0 22.69 16L26.57 16A0.8 0.8 0 0 1 27.2 17.29L22.45 23.42A1.5 1.5 0 0 1 21.26 24'
+            'L10.74 24A1.5 1.5 0 0 1 9.55 23.42Z"/>'
+            '<path fill="#3182F6" d="M16.11 7.79A0.04 0.04 0 0 1 16.19 7.77L19.53 15.47A0.45 0.45 0 0 1 19.11 16.1L17.98 16.1'
+            'A0.45 0.45 0 0 1 17.53 15.73Z"/></svg>')
+
 CSS = """
 @page { size: A4; margin: 12mm }
+.brand { display: flex; align-items: center; justify-content: space-between; gap: 4mm; padding-bottom: 2mm;
+         margin-bottom: 4mm; border-bottom: 1px solid #333; }
+.brand .mark { display: flex; align-items: center; gap: 2.25mm; font-size: 14pt; font-weight: 800;
+               letter-spacing: -0.02em; color: #191f28; }
+.brand .logo { width: 9mm; height: 9mm; flex: none; }
+.brand .note { color: #555; font-size: 8pt; text-align: right; }
 * { -webkit-print-color-adjust: exact; print-color-adjust: exact; box-sizing: border-box; }
 body { font-family: "Noto Sans CJK KR", "Apple SD Gothic Neo", sans-serif; font-size: 9.5pt; line-height: 1.45;
        color: #1a1a1a; margin: 0; }
@@ -123,9 +144,15 @@ def _price(value: float | None, mkt: str) -> str:
     return f"{value:,.0f}" if mkt == "KR" else f"{value:,.2f}"
 
 
+def _brand_head() -> str:
+    """쪽 머리: 왼쪽 로고 9mm + 이름(800, 사이는 로고의 1/4), 오른쪽 작은 글씨, 아래 가는 선."""
+    return (f'<header class="brand"><span class="mark">{LOGO_SVG}<span>{SERVICE_NAME}</span></span>'
+            f'<span class="note">{BRAND_NOTE}</span></header>')
+
+
 def _page(title: str, body: str) -> str:
     return (f'<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>{_e(title)} · {SERVICE_NAME}</title>'
-            f"<style>{CSS}</style></head><body>{body}</body></html>")
+            f"<style>{CSS}</style></head><body>{_brand_head()}{body}</body></html>")
 
 
 def _as_of(value, mkt: str) -> str | None:
@@ -381,7 +408,7 @@ def build_report_html(report: Report, trace: list[TraceEvent], now: datetime | N
     opinion_html = (f'AI 의견 <span class="badge {_e(verdict) if verdict in VERDICT_LABEL else ""}">'
                     f"{_e(VERDICT_LABEL.get(verdict, verdict))}</span>" if verdict else "AI 의견 없음")
     head = (f"<h1>{_e(report.name)} <span class=\"meta\">{_e(report.symbol)} · {_e(report.market)}</span></h1>"
-            f'<p class="meta">{_e(when)} · {SERVICE_NAME} · {opinion_html}</p>'
+            f'<p class="meta">{_e(when)} · {opinion_html}</p>'  # 서비스 이름은 쪽 머리에 있다
             f'<p class="one">{_e(draft.get("oneLiner") or NO_DATA)}</p>')
     easy = (f'<div class="easy"><h2>쉬운 요약</h2>{_list(_texts(draft.get("plainSummary"), SUMMARY_ITEMS))}'
             f'<p class="notice">{DISCLAIMER}</p></div>')

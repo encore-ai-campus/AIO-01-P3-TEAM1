@@ -1,7 +1,7 @@
 """notify: 사용자별 웹 알림 + Discord 보낼 편지함 메시지 하나 (docs/DECISIONS.md 12-4).
 
 알림 문장 (B6): 웹 알림은 받는 사람의 주린이모드로 쉬운 문장·전문가 문장을 고르고, Discord는 쉬운 문장 + 숫자 한 줄 하나에
-머리말 "[AI 리포트 데스크 · 모의투자]". daily_move·thesis_check는 웹만.
+머리말 "[종이배 · 모의투자]"(서비스 이름 — 2026-10-05 바뀜, docs/DECISIONS.md 15-7). daily_move·thesis_check는 웹만.
 """
 import pytest
 from accounts.models import InvestorProfile
@@ -22,6 +22,11 @@ BOB_ID = "98765432109876543"
 
 def discord(user, user_id=None, enabled=True):
     NotificationSetting.objects.create(user=user, discord_user_id=user_id, discord_enabled=enabled)
+
+
+def test_header_is_service_name_and_says_mock():
+    """머리말 = 서비스 이름 + '모의투자' (팀 채널에서 실제 매매로 읽히지 않게). 이름은 화면 lib/plainText.ts SERVICE_NAME과 같다."""
+    assert H == "[종이배 · 모의투자]"
 
 
 def test_notify_one_user_makes_web_row_and_outbox_message(webhook, alice):

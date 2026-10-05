@@ -37,11 +37,21 @@ describe("로그인", () => {
     expect((await screen.findByRole("alert")).textContent).toBe("아이디 또는 비밀번호가 올바르지 않습니다.");
   });
 
-  it("로그인 화면에 서비스 이름과 모의 계좌 안내", async () => {
+  it("로그인 화면: 로고·이름·부제·풀이 한 줄, 아래 안심 줄은 '실제 주문은 나가지 않아요' (같은 말을 두 번 하지 않는다)", async () => {
     renderApp("/", null);
-    expect(await screen.findByRole("heading", { name: "AI 리포트 데스크" })).toBeTruthy();
-    expect(screen.getByText("실제 주문은 나가지 않아요. 모든 매매는 모의 계좌에서만 이뤄집니다.")).toBeTruthy();
-    expect(screen.queryByText(/팀 모의매매/)).toBeNull();
+    const name = await screen.findByRole("heading", { name: "종이배" });
+    const hero = name.parentElement!;
+    // 로고 56px: 48px 이상이라 돛의 접힌 선까지 (타일·배·접힌 선), 이름 옆 장식이라 화면 읽기에서 숨는다
+    const logo = hero.querySelector("svg")!;
+    expect([logo.getAttribute("width"), logo.getAttribute("aria-hidden"), logo.querySelectorAll("path").length]).toEqual(["56", "true", 2]);
+    expect(within(hero).getByText("종이 위에서 연습하는 AI 리포트 모의투자")).toBeTruthy();
+    expect(
+      within(hero).getByText("진짜 돈 대신 종이 위에서 — AI가 쓴 리포트를 읽고 따져 본 뒤, 가상 현금으로 모의투자를 연습해요."),
+    ).toBeTruthy();
+    expect(screen.getByText("실제 주문은 나가지 않아요.")).toBeTruthy();
+    // '가상 현금으로 모의투자'는 풀이 한 줄이 말한다 — 안심 줄이 '모의 계좌에서만'을 되풀이하지 않는다
+    expect(screen.queryByText(/모의 계좌에서만/)).toBeNull();
+    expect(screen.queryByText(/팀 모의매매|리포트 데스크/)).toBeNull(); // 옛 이름(D-5)이 다시 나오지 않는다
   });
 
   it("API가 401을 주면 로그인 화면으로 간다", async () => {
@@ -67,15 +77,9 @@ describe("홈 (전문가 보기 — 앨리스는 주린이모드 끔)", () => {
 
     const dash = await screen.findByRole("region", { name: "AI 교차검증 분석" });
     const cards = await within(dash).findAllByRole("article");
-    // BUY 먼저 → 최신순, 종목당 최신 분석 하나
-    expect(cards.map((c) => c.getAttribute("aria-label"))).toEqual([
-      "삼성전자 AI 분석",
-      "SK하이닉스 AI 분석",
-      "에코프로비엠 AI 분석",
-      "NVIDIA AI 분석",
-      "카카오 AI 분석",
-      "Apple AI 분석",
-    ]);
+    // BUY 먼저 → 최신순, 종목당 최신 분석 하나. 홈은 4장만 (나머지는 리포트 탭의 '교차검증 분석' 묶음)
+    expect(cards.map((c) => c.getAttribute("aria-label"))).toEqual(["삼성전자 AI 분석", "SK하이닉스 AI 분석", "에코프로비엠 AI 분석", "NVIDIA AI 분석"]);
+    expect(within(dash).getByRole("link", { name: /교차검증 분석 전체 보기/ }).getAttribute("href")).toBe("/reports?list=analyses");
     const samsung = cards[0];
     expect(within(samsung).getByText("BUY")).toBeTruthy();
     expect(within(samsung).getByText("진입")).toBeTruthy();
@@ -109,7 +113,7 @@ describe("종목 상세 주문", () => {
     db.resetDb({ jitter: false, jobPolls: 1, marketOpen: { KR: false, US: false } });
     renderApp("/stocks/005380");
     const panel = await screen.findByRole("region", { name: "주문" });
-    expect(await within(panel).findByText("장이 닫혀 있어 다음 정규장 시작에 예약됩니다.")).toBeTruthy();
+    expect(await within(panel).findByText("장이 닫혀 있어 다음 정규장 시작에 예약돼요.")).toBeTruthy();
     fireEvent.change(within(panel).getByLabelText("수량"), { target: { value: "2" } });
     fireEvent.click(within(panel).getByRole("button", { name: "매수 예약하기" }));
     await waitFor(() => expect(toast().textContent).toContain("다음 정규장 시작에 예약했습니다"));
@@ -123,6 +127,13 @@ describe("종목 상세 주문", () => {
     await waitFor(() => expect((within(panel).getByLabelText("목표가") as HTMLInputElement).value).toBe(String(best.targetPrice)));
     expect((within(panel).getByLabelText("손절가") as HTMLInputElement).value).toBe(String(best.stopPrice));
     expect((within(panel).getByLabelText("보유 기한") as HTMLInputElement).value).toBe(String(best.holdingDays));
+    // 채운 칸은 시트·패널 첫 화면 밖이라, 무엇을 채웠는지 폼 맨 위에서 먼저 알린다
+    const won = (n: number) => `${Math.round(n).toLocaleString("ko-KR")}원`;
+    expect(within(panel).getByText("AI 분석 #2의 가격을 채웠어요")).toBeTruthy();
+    expect(within(panel).getByText(`목표가 ${won(best.targetPrice)} · 손절가 ${won(best.stopPrice)} · 보유 기한 ${best.holdingDays}일`)).toBeTruthy();
+    // 장기 보유로 바꾸면 (목표가·손절가를 쓰지 않으므로) 알림도 거둔다
+    fireEvent.click(within(within(panel).getByRole("group", { name: "보유 방식" })).getByRole("button", { name: "장기 보유" }));
+    expect(within(panel).queryByText("AI 분석 #2의 가격을 채웠어요")).toBeNull();
   });
 
   it("주문이 거절되면 서버 사유를 보여 준다", async () => {
@@ -147,7 +158,7 @@ describe("종목 상세 주문", () => {
   it("AI 교차검증 분석을 요청하면 작업이 끝난 뒤 분석 상세로 간다", async () => {
     renderApp("/stocks/005380");
     const btn = await screen.findByRole("button", { name: "AI 교차검증 분석" }); // D-1 보조 버튼 이름
-    await screen.findByText(/오늘 남은 횟수 4회/);
+    await screen.findByText(/오늘 4번 더 분석할 수 있어요/);
     fireEvent.click(btn);
     // F-trade: 분석 상세 제목 "{name} AI 분석" → "{name} AI 교차검증 분석"
     expect(await screen.findByRole("heading", { name: "현대차 AI 교차검증 분석" }, { timeout: 3000 })).toBeTruthy();
@@ -170,13 +181,16 @@ describe("마이", () => {
     expect(await within(mine).findByText(`${sign}${(acc.profitRate * 100).toFixed(2)}%`)).toBeTruthy();
     expect(within(mine).getByText("투자금액")).toBeTruthy();
 
-    const box = screen.getByRole("checkbox", { name: "내 정보 공개" }) as HTMLInputElement;
+    // 켬·끔 설정은 스위치 (my-06) — 랭킹 바로 아래에 있다 (my-02)
+    const box = within(screen.getByRole("region", { name: "랭킹" })).getByRole("switch", { name: "내 정보 공개" }) as HTMLInputElement;
     expect(box.checked).toBe(false);
+    box.focus();
     fireEvent.click(box);
-    expect((screen.getByRole("checkbox", { name: "내 정보 공개" }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("switch", { name: "내 정보 공개" }) as HTMLInputElement).checked).toBe(true);
     await waitFor(() => expect(db.sessionUser()?.isPublic).toBe(true));
     expect(patches).toEqual([{ isPublic: true }]);
-    expect(await screen.findByText("랭킹보드에 수익률을 공개합니다.")).toBeTruthy();
+    await waitFor(() => expect(toast().textContent).toContain("랭킹에 내 수익률을 공개했어요."));
+    expect(document.activeElement).toBe(box); // 저장 뒤에도 같은 스위치에 포커스가 남는다 (다시 그리지 않는다)
     server.events.removeAllListeners();
   });
 
@@ -211,10 +225,64 @@ describe("랭킹", () => {
     expect(screen.getByRole("button", { name: "뒤로 가기" })).toBeTruthy();
   });
 
-  it("내가 비공개면 공개 안내를 보인다", async () => {
+  it("내가 비공개면 그 자리에서 공개를 켤 수 있고, 켜면 내 줄이 목록에 붙는다 (마이까지 가지 않는다)", async () => {
     renderApp("/ranking", "carol");
-    expect(await screen.findByText("마이에서 공개를 켜면 랭킹에 나옵니다")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "마이로 가기" })).toBeTruthy();
+    expect(await screen.findByText("아직 랭킹에 내가 없어요")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "마이로 가기" })).toBeNull();
+    expect(within(screen.getByRole("list", { name: "랭킹 목록" })).getAllByRole("listitem")).toHaveLength(4);
+    const sw = screen.getByRole("switch", { name: "랭킹에 내 수익률 공개" }) as HTMLInputElement;
+    expect(sw.checked).toBe(false);
+    fireEvent.click(sw);
+    await waitFor(() => expect(db.sessionUser()?.isPublic).toBe(true));
+    const rows = await waitFor(() => {
+      const r = within(screen.getByRole("list", { name: "랭킹 목록" })).getAllByRole("listitem");
+      expect(r).toHaveLength(5);
+      return r;
+    });
+    const mine = rows.find((r) => r.getAttribute("aria-current") === "true")!;
+    expect(within(mine).getByText("캐롤")).toBeTruthy();
+    expect(screen.getByText(`${db.ranking(3).me.rank}위`)).toBeTruthy(); // 위 카드는 내 순위로 바뀐다
+    expect(screen.getByRole("link", { name: /공개 설정은 마이에서/ }).getAttribute("href")).toBe("/my#public");
+  });
+
+  it("순위 원은 1~3위 메달과 4위부터 숫자가 같은 폭 칸에 (닉네임 시작이 맞는다)", async () => {
+    renderApp("/ranking");
+    const rows = within(await screen.findByRole("list", { name: "랭킹 목록" })).getAllByRole("listitem");
+    const medals = rows.map((r) => r.firstElementChild!.className);
+    expect(medals.every((c) => c.includes("size-9"))).toBe(true);
+    expect(medals[0]).toContain("bg-medal-gold");
+    expect(medals[3]).not.toContain("bg-medal");
+  });
+
+  // 내 순위로 포커스를 옮기고 그 칸을 페이드하는 것은 이 화면에서 공개를 켠 때뿐이다 (my-r1).
+  // 캐시 없이 처음 받은 공개 상태·폴링으로 받은 다른 곳의 변경은 사용자가 여기서 바꾼 것이 아니다
+  const myRankBox = async () => (await screen.findByText("내 순위")).closest("dl")!;
+
+  it("공개한 팀원이 캐시 없이 랭킹을 열면(새로고침·주소 직접 입력) 포커스를 내 순위로 옮기지 않고, 그 칸만 따로 페이드하지 않는다", async () => {
+    renderApp("/ranking");
+    const box = await myRankBox();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(document.activeElement).not.toBe(box);
+    expect(box.parentElement!.className).not.toContain("reveal-fade");
+  });
+
+  it("비공개 팀원이 이 화면에서 공개를 켜면 사라진 스위치 대신 새로 생긴 내 순위로 포커스가 간다", async () => {
+    renderApp("/ranking", "carol");
+    fireEvent.click(await screen.findByRole("switch", { name: "랭킹에 내 수익률 공개" }));
+    const box = await myRankBox();
+    await waitFor(() => expect(document.activeElement).toBe(box));
+    expect(box.parentElement!.className).toContain("reveal-fade");
+  });
+
+  it("보는 동안 다른 곳(마이·다른 기기)에서 공개를 켜 다시 받기로 바뀌면 포커스를 옮기지 않는다", async () => {
+    const { client } = renderApp("/ranking", "carol");
+    await screen.findByText("아직 랭킹에 내가 없어요");
+    db.updateProfile(db.sessionUser()!, { isPublic: true });
+    void client.refetchQueries({ queryKey: ["ranking"] });
+    const box = await myRankBox();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(document.activeElement).not.toBe(box);
+    expect(box.parentElement!.className).not.toContain("reveal-fade");
   });
 });
 
@@ -236,7 +304,48 @@ describe("알림 화면", () => {
     const labels = ["리포트 완성", "리포트 만들지 못함", "오늘의 내 종목 뉴스", "펀더멘털 점검", "알림"]; // 모르는 종류는 "알림"
     expect(rows).toHaveLength(labels.length);
     labels.forEach((label, i) => expect(within(rows[i]).getByText(label)).toBeTruthy());
-    expect(within(list).getByRole("button", { name: "안 읽음: 삼성전자 리포트가 완성됐어요" })).toBeTruthy();
+    // 화면을 옮기는 알림은 링크(새 탭에서 열기 가능), 링크가 없는 알림은 읽음 처리 버튼. 이름은 '안 읽음: 제목', 종류·본문·시각은 설명
+    const link = within(list).getByRole("link", { name: "안 읽음: 삼성전자 리포트가 완성됐어요" });
+    expect(link.getAttribute("href")).toBe("/reports/2");
+    expect(link.getAttribute("aria-describedby")?.split(" ").map((id) => document.getElementById(id)?.textContent)).toEqual([
+      "리포트 완성",
+      "본문",
+      "방금",
+    ]);
+    expect(within(list).getByRole("button", { name: "안 읽음: 모르는 종류" })).toBeTruthy();
+  });
+
+  it("알림이 없으면 무엇이 쌓이는지와 다음 할 일(리포트 만들기·알림 설정)", async () => {
+    server.use(http.get("*/api/notifications", () => HttpResponse.json({ count: 0, results: [], unreadCount: 0 })));
+    renderApp("/notifications");
+    expect(await screen.findByText("아직 알림이 없어요")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "AI 리포트 만들기" }).getAttribute("href")).toBe("/reports");
+    expect(screen.queryByRole("button", { name: "모두 읽음" })).toBeNull();
+    // 머리의 톱니(알림 설정)는 알림이 없어도 늘 있다 — 마이의 알림 설정 카드 바로 앞으로 보낸다
+    expect(screen.getAllByRole("link", { name: "알림 설정" }).map((a) => a.getAttribute("href"))).toEqual([
+      "/my#notification-settings",
+      "/my#notification-settings",
+    ]);
+  });
+
+  it("링크 없는 알림을 읽으면 같은 버튼이 남아 포커스를 잃지 않고, 이름에서 '안 읽음'만 빠진다", async () => {
+    const at = new Date().toISOString();
+    let results = [{ id: 7, kind: "system", title: "점검 안내", body: "본문", link: null, createdAt: at, readAt: null as string | null }];
+    server.use(
+      http.get("*/api/notifications", () =>
+        HttpResponse.json({ count: results.length, results, unreadCount: results.filter((n) => !n.readAt).length }),
+      ),
+      http.post("*/api/notifications/read", () => {
+        results = results.map((n) => ({ ...n, readAt: at }));
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    renderApp("/notifications");
+    const row = await screen.findByRole("button", { name: "안 읽음: 점검 안내" });
+    row.focus();
+    fireEvent.click(row);
+    await waitFor(() => expect(screen.getByRole("button", { name: "점검 안내" })).toBe(row));
+    expect(document.activeElement).toBe(row);
   });
 });
 

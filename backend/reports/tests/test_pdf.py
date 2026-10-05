@@ -1,7 +1,7 @@
 """AI 리포트 A4 PDF: HTML 구성(종목 한 쪽·선별 표지)과 PDF API. 실제 Chrome·증권사는 부르지 않는다 (가짜 render·가짜 완성 일봉).
 
-양식(docs/DECISIONS.md 14-7 "PDF"): 이름 "AI 리포트 데스크", 맨 위 쉬운 요약 상자 + 통일 면책 문장, 완성 일봉 차트 + "YYYY-MM-DD 종가 기준",
-시세 지표의 장마감 기준 시각, 꼬리말 통일 면책 문장, 양식 판 번호가 붙은 파일 이름.
+양식(docs/DECISIONS.md 14-7 "PDF", 15-7): 쪽 머리에 로고 + 이름 "종이배"(2026-10-05 바뀜, 양식 3판), 맨 위 쉬운 요약 상자 + 통일 면책 문장,
+완성 일봉 차트 + "YYYY-MM-DD 종가 기준", 시세 지표의 장마감 기준 시각, 꼬리말 통일 면책 문장, 양식 판 번호가 붙은 파일 이름.
 """
 import re
 import subprocess
@@ -110,10 +110,16 @@ def test_report_html_has_every_section(user, candles):
     report, trace = full_report(user)
     html = pdf.build_report_html(report, trace)
     assert "@page { size: A4; margin: 12mm }" in html and '"Noto Sans CJK KR", "Apple SD Gothic Neo", sans-serif' in html
-    # ① 머리: 서비스 이름, AI 의견 배지(권유가 아닌 말), 한 줄 요약
-    assert "<title>삼성전자 AI 리포트 · AI 리포트 데스크</title>" in html
+    # ⓪ 쪽 머리: 로고(48px 이상 판 — 타일·배·돛의 접힌 선) + 이름, 오른쪽 작은 글씨, 맨 위. 면책 문장·날짜는 되풀이하지 않는다
+    assert html.index('<header class="brand">') < html.index("<h1>")
+    brand = html.split('<header class="brand">')[1].split("</header>")[0]
+    assert '<svg class="logo"' in brand and brand.count("<rect") == 1 and brand.count("<path") == 2
+    assert f"<span>{pdf.SERVICE_NAME}</span>" in brand and pdf.BRAND_NOTE in brand
+    assert "투자 권유" not in brand and "2026-10-04" not in brand
+    # ① 머리: 서비스 이름(탭 제목), AI 의견 배지(권유가 아닌 말), 한 줄 요약. 이름은 쪽 머리에 있어 날짜 줄에 다시 쓰지 않는다
+    assert pdf.SERVICE_NAME == "종이배" and "<title>삼성전자 AI 리포트 · 종이배</title>" in html
     assert "삼성전자" in html and "005930" in html and "2026-10-04" in html
-    assert "2026-10-04 · AI 리포트 데스크 · AI 의견" in html and ">긍정적<" in html and ">매수<" not in html
+    assert "2026-10-04 · AI 의견" in html and ">긍정적<" in html and ">매수<" not in html
     assert "단기 반등 구간, 분할 접근" in html
     # ①-2 맨 위 쉬운 요약 상자 (plainSummary 세 줄) + 통일 면책 문장 — 차트보다 먼저
     easy = html.split('<div class="easy">')[1].split("</div>")[0]
@@ -137,8 +143,9 @@ def test_report_html_has_every_section(user, candles):
     assert "뉴스 Agent — model-b (demo)" in html and "작성 Agent — model-c" in html
     assert "장애 1건 · 자동 복구 1건" in html and "복구 시간 합 3.0초" in html
     assert "뉴스 Agent: timeout 실패 1회 (model-a → model-b) → model-b로 복구" in html
-    assert "비용 $0.0345" in html and "KST · AI 리포트 데스크" in html
+    assert "비용 $0.0345" in html and "KST · 종이배" in html
     assert html.count(pdf.DISCLAIMER) == 2 and "AI는 제안만 합니다" not in html  # 위 상자와 꼬리말, 통일 문장 하나
+    assert html.count("투자 권유가 아닙니다") == 2  # 쪽 머리가 면책을 한 번 더 말하지 않는다
     assert html.index(pdf.DISCLAIMER, html.index('<div class="foot">')) > 0
     assert forbidden_phrases(text_of(html)) == []
 
@@ -150,7 +157,8 @@ def test_empty_results_report_still_renders(user, monkeypatch):
     monkeypatch.setattr(market, "candles", no_live_candles)
     report = make_report(user, status=Report.COMPLETED)
     html = pdf.build_report_html(report, [])
-    assert "시세 자료 없음" in html and "<svg" not in html and "종가 기준 ·" not in html
+    assert "시세 자료 없음" in html and '<svg class="chart"' not in html and "종가 기준 ·" not in html
+    assert '<svg class="logo"' in html  # 쪽 머리 로고는 자료와 상관없이 늘 있다
     assert html.count("자료 없음") >= 5 and "AI 의견 없음" in html and "Agent 실행 기록 없음" in html
     easy = html.split('<div class="easy">')[1].split("</div>")[0]
     assert '<p class="empty">자료 없음</p>' in easy and pdf.DISCLAIMER in easy  # 쉬운 요약이 없어도 상자와 면책 문장
@@ -202,7 +210,8 @@ def test_chart_handles_us_market_and_missing_targets(user, monkeypatch):
     monkeypatch.setattr(market, "candles", no_live_candles)
     report = make_report(user, "AAPL", status=Report.COMPLETED, results={"report_agent": {"targets": {"entry": None}}})
     html = pdf.build_report_html(report, [])
-    assert "<svg" in html and "진입" not in html.split("</svg>")[0]  # 값이 없는 가로선은 그리지 않는다
+    chart = html.split('<svg class="chart"')[1].split("</svg>")[0]
+    assert "<rect" in chart and "진입" not in chart  # 값이 없는 가로선은 그리지 않는다
     assert "2026-07-30 종가 기준" in html
 
 
@@ -232,8 +241,8 @@ def test_screening_cover(user):
     running = make_report(user, "AAPL", status=Report.RUNNING,
                           results={"report_agent": {"verdict": "avoid", "oneLiner": "검토 전 초안"}})
     html = pdf.build_screening_html(SCREENING, [done, running])
-    assert "<title>선별 요약 · KR · AI 리포트 데스크</title>" in html
-    assert "선별 요약 · KR" in html and "<svg" in html and html.count("<rect") >= 4
+    assert "<title>선별 요약 · KR · 종이배</title>" in html and '<header class="brand">' in html
+    assert "선별 요약 · KR" in html and html.count('<svg class="chart"') == 2 and html.count("<rect") >= 4
     assert "삼성전자" in html and "82.5점" in html and "1위 · 9,500억" in html
     assert "RSI 과열 — 2종목" in html and "종목 유형 ETF — 1종목" in html
     assert "&lt;b&gt;추세 약함&lt;/b&gt;" in html and "<b>추세" not in html
@@ -336,12 +345,14 @@ def test_pdf_of_older_template_is_made_again(api, user, files, candles, monkeypa
     folder.mkdir()
     (folder / f"{report.id}.pdf").write_bytes(b"%PDF-old")
     (folder / f"{report.id}.html").write_text("old", encoding="utf-8")
+    (folder / f"{report.id}.v2.pdf").write_bytes(b"%PDF-v2")  # 2판 (옛 이름, 로고 없음)
     (folder / f"{report.id + 1}.pdf").write_bytes(b"%PDF-other")
     response = api.get(url(report))
     assert response.status_code == 200 and b"".join(response.streaming_content) == b"%PDF-fake"
-    assert len(calls) == 1 and "AI 리포트 데스크" in calls[0][0]
+    assert len(calls) == 1 and '<header class="brand">' in calls[0][0] and "리포트 데스크" not in calls[0][0]  # 옛 이름(D-5)
     assert sorted(p.name for p in folder.iterdir()) == sorted([pdf_name(report), f"{report.id + 1}.pdf"])
 
 
 def test_file_stem():
     assert pdf._file_stem(7, 1) == "7" and pdf._file_stem(7, 2) == "7.v2"
+    assert pdf.TEMPLATE_VERSION == 3 and pdf._file_stem(7, pdf.TEMPLATE_VERSION) == "7.v3"  # 3판: 이름 종이배·로고 머리

@@ -2,8 +2,10 @@
 import { fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
+import { http } from "msw";
 import { describe, expect, it, vi } from "vitest";
 import indexHtml from "../index.html?raw";
+import faviconSvg from "../public/favicon.svg?raw";
 import robotsTxt from "../public/robots.txt?raw";
 import { Providers } from "./App";
 import { useDayPlans, useDayPreview, useDayReview, useDayStatus, useMinuteCandles } from "./api/day";
@@ -19,6 +21,9 @@ import * as db from "./mocks/db";
 import { server } from "./mocks/server";
 import { renderApp } from "./test/render";
 import { freezeTime } from "./test/time";
+
+/** index.html이 거는 아이콘 파일 (불러오지 않고 있는지만 본다). */
+const PUBLIC_ICONS = import.meta.glob("../public/*.{svg,png}");
 
 /** 라우터 + 쿼리 + 로그인 상태로 훅·조각을 그린다. */
 function wrapper(path = "/", user: string | null = "alice") {
@@ -48,7 +53,12 @@ describe("화면 틀", () => {
     // 왼쪽 메뉴: 같은 순서 + 알림, 서비스 이름
     const side = screen.getByRole("navigation", { name: "주 메뉴" });
     expect(within(side).getAllByRole("link").map((a) => a.textContent?.replace(/\d+$/, ""))).toEqual(["홈", "종목", "리포트", "모의투자", "알림", "마이"]);
-    expect(screen.getByRole("link", { name: /AI 리포트 데스크/ }).getAttribute("href")).toBe("/");
+    // 브랜드(홈 링크): 로고 32px(장식, 접힌 선 없는 판) + 이름 — 옛 'AI' 글자 마크가 남지 않는다
+    const brand = screen.getByRole("link", { name: "종이배" });
+    expect(brand.getAttribute("href")).toBe("/");
+    expect(brand.textContent).toBe("종이배");
+    const logo = brand.querySelector("svg")!;
+    expect([logo.getAttribute("width"), logo.getAttribute("aria-hidden"), logo.querySelectorAll("path").length]).toEqual(["32", "true", 1]);
   });
 
   it("만드는 중인 내 리포트가 있으면 '리포트' 탭(하단·왼쪽)에 점이 붙고, 링크 설명으로도 알린다", async () => {
@@ -95,6 +105,32 @@ describe("화면 틀", () => {
     await waitFor(() => expect(screen.queryByRole("navigation", { name: "하단 탭" })).toBeNull());
   });
 
+  it("탭은 주소가 아니라 그린 구매 바를 따른다: 없는 종목(404)은 바가 없어 전문가 보기여도 하단 탭이 그대로다", async () => {
+    renderApp("/stocks/NOPE999"); // 앨리스: 전문가 보기
+    expect(await screen.findByText("종목을 찾을 수 없어요")).toBeTruthy();
+    const tabs = screen.getByRole("navigation", { name: "하단 탭" }); // 숨기면(aria-hidden) 찾지 못한다
+    expect(within(tabs).getByRole("link", { name: "종목" }).getAttribute("aria-current")).toBe("page");
+    expect(document.documentElement.getAttribute("data-shell")).toBe("tabs");
+    expect(screen.queryByRole("button", { name: /구매하기|주문/ })).toBeNull();
+  });
+
+  it("전문가 보기 첫 로딩: 뼈대도 하단 구매 바 자리(누를 수 없음)를 그려 탭이 내려가 있다 — 받은 뒤 탭이 올라왔다 다시 내려가지 않게", async () => {
+    // 종목 응답을 붙잡아 두었다가 확인한 뒤 놓는다 (시간에 기대지 않게). 놓으면 원래 가짜 API가 답한다
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    server.use(http.get("*/api/stocks/:symbol", async () => void (await held)));
+    renderApp("/stocks/005380");
+    expect(await screen.findByRole("group", { name: "불러오는 중" })).toBeTruthy();
+    const bar = screen.getByRole("button", { name: "주문" }) as HTMLButtonElement;
+    expect([bar.disabled, bar.getAttribute("aria-busy")]).toEqual([true, "true"]);
+    expect(screen.queryByRole("navigation", { name: "하단 탭" })).toBeNull();
+    expect(document.documentElement.getAttribute("data-shell")).toBe("order");
+    release();
+    expect(await screen.findByRole("region", { name: "시세" })).toBeTruthy();
+    expect(screen.queryByRole("navigation", { name: "하단 탭" })).toBeNull();
+    expect(document.documentElement.getAttribute("data-shell")).toBe("order");
+  });
+
   it("본문 아래 출처 줄은 MarketStatus.quoteProvider를 쓴다", async () => {
     renderApp("/");
     const footer = await screen.findByLabelText("자료 출처");
@@ -112,8 +148,16 @@ describe("화면 틀", () => {
     expect(await screen.findByRole("heading", { name: "단타 복기" })).toBeTruthy();
   });
 
-  it("브라우저 제목과 검색엔진 색인 막기", () => {
-    expect(indexHtml).toContain("<title>AI 리포트 데스크</title>");
+  it("브라우저 제목·아이콘(파비콘·홈 화면 아이콘)과 검색엔진 색인 막기", () => {
+    expect(indexHtml).toContain("<title>종이배</title>");
+    expect(indexHtml).toContain('<link rel="icon" href="/favicon.svg" type="image/svg+xml" />');
+    expect(indexHtml).toContain('<link rel="apple-touch-icon" href="/apple-touch-icon.png" />');
+    expect(indexHtml).toContain('<meta name="apple-mobile-web-app-title" content="종이배" />');
+    expect(Object.keys(PUBLIC_ICONS).sort()).toEqual(["../public/apple-touch-icon.png", "../public/favicon.svg"]);
+    // 파비콘은 16px 전용 종이배 (돛의 접힌 선 없음 — 한 도형). 옛 'AI' 선 글자가 아니다
+    expect(faviconSvg).toContain("종이배");
+    expect(faviconSvg.match(/<path/g)).toHaveLength(1);
+    expect(faviconSvg).not.toContain("stroke");
     expect(indexHtml).toContain('<meta name="robots" content="noindex,nofollow" />');
     expect(robotsTxt.trim()).toBe("User-agent: *\nDisallow: /");
   });

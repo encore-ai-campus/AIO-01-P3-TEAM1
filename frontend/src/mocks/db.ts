@@ -95,7 +95,7 @@ export const INITIAL_CAPITAL = 10_000_000;
 export const USD_KRW = 1_380;
 const QUOTA_LIMIT = 5;
 // 저장 형식이 바뀌면 숫자를 올린다 (예전 상태는 버리고 처음부터)
-const STORAGE_KEY = "paper-mock-db-v2";
+const STORAGE_KEY = "paper-mock-db-v3"; // v3: 예시 NAVER 계획이 실행 준비 흐름을 보이도록 바뀜 (2026-10-05)
 
 export class MockError extends Error {
   readonly status: number;
@@ -829,7 +829,12 @@ export function listReservations(userId: number): Reservation[] {
 export function deleteReservation(userId: number, id: number) {
   const i = state.reservations.findIndex((r) => r.id === id && r.userId === userId);
   if (i < 0) throw new MockError(404, "예약을 찾을 수 없습니다.");
+  const removed = state.reservations[i];
   state.reservations.splice(i, 1);
+  // 서버와 같게: 계획의 전량 매도 예약을 지우면 그 계획은 다시 중단을 받는다 (backend/autotrade/executor.py cancel — 매도 예약이 없으면 다시 매도 요청)
+  if (removed.kind === "SELL") {
+    for (const p of state.plans) if (p.orderId === removed.orderId && p.status === "holding") p.exitRequested = false;
+  }
 }
 
 /** 엔진 흉내: 정규장이면 예약 실행, 지정가 체결, 목표·손절 청산 (실제 엔진은 2회 연속 확인). 모두 장중 확인 가격. */

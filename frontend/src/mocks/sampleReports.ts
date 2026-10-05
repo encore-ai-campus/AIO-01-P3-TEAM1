@@ -28,12 +28,16 @@ const plus = (iso: string, ms: number) => {
   return `${new Date(t + 9 * 3_600_000).toISOString().slice(0, 19)}+09:00`;
 };
 
-/** 예시 리포트의 목표·손절 (buy만). 진입은 종가보다 1% 아래, 목표 +10%, 손절 −4% (호가 단위로 내림). */
+/**
+ * 예시 리포트의 목표·손절 (buy만). 진입은 종가보다 1% 아래, 목표 +12%, 손절 −4% (호가 단위로 내림).
+ * 목표 +12%는 비용·손절 미끄러짐을 넣은 손익비가 리스크 엔진 기준을 넘게 하려고다 (+10%면 NAVER가 약 1.86으로 늘 막혀,
+ * 가짜 API로 '실행 준비' 정상 흐름을 볼 수 없었다). 막힌 경우는 테스트가 미리 보기를 바꿔 본다.
+ */
 export function sampleTargets(stock: MockStock): SampleTargets {
   const entry = floorTick(stock.close * 0.99, stock.currency);
   return {
     entry,
-    target: floorTick(entry * 1.1, stock.currency),
+    target: floorTick(entry * 1.12, stock.currency),
     stop: floorTick(entry * 0.96, stock.currency),
     holdingDays: 10,
     probability: 0.56,
@@ -129,7 +133,16 @@ export function finishSample(r: ReportDetail, stock: MockStock, kind: SampleKind
         ? ["좋은 소식과 걱정되는 소식이 함께 있어요.", "실적은 나쁘지 않지만 앞으로의 흐름이 아직 분명하지 않아요.", "조금 더 지켜본 뒤에 다시 판단하는 편이 낫다고 봤어요."]
         : ["실적이 줄어드는 흐름이 보였어요.", "업황에 대한 걱정이 아직 남아 있어요.", "가격이 더 내려갈 위험이 있다고 봤어요."];
   const reasons = ["반기 매출·영업이익이 전년보다 늘었다", "20일 이동평균선 위에서 거래대금이 늘었다", "외국인 순매수가 이어졌다"];
-  const risks = ["업황 지표가 나빠지면 실적 기대가 줄 수 있다", "환율이 급하게 움직이면 수급이 바뀔 수 있다", "손절 가격 아래로 내려가면 이 의견을 다시 봐야 한다"];
+  // 마지막 위험은 프롬프트가 요구하는 "이 의견이 틀리는 경우" 한 줄 ("○○원 아래로 내려가거나 ○○이 나오면 의견을 다시 봐야 해요",
+  // docs/tasks/02-worker.md T2-7). 긍정적은 손절 가격, 지켜보기는 지지선, 부정적은 저항선(오르면 틀린다) — 손절 가격은 긍정적에만 있다
+  const won = (p: number) => (stock.currency === "USD" ? `$${p.toFixed(2)}` : `${p.toLocaleString("ko-KR")}원`);
+  const whenWrong =
+    kind === "buy" && t
+      ? `${won(t.stop)} 아래로 내려가거나 다음 실적 발표가 기대보다 나쁘면 의견을 다시 봐야 해요`
+      : kind === "hold"
+        ? `${won(market.support)} 아래로 내려가거나 업황 지표가 바뀌면 의견을 다시 봐야 해요`
+        : `${won(market.resistance)} 위로 올라가거나 실적이 다시 늘면 의견을 다시 봐야 해요`;
+  const risks = ["업황 지표가 나빠지면 실적 기대가 줄 수 있다", "환율이 급하게 움직이면 수급이 바뀔 수 있다", whenWrong];
   const markdown = [
     `# ${stock.name} 종목 리포트`,
     "",

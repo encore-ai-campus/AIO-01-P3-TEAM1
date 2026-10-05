@@ -1,38 +1,177 @@
 @import "tailwindcss";
 @import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
 
-/* 토스증권 웹을 참고한 색. 상승 빨강, 하락 파랑 (한국 관례) */
+/* dark: 변형은 예외에만 쓴다 (코드 블록·신호등 몸체 등). 대부분의 색은 아래 토큰을 다크 값으로 덮어써서 바뀐다 */
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
 @theme {
   --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, "Apple SD Gothic Neo",
     "Noto Sans KR", "Malgun Gothic", sans-serif;
+}
 
-  --color-bg: #f2f4f6;
-  --color-card: #ffffff;
-  --color-ink: #191f28;
-  --color-sub: #4e5968;
-  --color-mute: #8b95a1;
-  --color-line: #e5e8eb;
-  --color-fill: #f2f4f6;
-  --color-brand: #3182f6;
-  --color-brand-dark: #1b64da;
-  --color-brand-soft: #e8f3ff;
-  --color-up: #f04452;
+/*
+ * 색 토큰 (라이트). 토스증권 웹을 참고한 색. 상승 빨강, 하락 파랑 (한국 관례).
+ * static: 쓰지 않은 변수도 내보낸다 — 원시 CSS(var())와 차트(lib/chartTheme.ts, getComputedStyle)가 읽는다.
+ * 다크 값은 아래 @layer theme의 :root[data-theme="dark"]에서 같은 이름을 덮어쓴다. 차트가 읽으므로 hex·rgb로만 쓴다.
+ * TSX에는 #hex·rgb()를 쓰지 않는다 (colors.test.ts가 검사한다).
+ */
+@theme static {
+  --color-bg: #f2f4f6; /* 화면 바탕 */
+  --color-card: #ffffff; /* 카드·시트·왼쪽 메뉴 */
+  --color-fill: #f2f4f6; /* 카드 안 입력칸·작은 상자·트랙 */
+  --color-line: #e5e8eb; /* 구분선·테두리·hover */
+  --color-ink: #191f28; /* 본문 글자, 반전 표면(툴팁·토스트·선택 칩) 바탕 */
+  --color-sub: #4e5968; /* 보조 글자 */
+  --color-mute: #646e7a; /* 흐린 글자 (흰 카드 5.18:1·바탕 4.70:1, AA) */
+  --color-mute-weak: #8b95a1; /* 아이콘·자리표시자·장식. 글자 문장에는 쓰지 않는다 */
+  --color-brand: #3182f6; /* 주 버튼·링크 */
+  --color-brand-dark: #1b64da; /* 버튼 hover·눌림 배경 전용 */
+  --color-brand-ink: #1b64da; /* 파란 글자 (연파랑 위 글자 등) */
+  --color-brand-soft: #e8f3ff; /* 연파랑 바탕 */
+  --color-up: #f04452; /* 상승·매수 */
+  --color-up-dark: #d93a47; /* bg-up 버튼 hover */
   --color-up-soft: #ffeeee;
-  --color-down: #3182f6;
+  --color-up-ink: #c42b39; /* 빨강 글자: 오류·실패 문장, 연빨강 위 작은 칩 글자 (4.99:1). 가격 상승 숫자는 그대로 text-up */
+  --color-down: #3182f6; /* 하락·매도 */
   --color-down-soft: #e8f3ff;
-  --color-warn: #ff9f00;
+  --color-down-ink: #1b64da; /* 파랑 글자: 연파랑 위 작은 칩 글자 (4.82:1). 가격 하락 숫자는 그대로 text-down */
+  --color-warn: #ff9f00; /* 경고 아이콘·막대 */
   --color-warn-soft: #fff6e5;
+  --color-warn-ink: #9a5b00; /* 경고 글자 */
   --color-ok: #03a463;
   --color-ok-soft: #e6f8f0;
+  --color-ok-ink: #037a4a; /* 초록 글자 (흰 5.4:1·연초록 4.9:1). 아이콘·점·막대는 그대로 ok */
+  --color-on-ink: #ffffff; /* bg-ink 반전 표면 위 글자 */
+  --color-on-brand: #ffffff; /* brand 바탕 위 그림 — 로고의 흰 배 (두 테마 모두 흰색이라 다크 덮어쓰기 없음, components/BrandMark.tsx) */
+  --color-on-warn: #191f28; /* bg-warn 위 글자 */
+  --color-ok-inverse: #03a463; /* 반전 표면(bg-ink) 위 성공 아이콘 */
+  --color-up-inverse: #f04452; /* 반전 표면(bg-ink) 위 오류 아이콘 */
+  --color-thumb: #ffffff; /* Segmented 선택 표시·눌린 칸 */
+  --color-knob: #ffffff; /* 스위치 손잡이 (두 테마 모두 흰색 — bg-white 대신 bg-knob) */
+  --color-scrim: rgb(0 0 0 / 0.4); /* 시트·대화상자 배경막 */
+  --color-flash-up: rgb(240 68 82 / 0.18); /* 값이 오를 때 잠깐 깜빡이는 배경 (ui.tsx Flash) */
+  --color-flash-down: rgb(49 130 246 / 0.18);
+  --color-flash-ok: rgb(3 164 99 / 0.18); /* 좋은 일이 늘었을 때 (자동 복구 수) — ok 바탕 */
+  --color-flash-neutral: rgb(100 110 122 / 0.18); /* 내 입력으로 바뀐 금액 (방향 없음) — mute 바탕. 파랑은 하락으로 읽혀 쓰지 않는다 */
+  --color-medal-gold: #ffc342; /* 랭킹 메달 (테마와 무관) */
+  --color-medal-silver: #b0b8c1;
+  --color-medal-bronze: #d9a47a;
+  --color-on-medal: #191f28; /* 메달 위 숫자 */
+}
 
-  --animate-flash-up: flash-up 0.8s ease-out;
-  --animate-flash-down: flash-down 0.8s ease-out;
-  --animate-sheet-up: sheet-up 0.22s ease-out;
-  --animate-toast-in: toast-in 0.2s ease-out;
+/*
+ * 모션 토큰. 짧고 차분하게: 100~320ms, 바운스·오버슈트 없음, 이동 2~8px(시트만 100%).
+ * 들어올 때 ease-enter, 나갈 때 ease-exit(들어올 때의 약 2/3 길이), 제자리 변화는 ease-standard.
+ * Tailwind 유틸이 생긴다: duration-instant|fast|base|slow, ease-standard|enter|exit, animate-*.
+ * 키프레임은 transform 대신 개별 속성(translate, scale)을 쓴다 (Tailwind의 translate·scale 유틸과 섞이지 않게).
+ */
+@theme static {
+  --transition-duration-instant: 100ms; /* 누름 scale, 접힘 닫힐 때 투명도 */
+  --transition-duration-fast: 160ms; /* 색 전이 기본값, 화면·내용 페이드, 토스트·모달 퇴장 */
+  --transition-duration-base: 240ms; /* 접힘 열기, 세그먼트 이동, 목록 등장, 토스트·모달 등장, 시트 퇴장 */
+  --transition-duration-slow: 320ms; /* 모바일 바텀시트 등장 */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1); /* 제자리 변화 */
+  --ease-enter: cubic-bezier(0.05, 0.7, 0.1, 1); /* 들어오기: 빠르게 시작해 부드럽게 멈춤 */
+  --ease-exit: cubic-bezier(0.3, 0, 0.8, 0.15); /* 나가기: 천천히 시작해 빠르게 빠짐 */
+  /* 기존 transition-colors 등의 기본값 (150ms·Material 곡선 → 160ms·standard) */
+  --default-transition-duration: 160ms;
+  --default-transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
 
+  --animate-page-in: fade-in var(--transition-duration-fast) var(--ease-enter) backwards;
+  --animate-fade-in: fade-in var(--transition-duration-fast) var(--ease-standard) backwards;
+  --animate-fade-out: fade-out var(--transition-duration-fast) var(--ease-exit) forwards;
+  --animate-rise-in: rise-in var(--transition-duration-base) var(--ease-enter) backwards;
+  --animate-pop-in: pop-in var(--transition-duration-fast) var(--ease-enter) backwards;
+  --animate-tab-pop: tab-pop var(--transition-duration-fast) var(--ease-enter);
+  --animate-toast-in: toast-in var(--transition-duration-base) var(--ease-enter) backwards;
+  --animate-toast-out: toast-out var(--transition-duration-fast) var(--ease-exit) forwards;
+  --animate-sheet-in: sheet-in var(--transition-duration-slow) var(--ease-enter) backwards;
+  --animate-sheet-out: sheet-out var(--transition-duration-base) var(--ease-exit) forwards;
+  --animate-dialog-in: dialog-in var(--transition-duration-base) var(--ease-enter) backwards;
+  --animate-dialog-out: dialog-out var(--transition-duration-fast) var(--ease-exit) forwards;
+  --animate-scrim-in: fade-in var(--transition-duration-base) var(--ease-standard) backwards;
+  --animate-scrim-out: fade-out var(--transition-duration-fast) var(--ease-exit) forwards;
+  --animate-tooltip-in: tooltip-in var(--transition-duration-fast) var(--ease-enter) backwards;
+  /* 숫자가 바뀔 때 배경 강조는 정보라서 길게 둔다 (ui.tsx Flash: trend = 오름·내림, ok, neutral) */
+  --animate-flash-up: flash-up 800ms var(--ease-standard);
+  --animate-flash-down: flash-down 800ms var(--ease-standard);
+  --animate-flash-ok: flash-ok 800ms var(--ease-standard);
+  --animate-flash-neutral: flash-neutral 800ms var(--ease-standard);
+  /* '진행 중' 점 (LiveDot). 정보 표시라 motion-safe:animate-live로만 쓴다 */
+  --animate-live: live-ping 2s var(--ease-standard) infinite;
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes fade-out {
+    to {
+      opacity: 0;
+    }
+  }
+  @keyframes rise-in {
+    from {
+      opacity: 0;
+      translate: 0 8px;
+    }
+  }
+  @keyframes pop-in {
+    from {
+      opacity: 0;
+      scale: 0.6;
+    }
+  }
+  @keyframes tab-pop {
+    from {
+      scale: 0.88;
+    }
+  }
+  @keyframes toast-in {
+    from {
+      opacity: 0;
+      translate: 0 8px;
+      scale: 0.98;
+    }
+  }
+  @keyframes toast-out {
+    to {
+      opacity: 0;
+      translate: 0 4px;
+    }
+  }
+  @keyframes sheet-in {
+    from {
+      translate: 0 100%;
+    }
+  }
+  @keyframes sheet-out {
+    to {
+      translate: 0 100%;
+    }
+  }
+  @keyframes dialog-in {
+    from {
+      opacity: 0;
+      scale: 0.96;
+    }
+  }
+  @keyframes dialog-out {
+    to {
+      opacity: 0;
+      scale: 0.98;
+    }
+  }
+  @keyframes tooltip-in {
+    from {
+      opacity: 0;
+      scale: 0.96;
+      translate: 0 -2px;
+    }
+  }
   @keyframes flash-up {
     from {
-      background-color: rgb(240 68 82 / 0.18);
+      background-color: var(--color-flash-up);
     }
     to {
       background-color: transparent;
@@ -40,29 +179,97 @@
   }
   @keyframes flash-down {
     from {
-      background-color: rgb(49 130 246 / 0.18);
+      background-color: var(--color-flash-down);
     }
     to {
       background-color: transparent;
     }
   }
-  @keyframes sheet-up {
+  @keyframes flash-ok {
     from {
-      transform: translateY(100%);
+      background-color: var(--color-flash-ok);
     }
     to {
-      transform: translateY(0);
+      background-color: transparent;
     }
   }
-  @keyframes toast-in {
+  @keyframes flash-neutral {
     from {
-      opacity: 0;
-      transform: translateY(8px);
+      background-color: var(--color-flash-neutral);
     }
     to {
-      opacity: 1;
-      transform: translateY(0);
+      background-color: transparent;
     }
+  }
+  @keyframes skeleton {
+    50% {
+      opacity: 0.55;
+    }
+  }
+  @keyframes live-ping {
+    80%,
+    100% {
+      scale: 2.2;
+      opacity: 0;
+    }
+  }
+  @keyframes header-line {
+    to {
+      box-shadow: 0 1px 0 var(--color-line);
+    }
+  }
+}
+
+@layer theme {
+  :root {
+    color-scheme: light;
+    /* 겹침 층: z-(--z-toast)처럼 쓴다. 임의값 z-[60]은 쓰지 않는다 */
+    --z-header: 30; /* PageHeader */
+    --z-nav: 40; /* 왼쪽 메뉴·하단 탭·종목 상세 구매 바 */
+    --z-sheet: 50; /* 바텀시트·대화상자 */
+    --z-popover: 60; /* 용어 풀이 툴팁 (시트 안에서도 열린다) */
+    --z-toast: 70; /* 토스트 (늘 맨 위 — 방금 한 동작의 결과) */
+    --scrim-strength: 40%; /* --color-scrim의 검정 비율 (스크롤 잠금 때 gutter 색) */
+  }
+  /* 다크 (토스 다크 참고: 남색 숯색 바탕, 그림자 대신 표면 명도로 높이를 나타낸다. 밝을수록 위) */
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --color-bg: #0f1115;
+    --color-card: #1a1d24;
+    --color-fill: #23272f;
+    --color-line: #2e323b;
+    --color-ink: #e9ecef;
+    --color-sub: #b0b8c1;
+    --color-mute: #8b95a1;
+    --color-mute-weak: #6b7684;
+    --color-brand: #458ef7;
+    --color-brand-dark: #3a7fe6;
+    --color-brand-ink: #6aa8ff;
+    --color-brand-soft: #1e2839;
+    --color-up: #f25c68;
+    --color-up-dark: #e0505c;
+    --color-up-soft: #32242b;
+    --color-up-ink: #ff8a94;
+    --color-down: #458ef7;
+    --color-down-soft: #1e2839;
+    --color-down-ink: #6aa8ff;
+    --color-warn: #ff9f00;
+    --color-warn-soft: #352d20;
+    --color-warn-ink: #ffb547;
+    --color-ok: #03a463;
+    --color-ok-soft: #182a2a;
+    --color-ok-ink: #1fb877;
+    --color-on-ink: #0f1115; /* 다크의 반전 표면은 밝은 바탕 + 어두운 글자 (의도) */
+    --color-on-warn: #191f28;
+    --color-ok-inverse: #037a4a; /* 밝은 반전 표면(#e9ecef) 위 4.56:1 */
+    --color-up-inverse: #c92a37; /* 4.58:1 */
+    --color-thumb: #3a3f4a; /* 트랙(fill)보다 밝게 — 눌려 들어간 모양이 되지 않게 */
+    --color-scrim: rgb(0 0 0 / 0.6);
+    --scrim-strength: 60%;
+    --color-flash-up: rgb(242 92 104 / 0.28);
+    --color-flash-down: rgb(69 142 247 / 0.28);
+    --color-flash-ok: rgb(3 164 99 / 0.28);
+    --color-flash-neutral: rgb(139 149 161 / 0.28);
   }
 }
 
@@ -70,6 +277,11 @@
   html {
     -webkit-text-size-adjust: 100%;
     -webkit-tap-highlight-color: transparent;
+    /* 스크롤 잠금(시트) 때 스크롤바가 사라져 본문이 옆으로 튀지 않게 자리를 늘 둔다 */
+    scrollbar-gutter: stable;
+  }
+  html[data-scroll-lock] {
+    overflow: hidden;
   }
   body {
     @apply bg-bg font-sans text-ink antialiased;
@@ -82,6 +294,34 @@
     outline: 2px solid var(--color-brand);
     outline-offset: 2px;
   }
+  /*
+   * 키보드로 옮긴 포커스가 붙어 있는 머리·하단 바에 가리지 않게 (WCAG 2.4.11). 브라우저는 화면 안이면 스크롤하지 않으므로
+   * 포커스된 요소에만 그 높이만큼 scroll-margin을 줘 비켜 스크롤하게 한다: 모바일 위 PageHeader(h-14 + 8px),
+   * 아래 하단 탭(64px)·종목 상세 주문 바(80px) + 12px + 붙은 폼 바닥(--lift-footer)·연결 띠(--lift-offline). PC는 아래 둘만.
+   * html scroll-padding 대신 :focus-visible에만 거는 이유: scroll-padding은 해시·scrollIntoView 착지에도 더해져
+   * 대상마다 준 scroll-mt-*(머리 높이를 이미 포함)가 한 번 더 내려간다. 여기 값은 base 층이라 scroll-mt-* 유틸이 있으면 그것이 이긴다.
+   * 빼는 것: 붙어 있는 줄(.sticky) 안의 칸(머리의 뒤로 가기·고정 탭 줄·검색칸 — 늘 보이고, 여백을 주면 브라우저가 괜히 더 스크롤한다),
+   * 시트가 열린 동안(그 안의 스크롤 상자에는 머리·하단 바가 없다).
+   * 머리 아래에 줄이 하나 더 붙는 화면(리포트 상세 전문가 보기의 탭 줄)은 그 높이를 html의 --sticky-tabs-h로 알려 위 여백에 더한다
+   * (pages/ReportPage.tsx useStickyTabsPadding). html scroll-padding-top으로 주면 붙은 줄 안의 칸으로 Shift+Tab 할 때도 여백이 걸려
+   * 브라우저가 그 줄을 여백 밖으로 꺼내려고 페이지를 끌어올린다 (실측 탭 줄 −398px, 펼친 개념 문서 머리 −88px).
+   */
+  @media (width < 64rem) {
+    html[data-shell]:not([data-scroll-lock]) :focus-visible:not(.sticky *) {
+      scroll-margin-top: calc(4rem + var(--sticky-tabs-h, 0px));
+    }
+    html[data-shell="tabs"]:not([data-scroll-lock]) :focus-visible:not(.sticky *) {
+      scroll-margin-bottom: calc(64px + 12px + var(--lift-footer) + var(--lift-offline) + env(safe-area-inset-bottom));
+    }
+    html[data-shell="order"]:not([data-scroll-lock]) :focus-visible:not(.sticky *) {
+      scroll-margin-bottom: calc(80px + 12px + var(--lift-footer) + var(--lift-offline) + env(safe-area-inset-bottom));
+    }
+  }
+  @media (width >= 64rem) {
+    html[data-shell]:not([data-scroll-lock]) :focus-visible:not(.sticky *) {
+      scroll-margin-bottom: calc(var(--lift-footer) + var(--lift-offline));
+    }
+  }
   input[type="number"]::-webkit-inner-spin-button,
   input[type="number"]::-webkit-outer-spin-button {
     -webkit-appearance: none;
@@ -92,11 +332,406 @@
   }
 }
 
+@layer components {
+  /* ---- 나타나기 (hooks/useMotionState.ts) ---- */
+  /* 단일 블록이 기다린 끝에 나타날 때 */
+  .reveal-fade {
+    animation: var(--animate-fade-in);
+  }
+  /* 행 목록: 목록 전체가 한 번에 페이드 (구분선이 흔들리지 않게 이동 없음) */
+  [data-reveal="fade"] {
+    animation: var(--animate-fade-in);
+  }
+  /* 카드 5개 이하 목록: 40ms 간격(최대 5단계)으로 8px 올라온다. 끝나면 data-revealed로 멈춘다 */
+  [data-reveal="rise"]:not([data-revealed]) > * {
+    animation: var(--animate-rise-in);
+  }
+  [data-reveal="rise"]:not([data-revealed]) > :nth-child(2) {
+    animation-delay: 40ms;
+  }
+  [data-reveal="rise"]:not([data-revealed]) > :nth-child(3) {
+    animation-delay: 80ms;
+  }
+  [data-reveal="rise"]:not([data-revealed]) > :nth-child(4) {
+    animation-delay: 120ms;
+  }
+  [data-reveal="rise"]:not([data-revealed]) > :nth-child(5) {
+    animation-delay: 160ms;
+  }
+  [data-reveal="rise"]:not([data-revealed]) > :nth-child(n + 6) {
+    animation-delay: 200ms;
+  }
+  /* 실시간으로 새로 붙은 항목 (useNewKeys). 끝나면 data-shown(markShown)으로 멈춘다 — 순서가 바뀌어 줄이 옮겨져도 다시 돌지 않게 */
+  .is-new:not([data-shown]) {
+    animation: var(--animate-rise-in);
+  }
+  /* 120ms 늦게 보인다 (그동안에도 자리는 차지 — 빠른 응답에서 번쩍이지 않게). 그다음 은은한 pulse. 시머는 쓰지 않는다 */
+  .skeleton {
+    animation:
+      fade-in var(--transition-duration-fast) var(--ease-standard) 120ms backwards,
+      skeleton 1.6s var(--ease-standard) 280ms infinite;
+  }
+
+  /*
+   * ---- 접힘 (components/motion/Collapse.tsx) ----
+   * 바깥 여백(className의 mt-3 등, 부모 space-y가 준 아래 여백)도 높이와 같이 0까지 접히고 0에서 펼쳐진다.
+   * 여백이 접힘 밖에 남으면 높이가 0이 된 다음 프레임(언마운트)에 여백만큼 한 번 더 툭 움직이고, 열 때는 여백이 먼저 툭 생긴다.
+   * 여백 유틸은 utilities 층이라 이 층의 보통 규칙을 이기므로 닫힘·펼침 시작값에만 !important를 쓴다 (전이는 그 사이를 움직인다).
+   */
+  .collapsible {
+    display: grid;
+    grid-template-rows: 1fr;
+    transition:
+      grid-template-rows var(--transition-duration-base) var(--ease-standard),
+      opacity var(--transition-duration-fast) var(--ease-standard),
+      margin var(--transition-duration-base) var(--ease-standard);
+  }
+  .collapsible[data-state="closing"] {
+    grid-template-rows: 0fr;
+    opacity: 0;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    transition-duration: var(--transition-duration-fast), var(--transition-duration-instant), var(--transition-duration-fast);
+    transition-timing-function: var(--ease-exit);
+  }
+  @starting-style {
+    .collapsible[data-appear] {
+      grid-template-rows: 0fr;
+      opacity: 0;
+      margin-top: 0 !important;
+      margin-bottom: 0 !important;
+    }
+  }
+  /* 포커스 테두리(2px + 간격 2px)가 잘리지 않게 4px 여유 */
+  .collapsible-body {
+    min-height: 0;
+    overflow: hidden;
+    margin: -4px;
+    padding: 4px;
+  }
+
+  /* 네이티브 details: CSS만 (Chrome 131·Safari 18.4·Firefox 143). 지원하지 않으면 지금처럼 바로 열린다 */
+  details {
+    interpolate-size: allow-keywords; /* Chromium 129+: 높이 auto까지 보간 */
+  }
+  details::details-content {
+    block-size: 0;
+    overflow-y: clip;
+    opacity: 0;
+    transition:
+      block-size var(--transition-duration-base) var(--ease-standard),
+      opacity var(--transition-duration-fast) var(--ease-standard),
+      content-visibility var(--transition-duration-base) allow-discrete;
+  }
+  details[open]::details-content {
+    block-size: auto;
+    opacity: 1;
+    /* 열린 동안 맨 끝 요소의 포커스 테두리(간격 2px + 2px)가 clip에 잘리지 않게 아래로 4px 여유 (레이아웃은 그대로).
+       위쪽은 두지 않는다: summary 아래 가장자리 클릭을 가로챈다(실측). overflow-clip-margin은 한 축 clip에 먹지 않는다 */
+    padding-block-end: 4px;
+    margin-block-end: -4px;
+  }
+
+  /* ---- 시트·대화상자 (components/motion/Sheet.tsx): 모바일은 아래에서, PC(lg)는 가운데에서 ---- */
+  .sheet-scrim {
+    background: var(--color-scrim);
+    animation: var(--animate-scrim-in);
+  }
+  .sheet-panel {
+    animation: var(--animate-sheet-in);
+  }
+  .sheet-root[data-state="closing"] .sheet-scrim {
+    animation: var(--animate-scrim-out);
+  }
+  .sheet-root[data-state="closing"] .sheet-panel {
+    animation: var(--animate-sheet-out);
+  }
+  @media (width >= 64rem) {
+    .sheet-panel {
+      animation: var(--animate-dialog-in);
+    }
+    .sheet-root[data-state="closing"] .sheet-panel {
+      animation: var(--animate-dialog-out);
+    }
+  }
+
+  /* ---- 종목 상세 주문 독 (한 벌 DOM: PC는 오른쪽 패널, 모바일은 시트). 모바일에서 늘 fixed로 두고 display를 늦게 끈다 ---- */
+  @media (width < 64rem) {
+    .order-dock {
+      position: fixed;
+      inset: 0;
+      z-index: var(--z-sheet);
+      display: none;
+      transition: display var(--transition-duration-base) allow-discrete;
+    }
+    .order-dock[data-open] {
+      display: block;
+    }
+    .order-dock > .dock-scrim {
+      background: var(--color-scrim);
+      opacity: 0;
+      transition: opacity var(--transition-duration-fast) var(--ease-exit);
+    }
+    .order-dock[data-open] > .dock-scrim {
+      opacity: 1;
+      transition: opacity var(--transition-duration-base) var(--ease-standard);
+    }
+    .order-dock > .dock-sheet {
+      translate: 0 100%;
+      transition: translate var(--transition-duration-base) var(--ease-exit);
+    }
+    .order-dock[data-open] > .dock-sheet {
+      translate: 0 0;
+      transition: translate var(--transition-duration-slow) var(--ease-enter);
+    }
+    @starting-style {
+      .order-dock[data-open] > .dock-scrim {
+        opacity: 0;
+      }
+      .order-dock[data-open] > .dock-sheet {
+        translate: 0 100%;
+      }
+    }
+  }
+
+  /* ---- 토스트 (ToastProvider): 아래에서 올라오고 아래로 사라진다. 자리는 맨 아래 규칙(층 밖)이 정한다 ---- */
+  .toast {
+    animation: var(--animate-toast-in);
+  }
+  .toast[data-leaving] {
+    animation: var(--animate-toast-out);
+  }
+  .toast-region {
+    position: fixed;
+    inset-inline: 0;
+    z-index: var(--z-toast);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding-inline: 1rem;
+    pointer-events: none;
+  }
+
+  /* ---- Segmented (ui.tsx): 같은 선택 표시가 옆으로 미끄러진다 (hooks/useSlidingIndicator.ts) ---- */
+  .seg {
+    position: relative;
+  }
+  /* 표시(절대 위치)보다 버튼 글자가 위에 오게 */
+  .seg > :not(.seg-indicator) {
+    position: relative;
+  }
+  /* 측정 전·jsdom: 선택된 버튼이 직접 배경을 그린다 */
+  .seg-on {
+    @apply bg-thumb shadow-sm dark:shadow-none;
+  }
+  .seg[data-indicator] .seg-on {
+    background-color: transparent;
+    box-shadow: none;
+  }
+  .seg-indicator {
+    @apply rounded-lg bg-thumb shadow-sm dark:shadow-none;
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    left: 0;
+    width: var(--ind-w, 0);
+    translate: var(--ind-x, 0) 0;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .seg[data-indicator] .seg-indicator {
+    opacity: 1;
+  }
+  .seg[data-indicator-ready] .seg-indicator {
+    transition:
+      translate var(--transition-duration-base) var(--ease-standard),
+      width var(--transition-duration-base) var(--ease-standard);
+  }
+
+  /*
+   * ---- 하단 탭 (Layout): 색 전이, 누르면 살짝 줄고, 새로 켜진 탭 아이콘이 한 번 튄다 ----
+   * nav[data-ready]는 마운트 뒤 '처음 탭이 바뀐 렌더'에 단다 (data-ready={useChanged(지금 탭) || undefined}).
+   * 다음 프레임에 달면 그 순간 선택자가 새로 맞아 지금 탭 아이콘이 첫 로드마다 튄다(실측).
+   */
+  .tab-link {
+    border-radius: 0.75rem; /* 바탕이 없어 보이지 않는다 — 안쪽 포커스 테두리의 모서리 */
+    transition:
+      color var(--transition-duration-fast) var(--ease-standard),
+      scale var(--transition-duration-instant) var(--ease-standard);
+  }
+  .tab-link:active {
+    scale: 0.95;
+  }
+  /* 키보드 포커스 테두리를 칸 안쪽에 그린다: 바깥(기본 +2px)이면 양 끝 칸(홈·마이)의 옆·아래 변이 화면 가장자리에서 잘린다 */
+  .tab-link:focus-visible {
+    outline-offset: -4px;
+  }
+  nav[data-ready] [aria-current="page"] svg {
+    animation: var(--animate-tab-pop);
+  }
+
+  /* ---- 용어 풀이 툴팁 (Term): 열 때만 (닫힘은 바로). 위로 열리면 data-side="top" ---- */
+  .tooltip-pop {
+    animation: var(--animate-tooltip-in);
+    transform-origin: top left;
+  }
+  .tooltip-pop[data-side="top"] {
+    transform-origin: bottom left;
+  }
+
+  /* ---- 모바일 화면 머리(PageHeader): 스크롤하면 아래 구분선 (스크롤 연동, 지원하지 않으면 없음) ---- */
+  @supports (animation-timeline: scroll()) {
+    @media (width < 64rem) {
+      .page-header {
+        animation: header-line linear both;
+        animation-timeline: scroll(root);
+        animation-range: 0 24px;
+      }
+    }
+  }
+}
+
+/* 누름 피드백: 버튼·칩·하단 바 버튼. 색은 160ms, 눌림 scale .98은 100ms. 비활성은 줄지 않는다 */
+@utility press {
+  transition-property: color, background-color, border-color, box-shadow, opacity, scale;
+  transition-timing-function: var(--ease-standard);
+  transition-duration:
+    var(--transition-duration-fast), var(--transition-duration-fast), var(--transition-duration-fast), var(--transition-duration-fast),
+    var(--transition-duration-fast), var(--transition-duration-instant);
+  &:active:not(:disabled):not([aria-disabled="true"]) {
+    scale: 0.98;
+  }
+}
+
+/* 누름 피드백: 가로 전체 행·카드 링크. 크기는 그대로 두고 배경만 */
+@utility press-row {
+  transition: background-color var(--transition-duration-fast) var(--ease-standard);
+  &:active {
+    background-color: var(--color-fill);
+  }
+}
+
+/*
+ * 화면 아래 알림 자리 (층 밖에 둔다: 위치 유틸이 함께 붙어도 이 규칙이 이기게 — 층이 있는 유틸보다 층 없는 규칙이 우선).
+ * 아래에서부터 쌓는다: 모바일 하단 바(탭 64px · 종목 상세 주문 바 80px — html[data-shell]) → 화면에 붙은 폼 바닥 → 연결 띠 → 토스트.
+ * PC(lg)는 하단 바가 없어 본문 열 가운데 아래 32px부터. 시트가 열려 있으면 토스트는 화면 위쪽(시트의 버튼을 가리지 않게).
+ * --lift-footer: 화면 아래에 붙어 있는 폼 바닥(진단 폼)의 높이 — InvestorDiagnosisCard가 붙어 있는 동안 html[data-sticky-footer]와 잰 높이를 단다.
+ * --lift-offline: 연결 띠(Layout)의 높이 + 간격 — 띠가 보이는 동안 html[data-connection]과 잰 높이를 단다.
+ */
+html {
+  --lift-footer: 0px;
+  --lift-offline: 0px;
+}
+html[data-sticky-footer] {
+  --lift-footer: var(--sticky-footer-h, 0px);
+}
+html[data-connection] {
+  --lift-offline: calc(var(--connection-h, 40px) + 8px);
+}
+.toast-region,
+.connection-region {
+  transition: bottom var(--transition-duration-base) var(--ease-standard); /* 아래 칸이 생기거나 사라지면 미끄러져 비킨다 */
+}
+.toast-region {
+  top: auto;
+  bottom: calc(16px + var(--lift-footer) + var(--lift-offline) + env(safe-area-inset-bottom));
+}
+html[data-shell="tabs"] .toast-region {
+  bottom: calc(64px + 12px + var(--lift-footer) + var(--lift-offline) + env(safe-area-inset-bottom)); /* 하단 탭 h-16 위 */
+}
+html[data-shell="order"] .toast-region {
+  bottom: calc(80px + 12px + var(--lift-footer) + var(--lift-offline) + env(safe-area-inset-bottom)); /* 종목 상세 주문 바 위 */
+}
+/* 연결 띠: 하단 바 바로 위 한 줄 (화면 머리·검색칸 같은 위쪽 sticky 요소를 덮지 않게 아래에 둔다) */
+.connection-region {
+  position: fixed;
+  inset-inline: 0;
+  z-index: var(--z-nav);
+  display: flex;
+  justify-content: center;
+  padding-inline: 1rem;
+  pointer-events: none;
+  bottom: calc(16px + var(--lift-footer) + env(safe-area-inset-bottom));
+}
+html[data-shell="tabs"] .connection-region {
+  bottom: calc(64px + 8px + var(--lift-footer) + env(safe-area-inset-bottom));
+}
+html[data-shell="order"] .connection-region {
+  bottom: calc(80px + 8px + var(--lift-footer) + env(safe-area-inset-bottom));
+}
+@media (width >= 64rem) {
+  html[data-shell] .toast-region {
+    left: 15rem; /* 왼쪽 메뉴 w-60 */
+    right: 0;
+    bottom: calc(32px + var(--lift-footer) + var(--lift-offline));
+  }
+  html[data-shell] .connection-region {
+    left: 15rem;
+    right: 0;
+    bottom: calc(32px + var(--lift-footer));
+  }
+}
+html[data-scroll-lock] .toast-region {
+  top: calc(12px + env(safe-area-inset-top));
+  bottom: auto;
+}
+
+/*
+ * 스크롤 잠금(시트·대화상자) 동안 스크롤바 자리(gutter)는 고정 요소인 배경막이 덮지 못한다 → html 바탕색을 '배경막을 덮은 바탕' 색으로.
+ * (브라우저는 gutter를 html의 background-color로만 칠한다 — 그라데이션 층은 쓰지 않는다.) 본문 영역은 body 바탕 + 배경막이 그대로 덮는다.
+ * 층 밖에 둔다: index.html의 첫 페인트 다크 바탕 규칙(층 없음)보다 우선해야 한다.
+ */
+html[data-scroll-lock] {
+  background-color: color-mix(in srgb, var(--color-bg), black var(--scrim-strength));
+}
+
+/*
+ * 동작 줄이기: 모든 애니메이션·전이를 사실상 끈다 (지속 0.01ms라 animationend·transitionend는 그대로 와서 기다리는 코드가 멈추지 않는다).
+ * 반복 1회·지연 0도 같이 — 무한 반복이 아무 프레임에서나 멈추거나 깜빡이지 않게. 예외는 로딩 스피너(.motion-essential)뿐.
+ */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
     transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
   }
+  .motion-essential {
+    animation-duration: 1.6s !important;
+    animation-iteration-count: infinite !important;
+  }
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
+/* 스크롤 연동 구분선은 사용자가 직접 스크롤한 만큼만 따라가므로 움직임 줄이기에서도 둔다 */
+@supports (animation-timeline: scroll()) {
+  @media (prefers-reduced-motion: reduce) and (width < 64rem) {
+    .page-header {
+      animation-duration: auto !important;
+    }
+  }
+}
+
+/* 테마 전환 (lib/theme.ts): 바꾸는 순간 모든 transition을 꺼서 transition-colors가 걸린 요소만 늦게 바뀌는 얼룩을 막는다 */
+html[data-theme-switching] *,
+html[data-theme-switching] *::before,
+html[data-theme-switching] *::after {
+  transition: none !important;
+}
+/* 원형 전환: 기본 교차 페이드를 끄고 새 화면을 원으로 잘라 펼친다 (JS가 clip-path를 움직인다). 모든 요소를 root 한 장에 담는다 */
+html[data-theme-anim]::view-transition-old(root),
+html[data-theme-anim]::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+html[data-theme-anim] * {
+  view-transition-name: none !important;
 }

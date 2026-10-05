@@ -1,24 +1,26 @@
 // 리포트의 매매 계획 카드 (docs/컨셉변경계획.md 4-5). 리포트 상세(F-report)가 <PlanCard report={...} variant="full"|"mini" view />로 쓴다.
 //
-// - 스스로 받는다: useRecommendations({ source: "report", sourceId: report.id, status: "all" })로 이 리포트의 추천을 찾고
-//   (기한이 지난 것까지 — "기한 지남"을 보이려고), 열린 추천이면 useRiskPreview(추천 id, 예산 없음)로 "이 계좌로는 ○주 · ○○원"(장마감 기준)을 보인다.
+// - 자료와 상태는 api/reports.ts usePlanCardData: 이 리포트의 추천(기한이 지난 것까지 — "기한 지남"을 보이려고)과,
+//   열린 추천이면 리스크 미리 보기(예산 없음)의 "이 계좌로는 ○주 · ○○원"(장마감 기준). 쉬운 보기의 단계 막대·안내 문장도 같은 훅이라 서로 다른 말을 하지 않는다.
 // - 상태 (PlanCardState, 계산은 lib/autotrade.ts planCardState): 리포트가 아직 완성 전 · 지켜보기(hold) · 부정적(avoid) ·
 //   계획 준비 중(buy인데 추천이 아직 없음, 완성 직후 10분) · 계획 없음(buy인데 가격 조건이 맞지 않아 추천이 없음) · 기한 지남 ·
 //   실행 가능("실행 준비" → /recommendations/{id}) · 실행 불가(RiskPreview.reasonCodes → lib/plainText.ts reasonSentences).
 //   "AI 의견: 긍정적"인데 실행할 수 없는 경우를 숨기지 않는다 — 안전장치가 다른 말을 하면 그 이유를 쉬운 말로 보인다.
 // - variant "mini": 리포트 상세 위쪽 "계획 미니" — 손절 시 손실·목표 이익·"실행 준비" 한 줄. "full": 쉬운 보기의 매매 계획 카드.
 // - view "expert": 같은 상태에 원래 용어(진입·목표·손절·손익비)와 사유 원문을 보인다.
-import { useEffect, useState } from "react";
-import { Link } from "react-router";
-import { useRecommendations, useRiskPreview } from "../../api/queries";
+// - 불러온 뒤에는 한 번 페이드로 나타난다 (캐시로 바로 그리면 움직이지 않는다). 스켈레톤은 실제 카드와 비슷한 높이.
+import { Link, useNavigate } from "react-router";
+import { usePlanCardData } from "../../api/reports";
 import type { Recommendation, ReportSummary, RiskPreview } from "../../api/types";
+import { useRevealAfterLoading } from "../../hooks/useMotionState";
 import type { ViewMode } from "../../hooks/useBeginnerMode";
-import { kstDayOf, pickRecommendation, planCardState } from "../../lib/autotrade";
+import { kstDayOf } from "../../lib/autotrade";
 import { cn } from "../../lib/cn";
 import { formatDayLabel, formatKrw, formatPrice, formatQty } from "../../lib/format";
+import { prefersReducedMotion } from "../../lib/motion";
 import { reasonSentences } from "../../lib/plainText";
 import { Icon } from "../Icon";
-import { AsOf, Skeleton, Spinner } from "../ui";
+import { AsOf, LiveDot, Skeleton, Spinner } from "../ui";
 
 export type PlanCardState =
   | "not_completed" // 리포트가 아직 만드는 중이거나 실패
@@ -37,19 +39,13 @@ export interface PlanCardProps {
   variant?: "full" | "mini";
   /** 쉬운 보기·전문가 보기 (화면의 useViewMode().view). 기본 "easy". */
   view?: ViewMode;
+  /** full 카드의 id (같은 화면의 계획 미니 '자세히'가 이 카드로 내려온다). */
+  id?: string;
   className?: string;
 }
 
-/** "계획 준비 중"이 "계획 없음"으로 바뀌는 때를 알도록 지금 시각을 30초마다 새로 둔다. */
-function useNow(active: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!active) return;
-    const t = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(t);
-  }, [active]);
-  return now;
-}
+/** 같은 화면의 매매 계획 카드 id (계획 미니의 '자세히'가 여기로 스크롤한다). */
+export const PLAN_CARD_ID = "plan";
 
 const STATE_TEXT: Record<Exclude<PlanCardState, "ready" | "blocked" | "expired">, string> = {
   not_completed: "리포트가 완성되면 이 계좌 기준의 매매 계획을 보여 드려요.",
@@ -72,17 +68,16 @@ function expiredText(rec: Recommendation): string {
   return `이 계획은 ${formatDayLabel(kstDayOf(rec.validUntil))}에 기한이 끝났어요. 가격이 바뀌었을 수 있으니 새로 만들어 보세요.`;
 }
 
-const linkBtn = "inline-flex h-11 items-center justify-center gap-1 rounded-xl px-4 text-[15px] font-semibold";
+// 누름 피드백(press)과 44px 높이. 보조 버튼은 fill 바탕
+const linkBtn = "press inline-flex h-11 items-center justify-center gap-1 rounded-xl px-4 text-[15px] font-semibold";
 
-export function PlanCard({ report, variant = "full", view = "easy", className }: PlanCardProps) {
+export function PlanCard({ report, variant = "full", view = "easy", id, className }: PlanCardProps) {
   const easy = view === "easy";
   const completed = report.status === "completed";
-  const recsQ = useRecommendations({ source: "report", sourceId: report.id, status: "all" }, completed);
-  const rec = recsQ.data ? pickRecommendation(recsQ.data.results) : null;
-  const previewQ = useRiskPreview(rec?.id ?? NaN, null, rec?.status === "open");
-  const preview = rec && previewQ.data && !previewQ.isPlaceholderData ? previewQ.data : undefined;
-  const now = useNow(completed && report.opinion === "buy" && !rec);
-  const state = planCardState({ report, recs: recsQ.data?.results, preview, now });
+  const { state, rec, preview, recsQ, previewQ } = usePlanCardData(report);
+  // 기다린 끝에 내용이 왔을 때만 페이드 (early return보다 앞에서 부른다)
+  const reveal = useRevealAfterLoading(state === "loading");
+  const fade = reveal ? "reveal-fade" : undefined;
 
   // 추천 목록을 받지 못하면(500·503) 끝없는 스켈레톤 대신 안내와 다시 시도
   if (completed && recsQ.isError && !recsQ.data) {
@@ -104,7 +99,7 @@ export function PlanCard({ report, variant = "full", view = "easy", className }:
         {retry}
       </div>
     ) : (
-      <section aria-label="매매 계획" data-state="error" className={cn("rounded-2xl bg-card p-5", className)}>
+      <section id={id} aria-label="매매 계획" data-state="error" className={cn("rounded-2xl bg-card p-5", className)}>
         <p role="alert" className="text-[15px] text-sub">
           {msg}
         </p>
@@ -117,7 +112,7 @@ export function PlanCard({ report, variant = "full", view = "easy", className }:
     return variant === "mini" ? (
       <p className={cn("rounded-xl bg-fill px-3.5 py-2.5 text-[14px] text-sub", className)}>{msg}</p>
     ) : (
-      <section aria-label="매매 계획" className={cn("rounded-2xl bg-card p-5", className)}>
+      <section id={id} aria-label="매매 계획" className={cn("rounded-2xl bg-card p-5", className)}>
         <p className="text-[15px] text-sub">{msg}</p>
         <Link to={`/recommendations/${rec.id}`} className={cn(linkBtn, "mt-3 bg-fill text-ink hover:bg-line")}>
           계획 자세히 보기
@@ -126,20 +121,26 @@ export function PlanCard({ report, variant = "full", view = "easy", className }:
     );
   }
   if (state === "loading") {
+    // 실제 모양과 높이에 가깝게 (내용이 오면 결론 카드가 늦게 늘어나지 않게)
     return variant === "mini" ? (
-      <Skeleton className={cn("h-10 w-full", className)} />
+      <Skeleton className={cn("h-16 w-full rounded-xl", className)} />
     ) : (
-      <div className={cn("space-y-2 rounded-2xl bg-card p-5", className)} aria-busy="true" aria-label="매매 계획 불러오는 중">
+      <div id={id} className={cn("space-y-3 rounded-2xl bg-card p-5", className)} aria-busy="true" aria-label="매매 계획 불러오는 중">
         <Skeleton className="h-5 w-1/3" />
-        <Skeleton className="h-4 w-full" />
-        <Skeleton className="h-4 w-2/3" />
+        <Skeleton className="h-5 w-2/3" />
+        <div className="grid grid-cols-2 gap-2">
+          <Skeleton className="h-16 rounded-xl" />
+          <Skeleton className="h-16 rounded-xl" />
+        </div>
+        <Skeleton className="h-12 w-full rounded-xl" />
       </div>
     );
   }
-  if (variant === "mini") return <Mini state={state} rec={rec} preview={preview} easy={easy} className={className} />;
+  if (variant === "mini") return <Mini state={state} rec={rec} preview={preview} easy={easy} className={cn(fade, className)} />;
 
   return (
-    <section aria-label="매매 계획" data-state={state} className={cn("rounded-2xl bg-card p-5", className)}>
+    // tabIndex -1: 계획 미니의 '자세히'가 이 카드로 포커스를 옮긴다 (키보드로 왔을 때만 테두리가 보인다)
+    <section id={id} aria-label="매매 계획" data-state={state} className={cn("scroll-mt-20 rounded-2xl bg-card p-5", fade, className)} tabIndex={-1}>
       <h2 className="flex items-center gap-1.5 text-[17px] font-bold">
         <Icon name="flow" className="size-5 text-brand" />
         매매 계획
@@ -172,8 +173,10 @@ export function PlanCard({ report, variant = "full", view = "easy", className }:
             </Link>
           </>
         ) : state === "preparing" ? (
-          <p className="flex items-center gap-2 text-[15px] leading-relaxed" role="status">
-            <Spinner className="text-brand" />
+          // 완성 뒤 최대 10분 이어지는 '준비 중'이라 도는 아이콘 대신 살아 있음 점.
+          // role=status는 두지 않는다 — 앱의 status 영역은 토스트 하나다 (계획이 생기면 카드가 바뀌어 보인다)
+          <p className="flex items-center gap-2 text-[15px] leading-relaxed">
+            <LiveDot />
             {STATE_TEXT.preparing}
           </p>
         ) : (
@@ -198,12 +201,13 @@ function Ready({ rec, preview, easy }: { rec: Recommendation; preview: RiskPrevi
       <p className="text-[16px] font-semibold tabular-nums">
         이 계좌로는 {formatQty(preview.quantity)} · {formatKrw(preview.amountKrw)}
       </p>
+      {/* 이익·손실 상자는 세 가지 경우(ScenarioBoxes)와 같은 바탕 */}
       <dl className="mt-2 grid grid-cols-2 gap-2">
-        <div className="rounded-xl bg-up-soft/60 p-3">
+        <div className="rounded-xl bg-up-soft p-3">
           <dt className="text-[12px] text-sub">{easy ? "목표에 팔면" : "목표 도달 시 이익"}</dt>
           <dd className="text-[17px] font-bold text-up tabular-nums">{a.gain}</dd>
         </div>
-        <div className="rounded-xl bg-down-soft/60 p-3">
+        <div className="rounded-xl bg-down-soft p-3">
           <dt className="text-[12px] text-sub">{easy ? "손절에 팔면" : "손절 시 손실"}</dt>
           <dd className="text-[17px] font-bold text-down tabular-nums">{a.loss}</dd>
         </div>
@@ -224,7 +228,7 @@ function Ready({ rec, preview, easy }: { rec: Recommendation; preview: RiskPrevi
       <AsOf at={preview.lastPriceAsOf} market={rec.market} className="mt-1 block" />
       <Link
         to={`/recommendations/${rec.id}`}
-        className="mt-3 flex h-12 w-full items-center justify-center gap-1.5 rounded-xl bg-brand text-[16px] font-bold text-white hover:bg-brand-dark"
+        className="press mt-3 flex h-12 w-full items-center justify-center gap-1.5 rounded-xl bg-brand text-[16px] font-bold text-white hover:bg-brand-dark"
       >
         실행 준비
         <Icon name="chevron" className="size-4" />
@@ -246,7 +250,7 @@ function Blocked({ rec, preview, easy }: { rec: Recommendation; preview: RiskPre
       </ul>
       <div className="mt-3 flex flex-wrap gap-2">
         {planLink !== null && (
-          <Link to={`/plans/${planLink}`} className={cn(linkBtn, "bg-brand-soft text-brand-dark hover:bg-brand-soft/70")}>
+          <Link to={`/plans/${planLink}`} className={cn(linkBtn, "bg-brand-soft text-brand-ink hover:bg-line")}>
             진행 중인 계획 보기
           </Link>
         )}
@@ -256,6 +260,23 @@ function Blocked({ rec, preview, easy }: { rec: Recommendation; preview: RiskPre
       </div>
     </>
   );
+}
+
+/**
+ * 계획 미니의 '자세히': 같은 화면 아래의 매매 계획 카드로 내려간다 (읽던 흐름을 끊지 않게 — 다른 화면으로 나가지 않는다).
+ * 카드가 없는 화면이면 계획 화면으로 간다. 움직임 줄이기면 바로 옮긴다. 키보드 사용자를 위해 카드에 포커스를 준다.
+ */
+function useGoToPlan(recId: number) {
+  const navigate = useNavigate();
+  return () => {
+    const card = document.getElementById(PLAN_CARD_ID);
+    if (!card) {
+      navigate(`/recommendations/${recId}`);
+      return;
+    }
+    if (typeof card.scrollIntoView === "function") card.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+    card.focus({ preventScroll: true });
+  };
 }
 
 function Mini({
@@ -271,8 +292,9 @@ function Mini({
   easy: boolean;
   className?: string;
 }) {
+  const goToPlan = useGoToPlan(rec?.id ?? 0);
   if (state === "not_completed") return null;
-  const box = cn("flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-fill px-3.5 py-2.5 text-[14px]", className);
+  const box = cn("flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl bg-fill px-3.5 py-2.5 text-[14px]", className);
   if (state === "ready" && rec && preview) {
     const a = amounts(preview);
     return (
@@ -283,7 +305,11 @@ function Mini({
         <span className="tabular-nums">
           {easy ? "목표 시" : "목표 시 이익"} <b className="text-up">{a.gain}</b>
         </span>
-        <Link to={`/recommendations/${rec.id}`} className="ml-auto flex h-9 items-center rounded-lg bg-brand px-3 text-[14px] font-bold text-white hover:bg-brand-dark">
+        {/* 첫 화면의 유일한 실행 버튼 — 엄지로 누르기 좋게 44px */}
+        <Link
+          to={`/recommendations/${rec.id}`}
+          className="press ml-auto flex h-11 items-center rounded-xl bg-brand px-4 text-[15px] font-bold text-white hover:bg-brand-dark"
+        >
           실행 준비
         </Link>
       </div>
@@ -296,15 +322,20 @@ function Mini({
         <span className="min-w-0 flex-1">
           <b>실행할 수 없어요</b> · {first}
         </span>
-        <Link to={`/recommendations/${rec.id}`} className="text-[14px] font-semibold text-brand">
+        <button
+          type="button"
+          onClick={goToPlan}
+          className="press -mr-1.5 flex h-11 shrink-0 items-center gap-0.5 rounded-lg px-1.5 text-[14px] font-semibold text-brand-ink hover:bg-line"
+        >
           자세히
-        </Link>
+          <Icon name="chevron-down" className="size-4" />
+        </button>
       </div>
     );
   }
   return (
     <div aria-label="계획 미니" data-state={state} className={box}>
-      {state === "preparing" && <Spinner className="text-brand" />}
+      {state === "preparing" && <LiveDot />}
       <span>{MINI_TEXT[state as keyof typeof MINI_TEXT]}</span>
     </div>
   );

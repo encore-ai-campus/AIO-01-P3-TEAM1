@@ -1,53 +1,108 @@
 // 쉬운 보기의 차트: 완성된 일봉(장마감 기준) + AI가 제안한 사는·목표·손절 가격 선 (선 이름은 쉬운 말).
 // 차트 라이브러리를 쓰므로 리포트 상세에서 따로 불러온다 (lazy).
-import { CandlestickSeries, createChart } from "lightweight-charts";
-import { useEffect, useRef } from "react";
+// 색은 테마 토큰(lib/chartTheme.ts). 테마가 바뀌면 차트를 다시 만들지 않고 applyOptions로 색만 바꾼다 (확대 상태가 그대로 남게).
+// 좁은 화면(480px 미만)에서는 가격 선 이름을 빼고 축 라벨만 둔다 — 이름이 최근 봉과 눈금을 가리지 않게. 값과 이름은 차트 아래 범례가 보인다.
+// 휠·세로로 쓸어 넘기기는 페이지 스크롤에 양보한다 (리포트는 긴 세로 화면이라 차트가 스크롤을 먹으면 안 된다). 확대는 두 손가락 벌리기·Ctrl/⌘ + 휠 (세 차트 공용 lib/chartOptions.ts).
+import { CandlestickSeries, type IChartApi, type IPriceLine, type ISeriesApi, createChart } from "lightweight-charts";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import type { Candle, Currency } from "../../../api/types";
+import { CHART_INTERACTION, lineTitle, zoomWheelWithModifier } from "../../../lib/chartOptions";
+import { type ChartColors, useChartColors } from "../../../lib/chartTheme";
 
-const UP = "#F04452";
-const DOWN = "#3182F6";
+/** 가격 선의 뜻 (색은 테마에서 고른다: 목표 = 상승색, 사는 가격 = 보조 글자색, 손절 = 하락색). */
+export type PriceLineKind = "target" | "entry" | "stop";
 
 export interface PriceLine {
   price: number;
   title: string;
-  color: string;
+  kind: PriceLineKind;
 }
+
+const lineColor = (c: ChartColors, kind: PriceLineKind) => (kind === "target" ? c.targetLine : kind === "entry" ? c.entryLine : c.stopLine);
 
 export function ReportChart({ candles, currency, lines }: { candles: Candle[]; currency: Currency; lines: PriceLine[] }) {
   const box = useRef<HTMLDivElement>(null);
+  const colors = useChartColors();
+  // 차트를 만들 때 쓸 지금 색 (만드는 effect의 의존성에 넣지 않으려고 ref로 넘긴다 — 테마 변경은 아래 effect가 applyOptions로)
+  const colorsRef = useRef(colors);
+  const chartRef = useRef<{ chart: IChartApi; series: ISeriesApi<"Candlestick">; lines: { line: IPriceLine; kind: PriceLineKind }[] } | null>(null);
+
+  useLayoutEffect(() => {
+    colorsRef.current = colors;
+  }, [colors]);
 
   useEffect(() => {
-    if (!box.current || candles.length === 0) return;
+    const el = box.current;
+    if (!el || candles.length === 0) return;
+    const c = colorsRef.current;
     const usd = currency === "USD";
-    const chart = createChart(box.current, {
+    const chart = createChart(el, {
       autoSize: true,
       layout: {
         background: { color: "transparent" },
-        textColor: "#8B95A1",
+        textColor: c.text,
         fontFamily: "'Pretendard Variable', Pretendard, system-ui, sans-serif",
         fontSize: 11,
+        attributionLogo: false, // 고지는 아래 글자 링크 (role=img 안에 링크를 두지 않는다)
       },
-      grid: { vertLines: { visible: false }, horzLines: { color: "#F2F4F6" } },
+      grid: { vertLines: { visible: false }, horzLines: { color: c.grid } },
       rightPriceScale: { borderVisible: false },
       timeScale: { borderVisible: false, rightOffset: 2 },
       localization: {
         locale: "ko-KR",
         priceFormatter: (p: number) => (usd ? `$${p.toFixed(2)}` : Math.round(p).toLocaleString("ko-KR")),
       },
+      ...CHART_INTERACTION,
     });
+    const unwheel = zoomWheelWithModifier(el, chart);
     const series = chart.addSeries(CandlestickSeries, {
-      upColor: UP,
-      downColor: DOWN,
+      upColor: c.up,
+      downColor: c.down,
       borderVisible: false,
-      wickUpColor: UP,
-      wickDownColor: DOWN,
+      wickUpColor: c.up,
+      wickDownColor: c.down,
       priceFormat: usd ? { type: "price", precision: 2, minMove: 0.01 } : { type: "price", precision: 0, minMove: 1 },
     });
     series.setData(candles.map((k) => ({ time: k.date, open: k.open, high: k.high, low: k.low, close: k.close })));
-    for (const l of lines) series.createPriceLine({ price: l.price, title: l.title, color: l.color, lineWidth: 2, axisLabelVisible: true });
+    // 좁은 화면은 선 이름 없이 축 라벨만 (분봉 차트와 같은 규칙 — lib/chartOptions lineTitle)
+    const made = lines.map((l) => ({
+      kind: l.kind,
+      line: series.createPriceLine({ price: l.price, title: lineTitle(el, l.title), color: lineColor(c, l.kind), lineWidth: 2, axisLabelVisible: true }),
+    }));
     chart.timeScale().fitContent();
-    return () => chart.remove();
+    chartRef.current = { chart, series, lines: made };
+    return () => {
+      unwheel();
+      chartRef.current = null;
+      chart.remove();
+    };
   }, [candles, currency, lines]);
 
-  return <div ref={box} className="h-[260px] w-full lg:h-[340px]" role="img" aria-label="일봉 차트와 계획 가격 선" />;
+  // 테마가 바뀌면 색만 바꾼다 (처음 만들 때 한 번 더 같은 색을 넣는 것은 해가 없다)
+  useEffect(() => {
+    const cur = chartRef.current;
+    if (!cur) return;
+    cur.chart.applyOptions({ layout: { textColor: colors.text }, grid: { horzLines: { color: colors.grid } } });
+    cur.series.applyOptions({ upColor: colors.up, downColor: colors.down, wickUpColor: colors.up, wickDownColor: colors.down });
+    for (const l of cur.lines) l.line.applyOptions({ color: lineColor(colors, l.kind) });
+  }, [colors]);
+
+  // 차트 라이브러리 고지(lightweight-charts)는 차트 안 로고 대신 그림 밖 글자 링크로 둔다 — role="img" 안의 로고 링크는 이름 없는 Tab 정지점이 됐다.
+  // 전체 높이는 불러오는 동안의 자리(260·340px) 그대로 두고 그 안에서 차트와 고지 줄을 나눈다 (불러온 뒤 아래 내용이 밀리지 않게)
+  return (
+    <div className="flex h-[260px] w-full flex-col lg:h-[340px]">
+      <div ref={box} className="min-h-0 w-full flex-1" role="img" aria-label="일봉 차트와 계획 가격 선" />
+      <p className="mt-1 shrink-0 text-right text-[12px] leading-4">
+        <a
+          href="https://www.tradingview.com/"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Charting by TradingView"
+          className="rounded-sm text-mute transition-colors hover:text-sub hover:underline"
+        >
+          TradingView
+        </a>
+      </p>
+    </div>
+  );
 }

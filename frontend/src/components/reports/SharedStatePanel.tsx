@@ -1,4 +1,5 @@
 // Shared State 패널. Orchestrator만 State를 갱신한다 (Worker는 독립 결과만 돌려준다).
+// 실패 표시는 오류 글자색(up-ink — 다크에서도 연빨강 바탕 위 4.5:1 이상).
 import type { ReactNode } from "react";
 import type { ExecutionPlan, SharedState } from "../../api/types";
 import { actorLabel } from "../../lib/reports";
@@ -55,10 +56,10 @@ export function SharedStatePanel({ state, plan }: { state: SharedState; plan: Ex
           )}
         </Item>
         <Item label="completedAgents">
-          <Agents ids={state.completedAgents} plan={plan} cls="bg-ok-soft text-ok" />
+          <Agents ids={state.completedAgents} plan={plan} cls="bg-ok-soft text-ok-ink" />
         </Item>
         <Item label="failedAgents">
-          <Agents ids={state.failedAgents} plan={plan} cls="bg-up-soft text-up" />
+          <Agents ids={state.failedAgents} plan={plan} cls="bg-up-soft text-up-ink" />
         </Item>
         <Item label="results">
           {results.length === 0 ? (
@@ -80,7 +81,7 @@ export function SharedStatePanel({ state, plan }: { state: SharedState; plan: Ex
             <ul className="space-y-1">
               {errors.map(([k, v]) => (
                 <li key={k} className="text-[13px]">
-                  <span className="font-mono font-semibold text-up">{k}</span> <span className="text-sub">{v}</span>
+                  <span className="font-mono font-semibold text-up-ink">{k}</span> <span className="text-sub">{v}</span>
                 </li>
               ))}
             </ul>

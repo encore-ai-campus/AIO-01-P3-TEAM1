@@ -4,6 +4,7 @@ import { http, HttpResponse } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReportDetail, TraceEvent } from "./api/types";
 import { DISCLAIMER } from "./lib/plainText";
+import { EXPERT_FAILURE_NOTE } from "./lib/reports";
 import * as db from "./mocks/db";
 import { server } from "./mocks/server";
 import { renderApp } from "./test/render";
@@ -50,6 +51,12 @@ const click = (name: string | RegExp) => fireEvent.click(screen.getByRole("butto
 const tab = (name: string) => fireEvent.click(screen.getByRole("tab", { name }));
 /** 타임라인을 "전체"로 (기본은 주요 사건만). */
 const showAll = () => click("전체");
+/** 고른 종목의 오늘 리포트 확인이 끝나 '만들기'를 누를 수 있게 되면 그 버튼 (확인 중에는 막혀 있다). */
+async function createButton() {
+  const b = screen.getByRole("button", { name: "AI 리포트 만들기" }) as HTMLButtonElement;
+  await waitFor(() => expect(b.disabled).toBe(false));
+  return b;
+}
 
 function ev(step: number, actor: string, action: string, status: TraceEvent["status"]): TraceEvent {
   return { step, actor, action, status, provider: null, model: null, latencyMs: null, details: {}, at: "2026-10-02T10:00:00+09:00" };
@@ -70,8 +77,14 @@ describe("리포트 목록·신청", () => {
     expect(rows[1].querySelector("a")?.getAttribute("href")).toBe("/reports/1");
 
     expect(await screen.findByText("Agent 실행은 아직 구현되지 않았습니다. 신청은 기록되고 구조만 볼 수 있습니다.")).toBeTruthy();
-    // 미리 보기는 접혀 있다
+    // 만드는 중인 내 리포트 띠 (앨리스의 삼성전자 — 탭의 점을 보고 들어온 사람의 목적지, 목록과 다른 이름)
+    const making = screen.getByRole("list", { name: "만드는 중인 내 리포트" });
+    expect(within(making).getByRole("link", { name: "삼성전자 리포트 진행 보기" }).getAttribute("href")).toBe("/reports/2");
+    // 미리 보기는 접혀 있다 (열린 동안만 aria-controls)
+    const toggle = screen.getByRole("button", { name: /작업 계획\(Planner\) 미리 보기/ });
+    expect([toggle.getAttribute("aria-expanded"), toggle.getAttribute("aria-controls")]).toEqual(["false", null]);
     click(/작업 계획\(Planner\) 미리 보기/);
+    expect(toggle.getAttribute("aria-controls")).toBe("plan-preview");
     const preview = await screen.findByRole("region", { name: /^작업 계획\(Planner\) 미리 보기/ });
     expect(await within(preview).findByRole("region", { name: "Join Guard" })).toBeTruthy();
     // 미리 보기는 모두 대기
@@ -83,7 +96,15 @@ describe("리포트 목록·신청", () => {
     fireEvent.change(await screen.findByLabelText("종목 검색"), { target: { value: "현대" } });
     fireEvent.click(await screen.findByRole("button", { name: /현대차/ }));
     expect(screen.getByText("현대차", { selector: "b" })).toBeTruthy();
-    click("AI 리포트 만들기");
+    // 고르면 검색 결과를 접고 고른 종목 칩을 보인다 (버튼이 입력칸 바로 아래로) — 칩을 누르면 다시 편다
+    expect(screen.queryByRole("list", { name: "검색한 종목" })).toBeNull();
+    // 포커스는 접힌 목록(사라진 결과 버튼)에서 body로 떨어지지 않고 고른 종목 칩으로 (화면 읽기에 고른 종목이 읽힌다)
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "고른 종목 현대차 005380 바꾸기" }));
+    click("고른 종목 현대차 005380 바꾸기");
+    expect(await screen.findByRole("list", { name: "검색한 종목" })).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByLabelText("종목 검색"));
+    fireEvent.click(screen.getByRole("button", { name: /^현대차/ }));
+    fireEvent.click(await createButton());
     expect(await screen.findByRole("heading", { name: "현대차 AI 리포트" })).toBeTruthy();
     // 실행 전이라 "진행 기록" 탭이 기본 (과제 용어는 사용자 용어 "실행 준비·실행 확인"과 겹치지 않게 — 컨셉 4-3)
     expect(screen.getByRole("tab", { name: "진행 기록" }).getAttribute("aria-selected")).toBe("true");
@@ -104,7 +125,7 @@ describe("리포트 목록·신청", () => {
     fireEvent.click(await screen.findByRole("button", { name: /현대차/ }));
     fireEvent.click(screen.getByRole("switch", { name: /장애 주입/ }));
     expect(screen.getByRole("button", { name: /복구 시연/ }).getAttribute("aria-pressed")).toBe("true");
-    click("AI 리포트 만들기");
+    fireEvent.click(await createButton());
     expect(await screen.findByRole("heading", { name: "현대차 AI 리포트" })).toBeTruthy();
     const made = db.getReport(db.listReports("005380")[0].id);
     expect(made.chaos).toMatchObject({ enabled: true, scope: "primary", probability: 0.8 });
@@ -114,6 +135,48 @@ describe("리포트 목록·신청", () => {
     const lists = await screen.findAllByRole("list", { name: "리포트 목록" });
     fireEvent.click(screen.getAllByRole("button", { name: "장애 주입" }).at(-1)!);
     await waitFor(() => expect(within(lists.at(-1)!).getAllByRole("listitem")).toHaveLength(1));
+  });
+
+  it("오늘 그 종목 리포트가 이미 있으면 '오늘 리포트 보기'가 먼저, 새로 만들기는 작게 (종목 상세와 같은 규칙)", async () => {
+    renderApp("/reports");
+    fireEvent.change(await screen.findByLabelText("종목 검색"), { target: { value: "삼성" } });
+    fireEvent.click(await screen.findByRole("button", { name: /^삼성전자/ }));
+    const open = await screen.findByRole("link", { name: "오늘 리포트 보기" });
+    expect(open.getAttribute("href")).toBe("/reports/2");
+    expect(screen.getByText("앨리스 님이 만듦 · 신청됨")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "새로 만들기" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "AI 리포트 만들기" })).toBeNull();
+  });
+
+  it("고른 종목의 오늘 리포트를 확인하는 동안은 '만들기'가 막혀 있다 (확인 전에 눌러 같은 날 리포트를 또 만들지 않게)", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    server.use(
+      http.get("*/api/reports", async ({ request }) => {
+        if (new URL(request.url).searchParams.get("symbol") === "005930") await gate;
+        return undefined; // 기본 처리기로
+      }),
+    );
+    renderApp("/reports");
+    fireEvent.change(await screen.findByLabelText("종목 검색"), { target: { value: "삼성" } });
+    fireEvent.click(await screen.findByRole("button", { name: /^삼성전자/ }));
+    const make = screen.getByRole("button", { name: "AI 리포트 만들기" }) as HTMLButtonElement;
+    expect([make.disabled, make.getAttribute("aria-busy")]).toEqual([true, "true"]);
+    fireEvent.click(make);
+    release();
+    // 확인이 끝나면 오늘 리포트가 주 버튼이 되고, 막혀 있는 동안 누른 것으로는 아무것도 만들지 않았다
+    expect(await screen.findByRole("link", { name: "오늘 리포트 보기" })).toBeTruthy();
+    expect(db.listReports("005930")).toHaveLength(1);
+  });
+
+  it("장애 주입을 끄면 프리셋이 접힌다", async () => {
+    renderApp("/reports");
+    const sw = await screen.findByRole("switch", { name: /장애 주입/ });
+    fireEvent.click(sw);
+    expect(screen.getByRole("group", { name: "장애 주입 프리셋" })).toBeTruthy();
+    fireEvent.click(sw);
+    expect(sw.getAttribute("aria-checked")).toBe("false");
+    expect(screen.queryByRole("group", { name: "장애 주입 프리셋" })).toBeNull();
   });
 
   it("종목 상세의 AI 리포트 만들기 버튼도 리포트 상세로 간다 (AI 교차검증 분석과 별개)", async () => {
@@ -305,6 +368,122 @@ describe("리포트 상세", () => {
     expect(traceItems()).toHaveLength(22);
   });
 
+  it("재생 미니 줄: 띠가 가려지면 탭 줄에 붙고, 붙은 동안은 그 높이만큼 아래에서 본다 (스크롤 앵커링이 없는 브라우저에서 생겼다 사라지기를 되풀이하지 않게)", async () => {
+    // 지켜보는 것을 손으로 알리는 가짜 IntersectionObserver (jsdom에는 없다)
+    type Entry = { isIntersecting: boolean };
+    const watchers: { cb: (entries: Entry[]) => void; margin: string; live: boolean }[] = [];
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        private w: (typeof watchers)[number];
+        constructor(cb: (entries: Entry[]) => void, opts?: { rootMargin?: string }) {
+          this.w = { cb, margin: opts?.rootMargin ?? "", live: true };
+          watchers.push(this.w);
+        }
+        observe() {}
+        unobserve() {}
+        takeRecords() {
+          return [];
+        }
+        disconnect() {
+          this.w.live = false;
+        }
+      },
+    );
+    renderApp("/reports/2?tab=more");
+    fireEvent.click(await screen.findByRole("button", { name: /정상 흐름/ }));
+    // 재생 띠를 지켜보는 것 (위쪽을 덮인 만큼 뺀다 — 타임라인 끝을 지켜보는 것은 아래쪽을 뺀다)
+    const bar = () => watchers.filter((w) => w.live && w.margin.startsWith("-")).at(-1)!;
+    await waitFor(() => expect(bar().margin).toBe("-120px 0px 0px 0px"));
+    expect(screen.queryByRole("button", { name: "예시 다음 사건" })).toBeNull();
+    act(() => bar().cb([{ isIntersecting: false }]));
+    expect(screen.getByRole("button", { name: "예시 다음 사건" })).toBeTruthy();
+    // 미니 줄(48px)만큼 붙은 탭 줄이 길어졌으니 보는 선도 내린다 — 미니 줄이 띠를 밀어도 다시 '보임'이 되지 않는다
+    expect(bar().margin).toBe("-168px 0px 0px 0px");
+    act(() => bar().cb([{ isIntersecting: true }]));
+    expect(screen.queryByRole("button", { name: "예시 다음 사건" })).toBeNull();
+    expect(bar().margin).toBe("-120px 0px 0px 0px");
+  });
+
+  it("'자세히' 탭에서 예시를 시작하면 탭이 '진행 기록'으로 바뀌는 사이에도 재생 미니 줄이 생겼다 사라지지 않는다 (붙은 탭 줄이 출렁이지 않게)", async () => {
+    // 띠가 보이는지 아직 모르는 IntersectionObserver (알리지 않는다) — 미니 줄은 '띠가 가려짐'을 들은 뒤에만 붙는다
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        observe() {}
+        unobserve() {}
+        takeRecords() {
+          return [];
+        }
+        disconnect() {}
+      },
+    );
+    renderApp("/reports/2?tab=more");
+    const start = await screen.findByRole("button", { name: /정상 흐름/ });
+    // 탭 줄에 한 번이라도 미니 줄(예시 다음 사건 버튼)이 붙었는지 — 붙었다 바로 떼여도 기록에 남는다
+    let added = 0;
+    const mo = new MutationObserver((records) => {
+      for (const r of records)
+        for (const n of r.addedNodes) if (n instanceof Element && (n.matches('[aria-label="예시 다음 사건"]') || n.querySelector('[aria-label="예시 다음 사건"]'))) added++;
+    });
+    mo.observe(document.body, { childList: true, subtree: true });
+    fireEvent.click(start);
+    await waitFor(() => expect(screen.getByRole("tab", { name: "진행 기록" }).getAttribute("aria-selected")).toBe("true"));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 30));
+    });
+    mo.disconnect();
+    expect(added).toBe(0);
+    expect(screen.queryByRole("button", { name: "예시 다음 사건" })).toBeNull();
+  });
+
+  it("모바일 전문가 상세는 붙은 탭 줄 높이를 문서의 --sticky-tabs-h로 알려 Tab 포커스 여백에 더하고(scroll-padding-top은 두지 않는다 — 붙은 줄로 Shift+Tab 할 때 페이지가 튄다), PC·화면을 떠나면 지운다", async () => {
+    const resizes: (() => void)[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(cb: () => void) {
+          resizes.push(cb);
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    let pc = false;
+    const changes = new Set<() => void>();
+    vi.stubGlobal("matchMedia", (q: string) => ({
+      get matches() {
+        return q.includes("min-width: 64rem") ? pc : false;
+      },
+      media: q,
+      addEventListener: (_: string, fn: () => void) => changes.add(fn),
+      removeEventListener: (_: string, fn: () => void) => changes.delete(fn),
+    }));
+    const root = document.documentElement;
+    const tabsH = () => root.style.getPropertyValue("--sticky-tabs-h");
+    const view = renderApp("/reports/2?tab=run");
+    const row = (await screen.findByRole("tablist", { name: "리포트 화면" })).parentElement!;
+    // jsdom에는 레이아웃이 없어 탭 줄 높이를 정해 준다 (미니 줄이 붙으면 늘어난다)
+    row.getBoundingClientRect = () => ({ height: 60 }) as DOMRect;
+    act(() => resizes.forEach((cb) => cb()));
+    expect(tabsH()).toBe("60px");
+    row.getBoundingClientRect = () => ({ height: 107.5 }) as DOMRect;
+    act(() => resizes.forEach((cb) => cb()));
+    expect(tabsH()).toBe("108px");
+    expect(root.style.scrollPaddingTop).toBe("");
+    // PC는 탭 줄이 붙지 않으므로 지운다
+    pc = true;
+    act(() => changes.forEach((fn) => fn()));
+    expect(tabsH()).toBe("");
+    pc = false;
+    act(() => changes.forEach((fn) => fn()));
+    expect(tabsH()).toBe("108px");
+    view.unmount();
+    expect(tabsH()).toBe("");
+    expect(root.style.scrollPaddingTop).toBe("");
+  });
+
   it("복구 지표는 리포트 목록이 아니라 관리자 화면에 있다", async () => {
     renderApp("/reports");
     await screen.findByRole("list", { name: "리포트 목록" });
@@ -319,6 +498,10 @@ describe("리포트 상세", () => {
     expect(screen.getByText("3.42초")).toBeTruthy();
     expect(within(region("장애 유형별")).getByText("복구 7 · 미복구 0")).toBeTruthy();
     expect(within(screen.getByRole("list", { name: "최근 장애 사례" })).getAllByRole("listitem")).toHaveLength(4);
+    // PC 표의 리포트 링크: 파란 글자는 brand-ink (brand는 흰 바탕 3.7:1)
+    const reportLinks = within(screen.getByRole("table")).getAllByRole("link", { name: /^리포트 #\d+$/ });
+    expect(reportLinks).toHaveLength(4);
+    for (const a of reportLinks) expect(a.className.split(" ")).toContain("text-brand-ink");
   });
 
   it("개념 문서: 자세히 탭의 접이식 영역에서 교육용 문서를 렌더한다", async () => {
@@ -337,9 +520,101 @@ describe("리포트 상세", () => {
     expect(await screen.findByRole("heading", { name: "04 Distributed Collaboration" }, { timeout: 5000 })).toBeTruthy();
   });
 
-  it("없는 리포트는 안내한다", async () => {
+  it("개념 문서 끝의 '접기 · 맨 위로': 포커스는 바로 머리로, 스크롤은 문서가 빠진 뒤(다시 그린 뒤)에 머리로", async () => {
+    const saved = Object.getOwnPropertyDescriptor(Element.prototype, "scrollIntoView");
+    const seen: { el: Element; docShown: boolean }[] = [];
+    // jsdom에는 scrollIntoView가 없다: 부를 때 문서가 아직 화면에 있는지 적는다
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      configurable: true,
+      writable: true,
+      value: function (this: Element) {
+        seen.push({ el: this, docShown: screen.queryByRole("heading", { name: "04 Distributed Collaboration" }) !== null });
+      },
+    });
+    try {
+      renderApp("/reports");
+      const head = await screen.findByRole("button", { name: /개념 문서/ });
+      fireEvent.click(head);
+      await screen.findByRole("heading", { name: "04 Distributed Collaboration" }, { timeout: 5000 });
+      fireEvent.click(screen.getByRole("button", { name: "접기 · 맨 위로" }));
+      expect(head.getAttribute("aria-expanded")).toBe("false");
+      expect(document.activeElement).toBe(head); // 누른 버튼이 사라져도 포커스가 body로 떨어지지 않는다
+      await waitFor(() => expect(seen.some((s) => s.el === head)).toBe(true));
+      expect(seen.filter((s) => s.el === head)).toEqual([{ el: head, docShown: false }]);
+    } finally {
+      if (saved) Object.defineProperty(Element.prototype, "scrollIntoView", saved);
+      else delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
+  });
+
+  it("없는 리포트는 안내하고 목록으로 가는 길을 준다 (숫자가 아닌 주소도 기다리지 않는다)", async () => {
     renderApp("/reports/999");
     expect(await screen.findByText("리포트를 찾을 수 없습니다.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "리포트 목록으로" }).getAttribute("href")).toBe("/reports");
+    expect(screen.queryByRole("button", { name: "다시 시도" })).toBeNull(); // 다시 받아도 소용없다
+    renderApp("/reports/abc", "bob");
+    expect(await screen.findByText("리포트를 찾을 수 없어요")).toBeTruthy();
+  });
+
+  it("탭: 방향키로 옮기면 바로 고르고, aria-controls는 그린 패널(선택된 탭)에만. 보기 전환은 머리 카드 안", async () => {
+    renderApp("/reports/2");
+    const run = await screen.findByRole("tab", { name: "진행 기록" });
+    expect(run.getAttribute("aria-selected")).toBe("true");
+    expect(run.getAttribute("aria-controls")).toBe("panel-run");
+    expect(screen.getByRole("tab", { name: "리포트" }).getAttribute("aria-controls")).toBeNull();
+    // 선택된 탭만 Tab 키로 들어온다 (roving tabindex)
+    expect(screen.getAllByRole("tab").map((t) => t.getAttribute("tabindex"))).toEqual(["-1", "0", "-1"]);
+    fireEvent.keyDown(run, { key: "ArrowRight" });
+    const more = screen.getByRole("tab", { name: "자세히" });
+    expect(more.getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(more);
+    expect(screen.getByRole("tabpanel", { name: "자세히" })).toBeTruthy();
+    // 머리: 이름·상태 한 줄, 보기 전환은 쉬운 보기와 같은 자리 (화면 머리에는 제목·종만)
+    const head = screen.getByRole("region", { name: "리포트 머리" });
+    expect(within(head).getByRole("button", { name: "이 화면만 쉽게 보기" })).toBeTruthy();
+    expect(within(head).getByText("신청됨")).toBeTruthy();
+    expect(within(document.querySelector("header") as HTMLElement).queryByRole("button", { name: /보기/ })).toBeNull();
+  });
+
+  it("실패한 리포트(전문가): 쉬운 사유 문장 + 사유 코드 + 사유에 맞는 둘째 문장, 요약 띠에 '장애 없음'을 붙이지 않는다", async () => {
+    db.addSampleReports();
+    const failed = db.listReports("086520")[0];
+    renderApp(`/reports/${failed.id}`);
+    expect(await screen.findByRole("heading", { name: "리포트를 만들지 못했습니다" })).toBeTruthy();
+    expect(screen.getByText("(review_failed)")).toBeTruthy();
+    expect(screen.getByText(EXPERT_FAILURE_NOTE.review_failed)).toBeTruthy();
+    const summary = region("실행 요약");
+    expect(within(summary).getByText("실행 실패")).toBeTruthy();
+    expect(within(summary).queryByText(/장애 없음/)).toBeNull();
+  });
+
+  it("완성 리포트(전문가): 본문 제목은 카드 제목 아래 단계(h3), PDF는 '보기'(새 창), 완성된 리포트에는 미구현 안내가 없다", async () => {
+    db.addSampleReports();
+    const buy = db.listReports("035420")[0];
+    renderApp(`/reports/${buy.id}?tab=report`);
+    expect(await screen.findByRole("heading", { name: "NAVER 종목 리포트", level: 3 }, { timeout: 5000 })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "리포트 본문", level: 2 })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "PDF로 보기" }).getAttribute("target")).toBe("_blank");
+    expect(screen.queryByText(/Agent 실행은 아직 구현되지 않았습니다/)).toBeNull();
+  });
+
+  it("긍정적 완성 리포트(전문가)는 추천을 받는 동안 그 자리를 잡아 둔다 (받은 뒤 본문이 밀리거나 PC에서 한 열 → 두 열로 바뀌지 않게)", async () => {
+    db.addSampleReports();
+    const buy = db.listReports("035420")[0];
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    server.use(
+      http.get("*/api/recommendations", async ({ request }) => {
+        if (new URL(request.url).searchParams.get("sourceId") === String(buy.id)) await gate;
+        return undefined; // 기본 처리기로
+      }),
+    );
+    renderApp(`/reports/${buy.id}?tab=report`);
+    const panel = await screen.findByRole("tabpanel", { name: "리포트" });
+    expect(within(panel).getByRole("group", { name: "이 리포트의 AI 추천 불러오는 중" })).toBeTruthy();
+    release();
+    expect(await within(panel).findByRole("heading", { name: /이 리포트의 AI 추천/ })).toBeTruthy();
+    expect(within(panel).queryByRole("group", { name: "이 리포트의 AI 추천 불러오는 중" })).toBeNull();
   });
 });
 

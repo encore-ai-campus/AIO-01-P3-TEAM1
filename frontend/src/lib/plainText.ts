@@ -34,7 +34,19 @@ export interface Wording {
 
 // ---------------------------------------------------------------- 고정 문구
 
-export const SERVICE_NAME = "AI 리포트 데스크";
+/**
+ * 서비스 이름 (docs/DECISIONS.md 15-7 — 2026-10-05에 바뀜, 전 이름은 D-5). 붙여 쓰고 꾸밈말을 붙이지 않는다('AI 종이배' 아님).
+ * '종이'는 AI가 쓴 리포트(종이 위의 보고서)와 모의투자(paper trading — 실제가 아니라 종이 위에서 연습)를 함께 뜻한다.
+ * 문구에 쓰지 않는 말: 배 은어(탑승·승선·선장·출항·순항), 띄우다·접다, 침몰·가라앉다·구조, '배(倍)' 말장난.
+ * 로고는 components/BrandMark.tsx. 백엔드에도 같은 이름이 둘 있다 (notifications/service.py HEADER, reports/pdf.py SERVICE_NAME).
+ */
+export const SERVICE_NAME = "종이배";
+
+/** 부제: 이름 바로 아래 (로그인 첫 화면·발표 첫 장). */
+export const SERVICE_TAGLINE = "종이 위에서 연습하는 AI 리포트 모의투자";
+
+/** 첫 화면(로그인)의 풀이 한 줄: 부제의 '종이 위에서'를 풀어 말한다. */
+export const SERVICE_INTRO = "진짜 돈 대신 종이 위에서 — AI가 쓴 리포트를 읽고 따져 본 뒤, 가상 현금으로 모의투자를 연습해요.";
 
 /** 통일 면책 문장 (리포트·PDF·화면). */
 export const DISCLAIMER = "이 리포트는 AI가 만든 참고 자료이며 투자 권유가 아닙니다. 모든 매매는 모의 계좌에서만 이뤄집니다.";
@@ -68,8 +80,11 @@ export const MINUTE_UNAVAILABLE = "이 날짜의 분봉은 받을 수 없어요"
 /** 투자 성향·경험 진단 안내. */
 export const NOT_SUITABILITY = "법정 적합성 진단이 아니에요";
 
-/** 리포트를 만드는 동안. */
-export const REPORT_KEEPS_RUNNING = "이 화면을 닫아도 계속 만들어요. 만드는 동안 '리포트' 탭에 점이 보이고, 완성되면 위쪽 종으로 알려 드려요";
+/**
+ * 리포트를 만드는 동안. 기기와 상관없는 말로 쓴다: 표시는 모바일 하단 탭의 점·PC 왼쪽 메뉴의 '만드는 중' 칩이고,
+ * 알림 종은 모바일은 화면 머리·PC는 왼쪽 메뉴에 있다 (Layout).
+ */
+export const REPORT_KEEPS_RUNNING = "이 화면을 닫아도 계속 만들어요. 만드는 동안 '리포트' 메뉴에 표시가 붙고, 완성되면 알림으로 알려 드려요";
 export const AI_REVIEW_NOTE = "AI 검토는 사실을 보증하지 않아요";
 
 /** 화면 아래 공통 출처 줄 (docs/DECISIONS.md 14-1). quoteProvider는 MarketStatus.quoteProvider. */

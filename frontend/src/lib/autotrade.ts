@@ -23,34 +23,34 @@ import type {
  * (docs/컨셉변경계획.md 4-3).
  */
 export const SOURCE: Record<RecommendationSource, { label: string; chip: string; icon: IconName; hint: string }> = {
-  report: { label: "AI 리포트", chip: "bg-brand-soft text-brand-dark", icon: "doc", hint: "AI 리포트의 결론에서 나온 계획" },
-  analysis: { label: "AI 교차검증 분석", chip: "bg-brand-soft text-brand-dark", icon: "sparkle", hint: "여러 AI가 서로 검증한 분석에서 나온 계획 (리포트 없음)" },
-  demo: { label: "연습용 예시 · AI 아님", chip: "bg-warn-soft text-[#9a5b00]", icon: "chart", hint: "최근 변동폭(ATR)으로 목표·손절을 정한 규칙 기반 예시" },
-  day: { label: "단타 연습 · AI 아님", chip: "bg-warn-soft text-[#9a5b00]", icon: "bolt", hint: "단타 연습장에서 직접 입력한 계획" },
+  report: { label: "AI 리포트", chip: "bg-brand-soft text-brand-ink", icon: "doc", hint: "AI 리포트의 결론에서 나온 계획" },
+  analysis: { label: "AI 교차검증 분석", chip: "bg-brand-soft text-brand-ink", icon: "sparkle", hint: "여러 AI가 서로 검증한 분석에서 나온 계획 (리포트 없음)" },
+  demo: { label: "연습용 예시 · AI 아님", chip: "bg-warn-soft text-warn-ink", icon: "chart", hint: "최근 변동폭(ATR)으로 목표·손절을 정한 규칙 기반 예시" },
+  day: { label: "단타 연습 · AI 아님", chip: "bg-warn-soft text-warn-ink", icon: "bolt", hint: "단타 연습장에서 직접 입력한 계획" },
 };
 
 /** 보유 방식 배지 (Position·Order의 style). */
 export const STYLE_BADGE: Record<HoldingStyle, { label: string; chip: string }> = {
-  swing: { label: "스윙", chip: "bg-brand-soft text-brand-dark" },
-  long: { label: "장기", chip: "bg-ok-soft text-ok" },
-  day: { label: "단타", chip: "bg-warn-soft text-[#9a5b00]" },
+  swing: { label: "스윙", chip: "bg-brand-soft text-brand-ink" },
+  long: { label: "장기", chip: "bg-ok-soft text-ok-ink" },
+  day: { label: "단타", chip: "bg-warn-soft text-warn-ink" },
 };
 
 export const RISK_LEVEL: Record<RiskLevel, { label: string; chip: string }> = {
-  low: { label: "리스크 낮음", chip: "bg-ok-soft text-ok" },
-  medium: { label: "리스크 보통", chip: "bg-warn-soft text-[#9a5b00]" },
-  high: { label: "리스크 높음", chip: "bg-up-soft text-up" },
+  low: { label: "리스크 낮음", chip: "bg-ok-soft text-ok-ink" },
+  medium: { label: "리스크 보통", chip: "bg-warn-soft text-warn-ink" },
+  high: { label: "리스크 높음", chip: "bg-up-soft text-up-ink" },
 };
 
 /** 계획 상태: 색 + 아이콘 + 글자. */
 export const PLAN_STATUS: Record<TradePlanStatus, { label: string; chip: string; icon: IconName }> = {
-  active: { label: "활성화됨", chip: "bg-brand-soft text-brand-dark", icon: "bolt" },
-  entry_pending: { label: "체결 대기", chip: "bg-brand-soft text-brand-dark", icon: "clock" },
+  active: { label: "활성화됨", chip: "bg-brand-soft text-brand-ink", icon: "bolt" },
+  entry_pending: { label: "체결 대기", chip: "bg-brand-soft text-brand-ink", icon: "clock" },
   holding: { label: "보유 중", chip: "bg-brand text-white", icon: "shield" },
-  closed: { label: "청산 완료", chip: "bg-ok-soft text-ok", icon: "check" },
+  closed: { label: "청산 완료", chip: "bg-ok-soft text-ok-ink", icon: "check" },
   cancelled: { label: "중단됨", chip: "bg-fill text-sub", icon: "ban" },
   expired: { label: "기한 만료", chip: "bg-fill text-sub", icon: "clock" },
-  failed: { label: "실패", chip: "bg-up-soft text-up", icon: "alert" },
+  failed: { label: "실패", chip: "bg-up-soft text-up-ink", icon: "alert" },
 };
 
 export const planStatusOf = (status: string) =>
@@ -72,15 +72,15 @@ export const exitReasonLabel = (reason: string | null | undefined): string =>
 /** 계획 사건의 아이콘·색. 모르는 kind는 회색 점. */
 export const EVENT_KIND: Record<string, { icon: IconName; cls: string; label: string }> = {
   activated: { icon: "bolt", cls: "bg-brand text-white", label: "활성화" },
-  risk_checked: { icon: "shield", cls: "bg-brand-soft text-brand-dark", label: "리스크 점검" },
-  order_placed: { icon: "doc", cls: "bg-brand-soft text-brand-dark", label: "주문 접수" },
-  order_requeued: { icon: "restart", cls: "bg-warn-soft text-[#9a5b00]", label: "재주문" },
-  filled: { icon: "check", cls: "bg-up-soft text-up", label: "체결" },
-  exit_requested: { icon: "logout", cls: "bg-warn-soft text-[#9a5b00]", label: "매도 요청" },
-  closed: { icon: "check", cls: "bg-ok-soft text-ok", label: "청산" },
+  risk_checked: { icon: "shield", cls: "bg-brand-soft text-brand-ink", label: "리스크 점검" },
+  order_placed: { icon: "doc", cls: "bg-brand-soft text-brand-ink", label: "주문 접수" },
+  order_requeued: { icon: "restart", cls: "bg-warn-soft text-warn-ink", label: "재주문" },
+  filled: { icon: "check", cls: "bg-up-soft text-up-ink", label: "체결" },
+  exit_requested: { icon: "logout", cls: "bg-warn-soft text-warn-ink", label: "매도 요청" },
+  closed: { icon: "check", cls: "bg-ok-soft text-ok-ink", label: "청산" },
   cancelled: { icon: "ban", cls: "bg-fill text-sub", label: "중단" },
   expired: { icon: "clock", cls: "bg-fill text-sub", label: "기한 만료" },
-  failed: { icon: "alert", cls: "bg-up-soft text-up", label: "실패" },
+  failed: { icon: "alert", cls: "bg-up-soft text-up-ink", label: "실패" },
 };
 export const eventKindOf = (kind: string) => EVENT_KIND[kind] ?? { icon: "circle" as IconName, cls: "bg-fill text-mute", label: kind };
 
@@ -96,10 +96,22 @@ export interface WorkflowStep {
   state: StepState;
 }
 
+/**
+ * 끝난 계획의 결과 한 줄. tone: done(끝까지 진행 — 손익과 무관하게 중립 + 체크, 손익 숫자만 이익·손실 색) ·
+ * neutral(멈춤·기한 만료) · error(실패). 초록(성공) 상자에 손실을 담으면 초보가 손실을 성공으로 읽는다 (trade-23).
+ */
+export interface Outcome {
+  tone: "done" | "neutral" | "error";
+  title: string;
+  text: string;
+  /** done(청산 완료)일 때만: 실현 손익 (수수료·세금 포함) */
+  pnlKrw?: number | null;
+}
+
 export interface Workflow {
   steps: WorkflowStep[];
   /** 끝난 상태면 결과 한 줄 (closed·cancelled·expired·failed). 진행 중이면 null. */
-  outcome: { tone: "ok" | "neutral" | "error"; title: string; text: string } | null;
+  outcome: Outcome | null;
   /** 체결 대기 중 다시 주문한 횟수. */
   requeues: number;
 }
@@ -157,7 +169,7 @@ export function planWorkflow(plan: Pick<TradePlan, "status" | "exitReason" | "fa
   let outcome: Workflow["outcome"] = null;
   if (plan.status === "closed") {
     const why = plan.exitReason ? exitReasonLabel(plan.exitReason) : "청산";
-    outcome = { tone: "ok", title: `청산 완료 · ${why}`, text: "계획이 끝났습니다." };
+    outcome = { tone: "done", title: `청산 완료 · ${why}`, text: "계획이 끝났습니다.", pnlKrw: plan.pnlKrw };
   } else if (plan.status === "cancelled") {
     outcome = { tone: "neutral", title: "사용자가 중단", text: reason || "계획을 중단했습니다." };
   } else if (plan.status === "expired") {
@@ -177,11 +189,13 @@ export interface EasyStep {
   state: StepState;
 }
 
-const EASY_STEPS: { key: EasyStepKey; label: string; from: number[] }[] = [
-  { key: "order", label: "주문", from: [0, 1, 2] }, // 시작 · 안전장치 점검 · 모의 주문
-  { key: "wait", label: "사는 가격 기다리는 중", from: [3] },
-  { key: "hold", label: "목표·손절 지켜보는 중", from: [4] },
-  { key: "sold", label: "팔았어요", from: [5] },
+// label은 문서 3장의 단계 이름. 끝난 단계는 과거형(done), 파는 중인 마지막 단계는 진행형(current)으로 바꿔 보인다 —
+// 모두 체크인데 "…기다리는 중"으로 남거나 매도 요청 중인데 "팔았어요"라고 말하지 않게 (trade-36)
+const EASY_STEPS: { key: EasyStepKey; label: string; done?: string; current?: string; from: number[] }[] = [
+  { key: "order", label: "주문", done: "주문했어요", from: [0, 1, 2] }, // 시작 · 안전장치 점검 · 모의 주문
+  { key: "wait", label: "사는 가격 기다리는 중", done: "샀어요", from: [3] },
+  { key: "hold", label: "목표·손절 지켜보는 중", done: "목표·손절 지켜봤어요", from: [4] },
+  { key: "sold", label: "팔았어요", current: "파는 중", from: [5] },
 ];
 
 /** 여러 단계를 하나로 묶은 상태: 멈춤 > 진행 중 > 완료(남은 것은 건너뜀뿐) > 일부만 완료(진행 중) > 모두 건너뜀 > 대기. */
@@ -196,7 +210,11 @@ function mergeStates(states: StepState[]): StepState {
 /** 계획 상태와 사건으로 쉬운 단계 넷을 계산한다 (planWorkflow의 여섯 단계를 묶는다). */
 export function easySteps(plan: Pick<TradePlan, "status" | "exitReason" | "failureReason" | "pnlKrw">, events: PlanEvent[] = []): EasyStep[] {
   const wf = planWorkflow(plan, events);
-  return EASY_STEPS.map((s) => ({ key: s.key, label: s.label, state: mergeStates(s.from.map((i) => wf.steps[i].state)) }));
+  return EASY_STEPS.map((s) => {
+    const state = mergeStates(s.from.map((i) => wf.steps[i].state));
+    const label = (state === "done" && s.done) || (state === "current" && s.current) || s.label;
+    return { key: s.key, label, state };
+  });
 }
 
 // ---------------------------------------------------------------- AI 교차검증 분석 과정 (docs/DECISIONS.md 13-1 D-1)
@@ -272,6 +290,36 @@ export function planCardState(x: PlanCardInput): PlanCardState | "loading" {
 export function splitProposals<T extends { source: RecommendationSource }>(recs: readonly T[], easy: boolean): { main: T[]; others: T[] } {
   if (!easy) return { main: [...recs], others: [] };
   return { main: recs.filter((r) => r.source === "report"), others: recs.filter((r) => r.source !== "report") };
+}
+
+const KIND_SHORT: Record<RecommendationSource, string> = { report: "AI 리포트", analysis: "교차검증 분석", demo: "연습용 예시", day: "단타 연습" };
+
+/** 접힌 "다른 계획 ○개 (…)" 괄호 안: 실제로 들어 있는 출처만 (분석만 있으면 "교차검증 분석"). */
+export function otherKinds(recs: readonly { source: RecommendationSource }[]): string {
+  const order: RecommendationSource[] = ["analysis", "demo", "day", "report"];
+  return order.filter((s) => recs.some((r) => r.source === s)).map((s) => KIND_SHORT[s]).join("·");
+}
+
+/** 진행 중 계획을 연결된 모의 주문 번호로 찾는 표 (내 주식의 대기 주문·보유·매도 예약 행에 계획을 잇는다 — trade-05). */
+export function plansByOrder<T extends Pick<TradePlan, "orderId" | "status">>(plans: readonly T[]): Map<number, T> {
+  const map = new Map<number, T>();
+  for (const p of plans) {
+    if (p.orderId != null && (p.status === "active" || p.status === "entry_pending" || p.status === "holding")) map.set(p.orderId, p);
+  }
+  return map;
+}
+
+/**
+ * 시작할 수 없을 때 시작 버튼 아래에 줄 다음 행동 하나 (trade-15). 사유 코드 순서와 무관하게 우선순위로 고른다.
+ * my_plan: 이미 진행 중인 내 계획 보기 · portfolio: 같은 종목 주문·보유가 있음 · other_plans: 이 계획 자체가 막힘(다른 계획 보기) ·
+ * null: 기다리면 풀리거나(중단 스위치·하루 한도) 예산을 고치면 되는 경우 — 문장만 보인다.
+ */
+export function nextActionOf(codes: readonly string[]): "my_plan" | "portfolio" | "other_plans" | null {
+  if (codes.includes("plan_exists")) return "my_plan";
+  if (codes.includes("position_exists")) return "portfolio";
+  const planBlocked = ["reward_risk_low", "ev_negative", "price_passed", "warning_stock", "expired", "size_too_small"];
+  if (codes.some((c) => planBlocked.includes(c))) return "other_plans";
+  return null;
 }
 
 // ---------------------------------------------------------------- 시각 (KST·장 시간)
@@ -371,6 +419,41 @@ export function priceLadder(stop: number, entry: number, target: number, last: n
   return { stop: pos(stop), entry: pos(entry), target: pos(target), last: last === null ? null : clamp(pos(last)), outside };
 }
 
+/**
+ * 직전 종가에서 계획의 가격까지 남은 거리 (계획 상세의 "얼마나 남았나" 한 줄 — trade-25).
+ * 사기 전(active·entry_pending): 사는 가격까지. 보유 중(holding): 목표·손절까지. 그 밖이거나 종가가 없으면 빈 목록.
+ */
+export function ladderDistances(
+  status: TradePlanStatus,
+  p: Pick<TradePlan, "entryPrice" | "targetPrice" | "stopPrice">,
+  last: number | null,
+): { key: "entry" | "target" | "stop"; rate: number }[] {
+  if (last === null || !(last > 0)) return [];
+  if (status === "active" || status === "entry_pending") return [{ key: "entry", rate: p.entryPrice / last - 1 }];
+  if (status === "holding") {
+    return [
+      { key: "target", rate: p.targetPrice / last - 1 },
+      { key: "stop", rate: p.stopPrice / last - 1 },
+    ];
+  }
+  return [];
+}
+
+// ---------------------------------------------------------------- PC 고정 열 (실행 확인·계획 상세의 오른쪽 열)
+
+/**
+ * PC 오른쪽 고정(sticky) 열이 화면보다 길면 위에 붙지 않고, 열의 아래 끝(시작·멈추기 버튼)이 화면 바닥 2rem 위에 왔을 때 붙게 한다 (trade-v02).
+ * 짧으면 지금처럼 위 2rem에 붙는다. 열 높이를 CSS 변수 --col-h로 넘기고 top을 min()으로 고른다 (ResizeObserver가 없으면 위에 붙는다).
+ * 콜백 ref로 쓴다 — 열이 늦게(불러온 뒤) 나타나도 붙고, 사라지면 관찰을 멈춘다: <div ref={stickyFit} className="lg:sticky" style={{ top: STICKY_FIT_TOP }}>
+ */
+export function stickyFit(el: HTMLElement | null) {
+  if (!el || typeof ResizeObserver !== "function") return;
+  const ro = new ResizeObserver(() => el.style.setProperty("--col-h", `${el.offsetHeight}px`));
+  ro.observe(el);
+  return () => ro.disconnect();
+}
+export const STICKY_FIT_TOP = "min(2rem, calc(100dvh - var(--col-h, 0px) - 2rem))";
+
 // ---------------------------------------------------------------- 시각·입력
 
 /** 유효 기한까지 남은 시간: "2일 3시간 남음", "45분 남음", 지났으면 "만료". */
@@ -383,6 +466,17 @@ export function timeLeft(iso: string, now: Date = new Date()): string {
   const hours = Math.floor((min % 1440) / 60);
   if (days > 0) return hours > 0 ? `${days}일 ${hours}시간 남음` : `${days}일 남음`;
   if (hours > 0) return `${hours}시간 ${min % 60}분 남음`;
+  return `${Math.max(1, min)}분 남음`;
+}
+
+/** 칩용 짧은 남은 시간: "2일 남음", "5시간 남음", "45분 남음", 지났으면 "만료" (자세한 시각은 상세 화면이 보인다). */
+export function timeLeftShort(iso: string, now: Date = new Date()): string {
+  const ms = new Date(iso).getTime() - now.getTime();
+  if (Number.isNaN(ms)) return "-";
+  if (ms <= 0) return "만료";
+  const min = Math.floor(ms / 60_000);
+  if (min >= 1440) return `${Math.floor(min / 1440)}일 남음`;
+  if (min >= 60) return `${Math.floor(min / 60)}시간 남음`;
   return `${Math.max(1, min)}분 남음`;
 }
 

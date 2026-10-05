@@ -217,6 +217,17 @@ export function makeAnalysis(
       atr14: roundTick(price * (0.02 + r() * 0.01), stock.currency),
       volumeRatio: Math.round((0.8 + r() * 1.2) * 100) / 100,
       trend: verdict === "BUY" ? "상승" : "횡보",
+      // 실제 엔진 스냅샷의 지표 키 (engine/paper_engine/data/snapshot.py — docs/API.md "엔진 스냅샷의 지표 그대로"). 쉬운 보기는 이 키를 읽는다.
+      // 비율(변동성·등락률)은 소수다. 위의 키는 예전 가짜 데이터라 그대로 둔다 (테스트 기본값)
+      sma20: roundTick(price * (0.97 + r() * 0.04), stock.currency),
+      sma60: roundTick(price * (0.92 + r() * 0.08), stock.currency),
+      sma120: roundTick(price * (0.88 + r() * 0.12), stock.currency),
+      volatility20: Math.round((0.18 + r() * 0.25) * 10_000) / 10_000,
+      change5d: Math.round((r() * 0.08 - 0.03) * 10_000) / 10_000,
+      change20d: Math.round((r() * 0.16 - 0.06) * 10_000) / 10_000,
+      change60d: Math.round((r() * 0.3 - 0.1) * 10_000) / 10_000,
+      periodHigh: roundTick(price * (1.05 + r() * 0.15), stock.currency),
+      periodLow: roundTick(price * (0.7 + r() * 0.15), stock.currency),
     },
     errors: scenarioCount ? [] : ["제안 모델이 조건에 맞는 시나리오를 내지 않았습니다."],
   };

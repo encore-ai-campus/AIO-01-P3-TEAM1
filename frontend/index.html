@@ -4,9 +4,28 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#F2F4F6" />
+    <!-- 화면 모드: CSS가 오기 전 흰 바탕이 번쩍이지 않게 (나중에 CSP를 넣으면 이 style과 아래 script의 hash를 더한다) -->
+    <style>html[data-theme=dark]{background:#0f1115;color-scheme:dark}</style>
+    <script>
+      /* 첫 페인트 전에 테마를 정한다. 키·값·규칙은 src/lib/theme.ts와 같다 (paper-theme = system|light|dark, 없으면 기기 설정) */
+      (function () {
+        var d = document.documentElement, p = null;
+        try { p = localStorage.getItem("paper-theme"); } catch (e) {}
+        var dark = p === "dark" || (p !== "light" && !!window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        d.setAttribute("data-theme", dark ? "dark" : "light");
+        d.style.colorScheme = dark ? "dark" : "light";
+        var m = document.querySelector('meta[name="theme-color"]');
+        if (dark && m) m.setAttribute("content", "#0F1115");
+      })();
+    </script>
+    <!-- 종이배 로고: 탭 파비콘은 16px 전용 모양(접힌 선 없음), 홈 화면 아이콘은 180px 꽉 찬 정사각형(모서리는 기기가 깎는다) -->
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!-- 홈 화면에 추가할 때의 이름 (없으면 그 순간의 탭 제목 '〈화면〉 · 종이배'가 붙는다) -->
+    <meta name="apple-mobile-web-app-title" content="종이배" />
     <!-- 팀 내부 서비스: 검색엔진 색인을 막는다 (robots.txt, nginx X-Robots-Tag와 같이) -->
     <meta name="robots" content="noindex,nofollow" />
-    <title>AI 리포트 데스크</title>
+    <title>종이배</title>
   </head>
   <body>
     <div id="root"></div>

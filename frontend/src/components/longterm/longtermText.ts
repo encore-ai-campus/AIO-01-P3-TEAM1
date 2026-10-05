@@ -98,3 +98,16 @@ export const THESIS_PRESETS: string[] = [
 
 export const THESIS_MAX_REASONS = 3;
 export const THESIS_MAX_LEN = 100;
+
+type JosaPair = "을/를" | "은/는" | "이/가" | "과/와";
+
+/**
+ * 받침에 맞는 조사 ("현대차" + 을/를 → "를", "셀트리온" → "을"). 마지막 글자가 한글이 아니면(AAPL·숫자) 두 형태를 다 적는다: "을(를)".
+ * 기계적인 "현대차을(를)"이 화면에 보이지 않게 (주문 결과·산 이유 문장이 쓴다).
+ */
+export function josa(word: string, pair: JosaPair): string {
+  const [withFinal, withoutFinal] = pair.split("/");
+  const code = word.trim().charCodeAt(word.trim().length - 1);
+  if (!(code >= 0xac00 && code <= 0xd7a3)) return `${withFinal}(${withoutFinal})`;
+  return (code - 0xac00) % 28 === 0 ? withoutFinal : withFinal;
+}

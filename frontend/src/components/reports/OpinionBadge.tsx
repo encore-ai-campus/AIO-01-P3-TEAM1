@@ -4,10 +4,11 @@ import type { ReportOpinion } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { opinionText } from "../../lib/plainText";
 
+// 글자색은 연한 바탕 위 글자용 *-ink 토큰 (다크에서도 4.5:1 이상)
 const TONE = {
-  positive: "bg-brand-soft text-brand-dark",
+  positive: "bg-brand-soft text-brand-ink",
   neutral: "bg-fill text-sub",
-  negative: "bg-warn-soft text-[#9a5b00]",
+  negative: "bg-warn-soft text-warn-ink",
 } as const;
 
 export function OpinionBadge({

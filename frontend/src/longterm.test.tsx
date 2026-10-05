@@ -1,21 +1,22 @@
 // 장기투자 화면 조각: 오늘의 내 종목 뉴스 카드(쉬운·전문가 보기) · 펀더멘털 패널(신호등·지표 표·적용하지 않음·산 이유 점검) · 산 이유 입력.
 // 기록일·기준일이 시각에 기대므로 시각을 고정한다 (10월 6일(화) 18:00 KST — 그날 기록이 생긴 뒤).
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import { Providers } from "./App";
 import type { FundamentalsRow, Thesis } from "./api/types";
+import { CHANGED_MS } from "./components/home/homeHooks";
 import { DailyMoveCard } from "./components/longterm/DailyMoveCard";
 import { FundamentalsPanel } from "./components/longterm/FundamentalsPanel";
-import { axisLine, formatFundamentalChange, formatFundamentalValue, formatKrwShort, orderRows, THESIS_PRESETS } from "./components/longterm/longtermText";
+import { axisLine, formatFundamentalChange, formatFundamentalValue, formatKrwShort, josa, orderRows, THESIS_PRESETS } from "./components/longterm/longtermText";
 import { ThesisForm } from "./components/longterm/ThesisForm";
 import { createQueryClient } from "./lib/queryClient";
 import { DAILY_MOVE_CAPTION, DAILY_MOVE_UNCERTAIN, FUNDAMENTALS_CAPTION, FUNDAMENTALS_OVERALL_TEXT } from "./lib/plainText";
 import * as db from "./mocks/db";
 import { server } from "./mocks/server";
-import { freezeTime } from "./test/time";
+import { freezeTime, TEST_DB } from "./test/time";
 
 const TUE_6PM = "2026-10-06T18:00:00+09:00";
 
@@ -77,6 +78,15 @@ describe("장기투자 표시 규칙", () => {
   it("산 이유 예시에는 권유 표현이 없다", () => {
     expect(forbiddenIn(THESIS_PRESETS.join(" "))).toEqual([]);
   });
+
+  it("조사는 받침에 맞게, 한글로 끝나지 않으면 두 형태를 다 적는다 ('현대차을(를)'이 보이지 않게)", () => {
+    expect(josa("현대차", "을/를")).toBe("를");
+    expect(josa("셀트리온", "을/를")).toBe("을");
+    expect(josa("삼성전자", "은/는")).toBe("는");
+    expect(josa("셀트리온", "이/가")).toBe("이");
+    expect(josa("SK하이닉스", "과/와")).toBe("와");
+    expect(josa("AAPL", "을/를")).toBe("을(를)");
+  });
 });
 
 describe("<DailyMoveCard>", () => {
@@ -96,7 +106,9 @@ describe("<DailyMoveCard>", () => {
     expect(three.textContent).toContain("업종자료 없음");
     expect(three.textContent).toContain("내 종목");
     expect(within(first).getByText(m.headline)).toBeTruthy();
-    expect(within(first).getByText("10월 6일(화) 15:30 장마감 기준")).toBeTruthy();
+    // 종목들의 기준 시각이 모두 같으면 머리에 한 번만 (종목마다 되풀이하지 않는다)
+    expect(screen.getAllByText("10월 6일(화) 15:30 장마감 기준")).toHaveLength(1);
+    expect(within(first).queryByText("10월 6일(화) 15:30 장마감 기준")).toBeNull();
     for (const s of m.summary.slice(0, 3)) expect(within(first).getByText(s)).toBeTruthy();
     expect(within(first).queryByText(DAILY_MOVE_UNCERTAIN) !== null).toBe(m.uncertain);
     // 근거는 접어서 (출처·시각)
@@ -152,6 +164,99 @@ describe("<DailyMoveCard>", () => {
     expect(await screen.findByText(/보유 중인 국내 종목의 기록이 아직 없어요/)).toBeTruthy();
     expect(screen.getByText(DAILY_MOVE_CAPTION)).toBeTruthy();
     expect(screen.getByText("국내 종목만")).toBeTruthy();
+  });
+
+  it("홈(빈 상태 compact): 보유가 없으면 그리지 않는다 — 보유가 있으면 그대로", async () => {
+    freezeTime(TUE_6PM);
+    const bob = renderUi(<DailyMoveCard view="easy" emptyMode="compact" />, "bob");
+    expect(screen.getByRole("heading", { name: /오늘의 내 종목 뉴스/ })).toBeTruthy(); // 계좌를 받기 전에는 자리(스켈레톤)를 둔다
+    await waitFor(() => expect(screen.queryByRole("heading", { name: /오늘의 내 종목 뉴스/ })).toBeNull());
+    // 접혀 사라져도 간격을 맡은 감싸개는 남는다 (앞 섹션이 마지막 자식이 되어 여백을 잃지 않게)
+    expect(bob.container.querySelector(".flow-root")?.childElementCount).toBe(0);
+    bob.unmount();
+    renderUi(<DailyMoveCard view="easy" emptyMode="compact" />);
+    expect(await screen.findByRole("article", { name: "삼성전자 오늘의 뉴스" })).toBeTruthy();
+    expect(screen.getByText(DAILY_MOVE_CAPTION)).toBeTruthy();
+    // 카드 위 간격(홈 열의 space-y-6 24px)은 접히는 안쪽(pt-6)에, 늘 남는 감싸개(flow-root)의 -mt-6으로 앞 섹션 여백을 상쇄한다 —
+    // 접힌 뒤 사라지는 순간 남아 있던 24px 여백이 한 번에 튀지 않게 (높이는 jsdom에서 잴 수 없어 화면에서 확인한다)
+    const card = screen.getByRole("heading", { name: /오늘의 내 종목 뉴스/ }).closest("section")!;
+    expect(card.parentElement?.className).toContain("pt-6");
+    const keep = card.closest(".collapsible")?.parentElement;
+    expect(keep?.className.split(" ")).toEqual(expect.arrayContaining(["-mt-6", "flow-root"]));
+  });
+
+  it("홈(빈 상태 compact): 보유가 없어도 알림에서 왔으면(focusKey) 펼쳐서 '가진 국내 종목이 없어요'를 보인다", async () => {
+    freezeTime(TUE_6PM);
+    renderUi(<DailyMoveCard view="easy" emptyMode="compact" focusKey="landing" />, "bob");
+    expect(await screen.findByText(/지금은 가진 국내 종목이 없어요/)).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /오늘의 내 종목 뉴스/ })).toBeTruthy();
+  });
+
+  it("홈 전문가 보기(요약형): 종목마다 한 줄 요약을 눌러 펼친다 — 펼쳐도 근거 목록은 접혀 있다", async () => {
+    freezeTime(TUE_6PM);
+    renderUi(<DailyMoveCard view="expert" density="summary" />);
+    const art = await screen.findByRole("article", { name: "삼성전자 오늘의 뉴스" });
+    const toggle = within(art).getByRole("button", { expanded: false });
+    expect(toggle.textContent).toContain("시장 대비");
+    expect(toggle.textContent).toContain("종가 71,200원");
+    expect(within(art).queryByLabelText("삼성전자 등락 분해")).toBeNull();
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(document.getElementById(toggle.getAttribute("aria-controls") ?? "")?.contains(within(art).getByLabelText("삼성전자 등락 분해"))).toBe(true);
+    const details = within(art).getByText(/같은 날 나온 소식 \d+개/).closest("details")!;
+    expect(details.open).toBe(false);
+    fireEvent.click(toggle);
+    expect(within(art).queryByLabelText("삼성전자 등락 분해")).toBeNull();
+    expect(screen.getByText(DAILY_MOVE_CAPTION)).toBeTruthy(); // 고정 문구는 늘 보인다
+  });
+
+  it("알림에서 왔을 때(focusKey): 기록을 받은 뒤 제목에 포커스하고 첫 종목을 펼친다", async () => {
+    freezeTime(TUE_6PM);
+    renderUi(<DailyMoveCard view="expert" density="summary" id="daily-move" focusKey="from-notification" />);
+    const heading = await screen.findByRole("heading", { name: /오늘의 내 종목 뉴스/ });
+    expect(heading.closest("section")?.id).toBe("daily-move");
+    await waitFor(() => expect(document.activeElement).toBe(heading));
+    const first = screen.getByRole("article", { name: "삼성전자 오늘의 뉴스" });
+    expect(within(first).getByRole("button", { expanded: true })).toBeTruthy();
+    expect(within(screen.getByRole("article", { name: "셀트리온 오늘의 뉴스" })).getByRole("button", { expanded: false })).toBeTruthy();
+  });
+
+  it("착지 강조(테두리)는 2초 뒤 꺼진다 — 그 전에 착지가 풀려도(뒤로 가기) 남지 않는다", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"], shouldAdvanceTime: true }); // freezeTime + 타이머 (2초를 기다리지 않게)
+    vi.setSystemTime(new Date(TUE_6PM));
+    db.resetDb(TEST_DB);
+    db.setSession("alice");
+    const client = createQueryClient({ retry: false });
+    const at = (focusKey: string | null) => (
+      <MemoryRouter>
+        <Providers client={client}>
+          <DailyMoveCard view="expert" density="summary" id="daily-move" focusKey={focusKey} />
+        </Providers>
+      </MemoryRouter>
+    );
+    const { rerender } = render(at("from-notification"));
+    const heading = await screen.findByRole("heading", { name: /오늘의 내 종목 뉴스/ });
+    await waitFor(() => expect(document.activeElement).toBe(heading));
+    const card = heading.closest("section")!;
+    expect(card.className).toContain("ring-2");
+    rerender(at(null)); // 2초 안에 뒤로 가기(POP): 착지가 풀린다 — 같은 홈이라 카드는 다시 그려지지 않는다
+    act(() => void vi.advanceTimersByTime(CHANGED_MS + 100));
+    expect(card.className).not.toContain("ring-2");
+  });
+
+  it("'더 보기'를 누르면 새로 보인 첫 종목으로 포커스한다 (버튼이 사라져도 자리를 잃지 않게)", async () => {
+    freezeTime(TUE_6PM);
+    renderUi(<DailyMoveCard view="easy" limit={1} />);
+    await screen.findByRole("article", { name: "삼성전자 오늘의 뉴스" });
+    fireEvent.click(screen.getByRole("button", { name: "외 1종목 더 보기" }));
+    expect(document.activeElement).toBe(screen.getByRole("article", { name: "셀트리온 오늘의 뉴스" }));
+  });
+
+  it("기록일이 오늘(한국 시간)이 아니면 '지난 거래일'이라고 밝힌다", async () => {
+    freezeTime("2026-10-07T09:00:00+09:00"); // 수요일 장중 → 가장 최근 기록은 10월 6일(화)
+    renderUi(<DailyMoveCard view="easy" />);
+    await screen.findByRole("article", { name: "삼성전자 오늘의 뉴스" });
+    expect(screen.getByRole("heading", { name: /오늘의 내 종목 뉴스/ }).textContent).toContain("지난 거래일 · 10월 6일(화)");
   });
 });
 
@@ -231,6 +336,41 @@ describe("<FundamentalsPanel>", () => {
     expect(within(mine).queryByText("신약 개발 일정이 공개돼 있어서")).toBeNull();
     expect(db.listTheses(1).find((t) => t.symbol === "068270")!.reasons).toEqual(["바이오시밀러 해외 판매가 늘고 있어서"]);
   });
+
+  it("쉬운 보기: '확인 필요·주의' 지표 이름(용어 풀이)을 한 줄로, '지표 자세히'를 펼치면 그 자리에서 표", async () => {
+    freezeTime(TUE_6PM);
+    const f = db.fundamentals(1, "086520");
+    renderUi(<FundamentalsPanel symbol="086520" view="easy" />);
+    expect(await screen.findByLabelText(`종합 판정: ${FUNDAMENTALS_OVERALL_TEXT[f.overall]}`)).toBeTruthy();
+    for (const r of f.rows.filter((x) => x.status === "bad" || x.status === "warn")) expect(document.body.textContent).toContain(r.label);
+    expect(screen.getByRole("button", { name: "영업이익률(TTM)" })).toBeTruthy(); // 표가 아니라 한 줄 속 용어 풀이
+    const more = screen.getByRole("button", { name: "지표 자세히" });
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("table")).toBeNull();
+    fireEvent.click(more);
+    expect(more.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("table", { name: `${f.name} 펀더멘털 지표` })).toBeTruthy();
+    expect(forbiddenIn(document.body.textContent ?? "")).toEqual([]);
+  });
+
+  it("적용하지 않는 종목은 제목 옆 표시와 이유 한 줄로 작게 (공시 출처 줄은 없다)", async () => {
+    freezeTime(TUE_6PM);
+    renderUi(<FundamentalsPanel symbol="105560" view="expert" />);
+    expect(await screen.findByLabelText("종합 판정: 적용하지 않음")).toBeTruthy();
+    expect(screen.getByText("금융업은 일반 기업용 점검을 적용하지 않아요")).toBeTruthy();
+    expect(screen.queryByText(/출처:/)).toBeNull();
+    expect(screen.getByText(FUNDAMENTALS_CAPTION)).toBeTruthy();
+  });
+
+  it("산 이유 고치기: 폼으로 포커스가 옮겨 가고, 취소하면 '산 이유 고치기' 버튼으로 돌아온다", async () => {
+    freezeTime(TUE_6PM);
+    renderUi(<FundamentalsPanel symbol="068270" view="easy" />);
+    fireEvent.click(await screen.findByRole("button", { name: "산 이유 고치기" }));
+    const form = screen.getByRole("form", { name: "셀트리온 산 이유" });
+    await waitFor(() => expect(document.activeElement).toBe(form));
+    fireEvent.click(within(form).getByRole("button", { name: "취소" }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "산 이유 고치기" })));
+  });
 });
 
 describe("<ThesisForm>", () => {
@@ -290,5 +430,13 @@ describe("<ThesisForm>", () => {
     fireEvent.click(screen.getByRole("button", { name: "산 이유 저장" }));
     expect(await screen.findByText("점검 축이 올바르지 않습니다.")).toBeTruthy();
     expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it("설명의 조사는 받침에 맞게 쓰고, 글자 수 안내를 입력칸에 잇는다", () => {
+    renderUi(<ThesisForm symbol="005930" name="삼성전자" />);
+    expect(screen.getByText(/^삼성전자를 산 이유를 1~3개 남겨 두면/)).toBeTruthy();
+    const draft = screen.getByLabelText("직접 적기");
+    const counter = document.getElementById(draft.getAttribute("aria-describedby")!.split(" ")[0])!;
+    expect(counter.textContent).toBe("0/100자");
   });
 });

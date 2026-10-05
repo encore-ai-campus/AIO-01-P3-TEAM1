@@ -1,166 +1,83 @@
-// 마이: 주린이모드 스위치 · 투자 성향·경험 진단 · 단타 연습 입구(주린이모드 끔) · 내 수익률(장마감 기준) · 랭킹 · 알림 설정 · 계정.
+// 마이 (위에서 아래로 — PC는 왼쪽 열 | 오른쪽 열):
+// 왼쪽(읽고 조작하는 주 흐름): 주린이모드(스위치·진단·끔이면 단타 입구) → 내 성적(수익률·자산 추이·랭킹·내 정보 공개)
+// 오른쪽(가끔 바꾸는 설정): 알림 설정 → 화면 모드(이 기기) → 계정(이름·닉네임) → 로그아웃
+// 다른 화면이 설정 하나를 가리켜 보낼 때는 해시를 쓴다: /my#diagnosis · #public · #notification-settings · #theme
+// (스크롤은 ScrollManager가 한다. id는 위쪽 카드가 다 그려진 뒤에 붙인다 — 일찍 붙이면 스크롤한 뒤 위 카드가 자라 대상이 밀린다.)
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { useNavigate } from "react-router";
+import { type ReactNode, useEffect, useState } from "react";
+import { useLocation, useNavigate, useNavigationType } from "react-router";
 import { api, errorMessage } from "../api/client";
-import { keys, useAccount, useEquity, useMe } from "../api/queries";
-import type { Me } from "../api/types";
-import { PricesAsOfLine } from "../components/AssetCard";
+import { keys, useAccount, useEquity, useMe, useNotificationSettings, useRanking } from "../api/queries";
 import { NotificationSettingsCard } from "../components/autotrade/NotificationSettingsCard";
-import { RankingCard } from "../components/home/RankingCard";
 import { Icon } from "../components/Icon";
-import { LineChart } from "../components/LineChart";
+import { AccountCard } from "../components/my/AccountCard";
 import { BeginnerModeCard } from "../components/my/BeginnerModeCard";
-import { DayQuizEntry } from "../components/my/DayQuizEntry";
-import { InvestorDiagnosisCard } from "../components/my/InvestorDiagnosisCard";
+import { PerformanceCard } from "../components/my/PerformanceCard";
+import { ThemeCard } from "../components/my/ThemeCard";
 import { useToast } from "../components/toast";
-import { Card, ErrorState, Flash, PageHeader, Row, Skeleton, SkeletonCard, Spinner } from "../components/ui";
+import { PageHeader, Spinner } from "../components/ui";
 import { useBeginnerMode } from "../hooks/useBeginnerMode";
 import { cn } from "../lib/cn";
-import { formatKrw, formatRate, formatSignedKrw, trendClass } from "../lib/format";
 
-function useProfile() {
-  const qc = useQueryClient();
-  const toast = useToast();
-  return useMutation({
-    mutationFn: (body: { isPublic?: boolean; nickname?: string }) => api.patch<Me>("/api/me/profile", body),
-    onSuccess: (me) => {
-      qc.setQueryData(keys.me, me);
-      void qc.invalidateQueries({ queryKey: keys.ranking });
-    },
-    onError: (err) => toast(errorMessage(err), "error"),
-  });
+/** 해시로 가리킨 자리를 알려 주는 시간(ms). */
+const ARRIVAL_MS = 1200;
+
+/** 마이의 카드들이 처음 불러오기를 마쳤는지 (성공이든 실패든). 해시 대상의 id를 이때 붙인다. */
+function usePageReady(): boolean {
+  const account = useAccount();
+  const equity = useEquity(30);
+  const ranking = useRanking();
+  const settings = useNotificationSettings();
+  const { profile, profileError } = useBeginnerMode();
+  return !account.isPending && !equity.isPending && !ranking.isPending && !settings.isPending && (profile !== undefined || profileError !== null);
 }
 
-function AccountSection() {
-  const { data: acc, isPending, isError, error, refetch } = useAccount();
-  const { data: equity } = useEquity(30);
-  if (isPending) return <SkeletonCard lines={6} />;
-  if (isError) {
-    return (
-      <Card>
-        <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} />
-      </Card>
-    );
+function hashTarget(hash: string): string | null {
+  if (hash.length < 2) return null;
+  try {
+    return decodeURIComponent(hash.slice(1));
+  } catch {
+    return hash.slice(1); // 잘못된 인코딩이면 그대로 (ScrollManager와 같은 처리)
   }
-  return (
-    <Card aria-labelledby="my-account-title">
-      <h2 id="my-account-title" className="text-[15px] font-semibold text-sub">
-        내 수익률
-      </h2>
-      <p className={cn("mt-1 text-[32px] leading-tight font-bold tracking-tight", trendClass(acc.profitRate))}>
-        <Flash value={acc.profitRate}>
-          <span className="tabular-nums">{formatRate(acc.profitRate)}</span>
-        </Flash>
-      </p>
-      <p className={cn("text-[15px] font-semibold tabular-nums", trendClass(acc.profitKrw))}>{formatSignedKrw(acc.profitKrw)}</p>
-      <PricesAsOfLine pricesAsOf={acc.pricesAsOf} className="mt-1" />
-      <dl className="mt-4 grid grid-cols-2 gap-3">
-        <div className="rounded-xl bg-fill p-3">
-          <dt className="text-[13px] text-sub">투자금액</dt>
-          <dd className="mt-0.5 text-[17px] font-bold tabular-nums">
-            <Flash value={acc.investedKrw}>{formatKrw(acc.investedKrw)}</Flash>
-          </dd>
-        </div>
-        <div className="rounded-xl bg-fill p-3">
-          <dt className="text-[13px] text-sub">총자산</dt>
-          <dd className="mt-0.5 text-[17px] font-bold tabular-nums">
-            <Flash value={acc.equityKrw}>{formatKrw(acc.equityKrw)}</Flash>
-          </dd>
-        </div>
-      </dl>
-      <dl className="mt-3">
-        <Row label="현금">{formatKrw(acc.cashKrw)}</Row>
-        <Row label="보유 평가액">{formatKrw(acc.holdingsValueKrw)}</Row>
-        <Row label="초기 자금">{formatKrw(acc.initialCapitalKrw)}</Row>
-      </dl>
-      <div className="mt-4 border-t border-line pt-4">
-        <h3 className="mb-2 text-[15px] font-semibold text-sub">일별 자산 추이 (30일 · 장마감 기준)</h3>
-        {equity ? (
-          <LineChart points={equity.points.map((p) => ({ day: p.day, value: p.equityKrw }))} label="일별 자산 추이" />
-        ) : (
-          <Skeleton className="h-40 w-full" />
-        )}
-      </div>
-    </Card>
-  );
 }
 
-function PublicToggle({ me }: { me: Me }) {
-  const toast = useToast();
-  const profile = useProfile();
-  // 누르자마자 바뀐 상태를 보여 주고, 실패하면 되돌린다
-  const [checked, setChecked] = useState(me.isPublic);
-  return (
-    <div>
-      <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3">
-        <span className="text-[16px] font-semibold">내 정보 공개</span>
-        <input
-          type="checkbox"
-          checked={checked}
-          disabled={profile.isPending}
-          onChange={(e) => {
-            const isPublic = e.target.checked;
-            setChecked(isPublic);
-            profile.mutate(
-              { isPublic },
-              {
-                onSuccess: (m) => toast(m.isPublic ? "랭킹보드에 수익률을 공개합니다." : "랭킹보드에서 내 수익률을 숨겼습니다."),
-                onError: () => setChecked(!isPublic),
-              },
-            );
-          }}
-          className="size-6 cursor-pointer accent-brand"
-        />
-      </label>
-      <p className="mt-1 text-[14px] leading-relaxed text-sub">
-        켜면 랭킹보드에 닉네임과 수익률이 공개됩니다. 금액·보유 종목은 공개되지 않습니다.
-      </p>
-    </div>
-  );
+/**
+ * /my#public처럼 설정 하나를 가리켜 왔으면, 준비된 뒤 그 자리를 1.2초 물들여 '여기'라고 알리고 포커스를 그 자리로 옮긴다
+ * (다음 Tab이 그 설정 안에서 시작하게 — 화면 읽기도 가리킨 설정을 읽는다). 이동마다(location.key) 한 번.
+ * 앱 안 기록으로 돌아온 뒤로·앞으로(POP)는 하지 않는다: 보던 자리 복원이 우선이고 POP에서는 움직이지 않는다.
+ * 처음 연 링크(새 탭·주소 입력 — 기록 상태가 없어 key가 'default')도 첫 이동이 POP이지만, 가리켜 온 것이라 알린다.
+ */
+function useArrival(ready: boolean): string | null {
+  const { hash, key } = useLocation();
+  const navType = useNavigationType();
+  const returning = navType === "POP" && key !== "default";
+  const target = ready && !returning ? hashTarget(hash) : null;
+  const [shown, setShown] = useState<{ key: string; id: string; done: boolean } | null>(null);
+  if (target && shown?.key !== key) setShown({ key, id: target, done: false }); // 렌더 중 조건부 파생 상태
+  useEffect(() => {
+    if (!shown || shown.done) return;
+    const el = document.getElementById(shown.id);
+    // ScrollManager는 해시 대상을 1.5초까지만 기다린다. 느린 망에서 그보다 늦게 준비됐고 아직 아무도 스크롤하지 않았으면 여기서 데려온다
+    if (navType !== "POP" && window.scrollY === 0) el?.scrollIntoView?.({ block: "start" });
+    // 포커스가 갈 곳 없이 남아 있을 때만(body·화면 제목 h1 — PageHeader가 이동 뒤 h1에 준다) 옮긴다. 이미 무언가를 조작 중이면 그대로
+    const active = document.activeElement;
+    if (!active || active === document.body || active.matches("h1, main")) el?.focus({ preventScroll: true });
+    const t = window.setTimeout(() => setShown({ ...shown, done: true }), ARRIVAL_MS);
+    return () => window.clearTimeout(t);
+  }, [shown, navType]);
+  return target && shown && !shown.done ? target : null;
 }
 
-function NicknameForm({ me }: { me: Me }) {
-  const toast = useToast();
-  const profile = useProfile();
-  const [nick, setNick] = useState(me.nickname);
-  const trimmed = nick.trim();
-  const invalid = trimmed.length < 2 || trimmed.length > 12;
+/** 해시로 가리킬 수 있는 카드 자리. 가리켜 왔으면 테두리로 잠깐 알리고 포커스를 받는다 (테두리가 표시 역할 — 기본 윤곽선은 끈다). */
+function Anchor({ id, lit, children }: { id?: string; lit: boolean; children: ReactNode }) {
   return (
-    <form
-      className="space-y-2"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (!invalid && trimmed !== me.nickname) {
-          profile.mutate({ nickname: trimmed }, { onSuccess: (m) => toast(`닉네임을 ${m.nickname}(으)로 바꿨습니다.`) });
-        }
-      }}
+    <div
+      id={id}
+      tabIndex={id ? -1 : undefined}
+      className={cn("scroll-mt-16 rounded-2xl outline-none transition-shadow duration-slow", lit && "ring-2 ring-brand")}
     >
-      <label htmlFor="nickname" className="block text-[16px] font-semibold">
-        닉네임
-      </label>
-      <div className="flex gap-2">
-        <input
-          id="nickname"
-          value={nick}
-          maxLength={12}
-          onChange={(e) => setNick(e.target.value)}
-          className="h-12 min-w-0 flex-1 rounded-xl bg-fill px-3.5 text-[16px] outline-none focus:ring-2 focus:ring-brand"
-          aria-describedby="nickname-help"
-        />
-        <button
-          type="submit"
-          disabled={invalid || trimmed === me.nickname || profile.isPending}
-          className="flex h-12 shrink-0 items-center gap-1.5 rounded-xl bg-brand px-4 text-[15px] font-semibold text-white hover:bg-brand-dark disabled:opacity-40"
-        >
-          {profile.isPending && <Spinner />}
-          변경
-        </button>
-      </div>
-      <p id="nickname-help" className="text-[13px] text-mute">
-        랭킹에 보이는 이름입니다. 2~12자, 다른 팀원과 겹치면 안 됩니다.
-      </p>
-    </form>
+      {children}
+    </div>
   );
 }
 
@@ -169,7 +86,9 @@ export function MyPage() {
   const navigate = useNavigate();
   const toast = useToast();
   const { data: me } = useMe();
-  const { beginnerMode } = useBeginnerMode();
+  const ready = usePageReady();
+  const lit = useArrival(ready);
+  const anchor = (id: string) => (ready ? id : undefined);
   const logout = useMutation({
     mutationFn: () => api.post<void>("/api/auth/logout"),
     onSuccess: () => {
@@ -186,31 +105,24 @@ export function MyPage() {
       <PageHeader title="마이" />
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-6">
         <div className="min-w-0 space-y-3">
-          <BeginnerModeCard />
-          <InvestorDiagnosisCard />
-          {!beginnerMode && <DayQuizEntry />}
-          <AccountSection />
+          <BeginnerModeCard diagnosisId={anchor("diagnosis")} diagnosisLit={lit === "diagnosis"} />
+          <PerformanceCard me={me} publicId={anchor("public")} publicLit={lit === "public"} />
         </div>
-        <div className="space-y-3">
-          <RankingCard />
-          <NotificationSettingsCard />
-          <Card aria-label="계정">
-            <p className="text-[20px] font-bold">{me.nickname}</p>
-            <p className="text-[14px] text-mute">@{me.username}</p>
-          </Card>
-          <Card className="space-y-5" aria-label="설정">
-            <PublicToggle me={me} />
-            <div className="border-t border-line pt-5">
-              <NicknameForm key={me.nickname} me={me} />
-            </div>
-          </Card>
+        <div className="min-w-0 space-y-3">
+          <Anchor id={anchor("notification-settings")} lit={lit === "notification-settings"}>
+            <NotificationSettingsCard />
+          </Anchor>
+          <Anchor id={anchor("theme")} lit={lit === "theme"}>
+            <ThemeCard />
+          </Anchor>
+          <AccountCard me={me} />
           <button
             type="button"
             onClick={() => logout.mutate()}
             disabled={logout.isPending}
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-card text-[15px] font-semibold text-sub hover:bg-line disabled:opacity-50"
+            className="press flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-card text-[15px] font-semibold text-sub hover:bg-line disabled:opacity-50"
           >
-            <Icon name="logout" className="size-5" />
+            {logout.isPending ? <Spinner /> : <Icon name="logout" className="size-5" />}
             로그아웃
           </button>
         </div>

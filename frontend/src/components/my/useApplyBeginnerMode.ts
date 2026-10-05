@@ -11,7 +11,8 @@ export function useApplyBeginnerMode() {
   const apply = useCallback(
     (on: boolean) =>
       mutate(on, {
-        onSuccess: (p) => toast(p.beginnerMode ? "주린이모드를 켰어요. 쉬운 말로 보여요." : "주린이모드를 껐어요. 원래 용어와 숫자로 보여요."),
+        onSuccess: (p) =>
+          toast(p.beginnerMode ? "주린이모드를 켰어요. 쉬운 말로 보여요." : "주린이모드를 껐어요. 원래 용어와 숫자로 보여요.", "success"),
         onError: (err) => toast(errorMessage(err), "error"),
       }),
     [mutate, toast],

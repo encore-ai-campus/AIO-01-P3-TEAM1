@@ -1,9 +1,25 @@
 // 손절–진입–목표를 한 막대에 위치·퍼센트로 보이고 직전 종가를 표시한다 (CSS만).
 // 가격은 장마감 기준이라 표시는 "종가"다 (기준 시각은 화면이 <AsOf>로 옆에 붙인다). easy면 쉬운 이름(사는 가격·목표 가격·손절 가격).
+// 막대 위 표시와 아래 이름표를 같은 모양으로 잇는다: 손절 ●(파랑) · 사는 가격 ○(속 빈 원) · 목표 ●(빨강).
+// 종가는 진한 세로선 + 말풍선이라, 속 빈 사는 가격 점과 섞이지 않는다 (trade-14).
+import type { CSSProperties } from "react";
 import type { Currency } from "../../api/types";
+import { useChanged } from "../../hooks/useMotionState";
 import { priceLadder } from "../../lib/autotrade";
 import { cn } from "../../lib/cn";
 import { formatPrice, formatRate } from "../../lib/format";
+
+/**
+ * 종가 말풍선을 자기 너비의 몇 %만큼 왼쪽으로 옮길지 (trade-r4). 막대 가운데 절반에서는 표시선 가운데(-50%),
+ * 양 끝으로 갈수록 끝 정렬(0%·-100%)로 이어서 바꾼다 — 종가가 손절 아래·목표 위면 막대 끝(0%·100%)에 붙어,
+ * 가운데 정렬로는 말풍선 절반이 카드·화면 밖으로 나간다 (360px에서 가로 스크롤). 말풍선이 막대 폭의 절반 이하면 어디서든 막대 안이다.
+ * 세로 표시선은 실제 위치 그대로다.
+ */
+function bubbleShift(pos: number): number {
+  if (pos < 25) return -2 * pos;
+  if (pos > 75) return -50 - 2 * (pos - 75);
+  return -50;
+}
 
 export function PriceLadder({
   stop,
@@ -12,6 +28,7 @@ export function PriceLadder({
   last,
   currency,
   easy = false,
+  reveal = false,
 }: {
   stop: number;
   entry: number;
@@ -20,44 +37,52 @@ export function PriceLadder({
   last: number | null;
   currency: Currency;
   easy?: boolean;
+  /** 기다린 끝에 처음 그릴 때만 true: 두 구간이 사는 가격 점에서 양쪽으로 펴지고 종가 표시가 조금 늦게 나타난다 (캐시로 바로 그리면 움직이지 않는다). */
+  reveal?: boolean;
 }) {
   const l = priceLadder(stop, entry, target, last);
+  // 종가가 화면을 연 뒤에 도착하면(시세를 따로 받는 계획 상세) 그때도 살짝 나타난다
+  const lateLast = useChanged(l.last !== null);
+  const fadeLast = reveal || lateLast;
   const marks = [
-    { key: "stop", label: easy ? "손절 가격" : "손절", price: stop, pos: l.stop, cls: "text-down", dot: "bg-down" },
-    { key: "entry", label: easy ? "사는 가격" : "진입", price: entry, pos: l.entry, cls: "text-ink", dot: "bg-ink" },
-    { key: "target", label: easy ? "목표 가격" : "목표", price: target, pos: l.target, cls: "text-up", dot: "bg-up" },
+    { key: "stop", label: easy ? "손절 가격" : "손절", price: stop, pos: l.stop, cls: "text-down", dot: "border-card bg-down", legend: "bg-down" },
+    { key: "entry", label: easy ? "사는 가격" : "진입", price: entry, pos: l.entry, cls: "text-ink", dot: "border-ink bg-card", legend: "border-[1.5px] border-ink bg-card" },
+    { key: "target", label: easy ? "목표 가격" : "목표", price: target, pos: l.target, cls: "text-up", dot: "border-card bg-up", legend: "bg-up" },
   ];
+  // 종가가 바뀌면(장마감 뒤 다음 날) 말풍선·세로선이 새 자리로 미끄러진다 (말풍선은 정렬도 함께)
+  const lastMove = cn("transition-[left,translate,opacity] duration-base ease-standard", fadeLast && "starting:opacity-0 delay-150");
+  // 두 구간은 사는 가격 점에서 바깥으로 펴진다 (손실 구간은 오른쪽 끝, 이익 구간은 왼쪽 끝이 축)
+  const zone = cn("absolute inset-y-0 scale-x-100", reveal && "transition-[scale] duration-slow ease-enter starting:scale-x-0");
   return (
     <figure aria-label="가격 사다리" className="select-none">
-      <div className="relative h-8">
+      {/* 막대와 같은 좌우 여백(mx-1): 말풍선의 0%·100%가 표시선의 0%·100%와 같은 자리다 */}
+      <div className="relative mx-1 h-8">
         {l.last !== null && last !== null && (
-          <div className="absolute top-0 -translate-x-1/2 text-center" style={{ left: `${l.last}%` }}>
-            <span className="block rounded-md bg-ink px-1.5 py-0.5 text-[11px] font-bold whitespace-nowrap text-white tabular-nums">
+          <div
+            className={cn("absolute top-0 translate-x-(--bubble-shift) text-center", lastMove)}
+            style={{ left: `${l.last}%`, "--bubble-shift": `${bubbleShift(l.last)}%` } as CSSProperties}
+          >
+            <span className="block rounded-md bg-ink px-1.5 py-0.5 text-[11px] font-bold whitespace-nowrap text-on-ink tabular-nums">
               종가 {formatPrice(last, currency)}
             </span>
           </div>
         )}
       </div>
       <div className="relative mx-1 h-3 rounded-full bg-fill" aria-hidden="true">
-        <div
-          className="absolute inset-y-0 rounded-l-full bg-down/25"
-          style={{ left: `${l.stop}%`, width: `${Math.max(0, l.entry - l.stop)}%` }}
-        />
-        <div
-          className="absolute inset-y-0 rounded-r-full bg-up/25"
-          style={{ left: `${l.entry}%`, width: `${Math.max(0, l.target - l.entry)}%` }}
-        />
+        <div className={cn(zone, "origin-right rounded-l-full bg-down/25")} style={{ left: `${l.stop}%`, width: `${Math.max(0, l.entry - l.stop)}%` }} />
+        <div className={cn(zone, "origin-left rounded-r-full bg-up/25")} style={{ left: `${l.entry}%`, width: `${Math.max(0, l.target - l.entry)}%` }} />
         {marks.map((m) => (
-          <span key={m.key} className={cn("absolute top-1/2 size-3.5 -translate-1/2 rounded-full border-2 border-card", m.dot)} style={{ left: `${m.pos}%` }} />
+          <span key={m.key} className={cn("absolute top-1/2 size-3.5 -translate-1/2 rounded-full border-2", m.dot)} style={{ left: `${m.pos}%` }} />
         ))}
-        {l.last !== null && (
-          <span className="absolute -top-1 h-5 w-0.5 -translate-x-1/2 rounded bg-ink" style={{ left: `${l.last}%` }} />
-        )}
+        {l.last !== null && <span className={cn("absolute -top-1 h-5 w-0.5 -translate-x-1/2 rounded bg-ink", lastMove)} style={{ left: `${l.last}%` }} />}
       </div>
       <ol className="mt-2 grid grid-cols-3 gap-1 text-[12px]">
         {marks.map((m, i) => (
           <li key={m.key} className={cn(i === 0 ? "text-left" : i === 1 ? "text-center" : "text-right")}>
-            <span className="text-mute">{m.label}</span>
+            <span className="inline-flex items-center gap-1 text-mute">
+              <span aria-hidden="true" className={cn("inline-block size-2 shrink-0 rounded-full", m.legend)} />
+              {m.label}
+            </span>
             <span className={cn("block text-[14px] font-semibold tabular-nums", m.cls)}>{formatPrice(m.price, currency)}</span>
             {m.key !== "entry" && <span className={cn("block tabular-nums", m.cls)}>{formatRate(m.price / entry - 1, 1)}</span>}
           </li>

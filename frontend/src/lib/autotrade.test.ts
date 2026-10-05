@@ -1,6 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { PlanEvent, TradePlan } from "../api/types";
-import { checkDiscordId, parseBudget, planWorkflow, priceLadder, timeLeft } from "./autotrade";
+import {
+  STICKY_FIT_TOP,
+  checkDiscordId,
+  easySteps,
+  ladderDistances,
+  nextActionOf,
+  otherKinds,
+  parseBudget,
+  plansByOrder,
+  planWorkflow,
+  priceLadder,
+  stickyFit,
+  timeLeft,
+  timeLeftShort,
+} from "./autotrade";
 
 type P = Pick<TradePlan, "status" | "exitReason" | "failureReason" | "pnlKrw">;
 const plan = (status: TradePlan["status"], extra: Partial<P> = {}): P => ({ status, exitReason: null, failureReason: null, pnlKrw: null, ...extra });
@@ -30,10 +44,10 @@ describe("planWorkflow", () => {
     expect(states(plan("holding"), [ev(1, "filled"), ev(2, "exit_requested")])).toEqual(["done", "done", "done", "done", "done", "current"]);
   });
 
-  it("청산 완료면 전부 완료 + 사유", () => {
-    const wf = planWorkflow(plan("closed", { exitReason: "STOP" }));
+  it("청산 완료면 전부 완료 + 사유. 결과는 손익과 무관하게 중립(done) + 손익 숫자 (손실을 초록 성공 상자에 담지 않는다 — trade-23)", () => {
+    const wf = planWorkflow(plan("closed", { exitReason: "STOP", pnlKrw: -32_261 }));
     expect(wf.steps.every((s) => s.state === "done")).toBe(true);
-    expect(wf.outcome).toMatchObject({ tone: "ok", title: "청산 완료 · 손절가 도달" });
+    expect(wf.outcome).toMatchObject({ tone: "done", title: "청산 완료 · 손절가 도달", pnlKrw: -32_261 });
   });
 
   it("체결 대기 중 중단: 체결 대기에서 멈추고 뒤는 건너뜀", () => {
@@ -111,5 +125,100 @@ describe("입력·시각", () => {
     expect(parseBudget("")).toEqual({ value: null, error: null });
     expect(parseBudget("0").error).toBeTruthy();
     expect(parseBudget("abc").error).toBeTruthy();
+  });
+});
+
+describe("단계 이름 (쉬운 보기)", () => {
+  it("끝난 단계는 과거형, 지금 단계만 '…하는 중', 매도 요청 중인 마지막 단계는 '파는 중'", () => {
+    expect(easySteps(plan("closed")).map((s) => s.label)).toEqual(["주문했어요", "샀어요", "목표·손절 지켜봤어요", "팔았어요"]);
+    expect(easySteps(plan("holding")).map((s) => s.label)).toEqual(["주문했어요", "샀어요", "목표·손절 지켜보는 중", "팔았어요"]);
+    const asked = easySteps(plan("holding"), [ev(1, "filled"), ev(2, "exit_requested")]);
+    expect(asked.map((s) => [s.label, s.state])).toEqual([
+      ["주문했어요", "done"],
+      ["샀어요", "done"],
+      ["목표·손절 지켜봤어요", "done"],
+      ["파는 중", "current"],
+    ]);
+  });
+});
+
+describe("모의투자 화면 도우미", () => {
+  it("otherKinds: 접힌 '다른 계획'의 괄호 안은 실제로 든 출처만", () => {
+    expect(otherKinds([{ source: "analysis" }, { source: "demo" }])).toBe("교차검증 분석·연습용 예시");
+    expect(otherKinds([{ source: "demo" }, { source: "demo" }])).toBe("연습용 예시");
+    expect(otherKinds([{ source: "analysis" }])).toBe("교차검증 분석");
+    expect(otherKinds([])).toBe("");
+  });
+
+  it("plansByOrder: 진행 중 계획만 주문 번호로 (끝난 계획·주문 전 계획은 빼서 일반 주문처럼 취소할 수 있게)", () => {
+    const map = plansByOrder([
+      { id: 1, orderId: 10, status: "entry_pending" },
+      { id: 2, orderId: 11, status: "holding" },
+      { id: 3, orderId: 12, status: "closed" },
+      { id: 4, orderId: null, status: "active" },
+    ] as const);
+    expect([...map.keys()]).toEqual([10, 11]);
+    expect(map.get(11)?.id).toBe(2);
+  });
+
+  it("nextActionOf: 시작할 수 없을 때 다음 행동 (우선순위: 내 계획 > 보유·주문 > 다른 계획 > 문장만)", () => {
+    expect(nextActionOf(["reward_risk_low", "plan_exists"])).toBe("my_plan");
+    expect(nextActionOf(["position_exists"])).toBe("portfolio");
+    expect(nextActionOf(["price_passed"])).toBe("other_plans");
+    expect(nextActionOf(["reward_risk_low"])).toBe("other_plans");
+    expect(nextActionOf(["halted"])).toBeNull();
+    expect(nextActionOf(["daily_loss_limit"])).toBeNull();
+    expect(nextActionOf(["budget_too_small"])).toBeNull();
+    expect(nextActionOf([])).toBeNull();
+  });
+
+  it("ladderDistances: 사기 전은 사는 가격까지, 보유 중은 목표·손절까지 (직전 종가 기준), 그 밖은 없음", () => {
+    const p = { entryPrice: 181_000, targetPrice: 203_000, stopPrice: 173_000 };
+    const [entry] = ladderDistances("entry_pending", p, 182_300);
+    expect(entry.key).toBe("entry");
+    expect(entry.rate).toBeCloseTo(181_000 / 182_300 - 1);
+    expect(ladderDistances("holding", p, 182_300).map((d) => d.key)).toEqual(["target", "stop"]);
+    expect(ladderDistances("holding", p, 182_300)[0].rate).toBeCloseTo(203_000 / 182_300 - 1);
+    expect(ladderDistances("closed", p, 182_300)).toEqual([]);
+    expect(ladderDistances("holding", p, null)).toEqual([]);
+  });
+
+  it("timeLeftShort: 칩용 짧은 남은 시간", () => {
+    const now = new Date("2026-10-04T00:00:00Z");
+    expect(timeLeftShort("2026-10-06T03:00:00Z", now)).toBe("2일 남음");
+    expect(timeLeftShort("2026-10-04T05:30:00Z", now)).toBe("5시간 남음");
+    expect(timeLeftShort("2026-10-04T00:45:00Z", now)).toBe("45분 남음");
+    expect(timeLeftShort("2026-10-03T23:00:00Z", now)).toBe("만료");
+    expect(timeLeftShort("x", now)).toBe("-");
+  });
+
+  it("stickyFit: 열 높이를 --col-h로 넘기고, 사라지면 관찰을 멈춘다 (ResizeObserver가 없으면 아무것도 하지 않는다)", () => {
+    const el = document.createElement("div");
+    Object.defineProperty(el, "offsetHeight", { value: 952 });
+    expect(stickyFit(el)).toBeUndefined(); // jsdom에는 ResizeObserver가 없다 → top은 var 대체값(0px)으로 위 2rem
+    const seen: { observed: Element[]; disconnected: boolean } = { observed: [], disconnected: false };
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(private cb: () => void) {}
+        observe(t: Element) {
+          seen.observed.push(t);
+          this.cb();
+        }
+        disconnect() {
+          seen.disconnected = true;
+        }
+      },
+    );
+    try {
+      const stop = stickyFit(el);
+      expect(seen.observed).toEqual([el]);
+      expect(el.style.getPropertyValue("--col-h")).toBe("952px");
+      stop?.();
+      expect(seen.disconnected).toBe(true);
+      expect(STICKY_FIT_TOP).toContain("var(--col-h, 0px)");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

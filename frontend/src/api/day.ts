@@ -72,11 +72,15 @@ export function useDayPlans(date: string | null = null, enabled = true) {
   });
 }
 
-/** 결정론 복기 (date가 없으면 KR 기준일). */
+/**
+ * 결정론 복기 (date가 없으면 KR 기준일). 날짜를 바꾸는 동안 보던 복기를 남긴다(isPlaceholderData → 화면이 흐리게) —
+ * 화면 전체가 스켈레톤 하나로 접혔다 펴지지 않게. 그동안 화면의 날짜는 고른 날짜(주소의 ?date=)를 따른다.
+ */
 export function useDayReview(date: string | null = null, enabled = true) {
   return useQuery({
     queryKey: keys.dayReview(date),
     queryFn: () => api.get<DayReview>(`/api/day/review${qs({ date })}`),
     enabled,
+    placeholderData: keepPreviousData,
   });
 }

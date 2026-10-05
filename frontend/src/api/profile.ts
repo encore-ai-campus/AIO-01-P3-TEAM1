@@ -1,4 +1,4 @@
-// 계정: 투자자 프로필(투자 성향·경험 진단)과 주린이모드, 단타 연습 퀴즈 (docs/API.md "계정").
+// 계정: 투자자 프로필(투자 성향·경험 진단)과 주린이모드, 내 정보 공개·닉네임, 단타 연습 퀴즈 (docs/API.md "계정").
 // 주린이모드는 서버(계정)에 저장한다. 화면은 Me.beginnerMode로 읽고(hooks/useBeginnerMode.ts), 바꾸면 Me도 같이 고친다.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
@@ -62,6 +62,21 @@ export function useSetBeginnerMode() {
       if (ctx?.prevProfile) qc.setQueryData(keys.investorProfile, ctx.prevProfile);
     },
     onSuccess: apply,
+  });
+}
+
+/**
+ * 내 정보 공개·닉네임 (PATCH /api/me/profile). 바뀐 Me를 넣고 랭킹을 다시 받는다 (공개를 켜면 랭킹에 내 줄이 생긴다).
+ * 마이(공개 스위치·닉네임)와 랭킹 화면(비공개일 때 그 자리 공개 스위치)이 같이 쓴다. 실패 알림은 부르는 쪽이 정한다 (토스트 또는 칸 아래).
+ */
+export function useUpdateProfile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { isPublic?: boolean; nickname?: string }) => api.patch<Me>("/api/me/profile", body),
+    onSuccess: (me) => {
+      qc.setQueryData(keys.me, me);
+      void qc.invalidateQueries({ queryKey: keys.ranking });
+    },
   });
 }
 

@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { api, qs } from "./client";
 import type {
   AccountSummary,
@@ -57,6 +57,18 @@ export const POLL = {
 export const live = (ms: number) => ({ refetchInterval: ms, refetchIntervalInBackground: false });
 /** 시세·계좌용: 탭이 가려져도 계속 받는다. */
 export const always = (ms: number) => ({ refetchInterval: ms, refetchIntervalInBackground: true });
+
+/**
+ * 목록 훅의 선택 인자.
+ * keepPrevious: 필터·검색어를 바꾸는 동안 이전 결과를 남긴다 (스켈레톤으로 바뀌며 높이가 출렁이지 않게).
+ * 그동안 isPlaceholderData가 true다 → 목록을 흐리게(opacity .6, aria-busy) 보인다.
+ * 대상이 바뀌는 호출(종목 symbol, 리포트 sourceId 등)에는 켜지 않는다: 앞 대상의 결과가 새 대상 화면에 잠깐 보이면 잘못 읽는다.
+ */
+export interface ListOptions {
+  keepPrevious?: boolean;
+}
+
+const keepIf = (on: boolean | undefined) => (on ? { placeholderData: keepPreviousData } : {});
 
 export interface AnalysisParams {
   symbol?: string;
@@ -154,7 +166,7 @@ export function useEquity(days = 30) {
  * 여러 종목 시세를 한 번에 (최대 50개). 종목 → Quote 맵으로 돌려준다.
  * 가격은 장마감 기준(직전 종가)이고, 기준 시각은 각 Quote.asOf다 (응답 맨 위 asOf는 응답 시각이라 쓰지 않는다).
  */
-export function useQuotes(symbols: string[]) {
+export function useQuotes(symbols: string[], opts: ListOptions = {}) {
   const list = [...new Set(symbols)].sort().slice(0, 50);
   return useQuery({
     queryKey: keys.quotes(list),
@@ -162,6 +174,7 @@ export function useQuotes(symbols: string[]) {
     select: (data) => new Map(data.quotes.map((q) => [q.symbol, q])),
     enabled: list.length > 0,
     ...always(POLL.quote),
+    ...keepIf(opts.keepPrevious && list.length > 0),
   });
 }
 
@@ -173,13 +186,15 @@ export function useStock(symbol: string) {
   });
 }
 
-export function useSearch(q: string) {
+/** 종목 검색. 검색어를 지우면(빈 검색어) 이전 결과를 남기지 않는다. */
+export function useSearch(q: string, opts: ListOptions = {}) {
   const term = q.trim();
   return useQuery({
     queryKey: keys.search(term),
     queryFn: () => api.get<{ results: StockItem[] }>(`/api/stocks/search${qs({ q: term, limit: 20 })}`),
     enabled: term.length > 0,
     staleTime: 60_000,
+    ...keepIf(opts.keepPrevious && term.length > 0),
   });
 }
 
@@ -218,7 +233,7 @@ export function useRanking() {
 }
 
 /** AI 교차검증 분석 목록 (팀 공용, 최신순). mine이면 내가 요청한 것만. */
-export function useAnalyses(params: AnalysisParams = {}) {
+export function useAnalyses(params: AnalysisParams = {}, opts: ListOptions = {}) {
   return useQuery({
     queryKey: keys.analyses(params),
     queryFn: () =>
@@ -226,6 +241,7 @@ export function useAnalyses(params: AnalysisParams = {}) {
         `/api/analyses${qs({ symbol: params.symbol, verdict: params.verdict, mine: params.mine ? 1 : null, limit: params.limit ?? 50 })}`,
       ),
     ...live(POLL.analyses),
+    ...keepIf(opts.keepPrevious),
   });
 }
 
@@ -265,7 +281,7 @@ export function useReportPlan() {
 }
 
 /** 리포트 목록 (팀 전체 공용, 최신순). mine이면 내가 신청한 것만. 상세 Snapshot·SSE는 api/reports.ts의 useReportLive. */
-export function useReports(params: ReportParams = {}) {
+export function useReports(params: ReportParams = {}, opts: ListOptions = {}) {
   return useQuery({
     queryKey: keys.reports(params),
     queryFn: () =>
@@ -273,6 +289,7 @@ export function useReports(params: ReportParams = {}) {
         `/api/reports${qs({ symbol: params.symbol, source: params.source, mine: params.mine ? 1 : null, limit: params.limit ?? 50 })}`,
       ),
     ...live(POLL.reports),
+    ...keepIf(opts.keepPrevious),
   });
 }
 
@@ -282,7 +299,7 @@ export function useReports(params: ReportParams = {}) {
 export const isPlanLive = (status: TradePlanStatus) => status === "active" || status === "entry_pending" || status === "holding";
 
 /** 추천 목록 (팀 전체 공용, 최신순). 리포트·분석 화면은 source·sourceId로 자기 추천을 찾는다. */
-export function useRecommendations(params: RecommendationParams = {}, enabled = true) {
+export function useRecommendations(params: RecommendationParams = {}, enabled = true, opts: ListOptions = {}) {
   return useQuery({
     queryKey: keys.recommendations(params),
     queryFn: () =>
@@ -297,6 +314,7 @@ export function useRecommendations(params: RecommendationParams = {}, enabled = 
       ),
     enabled,
     ...live(POLL.recommendations),
+    ...keepIf(opts.keepPrevious && enabled),
   });
 }
 
@@ -319,11 +337,12 @@ export function useRiskPreview(id: number, budgetKrw: number | null, enabled = t
   });
 }
 
-export function usePlans(status: "active" | "all" = "active") {
+export function usePlans(status: "active" | "all" = "active", opts: ListOptions = {}) {
   return useQuery({
     queryKey: keys.plans(status),
     queryFn: () => api.get<Page<TradePlan>>(`/api/trade-plans${qs({ status, limit: 50 })}`),
     ...live(POLL.plan),
+    ...keepIf(opts.keepPrevious),
   });
 }
 

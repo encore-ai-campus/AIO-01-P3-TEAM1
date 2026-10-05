@@ -2,10 +2,10 @@
 // 아래쪽 "쉬운 보기" 절은 주린이모드 화면(components/reports/easy/*)이 결과·Trace·리스크 미리 보기에서 문장을 만드는 순수 함수다.
 import type {
   AnalysisSummary,
+  Currency,
   ErrorType,
   ExecutionPlan,
   FailurePolicy,
-  Recommendation,
   ReportDetail,
   ReportOpinion,
   ReportQuota,
@@ -17,7 +17,9 @@ import type {
   TraceStatus,
 } from "../api/types";
 import type { IconName } from "../components/Icon";
-import { formatRate, formatSignedKrw } from "./format";
+import type { PlanCardState } from "../components/plan/PlanCard";
+import { countWord, isTodayKst } from "./autotrade";
+import { formatPercent, formatPrice, formatRate, formatSignedKrw } from "./format";
 import { REPORT_FAILURE_FALLBACK, REPORT_STATUS_TEXT } from "./plainText";
 import { attemptHistory, isGiveUp } from "./recovery";
 
@@ -33,21 +35,21 @@ interface Look {
   border: string; // 노드 테두리
 }
 
-// 상태는 색만으로 구분하지 않는다 (아이콘 + 글자를 같이 쓴다)
+// 상태는 색만으로 구분하지 않는다 (아이콘 + 글자를 같이 쓴다). 글자색은 연한 바탕 위 글자용 *-ink 토큰 (다크에서도 읽히게)
 export const NODE_STATUS: Record<NodeStatus, Look> = {
   waiting: { label: "대기", icon: "circle", chip: "bg-fill text-mute", border: "border-line" },
-  started: { label: "실행 중", icon: "play", chip: "bg-brand-soft text-brand-dark", border: "border-brand" },
-  completed: { label: "완료", icon: "check", chip: "bg-ok-soft text-ok", border: "border-ok" },
-  failed: { label: "실패", icon: "close", chip: "bg-up-soft text-up", border: "border-up" },
-  blocked: { label: "차단", icon: "ban", chip: "bg-warn-soft text-[#9a5b00]", border: "border-warn" },
+  started: { label: "실행 중", icon: "play", chip: "bg-brand-soft text-brand-ink", border: "border-brand" },
+  completed: { label: "완료", icon: "check", chip: "bg-ok-soft text-ok-ink", border: "border-ok" },
+  failed: { label: "실패", icon: "close", chip: "bg-up-soft text-up-ink", border: "border-up" },
+  blocked: { label: "차단", icon: "ban", chip: "bg-warn-soft text-warn-ink", border: "border-warn" },
   skipped: { label: "건너뜀", icon: "skip", chip: "bg-fill text-sub", border: "border-dashed border-mute" },
 };
 
 export const REPORT_STATUS: Record<ReportStatus, Omit<Look, "border">> = {
   requested: { label: "신청됨", icon: "clock", chip: "bg-fill text-sub" },
-  running: { label: "실행 중", icon: "play", chip: "bg-brand-soft text-brand-dark" },
-  completed: { label: "완료", icon: "check", chip: "bg-ok-soft text-ok" },
-  failed: { label: "실패", icon: "close", chip: "bg-up-soft text-up" },
+  running: { label: "실행 중", icon: "play", chip: "bg-brand-soft text-brand-ink" },
+  completed: { label: "완료", icon: "check", chip: "bg-ok-soft text-ok-ink" },
+  failed: { label: "실패", icon: "close", chip: "bg-up-soft text-up-ink" },
 };
 
 export const POLICIES: { value: FailurePolicy; name: string; behavior: string }[] = [
@@ -208,13 +210,16 @@ export const WORKER_EASY_NAME: Record<string, string> = {
 
 export const workerEasyName = (id: string): string => WORKER_EASY_NAME[id] ?? "AI 담당자";
 
-/** 쉬운 진행 표시 다섯 단계 (docs/컨셉변경계획.md 4-2 "시세를 보는 중 → … → 검토하는 중"). */
-export const PROGRESS_STEPS: readonly { actor: string; label: string }[] = [
-  { actor: "market_agent", label: "시세를 보는 중" },
-  { actor: "fundamental_agent", label: "재무제표를 읽는 중" },
-  { actor: "news_agent", label: "뉴스를 읽는 중" },
-  { actor: "report_agent", label: "리포트를 쓰는 중" },
-  { actor: "review_agent", label: "검토하는 중" },
+/**
+ * 쉬운 진행 표시 다섯 단계 (docs/컨셉변경계획.md 4-2 "시세를 보는 중 → … → 검토하는 중").
+ * noun: 진행형이 어색한 자리(실패 화면의 "어디서 멈췄는지")에 쓰는 명사형 이름.
+ */
+export const PROGRESS_STEPS: readonly { actor: string; label: string; noun: string }[] = [
+  { actor: "market_agent", label: "시세를 보는 중", noun: "시세 보기" },
+  { actor: "fundamental_agent", label: "재무제표를 읽는 중", noun: "재무제표 읽기" },
+  { actor: "news_agent", label: "뉴스를 읽는 중", noun: "뉴스 읽기" },
+  { actor: "report_agent", label: "리포트를 쓰는 중", noun: "리포트 쓰기" },
+  { actor: "review_agent", label: "검토하는 중", noun: "검토" },
 ];
 
 export type ProgressState = "waiting" | "active" | "done" | "failed" | "skipped";
@@ -249,6 +254,65 @@ export function progressOf(trace: TraceEvent[]): ProgressStep[] {
     return { actor, label, state, recovered: attemptHistory(trace, actor).recovered };
   });
 }
+
+/** 끝난 단계 수 (끝났어요·건너뛰었어요·하지 못했어요 — 더 기다릴 일이 없는 단계). */
+export const progressDone = (steps: readonly ProgressStep[]): number => steps.filter((s) => s.state !== "waiting" && s.state !== "active").length;
+
+/**
+ * 진행 막대 값: 지금까지 끝난 단계 수의 최댓값. 검토 RETRY로 '리포트를 쓰는 중'이 다시 시작돼도 막대가 뒤로 가지 않게
+ * (사건 목록은 늘어나기만 하므로 앞에서부터 잘라 세면 된다 — 사건은 많아야 수십 개).
+ */
+export function progressPeak(trace: TraceEvent[]): number {
+  let peak = 0;
+  for (let i = 1; i <= trace.length; i++) peak = Math.max(peak, progressDone(progressOf(trace.slice(0, i))));
+  return peak;
+}
+
+/**
+ * 진행 표시를 화면 읽기 프로그램에 알리는 한 줄 (보이는 글자와 겹치지 않게 따로 만든다).
+ * done: 진행 막대에 보이는 끝난 단계 수 (없으면 지금 끝난 수) — 막대와 알림이 다른 숫자를 말하지 않게.
+ */
+export function progressAnnouncement(steps: readonly ProgressStep[], done: number = progressDone(steps)): string {
+  const active = steps.find((s) => s.state === "active");
+  if (active) return `지금: ${active.label} (${done}/${steps.length})`;
+  return done === steps.length ? `다섯 단계를 모두 끝냈어요 (${done}/${steps.length})` : `진행 ${done}/${steps.length}`;
+}
+
+/**
+ * 실패한 리포트가 멈춘 단계 (실패 화면의 "어디서 멈췄는지"). 검토 실패는 검토, Join 차단 등은 처음으로 실패한 단계.
+ * 시간 초과·엔진 재시작·예외는 그때 하던 단계에서 멈췄다 — 먼저 포기한 선택 담당자(뉴스 등)가 있어도 하던 단계가 먼저다.
+ * 세 조사 단계는 함께(병렬) 돌므로 순서가 진행 순서가 아니다: 다른 단계의 상태는 화면이 단계마다 따로 보인다(EasyFailure).
+ */
+export function stoppedStepIndex(steps: readonly ProgressStep[], reason: string | null): number {
+  if (reason === "review_failed") return steps.findIndex((s) => s.actor === "review_agent");
+  const first = (state: ProgressState) => steps.findIndex((s) => s.state === state);
+  const cutOff = reason === "timeout" || reason === "engine_restarted" || reason === "exception";
+  for (const state of cutOff ? (["active", "failed", "waiting"] as const) : (["failed", "active", "waiting"] as const)) {
+    const i = first(state);
+    if (i >= 0) return i;
+  }
+  return steps.length - 1;
+}
+
+/** 실패 사유별 다음 행동 한 줄 (쉬운 보기). 권유·명령형 없이 할 수 있는 일을 말한다. */
+export const FAILURE_NEXT: Record<string, string> = {
+  review_failed: "검토 AI가 근거와 맞지 않는 내용을 걸러낸 거예요. 다시 만들면 처음부터 새로 조사해요",
+  join_blocked: "자료가 다 모이지 않으면 리포트를 쓰지 않아요. 잠시 뒤 다시 만들 수 있어요",
+  timeout: "일시적인 문제일 수 있어요. 잠시 뒤 다시 만들 수 있어요",
+  engine_restarted: "일시적인 문제일 수 있어요. 잠시 뒤 다시 만들 수 있어요",
+  exception: "일시적인 문제일 수 있어요. 잠시 뒤 다시 만들 수 있어요",
+};
+export const FAILURE_NEXT_FALLBACK = "다시 만들면 처음부터 새로 조사해요";
+
+/** 실패 사유별 둘째 문장 (전문가 보기). 모르는 사유는 예전 문장. */
+export const EXPERT_FAILURE_NOTE: Record<string, string> = {
+  join_blocked: "필수 Worker 결과가 없어 Join Guard가 막았습니다. 실패한 Agent는 “진행 기록” 탭에서 볼 수 있습니다.",
+  review_failed: "검토 Agent가 FAIL 판정을 냈습니다. 지적 사항은 “진행 기록” 탭에서 볼 수 있습니다.",
+  timeout: "제한 시간을 넘겨 중단했습니다. 일시적인 문제일 수 있습니다.",
+  engine_restarted: "엔진이 다시 시작돼 중단했습니다. 일시적인 문제일 수 있습니다.",
+  exception: "예상하지 못한 예외로 중단했습니다. 마지막 사건은 “진행 기록” 탭에서 볼 수 있습니다.",
+};
+export const EXPERT_FAILURE_FALLBACK = "재시도와 대체 모델로도 복구하지 못했습니다. 어느 모델이 실패했는지는 “진행 기록” 탭에서 볼 수 있습니다.";
 
 /**
  * 자동 복구를 쉬운 문장으로 (신뢰 패널 둘째 줄·진행 표시, docs/tasks/04-autohealing.md T4-11).
@@ -339,17 +403,63 @@ const WRONG_HINT = /다시 (?:봐야|판단)|틀리|아래로|손절/;
 
 /**
  * "이 의견이 틀리는 경우": 위험 중 프롬프트가 요구한 형식("○○원 아래로 내려가거나 … 다시 봐야 해요")에 맞는 하나.
- * 나머지 위험은 위험 목록에 그대로 둔다.
+ * 나머지 위험은 위험 목록에 그대로 둔다. opinion이 긍정적(buy)이 아니면 '손절'이 든 위험은 옮기지 않는다 — 그 의견에는 손절 가격이 없다.
  */
-export function whenWrongOf(draft: Pick<DraftView, "risks">): { risk: string | null; others: string[] } {
-  const risk = draft.risks.find((x) => WRONG_HINT.test(x)) ?? null;
+export function whenWrongOf(draft: Pick<DraftView, "risks">, opinion?: ReportOpinion | null): { risk: string | null; others: string[] } {
+  const noStop = opinion !== undefined && opinion !== "buy";
+  const risk = draft.risks.find((x) => WRONG_HINT.test(x) && !(noStop && x.includes("손절"))) ?? null;
   return { risk, others: draft.risks.filter((x) => x !== risk) };
 }
 
-/** 이 리포트의 추천 중 화면에 쓸 하나: 아직 활성화할 수 있는(open) 것, 없으면 가장 최근 것. */
-export function pickRecommendation(recs: Recommendation[] | undefined): Recommendation | null {
-  if (!recs?.length) return null;
-  return recs.find((x) => x.status === "open") ?? recs[0];
+/** 호가 단위 (국내는 가격대별, 미국은 1센트) — 문장 속 금액이 손절 가격과 같은 가격인지 볼 때 반올림 차이를 허용하려고. */
+function tickOf(price: number, currency: Currency): number {
+  if (currency === "USD") return 0.01;
+  return price < 2_000 ? 1 : price < 5_000 ? 5 : price < 20_000 ? 10 : price < 50_000 ? 50 : price < 200_000 ? 100 : price < 500_000 ? 500 : 1_000;
+}
+
+/**
+ * 문장 속 가격 한 개의 모양 (그 통화만): 국내 "66,000원"·"66000 원"·"66,000원선", 미국 "$110.00". 숫자가 첫 번째 묶음이다.
+ * '1조원'·'500억 원'·'원/달러'·'원자재'처럼 숫자 바로 뒤가 '원'이 아니거나 숫자가 없는 말은 가격이 아니다.
+ */
+const priceSource = (currency: Currency) => (currency === "USD" ? String.raw`\$\s*(\d[\d,]*(?:\.\d+)?)` : String.raw`(\d[\d,]*(?:\.\d+)?)\s*원선?`);
+
+/** 금액(문장 속 숫자 그대로)이 손절 가격과 같은 가격인지. AI가 반올림해 적을 수 있어 호가 두 칸까지 같다고 본다. */
+function isStopPrice(raw: string, stop: number, currency: Currency): boolean {
+  const n = Number(raw.replace(/,/g, ""));
+  return Number.isFinite(n) && Math.abs(n - stop) <= 2 * tickOf(stop, currency) + 1e-9;
+}
+
+/** 손절 가격을 이름으로 부르는 말 ("손절 가격"·"손절가"·"손절선"). "손절 매물"·"손절 가능성"은 가격이 아니다. */
+const STOP_WORD = String.raw`손절\s*(?:가격|선|라인|가(?!능))`;
+
+/** 문장이 손절 가격을 말하는지: 손절 가격이라고 부르거나, 손절 가격과 같은 금액(호가 두 칸 안)이 있다. */
+function mentionsStop(line: string, stop: number, currency: Currency): boolean {
+  if (new RegExp(STOP_WORD).test(line)) return true;
+  return [...line.matchAll(new RegExp(priceSource(currency), "g"))].some((m) => isStopPrice(m[1], stop, currency));
+}
+
+/**
+ * 손절 가격만 말하는 '틀리는 경우' 문장인지 ("손절 가격(66,000원) 아래로 내려가면 다시 봐야 한다"). 그런 문장은 코드가 만든 손절 문장과
+ * 같은 뜻이라 숨긴다. 손절 가격과 다른 금액(환율 1,450원·매출 1조원·다른 가격)이거나 '거나·또는·나오면·발표'처럼 다른 조건이 붙어 있으면
+ * 새 정보라 그대로 보인다 — 글자 '원'만으로는 정하지 않는다(원자재·원/달러·회원).
+ */
+export function priceOnlyRisk(line: string, stop: number, currency: Currency): boolean {
+  return mentionsStop(line, stop, currency) && !/거나|또는|나오면|발표/.test(line);
+}
+
+/**
+ * '66,000원 아래로 내려가거나 …'처럼 앞에 붙은 손절 가격 조건을 뗀다. 코드가 만든 손절 문장이 이미 그 가격을 말하므로
+ * 같은 가격을 두 번 보이지 않고 다른 조건만 남긴다. 떼는 것은 그 금액이 손절 가격(호가 두 칸 안)이거나 '손절 가격'이라고 부를 때뿐이다 —
+ * '광고 매출이 1조원 아래로 떨어지거나'·'70,000원(손절 가격과 다른 값) 아래로 내려가거나'는 다른 조건이라 그대로 둔다.
+ * 앞에 또 다른 조건(…하면·…하고)이 있거나, 그런 모양이 아니거나, 남는 말이 너무 짧아도 그대로 둔다.
+ */
+export function withoutPriceClause(line: string, stop: number, currency: Currency): string {
+  const clause = new RegExp(String.raw`^([^.]*?)(?:${priceSource(currency)}|${STOP_WORD})\)?\s*(?:아래|밑)으?로\s*(?:내려가|떨어지)거나,?\s*`);
+  const m = clause.exec(line);
+  if (!m || /거나|또는|면\s|고\s|며\s/.test(m[1])) return line;
+  if (m[2] !== undefined && !isStopPrice(m[2], stop, currency)) return line;
+  const rest = line.slice(m[0].length).trim();
+  return rest.length >= 4 ? rest : line;
 }
 
 export interface ScenarioView {
@@ -359,16 +469,24 @@ export interface ScenarioView {
   quantity: number | null;
   holdingDays: number | null;
   asOf: string | null; // 미리 보기의 종가 기준 시각
+  blocked: boolean; // 계좌 금액이지만 안전장치가 지금은 실행을 막은 계획 ("정했다"고 쓰지 않는다)
+  expired: boolean; // 계획 기한이 끝나 계좌 금액 대신 비율로 보인다
 }
 
 /**
  * 시나리오 세 칸 (docs/컨셉변경계획.md 5장, LLM 숫자 없음). 목표·손절이 맞지 않으면 null.
- * 리포트의 추천이 있고 안전장치가 1주 이상을 정했으면 그 금액(비용 반영), 아니면 1주 기준 비율(비용 전).
+ * 리포트의 추천이 있고 안전장치가 1주 이상을 계산했으면 그 금액(비용 반영), 아니면 1주 기준 비율(비용 전).
+ * plan: 매매 계획 카드와 같은 상태 — blocked면 금액은 그대로 두고(막힌 이유가 숫자로 보인다) 표시만 바꾸고, 기한이 지났으면 비율로.
  */
-export function scenarioOf(targets: ReportTargets, preview: RiskPreview | null | undefined, holdingDays: number | null): ScenarioView | null {
+export function scenarioOf(
+  targets: ReportTargets,
+  preview: RiskPreview | null | undefined,
+  holdingDays: number | null,
+  plan?: PlanCardState | "loading" | null,
+): ScenarioView | null {
   if (!validTargets(targets)) return null;
   const days = holdingDays ?? targets.holdingDays;
-  if (preview && preview.quantity > 0) {
+  if (preview && preview.quantity > 0 && plan !== "expired") {
     return {
       basis: "account",
       gain: formatSignedKrw(preview.expectedProfitKrw),
@@ -376,6 +494,8 @@ export function scenarioOf(targets: ReportTargets, preview: RiskPreview | null |
       quantity: preview.quantity,
       holdingDays: days,
       asOf: preview.lastPriceAsOf,
+      blocked: plan === "blocked",
+      expired: false,
     };
   }
   return {
@@ -385,6 +505,8 @@ export function scenarioOf(targets: ReportTargets, preview: RiskPreview | null |
     quantity: null,
     holdingDays: days,
     asOf: null,
+    blocked: false,
+    expired: plan === "expired",
   };
 }
 
@@ -503,15 +625,45 @@ export function researchOf(state: Pick<SharedState, "results">): { market: Marke
 
 /** 단계 막대 ① 만들기 ② 검토 ③ 실행 (docs/컨셉변경계획.md 3장 "단계 막대의 뜻"). */
 export const STEP_LABELS = ["만들기", "검토", "실행"] as const;
-export type StepState = "done" | "current" | "todo" | "failed";
+/** skipped: 이 리포트로는 실행할 계획이 없다 (③ 없음 — 할 일이 남은 것처럼 보이지 않게). */
+export type StepState = "done" | "current" | "todo" | "failed" | "skipped";
 
-export const STEP_STATE_TEXT: Record<StepState, string> = { done: "끝남", current: "지금 단계", todo: "아직", failed: "멈춤" };
+export const STEP_STATE_TEXT: Record<StepState, string> = { done: "끝남", current: "지금 단계", todo: "아직", failed: "멈춤", skipped: "없음" };
 
-/** executed: 이 리포트의 계획으로 내 모의 자동매매가 시작됐는지. */
-export function stepsOf(status: ReportStatus, executed: boolean): StepState[] {
+/** 실행할 계획이 없는 매매 계획 상태 (지켜보기·부정적·계획 없음·기한 지남). 안전장치가 막은 것(blocked)은 나중에 풀릴 수 있어 넣지 않는다. */
+const NO_PLAN_STATES = new Set<string>(["watch", "negative", "no_plan", "expired"]);
+
+/**
+ * executed: 이 리포트의 계획으로 내 모의 자동매매가 시작됐는지.
+ * plan: 매매 계획 카드와 같은 상태(선택). 실행할 계획이 없으면 ③을 '없음'으로 둔다.
+ */
+export function stepsOf(status: ReportStatus, executed: boolean, plan?: PlanCardState | "loading" | null): StepState[] {
   if (status === "failed") return ["failed", "todo", "todo"];
   if (status !== "completed") return ["current", "todo", "todo"];
-  return executed ? ["done", "done", "done"] : ["done", "current", "todo"];
+  if (executed) return ["done", "done", "done"];
+  return ["done", "current", plan && NO_PLAN_STATES.has(plan) ? "skipped" : "todo"];
+}
+
+/**
+ * 완성 화면 머리의 다음 행동 안내 (매매 계획 카드 상태별, docs/컨셉변경계획.md 3장).
+ * 준비 중·불러오는 중에는 없다 — 매매 계획 카드와 반대로 말하지 않게.
+ * 카드의 자리를 말하지 않는다 ('아래' 아님): 모바일은 아래, PC는 오른쪽 열에 있다.
+ */
+export function planGuide(plan: PlanCardState | "loading" | null | undefined): string | null {
+  switch (plan) {
+    case "ready":
+      return "결론과 손실 금액을 확인했으면 매매 계획 카드에서 실행 준비로 넘어가요.";
+    case "blocked":
+      return "안전장치가 지금은 실행을 막았어요. 이유는 매매 계획 카드에 있어요.";
+    case "watch":
+    case "negative":
+    case "no_plan":
+      return "이 리포트로는 실행할 계획이 없어요.";
+    case "expired":
+      return "계획 기한이 끝났어요.";
+    default:
+      return null;
+  }
 }
 
 /** 진행 화면의 예상 시간: 최근 완성 리포트(최대 take개)의 시작~끝 시간 중앙값. 3건 미만이면 null (docs/컨셉변경계획.md 4-6). */
@@ -531,20 +683,46 @@ export function typicalDurationMs(reports: Pick<ReportSummary, "status" | "start
 
 export const durationSentence = (ms: number): string => `지난 리포트들은 보통 ${Math.max(1, Math.round(ms / 60_000))}분쯤 걸렸어요`;
 
-/** 리포트 목록 카드의 상태 (대기 중·만드는 중·완성·실행 가능·만들지 못함). ready = 완성 + 활성화할 수 있는 계획이 있음. */
-export type ReportCardStatus = ReportStatus | "ready";
-
-export function reportCardStatus(status: ReportStatus, hasOpenPlan: boolean): ReportCardStatus {
-  return status === "completed" && hasOpenPlan ? "ready" : status;
+/** 기다린 시간 ("방금" · "3분" · "2시간" · "1일"). 진행 화면의 "시작한 지 ○분"에 쓴다. */
+export function elapsedText(fromIso: string | null | undefined, now: number): string | null {
+  const from = fromIso ? Date.parse(fromIso) : NaN;
+  if (!Number.isFinite(from)) return null;
+  const min = Math.max(0, Math.floor((now - from) / 60_000));
+  if (min < 1) return "방금";
+  if (min < 60) return `${min}분`;
+  if (min < 24 * 60) return `${Math.floor(min / 60)}시간`;
+  return `${Math.floor(min / (24 * 60))}일`;
 }
 
+/** 리포트 목록 카드의 상태 (대기 중·만드는 중·완성·실행 가능·만들지 못함). ready = 완성 + 안전장치가 지금 실행을 허락하는 계획이 있음. */
+export type ReportCardStatus = ReportStatus | "ready";
+
+/** ready: 이 리포트 계획의 리스크 미리 보기가 activatable (계획이 있다는 것만으로는 '실행 가능'이라 하지 않는다 — 상세와 같은 판단). */
+export function reportCardStatus(status: ReportStatus, ready: boolean): ReportCardStatus {
+  return status === "completed" && ready ? "ready" : status;
+}
+
+/**
+ * 카드 상태 칩과 문장. 문장은 행동이 필요하거나 기다리는 상태에만 둔다 (완성은 칩과 의견 배지로 충분 — 카드마다 같은 말을 되풀이하지 않게).
+ * 글자색은 연한 바탕 위 *-ink (다크에서도 읽히게). 아이콘은 상태마다 다르다.
+ */
 export const REPORT_CARD_TEXT: Record<ReportCardStatus, { label: string; sentence: string; chip: string; icon: IconName }> = {
   requested: { label: REPORT_STATUS_TEXT.requested.easy, sentence: "만들 차례를 기다리고 있어요", chip: "bg-fill text-sub", icon: "clock" },
-  running: { label: REPORT_STATUS_TEXT.running.easy, sentence: "AI 담당자들이 조사하고 쓰는 중이에요", chip: "bg-brand-soft text-brand-dark", icon: "play" },
-  completed: { label: REPORT_STATUS_TEXT.completed.easy, sentence: "다 만들었어요. 결론과 근거를 읽을 수 있어요", chip: "bg-ok-soft text-ok", icon: "check" },
-  ready: { label: "실행 가능", sentence: "이 리포트에서 나온 모의 자동매매 계획이 있어요", chip: "bg-brand text-white", icon: "play" },
-  failed: { label: REPORT_STATUS_TEXT.failed.easy, sentence: REPORT_FAILURE_FALLBACK, chip: "bg-up-soft text-up", icon: "close" },
+  running: { label: REPORT_STATUS_TEXT.running.easy, sentence: "AI 담당자들이 조사하고 쓰는 중이에요", chip: "bg-brand-soft text-brand-ink", icon: "play" },
+  completed: { label: REPORT_STATUS_TEXT.completed.easy, sentence: "", chip: "bg-ok-soft text-ok-ink", icon: "check" },
+  ready: { label: "실행 가능", sentence: "이 리포트에서 나온 모의 자동매매 계획이 있어요", chip: "bg-brand-soft text-brand-ink", icon: "flow" },
+  failed: { label: REPORT_STATUS_TEXT.failed.easy, sentence: REPORT_FAILURE_FALLBACK, chip: "bg-up-soft text-up-ink", icon: "close" },
 };
+
+/**
+ * 완성 카드에 계획이 붙어 있지만 '실행 가능'이 아닐 때의 문장 (칩은 '완성' 그대로).
+ * live: 이 리포트로 내 모의 자동매매가 진행 중 · blocked: 안전장치가 지금은 막음 · unchecked: 화면 아래쪽이라 아직 확인하지 않음.
+ */
+export const PLAN_NOTE = {
+  live: "이 리포트로 모의 자동매매를 하고 있어요",
+  blocked: "계획이 있지만 지금은 실행할 수 없어요. 이유는 리포트에서 볼 수 있어요",
+  unchecked: "이 리포트에서 나온 계획이 있어요. 실행할 수 있는지는 리포트에서 확인해요",
+} as const;
 
 /** 하루 리포트 한도 문장 ("오늘 ○번 더 만들 수 있어요", D-7). */
 export function quotaSentence(q: Pick<ReportQuota, "remaining">): string {
@@ -556,3 +734,89 @@ export const CROSS_CHECK_TEXT: Record<AnalysisSummary["verdict"], { badge: strin
   BUY: { badge: "승인된 계획 있음", line: "여러 AI가 각자 계획을 내고 서로 검증했어요. 최종 승인을 통과한 계획이 있어요" },
   PASS: { badge: "승인된 계획 없음", line: "여러 AI가 각자 계획을 내고 서로 검증했어요. 최종 승인을 통과한 계획이 없어요" },
 };
+
+/** 제안 AI 이름 표기 (쉬운 보기): claude → Claude, gpt → GPT, gemini → Gemini. 모르는 이름은 그대로. */
+export function providerName(p: string): string {
+  const k = p.trim().toLowerCase();
+  if (k === "gpt" || k.startsWith("gpt-") || k === "openai") return "GPT";
+  if (k.startsWith("claude") || k === "anthropic") return "Claude";
+  if (k.startsWith("gemini") || k === "google") return "Gemini";
+  return p;
+}
+
+/** 교차검증 분석 목록의 쉬운 한 줄: 행마다 다른 정보 (목록 응답만으로 — 제안 수와 최종 승인 AI). */
+export function crossCheckLine(a: Pick<AnalysisSummary, "scenarioCount" | "best">): string {
+  if (a.scenarioCount === 0) return "AI가 낸 계획이 없어요";
+  const approved = a.best?.selected ? providerName(a.best.proposer) : "없음";
+  return `제안 ${a.scenarioCount}개 · 최종 승인 ${approved}`;
+}
+
+/** 오늘(KST) 만든 이 종목 리포트 중 보일 하나: 완성된 것 중 최신, 없으면 만드는 중인 것 중 최신 (실패는 빼고). 만들기 카드·종목 상세가 같이 쓴다. */
+export function todayReport(reports: readonly ReportSummary[], now: Date = new Date()): ReportSummary | null {
+  const today = reports.filter((r) => r.status !== "failed" && isTodayKst(r.createdAt, now));
+  const newest = (list: ReportSummary[]) => list.reduce<ReportSummary | null>((a, b) => (!a || b.createdAt > a.createdAt ? b : a), null);
+  return newest(today.filter((r) => r.status === "completed")) ?? newest(today);
+}
+
+/** 쉬운 보기의 지표 값 모양: price 가격(원·$), rate 부호 붙은 등락률(0.021 → +2.1%), percent 비율(0.312 → 31.2%), number 숫자 그대로. */
+export type IndicatorFormat = "price" | "rate" | "percent" | "number";
+
+/**
+ * 분석 상세의 지표 이름 (쉬운 보기). 키는 엔진 스냅샷의 지표 그대로다 (engine/paper_engine/data/snapshot.py — docs/API.md "엔진 스냅샷의 지표 그대로").
+ * term이 있으면 눌러서 풀이(용어 사전), format은 값 모양(비율은 소수로 온다). 표에 없는 키는 쉬운 보기에서 숨긴다 (원래 키는 전문가 보기에).
+ */
+export const INDICATOR_EASY: Record<string, { label: string; term?: "RSI" | "이동평균" | "변동성"; format: IndicatorFormat }> = {
+  sma20: { label: "20일 평균 가격", term: "이동평균", format: "price" },
+  sma60: { label: "60일 평균 가격", term: "이동평균", format: "price" },
+  sma120: { label: "120일 평균 가격", term: "이동평균", format: "price" },
+  rsi14: { label: "RSI(14일)", term: "RSI", format: "number" },
+  atr14: { label: "하루 변동폭(ATR)", term: "변동성", format: "price" },
+  volatility20: { label: "20일 변동성(1년 환산)", term: "변동성", format: "percent" },
+  change5d: { label: "5일 등락률", format: "rate" },
+  change20d: { label: "20일 등락률", format: "rate" },
+  change60d: { label: "60일 등락률", format: "rate" },
+  periodHigh: { label: "기간 최고 가격", format: "price" },
+  periodLow: { label: "기간 최저 가격", format: "price" },
+};
+
+/** 쉬운 보기의 지표 값 한 칸 (숫자가 아니면 그대로, 없으면 "-"). */
+export function indicatorValue(v: number | string | null, format: IndicatorFormat, currency: Currency): string {
+  if (v === null) return "-";
+  if (typeof v !== "number") return v;
+  if (format === "price") return formatPrice(v, currency);
+  if (format === "rate") return formatRate(v, 1);
+  if (format === "percent") return formatPercent(v, 1);
+  return v.toLocaleString("ko-KR");
+}
+
+/** 제안 AI가 응답하지 못한 오류 (엔진 engine/paper_engine/pipeline.py "{모델} 시나리오 제안 실패: …"). */
+const PROPOSAL_FAILED = /^(.+?) 시나리오 제안 실패:/;
+
+/** 엔진 오류 문구 → 쉬운 문장 (쉬운 보기 '참고'). 엔진은 빈 결과(계획 0개)에 오류를 남기지 않으므로 오류는 숨기지 않는다. */
+const ANALYSIS_ERROR_EASY: [RegExp, (who: string) => string][] = [
+  [PROPOSAL_FAILED, (who) => `${who}: 응답하지 못해 계획을 내지 못했어요`],
+  [/^(.+?) 웹 조사 실패:/, (who) => `${who}: 응답하지 못해 웹 조사를 하지 못했어요`],
+  [/^(.+?) 검증 실패:/, (who) => `${who}: 응답하지 못해 다른 AI의 계획을 검증하지 못했어요`],
+  [/^(.+?) 검증 누락:/, (who) => `${who}: 다른 AI의 계획 일부를 검증하지 않았어요`],
+  [/^(.+?): 시간 초과로 이후 단계와 의결에서 제외함/, (who) => `${who}: 응답이 늦어 이후 단계에서 빠졌어요`],
+];
+
+/** 교차검증 분석 오류 한 줄의 쉬운 문장. 아는 엔진 문구만 바꾸고(AI 이름은 Claude·GPT·Gemini로) 모르는 문구는 원문 그대로. */
+export function analysisErrorEasy(e: string): string {
+  for (const [re, say] of ANALYSIS_ERROR_EASY) {
+    const m = re.exec(e);
+    if (m) return say(providerName(m[1]));
+  }
+  if (e.startsWith("APPROVER가 설정되지 않아")) return "최종 승인을 맡을 AI가 정해지지 않아 최종 승인을 하지 못했어요";
+  if (e.startsWith("모델 응답 에러:")) return "AI 응답에 문제가 있었어요";
+  return e;
+}
+
+/**
+ * 계획이 0개인 분석의 과정 문장: 제안 AI가 응답하지 못했으면 '조건에 맞는 계획이 없었어요'가 아니라 그 사실을 말한다.
+ * 실패가 없으면 null (기본 문장 그대로 — 정말 조건에 맞는 계획이 없었다).
+ */
+export function noPlanSentence(errors: readonly string[]): string | null {
+  const failed = errors.filter((e) => PROPOSAL_FAILED.test(e)).length;
+  return failed > 0 ? `AI가 낸 계획이 없어요 (AI ${countWord(failed)} 곳이 응답하지 못했어요)` : null;
+}
