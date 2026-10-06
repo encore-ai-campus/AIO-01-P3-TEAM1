@@ -19,10 +19,11 @@ AGENTS_IMPLEMENTED = False
 
 FAILURE_POLICIES = ("fail_fast", "best_effort", "required_optional")
 MODES = ("parallel", "sequential")
-WORKER_KEYS = {"title", "goal", "provider", "model", "output_contract"}
-STEP_KEYS = {"id", "title", "mode", "workers", "required", "optional", "depends_on", "join", "timeout"}
+WORKER_KEYS = {"title", "goal", "provider", "model", "fallbacks", "output_contract"}
+STEP_KEYS = {"id", "title", "mode", "workers", "required", "optional", "depends_on", "join", "timeout", "retry"}
 TEAM_KEYS = {"title", "failure_policy", "steps", "handoffs"}
 HANDOFF_KEYS = {"from", "to", "responsibility", "max_hops"}
+RETRY_KEYS = {"target", "max_rounds"}
 
 
 class PlanError(ValueError):
@@ -75,6 +76,20 @@ def build_plan(team: str = TEAM, workers_file: Path = WORKERS_FILE, teams_file: 
         missing = [dep for dep in step["dependsOn"] if dep not in seen]
         if missing:
             raise PlanError(f"step '{step['id']}': 없는 앞 단계: {', '.join(missing)}")
+    steps_by_id = {step["id"]: step for step in steps}
+    for step in steps:
+        retry = step["retry"]
+        if retry is None:
+            continue
+        dependency_workers = {
+            worker
+            for dependency in step["dependsOn"]
+            for worker in steps_by_id[dependency]["workers"]
+        }
+        if retry["target"] not in dependency_workers:
+            raise PlanError(
+                f"step '{step['id']}': retry target은 depends_on 단계의 Worker여야 합니다: {retry['target']}"
+            )
     steps = _ordered(steps)
 
     raw_handoffs = spec.get("handoffs") or []
@@ -109,10 +124,14 @@ def _worker(wid, spec) -> dict:
     if not isinstance(wid, str) or not isinstance(spec, dict):
         raise PlanError(f"{where}의 정의가 올바르지 않습니다.")
     _known_keys(spec, WORKER_KEYS, where)
+    model = _optional_text(spec.get("model"), f"{where}의 model")
+    fallbacks = _names(spec.get("fallbacks", []), f"{where}의 fallbacks")
+    if model is not None and model in fallbacks:
+        raise PlanError(f"{where}: fallbacks에 주 모델이 들어갈 수 없습니다: {model}")
     return {
         "id": wid, "title": _text(spec.get("title"), f"{where}의 title"), "goal": _text(spec.get("goal"), f"{where}의 goal"),
         "provider": _optional_text(spec.get("provider"), f"{where}의 provider"),
-        "model": _optional_text(spec.get("model"), f"{where}의 model"),
+        "model": model, "fallbacks": fallbacks,
         "outputContract": _text(spec.get("output_contract"), f"{where}의 output_contract"),
     }
 
@@ -151,8 +170,25 @@ def _step(raw, definitions: dict) -> dict:
     timeout = raw.get("timeout")
     if timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, Real) or timeout <= 0):
         raise PlanError(f"{where}: timeout은 0보다 큰 초 단위 숫자여야 합니다.")
+    retry = _retry(raw.get("retry"), definitions, where)
     return {"id": sid, "title": _text(raw.get("title"), f"{where}의 title"), "mode": mode, "workers": workers,
-            "required": required, "optional": optional, "dependsOn": depends_on, "join": join, "timeoutSec": timeout}
+            "required": required, "optional": optional, "dependsOn": depends_on, "join": join, "timeoutSec": timeout,
+            "retry": retry}
+
+
+def _retry(raw, definitions: dict, where: str) -> dict | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise PlanError(f"{where}: retry는 객체여야 합니다.")
+    _known_keys(raw, RETRY_KEYS, f"{where}의 retry")
+    target = _text(raw.get("target"), f"{where}의 retry target")
+    if target not in definitions:
+        raise PlanError(f"{where}: retry target에 정의되지 않은 Worker가 있습니다: {target}")
+    max_rounds = raw.get("max_rounds")
+    if isinstance(max_rounds, bool) or not isinstance(max_rounds, int) or max_rounds < 1:
+        raise PlanError(f"{where}: retry max_rounds는 1 이상의 정수여야 합니다.")
+    return {"target": target, "maxRounds": max_rounds}
 
 
 def _ordered(steps: list[dict]) -> list[dict]:

@@ -1,7 +1,8 @@
 # AI 리포트 Team 정의 (YAML Registry, docs/DECISIONS.md 9-3). registry.py가 읽고 검증해 실행 계획(ExecutionPlan)으로 낸다.
 # failure_policy: fail_fast | best_effort | required_optional
 # step: mode(parallel | sequential), workers, required(필수)·optional(선택, required를 빼면 workers 중 optional이 아닌 것 전부가 필수),
-#       depends_on(먼저 끝나야 하는 step id), join(앞 단계 결과를 Join Guard로 확인한 뒤 실행), timeout(초, 없으면 null)
+#       depends_on(먼저 끝나야 하는 step id), join(앞 단계 결과를 Join Guard로 확인한 뒤 실행), timeout(초, 없으면 null),
+#       retry(검토가 RETRY면 다시 실행할 앞 단계 Worker와 최대 반복 횟수, 없으면 null)
 # handoffs: from Worker가 to Worker에게 책임을 넘긴다. max_hops는 한 실행에서 넘길 수 있는 최대 횟수.
 teams:
   stock_report:
@@ -28,6 +29,9 @@ teams:
         workers: [review_agent]
         depends_on: [compose]
         timeout: 60
+        retry:
+          target: report_agent
+          max_rounds: 2
     handoffs:
       - from: review_agent
         to: risk_agent

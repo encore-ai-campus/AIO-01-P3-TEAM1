@@ -15,7 +15,8 @@ TEAM = {"teams": {"t": {
     "steps": [
         {"id": "s1", "title": "조사", "mode": "parallel", "workers": ["a", "b", "c"], "required": ["a", "b"],
          "optional": ["c"], "timeout": 60},
-        {"id": "s2", "title": "작성", "mode": "sequential", "workers": ["d"], "depends_on": ["s1"], "join": True},
+        {"id": "s2", "title": "작성", "mode": "sequential", "workers": ["d"], "depends_on": ["s1"], "join": True,
+         "retry": {"target": "a", "max_rounds": 2}},
     ],
     "handoffs": [{"from": "d", "to": "e", "responsibility": "넘긴다", "max_hops": 2}],
 }}}
@@ -40,11 +41,12 @@ def test_default_registry_plan_shape():
     assert set(plan) == {"team", "title", "failurePolicy", "steps", "workers", "handoffs", "implemented"}
     assert (plan["team"], plan["title"], plan["failurePolicy"], plan["implemented"]) == (
         "stock_report", "종목 리포트", "required_optional", False)
-    assert [(s["id"], s["mode"], s["dependsOn"], s["join"], s["timeoutSec"]) for s in plan["steps"]] == [
-        ("parallel_research", "parallel", [], False, 60), ("compose", "sequential", ["parallel_research"], True, 90),
-        ("review", "sequential", ["compose"], False, 60)]
+    assert [(s["id"], s["mode"], s["dependsOn"], s["join"], s["timeoutSec"], s["retry"]) for s in plan["steps"]] == [
+        ("parallel_research", "parallel", [], False, 60, None),
+        ("compose", "sequential", ["parallel_research"], True, 90, None),
+        ("review", "sequential", ["compose"], False, 60, {"target": "report_agent", "maxRounds": 2})]
     research = plan["steps"][0]
-    assert set(research) == {"id", "title", "mode", "workers", "required", "optional", "dependsOn", "join", "timeoutSec"}
+    assert set(research) == {"id", "title", "mode", "workers", "required", "optional", "dependsOn", "join", "timeoutSec", "retry"}
     assert research["title"] == "조사"
     assert research["workers"] == ["market_agent", "fundamental_agent", "news_agent"]
     assert (research["required"], research["optional"]) == (["market_agent", "fundamental_agent"], ["news_agent"])
@@ -52,9 +54,9 @@ def test_default_registry_plan_shape():
     assert [w["id"] for w in plan["workers"]] == ["market_agent", "fundamental_agent", "news_agent", "report_agent",
                                                   "review_agent", "risk_agent"]
     market = plan["workers"][0]
-    assert set(market) == {"id", "title", "goal", "provider", "model", "outputContract"}
-    assert (market["title"], market["provider"], market["model"], market["outputContract"]) == (
-        "시세·차트 Agent", None, None, "MarketResult")
+    assert set(market) == {"id", "title", "goal", "provider", "model", "fallbacks", "outputContract"}
+    assert (market["title"], market["provider"], market["model"], market["fallbacks"], market["outputContract"]) == (
+        "시세·차트 Agent", None, None, [], "MarketResult")
     assert all(w["goal"] for w in plan["workers"])
     assert plan["handoffs"] == [{"from": "review_agent", "to": "risk_agent",
                                  "responsibility": "투자 유의 종목이거나 고위험 신호가 있으면 리스크 점검 책임을 넘긴다",
@@ -79,7 +81,9 @@ def test_tmp_plan_orders_steps_and_lists_used_workers(tmp_path):
     plan = build_plan("t", *write(tmp_path, teams=teams))
     assert [s["id"] for s in plan["steps"]] == ["s1", "s2"]
     assert [w["id"] for w in plan["workers"]] == ["a", "b", "c", "d", "e"]
-    assert plan["steps"][1]["timeoutSec"] is None and plan["handoffs"][0]["maxHops"] == 2
+    assert plan["steps"][1]["timeoutSec"] is None
+    assert plan["steps"][1]["retry"] == {"target": "a", "maxRounds": 2}
+    assert plan["handoffs"][0]["maxHops"] == 2
 
 
 def dup_step(t):
@@ -112,6 +116,11 @@ def two_cycle(t):
     (lambda t: t["steps"][0].update(workers=[]), "workers가 비어 있습니다"),
     (lambda t: t["steps"][0].update(timeout=-1), "timeout"),
     (lambda t: t["steps"][0].update(join=True), "join은 앞 단계"),
+    (lambda t: t["steps"][1].update(retry="again"), "retry는 객체"),
+    (lambda t: t["steps"][1].update(retry={"target": "a", "max_round": 2}), "모르는 항목: max_round"),
+    (lambda t: t["steps"][1].update(retry={"target": "ghost", "max_rounds": 2}), "정의되지 않은 Worker"),
+    (lambda t: t["steps"][1].update(retry={"target": "d", "max_rounds": 2}), "depends_on 단계의 Worker"),
+    (lambda t: t["steps"][1].update(retry={"target": "a", "max_rounds": 0}), "1 이상의 정수"),
     (lambda t: t.update(steps=[]), "steps가 비어 있습니다"),
 ])
 def test_invalid_plans(tmp_path, change, message):
@@ -132,3 +141,22 @@ def test_invalid_files(tmp_path):
     del broken["workers"]["a"]["output_contract"]
     with pytest.raises(PlanError, match="Worker 'a'의 output_contract 값이 없습니다"):
         build_plan("t", *write(tmp_path, workers=broken))
+
+
+@pytest.mark.parametrize("change, message", [
+    (lambda worker: worker.update(fallbacks="backup"), "이름 목록"),
+    (lambda worker: worker.update(fallbacks=["backup", "backup"]), "겹치는 이름"),
+    (lambda worker: worker.update(model="primary", fallbacks=["primary"]), "주 모델이 들어갈 수 없습니다"),
+])
+def test_invalid_worker_fallbacks(tmp_path, change, message):
+    workers = copy.deepcopy(WORKERS)
+    change(workers["workers"]["a"])
+    with pytest.raises(PlanError, match=message):
+        build_plan("t", *write(tmp_path, workers=workers))
+
+
+def test_worker_fallbacks_are_exposed_in_order(tmp_path):
+    workers = copy.deepcopy(WORKERS)
+    workers["workers"]["a"].update(model="primary", fallbacks=["backup-1", "backup-2"])
+    plan = build_plan("t", *write(tmp_path, workers=workers))
+    assert plan["workers"][0]["fallbacks"] == ["backup-1", "backup-2"]
