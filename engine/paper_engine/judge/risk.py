@@ -26,17 +26,14 @@ class RiskLimits:
     max_daily_trades: int | None = None
 
 
-# 스윙·단타는 종목당 비중 한도를 두지 않는다. 대신 자동 관리하는 포지션 전체에 총 금액 한도를 건다
+# 스윙은 종목당 비중 한도를 두지 않는다. 대신 자동 관리하는 포지션 전체에 총 금액 한도를 건다
 # (AccountContext.max_total_krw, .env의 MAX_TOTAL_INVEST_KRW). 한 종목의 크기는 건당 위험 한도가 정한다.
 # LONG_TERM의 비중 한도 100%는 손절 없는 장기 보유 매수 점검(assess_position)에 쓴다 (docs/DECISIONS.md 14-3, E-4).
-# DAY는 단타 연습 계획 (14-4, E-6): 하루 거래 수·손실은 style day 주문만 센다 (records.store.paper_today의 style).
 LIMITS = {
     "SWING": RiskLimits(risk_per_trade=0.01, max_position=None, min_reward_risk=2.0,
                         max_daily_loss=0.03),
     "LONG_TERM": RiskLimits(risk_per_trade=0.02, max_position=1.0, min_reward_risk=2.5,
                             max_daily_loss=0.03),
-    "DAY": RiskLimits(risk_per_trade=0.005, max_position=None, min_reward_risk=2.0,
-                      max_daily_loss=0.02, max_daily_trades=10),
 }
 MIN_FRACTIONAL_AMOUNT = 1.0  # 소수점(금액) 매수의 최소 금액 (달러)
 

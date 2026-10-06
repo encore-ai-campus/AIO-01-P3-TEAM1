@@ -1,4 +1,4 @@
-// 쉬운 보기의 차트: 완성된 일봉(장마감 기준) + AI가 제안한 사는·목표·손절 가격 선 (선 이름은 쉬운 말).
+// 쉬운 보기의 차트: 일봉(오늘 정규장이 열렸으면 진행 중인 봉까지 — 실시간 시세 기준) + AI가 제안한 사는·목표·손절 가격 선 (선 이름은 쉬운 말).
 // 차트 라이브러리를 쓰므로 리포트 상세에서 따로 불러온다 (lazy).
 // 색은 테마 토큰(lib/chartTheme.ts). 테마가 바뀌면 차트를 다시 만들지 않고 applyOptions로 색만 바꾼다 (확대 상태가 그대로 남게).
 // 좁은 화면(480px 미만)에서는 가격 선 이름을 빼고 축 라벨만 둔다 — 이름이 최근 봉과 눈금을 가리지 않게. 값과 이름은 차트 아래 범례가 보인다.
@@ -64,7 +64,7 @@ export function ReportChart({ candles, currency, lines }: { candles: Candle[]; c
       priceFormat: usd ? { type: "price", precision: 2, minMove: 0.01 } : { type: "price", precision: 0, minMove: 1 },
     });
     series.setData(candles.map((k) => ({ time: k.date, open: k.open, high: k.high, low: k.low, close: k.close })));
-    // 좁은 화면은 선 이름 없이 축 라벨만 (분봉 차트와 같은 규칙 — lib/chartOptions lineTitle)
+    // 좁은 화면은 선 이름 없이 축 라벨만 (lib/chartOptions lineTitle)
     const made = lines.map((l) => ({
       kind: l.kind,
       line: series.createPriceLine({ price: l.price, title: lineTitle(el, l.title), color: lineColor(c, l.kind), lineWidth: 2, axisLabelVisible: true }),

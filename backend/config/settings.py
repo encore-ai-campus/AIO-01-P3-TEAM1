@@ -42,7 +42,6 @@ INSTALLED_APPS = [
     "autotrade",
     "notifications",
     "longterm",
-    "daytrade",
 ]
 
 MIDDLEWARE = [

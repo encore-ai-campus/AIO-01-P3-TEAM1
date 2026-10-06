@@ -3,12 +3,12 @@ import type { AnalysisSummary, Quote } from "../api/types";
 import { type ViewMode, useViewMode } from "../hooks/useBeginnerMode";
 import { countWord } from "../lib/autotrade";
 import { formatDateTime, formatPercent, formatPrice, formatRate, formatRequester, trendClass } from "../lib/format";
-import { ANALYSIS_PRICE_LABEL } from "../lib/plainText";
+import { ANALYSIS_PRICE_LABEL, quotePriceName } from "../lib/plainText";
 import { AsOf, Flash, Skeleton, VerdictBadge } from "./ui";
 
 /**
  * AI 교차검증 분석 카드 (홈 대시보드·리포트 탭의 "교차검증 분석" 묶음).
- * 가격은 quote(장마감 기준 종가 + 기준 시각)를 보이고, 없으면 분석 시각 가격을 그렇게 적어 보인다.
+ * 가격은 quote(실시간 현재가 + 받은 시각, 못 받은 종목은 장마감 기준 종가 + 기준 시각)를 보이고, 없으면 분석 시각 가격을 그렇게 적어 보인다.
  * 전문가 보기: 누르면 종목 상세로 (분석의 목표·손절을 주문 패널에 채워 준다), 점수·확률을 보인다.
  * 쉬운 보기: 누르면 분석 상세로 (여러 AI가 검증한 과정), 점수·확률 없이 통과 여부만. view를 주지 않으면 화면의 보기를 따른다.
  * 가격은 줄바꿈하지 않는다 ('182,20 / 0원'처럼 쪼개지면 다른 값으로 읽힌다). 카드 안쪽 폭이 272px보다 좁으면
@@ -46,13 +46,13 @@ export function AnalysisCard({ a, quote, view }: { a: AnalysisSummary; quote?: Q
         {price !== null ? (
           <>
             <p className="mt-3 flex flex-wrap items-baseline gap-x-2 tabular-nums">
-              <span className="text-[13px] font-medium text-mute">종가</span>
+              <span className="text-[13px] font-medium text-mute">{quotePriceName(quote?.basis, easy)}</span>
               <span className="text-[20px] font-bold">
                 <Flash value={price}>{formatPrice(price, a.currency)}</Flash>
               </span>
               <span className={`text-[14px] font-semibold ${trendClass(quote?.changeRate)}`}>{formatRate(quote?.changeRate)}</span>
             </p>
-            <AsOf at={quote?.asOf} market={a.market} className="block" />
+            <AsOf at={quote?.asOf} market={a.market} basis={quote?.basis} className="block" />
           </>
         ) : (
           <p className="mt-3 flex flex-wrap items-baseline gap-x-2 tabular-nums">
@@ -107,7 +107,7 @@ export function AnalysisCard({ a, quote, view }: { a: AnalysisSummary; quote?: Q
 }
 
 /**
- * 분석 카드와 같은 모양의 자리 (이름 · 코드 · 종가 · 기준 시각 · 점수 줄 · 세 칸 · 요청 줄) — 받는 동안 높이가 출렁이지 않게.
+ * 분석 카드와 같은 모양의 자리 (이름 · 코드 · 현재가 · 기준 시각 · 점수 줄 · 세 칸 · 요청 줄) — 받는 동안 높이가 출렁이지 않게.
  * 줄 상자는 실제 줄과 같은 글자 크기의 한 줄 높이(h-lh). 세 칸 자리도 카드처럼 안쪽 272px보다 좁으면 세 줄 높이가 된다
  * (세 칸: 안쪽 여백 24 + 이름 18 + 값 19.5 · 세 줄: 24 + 19.5 × 3 + 간격 4 × 2).
  */

@@ -12,7 +12,6 @@ evaluate(RiskPreview)는 **장마감 기준**이다 (docs/API.md 공통 규칙 "
 import math
 from datetime import datetime
 
-from accounts import modes as investor_modes
 from django.utils import timezone
 from paper_engine.judge.risk import MIN_FRACTIONAL_AMOUNT, SELL_TAX_RATE, STOP_LIMIT_BUFFER, AccountContext, assess
 from paper_engine.judge.scenario import Scenario
@@ -20,15 +19,15 @@ from paper_engine.records import account as paper_account
 from paper_engine.records.account import EXIT_WATCHING, FxUnavailable
 from trading import market as market_data
 from trading import service
-from trading.models import DAY, SWING, PaperOrder
+from trading.models import SWING, PaperOrder
 from trading.service import ACTIVE
 from trading.store import KST, AccountStore, account_for
 
 from config import engine
 from config.api import Unavailable
 
-from .models import HORIZON_DAY, HORIZON_SWING, Recommendation, TradePlan
-from .text import DAY_CUTOFF_TEXT, money
+from .models import Recommendation, TradePlan
+from .text import money
 
 BUDGET = "예산"
 CLOSE_BASIS = "close"  # RiskPreview.priceBasis
@@ -41,8 +40,6 @@ POSITION_EXISTS = "같은 종목에 진행 중인 모의 주문이 있음 (같�
 HALTED = "중단 스위치가 켜져 있음 (새 모의 매수 중단)"
 LIVE_ABOVE_TARGET = "장중 가격이 이미 목표가 이상이에요"
 LIVE_BELOW_STOP = "장중 가격이 이미 손절가 이하예요"
-DAY_ENTRY_CLOSED = f"지금은 단타 계획을 만들 수 없는 시각 (국내 거래일 0시부터 {DAY_CUTOFF_TEXT} 전까지만)"
-DAY_LOCKED = "단타 연습장이 잠겨 있음 (주린이모드 끔 + 단타 연습 퀴즈 통과가 필요)"
 
 
 def _per_share(entry: float, target: float, stop: float, market_: str) -> tuple[float, float, float]:
@@ -146,17 +143,16 @@ def _live_passed(live: float | None, target: float, stop: float) -> str | None:
 
 
 def evaluate(user, *, symbol: str, name: str, market: str, currency: str, entry: float, target: float, stop: float,
-             holding_days: int, horizon: str = HORIZON_SWING, budget_krw: float | None = None,
+             holding_days: int, budget_krw: float | None = None,
              now: datetime | None = None, plan: TradePlan | None = None, live_check: bool = False,
              probability: float = ASSUMED_PROBABILITY, rec_open: bool = True) -> dict:
     """RiskPreview: 리스크 엔진이 user의 모의 계좌로 계산한 결과 (장마감 기준). name은 문장용 (지금은 쓰지 않는다).
 
-    horizon: SWING | DAY (엔진 LIMITS. 하루 주문 수·손실은 그 보유 방식(style swing | day) 주문만 센다).
-      DAY면 단타 잠금(day_trading_locked)과 진입 시각(day_entry_closed)도 본다.
+    엔진 LIMITS는 SWING이고, 하루 주문 수·손실은 스윙(style swing) 주문만 센다.
     plan: 그 계획의 재주문 점검이다 — 추천이 open인지·진행 중 계획은 보지 않고, 그 계획의 주문은 빼고 보며, 수량을 정하는 자산은
       보유를 장중 가격으로 평가하고(_intraday_summary) 가격 점검은 장중 확인 가격으로 한다 (재주문은 지금처럼 장중).
     live_check: 활성화 점검 — 종가 점검에 더해 정규장 중이면 장중 확인 가격으로 목표가·손절가를 한 번 더 본다.
-    probability: 손익비 외 기대값 계산의 확률 (추천 값. 단타처럼 없으면 0.5 가정). rec_open: 추천이 아직 open인지 (아니면 expired).
+    probability: 손익비 외 기대값 계산의 확률 (추천 값. 없으면 0.5 가정). rec_open: 추천이 아직 open인지 (아니면 expired).
     반환: approved · activatable · reasons · reasonCodes(같은 길이·순서, (코드, 문장) 짝 중복 없음) · quantity · amountKrw ·
       expectedProfitKrw · maxLossKrw · limitedBy · budgetKrw · lastPrice(종가) · lastPriceAsOf · priceBasis("close").
     """
@@ -167,15 +163,14 @@ def evaluate(user, *, symbol: str, name: str, market: str, currency: str, entry:
     # 자산: 미리 보기·활성화는 장마감 기준 평가(trading.service), 재주문 점검은 장중 평가
     s = _intraday_summary(store) if plan is not None else service.summary(account, now)
     power = s["buyingPowerKrw"] if s["buyingPowerKrw"] is not None else 0.0
-    day = horizon == HORIZON_DAY
-    trades_today, loss_today = store.paper_today(f"{now.astimezone(KST).date()}", style=DAY if day else SWING)
+    trades_today, loss_today = store.paper_today(f"{now.astimezone(KST).date()}", style=SWING)
     cfg = engine.engine_config()
     ctx = AccountContext(
         equity_krw=s["equityKrw"], buying_power=max(power, 0.0) / fx, commission_rate=cfg.commission[market],
         fx_rate=fx, daily_loss_krw=loss_today, daily_trades=trades_today, warnings=market_data.warnings(symbol),
         invested_krw=_invested_krw(store),
         max_total_krw=cfg.max_total_invest_krw)
-    scenario = Scenario(symbol=symbol, currency=currency, horizon=horizon, entry_price=entry, target_price=target,
+    scenario = Scenario(symbol=symbol, currency=currency, horizon="SWING", entry_price=entry, target_price=target,
                         stop_price=stop, probability=probability, holding_days=holding_days)
     a = assess(scenario, ctx, fractional=(market == "US"))
     pairs = list(zip(a.codes, a.reasons))
@@ -206,11 +201,6 @@ def evaluate(user, *, symbol: str, name: str, market: str, currency: str, entry:
         pairs.append(("position_exists", POSITION_EXISTS))
     if engine.HALT_FILE.exists():
         pairs.append(("halted", HALTED))
-    if day:
-        if investor_modes.day_trading_lock(user):  # 주린이모드 켬 또는 단타 연습 퀴즈 미통과
-            pairs.append(("day_trading_locked", DAY_LOCKED))
-        if plan is None and not market_data.day_entry_open(now):  # DaySession.acceptingPlans와 같은 판정
-            pairs.append(("day_entry_closed", DAY_ENTRY_CLOSED))
 
     close = _close(symbol)
     if plan is not None:  # 재주문: 장중 확인 가격으로만
@@ -240,5 +230,5 @@ def preview(rec: Recommendation, user, budget_krw: float | None = None, now: dat
     now = now or timezone.now()
     return evaluate(user, symbol=rec.symbol, name=rec.name, market=rec.market, currency=rec.currency,
                     entry=rec.entry_price, target=rec.target_price, stop=rec.stop_price,
-                    holding_days=rec.holding_days, horizon=rec.horizon, budget_krw=budget_krw, now=now, plan=plan,
+                    holding_days=rec.holding_days, budget_krw=budget_krw, now=now, plan=plan,
                     live_check=live_check, probability=rec.probability, rec_open=is_open(rec, now))

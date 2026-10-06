@@ -1,4 +1,4 @@
-// /search 종목 검색 (하단 탭 '종목' — 여정 ① 만들기의 출발점). 가격은 직전 장마감 종가 (docs/API.md 공통 규칙 "장마감 기준").
+// /search 종목 검색 (하단 탭 '종목' — 여정 ① 만들기의 출발점). 가격은 실시간 (docs/API.md 공통 규칙 "실시간 시세" — 현재가를 받지 못한 종목만 직전 장마감 종가).
 // - 검색어는 주소(?q=)에 둔다(기록을 쌓지 않는 replace): 종목을 열었다가 뒤로 오면 검색어·결과·스크롤이 그대로다. 하단 탭 '종목'은 빈 /search로 간다.
 // - 검색어가 없으면 바로가기: 최근 본 종목(이 기기) → 내 보유 → 오늘 팀이 리포트를 만든 종목 (다시 찾는 빈도 순).
 //   모바일은 검색칸 아래, PC는 오른쪽 sticky 열 (왼쪽 검색·결과는 720px까지 — 이름과 가격 사이 시선이 멀어지지 않게).
@@ -9,7 +9,7 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 import { errorMessage } from "../api/client";
 import { useAccount, useMe, useQuotes, useReports, useSearch } from "../api/queries";
 import { clearRecentStocks, type RecentStock, useRecentStocks } from "../api/trading";
-import type { Market, Quote, StockItem } from "../api/types";
+import type { Market, Quote, QuoteBasis, StockItem } from "../api/types";
 import { Icon } from "../components/Icon";
 import { useToast } from "../components/toast";
 import { AsOf, EmptyState, ErrorState, Flash, PageHeader, RateText, Skeleton } from "../components/ui";
@@ -17,16 +17,41 @@ import { revealList, useRevealAfterLoading } from "../hooks/useMotionState";
 import { isTodayKst } from "../lib/autotrade";
 import { cn } from "../lib/cn";
 import { formatPrice } from "../lib/format";
+import { quotePriceName } from "../lib/plainText";
 import { useDebounced } from "../lib/useDebounced";
 
-/** 검색 결과에 보이는 시세의 기준 시각 (시장·시각별 하나씩). */
-function basisTimes(results: StockItem[], quotes: Map<string, Quote> | undefined): { market: Market; at: string }[] {
-  const seen = new Map<string, { market: Market; at: string }>();
+interface BasisTime {
+  market: Market;
+  at: string;
+  basis: QuoteBasis;
+}
+
+/**
+ * 검색 결과에 보이는 시세의 기준 표기. 실시간은 한 줄(종목마다 받은 시각이 조금씩 달라 가장 늦게 받은 시각 하나),
+ * 현재가를 받지 못해 직전 종가로 보이는 종목은 시장·시각별 하나씩 (실시간이 앞).
+ */
+function basisTimes(results: StockItem[], quotes: Map<string, Quote> | undefined): BasisTime[] {
+  const seen = new Map<string, BasisTime>();
+  let live: BasisTime | null = null;
   for (const r of results) {
-    const at = quotes?.get(r.symbol)?.asOf;
-    if (at && !seen.has(`${r.market}:${at}`)) seen.set(`${r.market}:${at}`, { market: r.market, at });
+    const q = quotes?.get(r.symbol);
+    const at = q?.asOf;
+    if (!q || !at) continue;
+    if (q.basis === "live") {
+      if (!live || Date.parse(at) > Date.parse(live.at)) live = { market: r.market, at, basis: "live" };
+    } else if (!seen.has(`${r.market}:${at}`)) {
+      seen.set(`${r.market}:${at}`, { market: r.market, at, basis: "close" });
+    }
   }
-  return [...seen.values()].sort((a, b) => a.market.localeCompare(b.market) || a.at.localeCompare(b.at));
+  const closes = [...seen.values()].sort((a, b) => a.market.localeCompare(b.market) || a.at.localeCompare(b.at));
+  return live ? [live, ...closes] : closes;
+}
+
+/** 기준 표기 줄의 앞 문장 (실시간이 하나라도 있으면 실시간, 직전 종가로 보이는 종목이 섞여 있으면 그것도 밝힌다). */
+function basisNote(times: BasisTime[]): string {
+  const live = times.some((t) => t.basis === "live");
+  if (!live) return "가격은 직전 장마감 종가예요";
+  return times.some((t) => t.basis !== "live") ? "가격은 실시간이에요 (받지 못한 종목은 직전 장마감 종가)" : "가격은 실시간이에요";
 }
 
 const norm = (s: string) => s.replace(/\s+/g, "").toUpperCase();
@@ -54,7 +79,7 @@ function PriceCell({ quote, loading }: { quote: Quote | undefined; loading: bool
   return (
     <div className="shrink-0 text-right">
       <p className="text-[15px] font-semibold tabular-nums">
-        <span className="sr-only">종가 </span>
+        <span className="sr-only">{quotePriceName(quote.basis)} </span>
         <Flash value={quote.price}>{formatPrice(quote.price, quote.currency)}</Flash>
       </p>
       <RateText rate={quote.changeRate} className="text-[13px] font-medium" />
@@ -79,7 +104,7 @@ function Badge({ children, tone }: { children: string; tone: "brand" | "plain" }
 // 선 하나만 남거나 이웃 행의 테두리처럼 보인다. 카드의 아래 끝(마지막 행)과 위 끝(목록이 카드 맨 위일 때 첫 행)은 모서리를 카드와 맞춘다
 const ROW_FOCUS = "focus-visible:outline-offset-[-2px] [li:last-child>&]:rounded-b-2xl [ul:first-child>li:first-child>&]:rounded-t-2xl";
 
-/** 종목 한 줄 (검색 결과·바로가기 공용): 이름(+ 배지)·코드 / 종가·등락. */
+/** 종목 한 줄 (검색 결과·바로가기 공용): 이름(+ 배지)·코드 / 현재가·등락. */
 function StockRow({
   item,
   quote,
@@ -268,9 +293,9 @@ function Results({
       <>
         {times.length > 0 ? (
           <p aria-label="가격 기준" className="flex flex-wrap gap-x-3 gap-y-0.5 border-b border-line px-5 py-2.5 text-[12px] text-mute">
-            <span>가격은 직전 장마감 종가예요</span>
+            <span>{basisNote(times)}</span>
             {times.map((t) => (
-              <AsOf key={`${t.market}:${t.at}`} at={t.at} market={t.market} />
+              <AsOf key={t.basis === "live" ? "live" : `${t.market}:${t.at}`} at={t.at} market={t.market} basis={t.basis} />
             ))}
           </p>
         ) : quotesQ.isPending || quotesQ.isPlaceholderData ? (

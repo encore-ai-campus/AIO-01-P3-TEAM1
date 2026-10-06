@@ -1,8 +1,25 @@
 # 배포와 CI/CD
 
-Docker 기반 파이프라인이다. 코드는 준비돼 있고, **서버는 아직 없다** (2026-10-02 기준). 지금은 push하면 검사만 돈다.
-정한 것: 배포 대상은 **AWS EC2(Ubuntu)에 SSH로 접속**, 배포 폴더는 **`/home/ubuntu/paper_trading`**, 서버의 `.env.docker`는 서버를 만든 뒤 직접 채운다.
-서버를 준비한 뒤 5장의 값을 GitHub에 넣고 `DEPLOY_ENABLED=true`로 바꾸면 그때부터 `main`에 push할 때마다 자동 배포된다.
+Docker 기반 파이프라인이다. **2026-10-06에 EC2를 연결했다** — 이제 `main`에 push하면 검사를 통과한 커밋이 자동 배포된다 (서버 현황은 0장).
+정한 것: 배포 대상은 **AWS EC2(Ubuntu)에 SSH로 접속**, 배포 폴더는 **`/home/ubuntu/paper_trading`**, 서버의 `.env.docker`는 서버에서만 고친다.
+
+## 0. 서버 현황 (2026-10-06)
+
+| 항목 | 값 |
+|---|---|
+| 주소 | `52.78.101.101` (`ec2-52-78-101-101.ap-northeast-2.compute.amazonaws.com`, 서울). 자동 할당 공인 IP라 인스턴스를 중지했다 시작하면 바뀐다 (9장) |
+| 사양 | Ubuntu 26.04 LTS, 2 vCPU · 메모리 3.7GB(`t3.medium`급), 디스크 28GB |
+| Docker | Docker Engine 29.8 + Compose v5.6 (docs.docker.com 저장소). `ubuntu`가 `docker` 그룹. 컨테이너 로그는 10MB × 5개로 돌린다 (`/etc/docker/daemon.json`) |
+| SSH | 키 로그인만 (비밀번호·root 로그인 꺼짐). 관리자 접속 키는 저장소 루트의 `encore.pem`(git 제외, 팀장 PC에만). 파이프라인은 배포 전용 키(`DEPLOY_SSH_KEY`)를 쓴다 — 개인 키는 GitHub 비밀 값에만 있다 |
+| GitHub | 변수 `DEPLOY_HOST`·`DEPLOY_USER`·`DEPLOY_DIR`·`DEPLOY_HOST_KEY`(ed25519)·`DEPLOY_ENABLED=true`, 비밀 값 `DEPLOY_SSH_KEY`. `DISCORD_WEBHOOK_URL`은 아직 없다 (알림은 건너뜀) |
+| `.env.docker` | 0600. `DJANGO_SECRET_KEY`·`POSTGRES_PASSWORD`는 서버용 새 값, AI(DevPass)·DART 키는 팀 값. **비어 있음: `KIWOOM_APPKEY`·`KIWOOM_SECRETKEY`, `DATA_GOKR_API`, `DISCORD_WEBHOOK_URL`** |
+| 시세 (임시) | **2026-10-06 사용자 결정으로 키움 키를 받기 전까지 토스 조회를 쓴다**: 로컬 `.env`의 `BROKER=toss`·`CLIENT_ID`·`CLIENT_SECRET`과 `DJANGO_DEBUG=on`(토스는 이때만 켜진다)을 넣었다. 토스 개발자 화면에 서버 IP를 등록했다. 이전 파일은 서버의 `.env.docker.bak-20261006-061018`. 안전 규칙(AGENTS.md, `docs/DECISIONS.md` 3-1 — 운영은 키움만, 토스 키는 EC2에 두지 않음)과 어긋나는 임시 상태라 **키움 키를 받으면 `BROKER`·`CLIENT_*`를 지우고 `DJANGO_DEBUG=off`로 되돌린다**. 토스 토큰은 클라이언트당 하나만 유효해서 같은 `CLIENT_ID`를 쓰는 다른 곳(이 PC의 `scripts/dev.sh` 등)과 서로 토큰을 무효로 만든다 (`token-revoked`) |
+| 첫 배포 | 2026-10-06 Actions `Deploy` #37420279822 (수동 실행, 커밋 `d3325f2`): 검사 → 이미지 → 서버 배포 → 상태 확인 성공 |
+| 계정 | 개발 DB의 팀원 5개·관리자 1개(`team_accounts.txt`·`admin_account.txt`와 같은 아이디·비밀번호)를 2026-10-06에 운영 DB로 복사했다 (비밀번호 해시째, 닉네임·공개 설정 포함) |
+| 남은 일 | 보안 그룹(`launch-wizard-1`)에 HTTP 80 열기 (그 전에는 밖에서 접속되지 않는다), 키움 키 + 키움에 서버 IP 등록 → 토스 임시 설정 되돌리기 |
+
+`.env.docker`를 고친 뒤에는 서버에서 다시 띄우고 nginx도 다시 시작한다 (web이 새로 만들어지면 nginx가 예전 web 주소를 붙들고 있어 502가 난다):
+`cd /home/ubuntu/paper_trading && export IMAGE_PREFIX=ghcr.io/shs5029/paper-trading IMAGE_TAG=$(cat .deployed_tag) && docker compose --env-file .env.docker up -d && docker compose --env-file .env.docker restart nginx`.
 
 ## 1. 흐름
 
@@ -51,7 +68,7 @@ docker compose --env-file .env.docker down        # 데이터까지 지우려면
 
 ## 4. 서버 준비 (한 번)
 
-계획한 사양은 Ubuntu, `t3.medium`, 디스크 30GB 이상이다 (`docs/TEAM_PAPER_TRADING_PLAN.md` 4-5).
+계획한 사양은 Ubuntu, `t3.medium`, 디스크 30GB 이상이다 (`docs/TEAM_PAPER_TRADING_PLAN.md` 2-2).
 
 1. **방화벽(보안 그룹)**: 80(HTTP)을 연다. 22(SSH)는 GitHub Actions가 접속할 수 있어야 한다 — GitHub 실행기의 IP는 고정이 아니므로
    22를 전체에 열고 **키 로그인만 허용**한다 (비밀번호 로그인 끔). DB(5432)와 Redis(6379)는 열지 않는다.

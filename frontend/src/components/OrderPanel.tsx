@@ -31,7 +31,7 @@ import {
 } from "../lib/format";
 import type { GlossaryKey } from "../lib/glossary";
 import { CAN_ANIMATE, DURATION, prefersReducedMotion } from "../lib/motion";
-import { HOLDING_STYLE_TEXT, MARKET_ORDER_ESTIMATE, errorSentence } from "../lib/plainText";
+import { HOLDING_STYLE_TEXT, errorSentence, marketOrderEstimate, quotePriceName } from "../lib/plainText";
 import { StyleBadge } from "./autotrade/Badges";
 import { Icon } from "./Icon";
 import { josa } from "./longterm/longtermText";
@@ -53,8 +53,6 @@ export interface Prefill {
 export type OrderLayout = "dock" | "inline";
 
 type Session = MarketStatus["markets"][number] | undefined;
-/** 웹 주문이 받는 보유 방식 (단타는 단타 연습장에서만 — docs/API.md "보유 방식"). */
-type BuyStyle = Exclude<HoldingStyle, "day">;
 
 const KR_COMMISSION = 0.00015;
 const toNum = (s: string) => (s.trim() === "" ? null : Number(s));
@@ -435,10 +433,12 @@ function BuyForm({
 }) {
   const toast = useToast();
   const ids = useId();
-  const price = stock.quote.price; // 직전 장마감 종가 (화면 추정용)
+  const price = stock.quote.price; // 현재가 (화면 추정용 — 실시간 시세. 받지 못한 종목은 직전 장마감 종가)
+  const basis = stock.quote.basis;
+  const priceName = quotePriceName(basis, easy);
   const kr = stock.market === "KR";
   const unit = kr ? "원" : "USD";
-  const [style, setStyle] = useState<BuyStyle>(prefill ? "swing" : "long");
+  const [style, setStyle] = useState<HoldingStyle>(prefill ? "swing" : "long");
   const [type, setType] = useState<"MARKET" | "LIMIT">("MARKET");
   const [limit, setLimit] = useState(price != null ? String(price) : "");
   const [qty, setQty] = useState("");
@@ -472,7 +472,7 @@ function BuyForm({
   const problem: Problem | null = (() => {
     if (halted) return { text: "새 모의 매수가 중단되어 있어요.", fields: [] };
     if (type === "LIMIT" && !(toNum(limit)! > 0)) return { text: "지정가를 입력해 주세요.", fields: ["limit"] };
-    if (type === "MARKET" && price == null) return { text: "직전 종가를 받지 못해 시장가로 주문할 수 없어요.", fields: [] };
+    if (type === "MARKET" && price == null) return { text: "시세를 받지 못해 시장가로 주문할 수 없어요.", fields: [] };
     if (q == null) return { text: "수량을 입력해 주세요.", fields: ["qty"], quiet: true };
     if (!(q > 0)) return { text: "수량은 0보다 커야 해요.", fields: ["qty"] };
     if (kr && !Number.isInteger(q)) return { text: "국내 종목은 정수 주만 주문할 수 있어요.", fields: ["qty"] };
@@ -481,7 +481,10 @@ function BuyForm({
       const sp = toNum(stop);
       if (tp == null || sp == null) return { text: "스윙은 목표가와 손절가를 둘 다 넣어 주세요.", fields: tp == null ? ["target"] : ["stop"], quiet: true };
       if (base != null && !(sp < base && base < tp)) {
-        return { text: type === "MARKET" ? "손절가 < 직전 종가 < 목표가 순서여야 해요." : "손절가 < 지정가 < 목표가 순서여야 해요.", fields: ["target", "stop"] };
+        return {
+          text: type === "MARKET" ? `손절가 < ${basis === "live" ? "현재가" : "직전 종가"} < 목표가 순서여야 해요.` : "손절가 < 지정가 < 목표가 순서여야 해요.",
+          fields: ["target", "stop"],
+        };
       }
       const d = toNum(days);
       if (d != null && !(Number.isInteger(d) && d >= 1)) return { text: "보유 기한은 1일 이상 정수로 입력해 주세요.", fields: ["days"] };
@@ -498,7 +501,7 @@ function BuyForm({
   const invalid = (f: FieldKey) => loud && shown.fields.includes(f);
   const describe = (f: FieldKey) => (shown?.fields.includes(f) ? problemId : undefined);
 
-  /** 목표가·손절가·지정가 칸 아래 읽기 도움: 쉼표 찍은 금액 + 직전 종가 대비 (칸의 값은 그대로). */
+  /** 목표가·손절가·지정가 칸 아래 읽기 도움: 쉼표 찍은 금액 + 현재가(못 받으면 종가) 대비 (칸의 값은 그대로). */
   const relative = (raw: string): ReactNode => {
     const v = toNum(raw);
     if (v == null || !(v > 0) || price == null || price <= 0) return null;
@@ -506,7 +509,7 @@ function BuyForm({
       <>
         <span className="block">= {formatPrice(v, stock.currency)}</span>
         <span className="block">
-          종가 대비 <span className={trendClass(v - price)}>{formatRate(v / price - 1, 1)}</span>
+          {priceName} 대비 <span className={trendClass(v - price)}>{formatRate(v / price - 1, 1)}</span>
         </span>
       </>
     );
@@ -657,13 +660,19 @@ function BuyForm({
         ) : (
           <div className="rounded-xl bg-fill px-3.5 py-3">
             <div className="flex items-center justify-between text-[15px]">
-              <span className="text-sub">시장가 · 직전 {easy ? <Term k="종가" /> : "종가"}</span>
+              <span className="text-sub">
+                {basis === "live" ? (
+                  `시장가 · ${priceName}`
+                ) : (
+                  <>시장가 · 직전 {easy ? <Term k="종가" /> : "종가"}</>
+                )}
+              </span>
               <b className="font-semibold tabular-nums">
                 <Flash value={price}>{formatPrice(price, stock.currency)}</Flash>
               </b>
             </div>
-            <AsOf at={stock.quote.asOf} market={stock.market} className="mt-0.5 block text-right" />
-            <p className="mt-1.5 text-[12px] leading-snug text-mute">{MARKET_ORDER_ESTIMATE}.</p>
+            <AsOf at={stock.quote.asOf} market={stock.market} basis={basis} className="mt-0.5 block text-right" />
+            <p className="mt-1.5 text-[12px] leading-snug text-mute">{marketOrderEstimate(basis)}.</p>
           </div>
         )}
       </div>
@@ -928,11 +937,7 @@ function Holding({
             <Row label="목표가 / 손절가">
               <span className="text-up">{formatPrice(order.targetPrice, c)}</span> / <span className="text-down">{formatPrice(order.stopPrice, c)}</span>
             </Row>
-            {style === "day" ? (
-              <Row label="정리">그날 15:15 (단타)</Row>
-            ) : (
-              <Row label="보유 기한">{order.expireDate ? `${formatDayLabel(order.expireDate)}까지` : "-"}</Row>
-            )}
+            <Row label="보유 기한">{order.expireDate ? `${formatDayLabel(order.expireDate)}까지` : "-"}</Row>
           </>
         )}
       </dl>

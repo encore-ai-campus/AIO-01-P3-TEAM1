@@ -1,5 +1,5 @@
 // 마이 맨 위: 주린이모드 카드 (docs/투자서비스확장계획.md 2-2 "맨 위에 주린이모드 스위치와 진단 결과").
-// 스위치(계정에 저장 — 기기를 바꿔도 같고 웹 알림 문장도 이 모드를 따른다) → 바뀌는 모습 예시 → 투자 성향·경험 진단 → (끔이면) 단타 연습 입구.
+// 스위치(계정에 저장 — 기기를 바꿔도 같고 웹 알림 문장도 이 모드를 따른다) → 바뀌는 모습 예시 → 투자 성향·경험 진단.
 // 같은 값을 바꾸는 두 조작(스위치·'추천대로')을 한 카드에 둬서 '추천 → 적용 → 스위치가 바뀜'이 한눈에 이어진다.
 // 켜기는 바로, 끄기는 한 줄 확인("어려운 용어·숫자가 그대로 나와요") 뒤에 한다. 확인은 한 번에 하나만 열린다 (스위치 쪽 또는 추천 쪽).
 import { useState } from "react";
@@ -8,7 +8,6 @@ import { cn } from "../../lib/cn";
 import { Collapse } from "../motion/Collapse";
 import { Card, Switch } from "../ui";
 import { ConfirmOff } from "./ConfirmOff";
-import { DayQuizEntry } from "./DayQuizEntry";
 import { InvestorDiagnosis } from "./InvestorDiagnosisCard";
 import { useApplyBeginnerMode } from "./useApplyBeginnerMode";
 
@@ -113,12 +112,6 @@ export function BeginnerModeCard({ diagnosisId, diagnosisLit = false }: { diagno
           onEdit={() => setConfirm((c) => (c === "recommend" ? null : c))}
         />
       </div>
-      {/* 끄면 열리는 것: 단타 연습 입구. 스위치를 끈 바로 그 카드 안에서 펼쳐져 '끄니 열렸다'가 보인다 */}
-      <Collapse open={!beginnerMode}>
-        <div className="pt-4">
-          <DayQuizEntry />
-        </div>
-      </Collapse>
     </Card>
   );
 }

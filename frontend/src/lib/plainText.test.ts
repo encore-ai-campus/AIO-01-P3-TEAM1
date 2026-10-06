@@ -24,8 +24,7 @@ function strings(v: unknown): string[] {
 // docs/API.md "실행 불가 사유 코드" 표 그대로
 const API_REASON_CODES: ReasonCode[] = [
   "reward_risk_low", "ev_negative", "daily_loss_limit", "daily_trades_limit", "warning_stock", "size_too_small", "budget_too_small",
-  "expired", "plan_exists", "position_exists", "halted", "price_passed", "day_entry_closed", "day_trading_locked", "cash_short",
-  "position_limit", "total_limit",
+  "expired", "plan_exists", "position_exists", "halted", "price_passed", "cash_short", "position_limit", "total_limit",
 ];
 
 describe("쉬운 문장 표", () => {
@@ -70,14 +69,14 @@ describe("쉬운 문장 표", () => {
     expect(plain.failureReasonOf([])).toBeNull();
   });
 
-  it("계획 상태·청산 사유(EOD 포함)·알림 종류", () => {
+  it("계획 상태·청산 사유·알림 종류", () => {
     expect(plain.planStatusText("entry_pending")).toBe("사는 가격을 기다리는 중");
     expect(plain.planStatusText("entry_pending", false)).toBe("체결 대기");
-    expect(plain.exitReasonText("EOD")).toBe("단타라 장 마감 전에 모의 계좌에서 정리했어요");
-    expect(plain.exitReasonText("EOD", false)).toBe("장 마감 전 정리");
+    expect(plain.exitReasonText("EXPIRED")).toBe("보유 기간이 끝나 그날 가격에 모의 계좌에서 팔았어요");
+    expect(plain.exitReasonText("EXPIRED", false)).toBe("보유 기한 경과");
     expect(plain.exitReasonText("NEW")).toBe("NEW");
     expect(plain.notificationKindText("report_failed")).toBe("리포트 만들지 못함");
-    expect(plain.notificationKindText("someday")).toBe("알림");
+    expect(plain.notificationKindText("brand_new_kind")).toBe("알림");
     expect(Object.keys(plain.NOTIFICATION_KIND_TEXT)).toEqual(
       expect.arrayContaining(["report_completed", "report_failed", "daily_move", "thesis_check"]),
     );
@@ -92,7 +91,7 @@ describe("쉬운 문장 표", () => {
       order_requeued: sentence("order_requeued", { quantity: 4, previousQuantity: 5 }),
       filled: sentence("filled", { fillPrice: 180_000, quantity: 5 }),
       exit_requested: sentence("exit_requested", {}),
-      closed: sentence("closed", { exitReason: "EOD", exitPrice: 98_700, pnlKrw: -1_234 }),
+      closed: sentence("closed", { exitReason: "STOP", exitPrice: 98_700, pnlKrw: -1_234 }),
       cancelled: sentence("cancelled", {}),
       expired: sentence("expired", {}),
       failed: sentence("failed", {}),
@@ -101,7 +100,7 @@ describe("쉬운 문장 표", () => {
     expect(made.activated).toBe("모의 자동매매를 시작했어요 (예산 1,000,000원)");
     expect(made.order_placed).toBe("모의 계좌에서 181,000원 이하에 5주를 사는 주문을 넣었어요");
     expect(made.order_requeued).toContain("(수량 5주 → 4주)");
-    expect(made.closed).toBe("단타라 장 마감 전에 모의 계좌에서 98,700원에 팔았어요 (손익 -1,234원)");
+    expect(made.closed).toBe("손절 가격에 닿아 손실이 더 커지지 않게 모의 계좌에서 98,700원에 팔았어요 (손익 -1,234원)");
     // 청산 사유·계획 상태 설명도 쉬운 문장이라 "모의"가 있다 (체결 내역·계획 화면·홈 카드에서 실제 매도로 읽히지 않게)
     for (const [reason, w] of Object.entries(plain.EXIT_REASON_TEXT)) expect(w.easy, reason).toContain("모의");
     for (const [status, w] of Object.entries(plain.PLAN_STATUS_TEXT)) expect(w.line, status).toContain("모의");
@@ -111,9 +110,20 @@ describe("쉬운 문장 표", () => {
     expect(sentence("filled", {})).toBe("원래 문장");
   });
 
+  it("시세 가격의 이름은 기준을 따른다 (실시간 = 현재가·쉬운 말 지금 가격, 장마감 = 종가)", () => {
+    expect(plain.quotePriceName("live")).toBe("현재가");
+    expect(plain.quotePriceName("live", true)).toBe("지금 가격");
+    expect(plain.quotePriceName("close")).toBe("종가");
+    expect(plain.quotePriceName("close", true)).toBe("종가");
+    expect(plain.quotePriceName(undefined)).toBe("종가");
+    expect(plain.marketOrderEstimate("live")).toBe("지금 시세 기준 추정이에요. 시장가는 주문 시점 가격으로 체결돼요");
+    expect(plain.marketOrderEstimate("close")).toBe(plain.MARKET_ORDER_ESTIMATE);
+    expect(plain.marketOrderEstimate(undefined)).toBe(plain.MARKET_ORDER_ESTIMATE);
+  });
+
   it("출처 줄·면책·투자자 진단 문항", () => {
     expect(plain.sourceLine("키움증권 REST API")).toBe(
-      "시세: 키움증권 REST API 조회 · 장마감 기준 | 공시·재무: 금융감독원 OpenDART, 금융위원회(공공데이터포털) | 뉴스 제목: Google 뉴스 검색 결과(각 언론사)",
+      "시세: 키움증권 REST API 조회 · 실시간 (계좌·랭킹은 장마감 기준) | 공시·재무: 금융감독원 OpenDART, 금융위원회(공공데이터포털) | 뉴스 제목: Google 뉴스 검색 결과(각 언론사)",
     );
     expect(plain.DISCLAIMER).toBe("이 리포트는 AI가 만든 참고 자료이며 투자 권유가 아닙니다. 모든 매매는 모의 계좌에서만 이뤄집니다.");
     expect(plain.INVESTOR_QUESTIONS.map((q) => q.key)).toEqual(["q1", "q2", "q3", "q4", "q5", "q6", "q7"]);
@@ -133,13 +143,13 @@ describe("쉬운 문장 표", () => {
 });
 
 describe("용어 사전", () => {
-  it("30개 (P0 15 + P1 15), 컨셉 계획의 용어가 모두 있다", () => {
-    expect(GLOSSARY_KEYS).toHaveLength(30);
+  it("28개 (P0 15 + P1 13), 컨셉 계획의 용어가 모두 있다", () => {
+    expect(GLOSSARY_KEYS).toHaveLength(28);
     expect(GLOSSARY_KEYS.filter((k) => GLOSSARY[k].tier === "P0")).toEqual([
       "PER", "PBR", "ROE", "손절", "목표 가격", "손익비", "지정가", "체결", "보유 기간", "거래일", "변동성", "거래대금", "이동평균", "RSI", "모의 투자",
     ]);
     expect(GLOSSARY_KEYS.filter((k) => GLOSSARY[k].tier === "P1")).toEqual([
-      "시장가", "종가", "장마감 기준", "부채비율", "유동비율", "영업이익률", "영업현금흐름", "이자보상배율", "공시", "수급", "초과 등락", "분봉", "단타", "수수료", "거래세",
+      "시장가", "종가", "장마감 기준", "부채비율", "유동비율", "영업이익률", "영업현금흐름", "이자보상배율", "공시", "수급", "초과 등락", "수수료", "거래세",
     ]);
     for (const k of GLOSSARY_KEYS) {
       expect(GLOSSARY[k].term).toBe(k);

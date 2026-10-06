@@ -12,10 +12,7 @@ AI를 쓰지 않고, 증권사에 주문을 내지 않는다. 가격·환율·�
      (원본 토스 실주문의 소수점 감시 청산 `_check_local_exit`와 같다. 튀는 가격 한 번으로 팔지 않는다)
   3. 종료 (CLOSED) / 취소 (CANCELED)
 
-보유 방식 style (docs/API.md "보유 방식"): swing(목표·손절·기한으로 자동 매도) · long(장기 보유, 자동 매도·보유 기한 없음) ·
-day(단타 연습, 국내만). day 주문의 세션은 접수 시각(created_at)의 KST 날짜이고, 그 세션 DAY_CLOSE_AT(15:15 KST)부터는
-체결 대기면 취소("단타 진입 마감"), 보유 중이면 정규장 첫 확인에서 2회 확인 없이 바로 판다(EOD, "장 마감 전 정리").
-장이 닫혀 놓친 보유는 다음 정규장 첫 확인에서 같은 방식으로 판다. 15:15부터는 새 단타 매수를 받지 않는다(day_entry_closed).
+보유 방식 style (docs/API.md "보유 방식"): swing(목표·손절·기한으로 자동 매도) · long(장기 보유, 자동 매도·보유 기한 없음).
 
 사람이 읽는 거절 문장(buy_blockers·modify)에는 장중 확인 가격이나 그것으로 계산한 금액을 넣지 않는다 (docs/API.md
 "장중 가격 숫자는 문장에 넣지 않는다"). 지정가·목표가·손절가·현금처럼 사용자가 아는 숫자만 넣는다.
@@ -31,7 +28,6 @@ import functools
 import threading
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from datetime import time as dt_time
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -47,25 +43,22 @@ MAX_ORDER_KRW = 100_000_000  # 1억원 이상 주문은 받지 않는다
 MIN_AMOUNT_ORDER = 1.0  # 소수점(금액) 주문의 최소 금액 (달러)
 LOCAL_EXIT_CONFIRMATIONS = 2  # 청산 조건이 이만큼 연속으로 확인돼야 판다 (튀는 가격 대비)
 MARKET, LIMIT = "MARKET", "LIMIT"
-ENTRY, TARGET, STOP, EXPIRED, MANUAL, EOD = "ENTRY", "TARGET", "STOP", "EXPIRED", "MANUAL", "EOD"
-EXIT_LABEL = {TARGET: "목표가 도달", STOP: "손절가 도달", EXPIRED: "보유 기한 경과", MANUAL: "사용자 매도",
-              EOD: "장 마감 전 정리"}
+ENTRY, TARGET, STOP, EXPIRED, MANUAL = "ENTRY", "TARGET", "STOP", "EXPIRED", "MANUAL"
+EXIT_LABEL = {TARGET: "목표가 도달", STOP: "손절가 도달", EXPIRED: "보유 기한 경과", MANUAL: "사용자 매도"}
 STATUS_LABEL = {ENTRY_PENDING: "체결 대기", EXIT_WATCHING: "보유 중", CLOSED: "종료", CANCELED: "취소"}
-SWING, LONG, DAY = "swing", "long", "day"   # 보유 방식 (paper_orders.style)
-STYLES = (SWING, LONG, DAY)
+SWING, LONG = "swing", "long"   # 보유 방식 (paper_orders.style)
+STYLES = (SWING, LONG)
 KST = ZoneInfo("Asia/Seoul")
-DAY_CLOSE_AT = dt_time(15, 15)   # 단타 진입 마감·강제 정리 (KST, 장 마감 단일가 15:20 전 — docs/DECISIONS.md 14-4)
-DAY_ENTRY_CLOSED = "단타 진입 마감"   # 15:15에 취소한 체결 대기 단타 주문의 note (계획은 expired)
 
 # 매수 거절 사유 코드 (buy_checks, OrderRejected.codes). 사유 문장과 같은 길이·같은 순서다.
-# docs/API.md "실행 불가 사유 코드" 표에 있는 코드: halted · price_passed · cash_short · position_exists · day_entry_closed.
+# docs/API.md "실행 불가 사유 코드" 표에 있는 코드: halted · price_passed · cash_short · position_exists.
 # 나머지는 엔진 안의 코드다 (API reasonCodes로 내보내려면 먼저 표에 더한다).
 INVALID_ORDER = "invalid_order"         # 수량·지정가·목표·손절·보유 방식 입력이 맞지 않음
 MARKET_CLOSED = "market_closed"         # 정규장 밖 시장가
 ORDER_TOO_LARGE = "order_too_large"     # 1억원 이상
 FX_UNAVAILABLE = "fx_unavailable"       # 환율을 몰라 원화 금액을 셀 수 없음
 
-__all__ = ["ACTIVE", "CANCELED", "CLOSED", "DAY", "ENTRY_PENDING", "EXIT_WATCHING", "LONG", "OrderPlan",
+__all__ = ["ACTIVE", "CANCELED", "CLOSED", "ENTRY_PENDING", "EXIT_WATCHING", "LONG", "OrderPlan",
            "OrderRejected", "PaperExecutor", "STYLES", "SWING", "expected_pnl", "make_plan", "pre_trade_checks",
            "signed_money"]
 
@@ -268,7 +261,7 @@ class PaperExecutor:
         market = MARKET_OF[currency]
         limit = float(plan.entry_price)
         reasons, codes = self.buy_checks(plan.symbol, market, currency, plan.quantity, limit, limit, fx_rate,
-                                         float(plan.target_price), float(plan.stop_trigger), True, now=now)
+                                         float(plan.target_price), float(plan.stop_trigger), True)
         if reasons:
             raise OrderRejected("; ".join(reasons), codes)
         oid = self.store.add_paper_order(
@@ -290,17 +283,17 @@ class PaperExecutor:
         """사용자·전략 매수. price는 지금 확인 가격. 정규장이면 시장가는 바로, 지정가는 가격이 맞으면 바로 체결한다.
 
         목표·손절을 주면 체결 뒤 자동 청산을 감시한다 (기한 expire_date가 있으면 지나면 청산). 주문 번호를 돌려준다.
-        style(swing | long | day)은 주문에 저장한다. long·day는 보유 기한이 없다 (expire_date를 쓰지 않는다).
-        long은 목표·손절을 받지 않고 자동 매도가 없다. day는 국내만, 15:15 KST부터는 받지 않는다.
+        style(swing | long)은 주문에 저장한다. long은 보유 기한이 없고 (expire_date를 쓰지 않는다),
+        목표·손절을 받지 않아 자동 매도가 없다.
         막히면 OrderRejected (codes: buy_checks의 코드).
         """
         limit = None if limit_price is None else float(round_price(limit_price, currency))
         target = None if target is None else float(round_price(target, currency))
         stop = None if stop is None else float(round_price(stop, currency))
-        if style in (LONG, DAY):
+        if style == LONG:
             expire_date = None
         reasons, codes = self.buy_checks(symbol, market, currency, quantity, price, limit, fx_rate, target, stop,
-                                         regular_open, style=style, now=now)
+                                         regular_open, style=style)
         if reasons:
             raise OrderRejected("; ".join(reasons), codes)
         oid = self.store.add_paper_order(
@@ -311,9 +304,7 @@ class PaperExecutor:
         how = "시장가" if limit is None else f"지정가 {money(limit, currency)}"
         managed = (f". 체결되면 목표 {money(target, currency)} / 손절 {money(stop, currency)} 감시"
                    + (f", 기한 {expire_date}" if expire_date else "")) if target is not None else ""
-        if style == DAY:
-            managed += f". 단타: {DAY_CLOSE_AT:%H:%M}에 장 마감 전 정리"
-        elif style == LONG:
+        if style == LONG:
             managed += ". 장기 보유 (자동 매도 없음)"
         self.notifier.send(f"[모의 주문 #{oid}] {name} ({symbol}) {qty_text(quantity)} {how} 매수 접수 "
                            f"(요청 {requested_by}){managed}")
@@ -323,20 +314,18 @@ class PaperExecutor:
 
     def buy_blockers(self, symbol: str, market: str, currency: str, quantity: float, price: float,
                      limit: float | None, fx_rate: float | None, target: float | None, stop: float | None,
-                     regular_open: bool, *, style: str = SWING, now: datetime | None = None) -> list[str]:
+                     regular_open: bool, *, style: str = SWING) -> list[str]:
         """매수를 막는 사유 문장 (buy_checks의 문장만). 비어 있으면 접수할 수 있다."""
         return self.buy_checks(symbol, market, currency, quantity, price, limit, fx_rate, target, stop, regular_open,
-                               style=style, now=now)[0]
+                               style=style)[0]
 
     def buy_checks(self, symbol: str, market: str, currency: str, quantity: float, price: float,
                    limit: float | None, fx_rate: float | None, target: float | None, stop: float | None,
-                   regular_open: bool, *, style: str = SWING,
-                   now: datetime | None = None) -> tuple[list[str], list[str]]:
+                   regular_open: bool, *, style: str = SWING) -> tuple[list[str], list[str]]:
         """(매수를 막는 사유 문장, 사유 코드). 둘은 같은 길이·같은 순서이고, 비어 있으면 접수할 수 있다.
 
         price는 지금 확인 가격(장중일 수 있다)이라 문장에 그 숫자나 그것으로 계산한 금액을 넣지 않는다. 코드는 이 파일 머리의
-        상수와 docs/API.md "실행 불가 사유 코드"(halted · price_passed · cash_short · position_exists · day_entry_closed).
-        now는 단타(style day)의 진입 마감(15:15 KST)을 볼 때 쓴다 (없으면 지금 시각, 시간대가 없으면 KST로 본다).
+        상수와 docs/API.md "실행 불가 사유 코드"(halted · price_passed · cash_short · position_exists).
         """
         reasons, codes = [], []
 
@@ -348,12 +337,6 @@ class PaperExecutor:
             block("halted", "중단 스위치가 켜져 있음 (resume 명령으로 해제)")
         if style not in STYLES:
             block(INVALID_ORDER, f"모르는 보유 방식: {style} ({' | '.join(STYLES)})")
-        elif style == DAY:
-            if market != "KR":
-                block(INVALID_ORDER, "단타 연습은 국내 종목만 받음")
-            if _kst(now or datetime.now(KST)).time() >= DAY_CLOSE_AT:
-                block("day_entry_closed",
-                      f"단타 진입 마감 ({DAY_CLOSE_AT:%H:%M} KST부터는 새 단타 매수를 받지 않음)")
         if limit is None and not regular_open:
             block(MARKET_CLOSED, "정규장 밖에서는 시장가로 체결하지 않음 (다음 정규장 시작 예약이나 지정가로 주문)")
         if quantity <= 0:
@@ -419,7 +402,7 @@ class PaperExecutor:
         """진행 중 주문의 목표가·손절가·기한을 바꾼다. 주지 않은 값은 그대로 둔다. price는 지금 확인 가격 (순서 점검).
 
         바뀐 값을 돌려준다. 청산 조건 연속 확인 횟수는 처음부터 다시 센다. price는 장중 가격일 수 있어 거절 문장에
-        그 숫자를 넣지 않는다. 장기 보유(long)는 목표·손절·기한을, 단타(day)는 기한을 받지 않고 목표·손절은 단타 계획에서 바꾼다.
+        그 숫자를 넣지 않는다. 장기 보유(long)는 목표·손절·기한을 받지 않는다.
         """
         row = self._order(order_id)
         currency = row["currency"]
@@ -435,10 +418,6 @@ class PaperExecutor:
             reasons.append(f"{STATUS_LABEL[row['status']]} 상태라 수정할 수 없음")
         if style == LONG and (target is not None or stop is not None or expire_date):
             reasons.append("장기 보유 주문은 목표가·손절가·기한을 정하지 않음 (자동 매도 없음)")
-        if style == DAY and expire_date:
-            reasons.append("단타 주문은 보유 기한이 없음")
-        if style == DAY and (target is not None or stop is not None):
-            reasons.append("단타 계획에서 바꿔요")
         t, s = new["target_price"], new["stop_price"]
         if (t is None) != (s is None):
             reasons.append("목표가와 손절가를 함께 지정해야 함")
@@ -473,18 +452,11 @@ class PaperExecutor:
         fx_rate: 달러 1의 원화 가치 (달러 종목이 없으면 None이어도 된다).
         last_close: 시장별로 지금까지 끝난 가장 최근 정규장의 종료 시각. 그보다 먼저 접수한 지정가 대기 주문은
           그 정규장 안에 체결되지 않은 것이므로 취소한다 (당일 유효).
-
-        단타(style day) 주문은 그 세션(접수 시각의 KST 날짜) 15:15 KST부터 먼저 정리한다: 체결 대기는 장이 닫혀 있어도
-        취소하고("단타 진입 마감"), 보유는 정규장에서 확인 가격을 받으면 2회 확인 없이 바로 판다 (EOD). 장이 닫혀 있어
-        못 판 보유는 다음 정규장 첫 확인에서 판다.
         """
         rows = self.store.paper_orders(ACTIVE)
         for row in rows:
             market, symbol = row["market"], row["symbol"]
             close = last_close.get(market)
-            if _style(row) == DAY and _kst(now) >= day_cutoff(row["created_at"]):
-                self._day_close(row, prices, now, open_markets, fx_rate)
-                continue
             if row["status"] == ENTRY_PENDING and close and datetime.fromisoformat(row["created_at"]) < close:
                 self._cancel(row, now, "정규장이 끝날 때까지 지정가에 체결되지 않음")
                 continue
@@ -501,23 +473,6 @@ class PaperExecutor:
             except FxUnavailable as e:
                 self.notifier.log(f"모의 주문 #{row['id']} {row['name']}: {e}. 다음 확인에서 다시 봄")
         return len(rows)
-
-    def _day_close(self, row, prices: dict[str, float], now: datetime, open_markets: set[str],
-                   fx_rate: float | None) -> None:
-        """진입 마감(15:15)이 지난 단타 주문 정리. 체결 대기는 취소, 보유는 정규장 확인 가격에 바로 판다 (EOD)."""
-        if row["status"] == ENTRY_PENDING:
-            self._cancel(row, now, DAY_ENTRY_CLOSED)
-            return
-        if row["market"] not in open_markets:
-            return  # 장이 닫혀 있다. 다음 정규장 첫 확인에서 판다
-        price = prices.get(row["symbol"])
-        if price is None:
-            self.notifier.log(f"모의 주문 #{row['id']} {row['name']}: 확인된 가격이 없어 장 마감 전 정리를 다음 확인에서 함")
-            return
-        try:
-            self._close(row, price, fx_rate, now, EOD, None)
-        except FxUnavailable as e:
-            self.notifier.log(f"모의 주문 #{row['id']} {row['name']}: {e}. 다음 확인에서 다시 봄")
 
     def _try_entry(self, row, price: float, fx_rate: float | None, now: datetime) -> None:
         """진입 체결. 지정가는 확인 가격이 지정가 이하일 때만, 그 확인 가격으로 산다."""
@@ -542,20 +497,17 @@ class PaperExecutor:
             watch = " · 장기 보유 (자동 매도 없음)"
         else:
             watch = " · 목표·손절 없이 보유"
-        if _style(row) == DAY:
-            watch += f" · {DAY_CLOSE_AT:%H:%M}에 장 마감 전 정리"
         self.notifier.send(f"[모의 체결 #{row['id']}] {row['name']} ({row['symbol']}) {qty_text(qty)} 매수 "
                            f"@ {money(price, c)} (수수료 {money(commission, c)}, 요청 {row['requested_by']}){watch}")
 
     def _check_exit(self, row, price: float, fx_rate: float | None, now: datetime) -> None:
         """목표가·손절가에 닿았거나 기한이 지났는지. 조건이 LOCAL_EXIT_CONFIRMATIONS번 연속 확인되면 판다.
-        장기 보유(long)·단타(day)에는 보유 기한이 없다 (기한 값이 있어도 보지 않는다)."""
+        장기 보유(long)에는 보유 기한이 없다 (기한 값이 있어도 보지 않는다)."""
         if row["target_price"] is not None and price >= row["target_price"]:
             reason = TARGET
         elif row["stop_price"] is not None and price <= row["stop_price"]:
             reason = STOP
-        elif (row["expire_date"] and _style(row) not in (LONG, DAY)
-              and f"{_kst(now).date()}" > row["expire_date"]):
+        elif row["expire_date"] and _style(row) != LONG and f"{_kst(now).date()}" > row["expire_date"]:
             reason = EXPIRED
         else:
             if row["signal_count"]:
@@ -609,7 +561,7 @@ class PaperExecutor:
                         cap_krw: float | None, today: date, *, style: str | None = None) -> AccountContext:
         """리스크 엔진 입력. 총자산 = 평가액, 매수 가능액은 시나리오 통화 (cap_krw가 있으면 그 값으로 줄인다).
 
-        하루 주문 수·손실은 style을 주면 그 보유 방식의 주문만 센다 (단타 DAY 한도는 style day만 — docs/DECISIONS.md 14-4).
+        하루 주문 수·손실은 style을 주면 그 보유 방식의 주문만 센다.
         """
         fx = account.fx_for(self.store, currency, fx_rate)
         s = self.account_summary(prices, fx_rate)
@@ -649,13 +601,3 @@ def _style(row) -> str:
         return row["style"] or SWING
     except (KeyError, IndexError):
         return SWING
-
-
-def day_session(created_at: str) -> date:
-    """단타 주문의 세션 날짜 = 접수 시각의 KST 날짜 (docs/API.md "단타 연습")."""
-    return _kst(datetime.fromisoformat(created_at)).date()
-
-
-def day_cutoff(created_at: str) -> datetime:
-    """단타 주문의 진입 마감·강제 정리 시각 = 그 세션 날짜의 DAY_CLOSE_AT (KST)."""
-    return datetime.combine(day_session(created_at), DAY_CLOSE_AT, KST)

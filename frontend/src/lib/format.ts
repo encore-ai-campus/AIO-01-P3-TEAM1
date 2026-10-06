@@ -1,5 +1,5 @@
 // 금액·수익률·시각 표시 형식은 모두 여기서 만든다.
-import type { Currency, Market } from "../api/types";
+import type { Currency, Market, QuoteBasis } from "../api/types";
 
 const KST = "Asia/Seoul";
 const MARKET_TZ: Record<Market, string> = { KR: KST, US: "America/New_York" };
@@ -98,6 +98,18 @@ export function formatAsOf(iso: string | null | undefined, market: Market = "KR"
   if (!iso || Number.isNaN(new Date(iso).getTime())) return "-";
   const p = parts(iso, { month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit" }, MARKET_TZ[market]);
   return `${p.month}월 ${p.day}일(${p.weekday}) ${p.hour}:${p.minute}${market === "US" ? "(뉴욕)" : ""} 장마감 기준`;
+}
+
+/** 실시간 표기: "실시간 · 15:20:31" (현재가를 받은 시각, 한국 시간, 초까지 — docs/API.md 공통 규칙 "실시간 시세"). 값이 없으면 "-". */
+export function formatLiveAsOf(iso: string | null | undefined): string {
+  if (!iso || Number.isNaN(new Date(iso).getTime())) return "-";
+  const p = parts(iso, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return `실시간 · ${p.hour}:${p.minute}:${p.second}`;
+}
+
+/** 시세의 기준 표기: live는 "실시간 · 15:20:31", close(기본)는 formatAsOf("… 장마감 기준"). */
+export function formatQuoteAsOf(iso: string | null | undefined, market: Market = "KR", basis: QuoteBasis = "close"): string {
+  return basis === "live" ? formatLiveAsOf(iso) : formatAsOf(iso, market);
 }
 
 /** 날짜 "YYYY-MM-DD" → "10월 6일(화)" (세션·기준일 표시). 형식이 틀리면 그대로. */

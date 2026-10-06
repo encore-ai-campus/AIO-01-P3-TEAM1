@@ -22,7 +22,7 @@ export interface ChartLine {
   tone: "entry" | "target" | "stop";
 }
 
-/** candle: 일봉 캔들 + 이동평균(20·60일) + 거래량 (전문가 보기). line: 종가 선 (쉬운 보기 — 장마감 종가 표기와 같은 숫자). */
+/** candle: 일봉 캔들 + 이동평균(20·60일) + 거래량 (전문가 보기). line: 종가 선 (쉬운 보기 — 시세 카드의 가격과 같은 숫자, 오늘 진행 중인 봉이면 지금 가격). */
 export type ChartVariant = "candle" | "line";
 
 const MA_DAYS = [20, 60] as const;
@@ -118,8 +118,8 @@ function Legend({ candles, index, variant, currency, colors }: { candles: Candle
 }
 
 /**
- * 일봉 차트. 일봉은 장마감 기준 완성 봉만 온다 (StockDetail.candles — 오늘 미완성 봉 없음).
- * 같은 기간이면 마지막 봉만 갱신해 확대·이동 상태를 지킨다. 테마가 바뀌면 다시 만들지 않고 색만 바꾼다(applyOptions — 확대 유지).
+ * 일봉 차트. 마지막 봉은 오늘 진행 중인 봉일 수 있다 (StockDetail.candles — 오늘 정규장이 열렸으면 실시간 시세로 5초마다 갱신되는 봉, docs/API.md "실시간 시세").
+ * 같은 기간이면 마지막 봉만 갱신해 확대·이동 상태를 지킨다 (진행 중인 봉이 바뀔 때도 마찬가지). 테마가 바뀌면 다시 만들지 않고 색만 바꾼다(applyOptions — 확대 유지).
  * lines를 주면 가격 선을 긋는다. className은 차트 상자 높이 (기본 h-[280px] lg:h-[380px]).
  * TradingView 로고는 끈다 (거래량·선을 가리고, 테마를 바꿔도 색이 따라오지 않는다) — 화면이 가까이에 TradingView 링크를 둔다 (라이선스 고지).
  */
@@ -229,6 +229,11 @@ export function CandleChart({
       h.candle?.update(toBar(last));
       h.line?.update(toClose(last));
       h.volume?.update(toVol(last, c));
+      // 진행 중인 봉의 종가가 바뀌면 이동평균의 마지막 점도 같이 바뀐다
+      h.ma.forEach((s, i) => {
+        const v = movingAverage(candles, MA_DAYS[i]).at(-1);
+        if (v) s.update(v);
+      });
       return;
     }
     h.candle?.setData(candles.map(toBar));
@@ -290,7 +295,7 @@ export function CandleChart({
           last
             ? variant === "line"
               ? `종가 선 차트 (최근 ${candles.length}일, 마지막 ${formatDayLabel(last.date)} 종가 ${formatPrice(last.close, currency)})`
-              : `일봉 차트 (완성된 봉만, 마지막 봉 ${last.date} 종가 기준)`
+              : `일봉 차트 (마지막 봉 ${last.date}, 오늘 봉은 진행 중일 수 있음)`
             : "일봉 차트"
         }
       />

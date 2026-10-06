@@ -22,5 +22,4 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["config", "accounts", "trading", "analysis", "reports", "autotrade", "notifications", "longterm",
-            "daytrade"]
+packages = ["config", "accounts", "trading", "analysis", "reports", "autotrade", "notifications", "longterm"]

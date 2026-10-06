@@ -90,16 +90,15 @@ def test_order_style_defaults_and_paper_today_filters_by_style(user):
                                 entry_price=70000.0, target_price=77000.0, stop_price=66000.0, expire_date=None,
                                 status="CANCELED", created_at="2026-09-29T09:10:00+09:00")
     assert store.paper_order(oid)["style"] == "swing"  # 엔진이 style을 주지 않으면 swing
-    order(account, "2026-09-29T09:20:00", "day", status="CLOSED", closed_at=kst("2026-09-29T15:15:00"), pnl_krw=-700)
-    order(account, "2026-09-29T09:30:00", "day")
+    order(account, "2026-09-29T09:20:00", "swing", status="CLOSED", closed_at=kst("2026-09-29T14:00:00"), pnl_krw=-700)
+    order(account, "2026-09-29T09:30:00", "swing")
     order(account, "2026-09-29T09:40:00", "long", status="CLOSED", closed_at=kst("2026-09-29T10:00:00"),
           pnl_krw=-300)
-    order(account, "2026-09-28T23:59:00", "day")  # 전날 (KST)
+    order(account, "2026-09-28T23:59:00", "swing")  # 전날 (KST)
     assert store.paper_today("2026-09-29") == (4, 1000.0)
-    assert store.paper_today("2026-09-29", style="day") == (2, 700.0)
-    assert store.paper_today("2026-09-29", style="swing") == (1, 0.0)
+    assert store.paper_today("2026-09-29", style="swing") == (3, 700.0)
     assert store.paper_today("2026-09-29", style="long") == (1, 300.0)
-    assert store.paper_today("2026-09-28", style="day") == (1, 0.0)
+    assert store.paper_today("2026-09-28", style="swing") == (1, 0.0)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -136,3 +135,36 @@ def test_style_migration_fills_existing_orders_and_reservations():
         migrator = MigrationExecutor(connection)
         migrator.migrate(migrator.loader.graph.leaf_nodes())
     assert PaperOrder._meta.get_field("style").default == "swing" and Reservation._meta.get_field("style").null
+
+
+@pytest.mark.django_db(transaction=True)
+def test_day_style_migration_cancels_pending_and_turns_rest_into_swing():
+    """trading 0003 (단타 기능 삭제): style day 체결 대기는 취소(closed_at·note), 단타 주문은 모두 swing. 다른 주문은 그대로."""
+    migrator = MigrationExecutor(connection)
+    before, after = [("trading", "0002_order_style")], [("trading", "0003_remove_day_style")]
+    migrator.migrate(before)
+    old = migrator.loader.project_state(before).apps
+    user = old.get_model("auth", "User").objects.create(username="old-alice")
+    account = old.get_model("trading", "PaperAccount").objects.create(
+        user=user, name="old-alice", initial_capital_krw=1e7, cash_krw=1e7)
+    Order = old.get_model("trading", "PaperOrder")
+    base = dict(account=account, requested_by="plan:1", name="삼성전자", market="KR", currency="KRW",
+                order_type="LIMIT", limit_price=70000, quantity=1, entry_price=70000, target_price=72000,
+                stop_price=67000, created_at=kst("2026-10-05T10:00:00"))
+    pending = Order.objects.create(symbol="A1", style="day", status="ENTRY_PENDING", **base).pk
+    holding = Order.objects.create(symbol="A2", style="day", status="EXIT_WATCHING", **base).pk
+    swing = Order.objects.create(symbol="A3", style="swing", status="ENTRY_PENDING", **base).pk
+    try:
+        migrator = MigrationExecutor(connection)
+        migrator.migrate(after)
+        rows = {r["pk"]: r for r in migrator.loader.project_state(after).apps.get_model("trading", "PaperOrder")
+                .objects.values("pk", "style", "status", "note", "closed_at")}
+        assert (rows[pending]["style"], rows[pending]["status"], rows[pending]["note"]) == ("swing", "CANCELED",
+                                                                                             "단타 기능 삭제")
+        assert rows[pending]["closed_at"] is not None
+        assert (rows[holding]["style"], rows[holding]["status"], rows[holding]["closed_at"]) == ("swing", "EXIT_WATCHING",
+                                                                                                 None)
+        assert (rows[swing]["style"], rows[swing]["status"], rows[swing]["note"]) == ("swing", "ENTRY_PENDING", None)
+    finally:
+        migrator = MigrationExecutor(connection)
+        migrator.migrate(migrator.loader.graph.leaf_nodes())

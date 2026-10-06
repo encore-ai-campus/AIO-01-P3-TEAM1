@@ -1,13 +1,14 @@
-// 손절–진입–목표를 한 막대에 위치·퍼센트로 보이고 직전 종가를 표시한다 (CSS만).
-// 가격은 장마감 기준이라 표시는 "종가"다 (기준 시각은 화면이 <AsOf>로 옆에 붙인다). easy면 쉬운 이름(사는 가격·목표 가격·손절 가격).
+// 손절–진입–목표를 한 막대에 위치·퍼센트로 보이고 지금 가격(시세)을 표시한다 (CSS만).
+// 시세는 실시간이라 basis "live"면 표시는 "현재가"(easy는 "지금 가격"), 아니면 "종가"다 (기준 시각은 화면이 <AsOf>로 옆에 붙인다). easy면 쉬운 이름(사는 가격·목표 가격·손절 가격).
 // 막대 위 표시와 아래 이름표를 같은 모양으로 잇는다: 손절 ●(파랑) · 사는 가격 ○(속 빈 원) · 목표 ●(빨강).
 // 종가는 진한 세로선 + 말풍선이라, 속 빈 사는 가격 점과 섞이지 않는다 (trade-14).
 import type { CSSProperties } from "react";
-import type { Currency } from "../../api/types";
+import type { Currency, QuoteBasis } from "../../api/types";
 import { useChanged } from "../../hooks/useMotionState";
 import { priceLadder } from "../../lib/autotrade";
 import { cn } from "../../lib/cn";
 import { formatPrice, formatRate } from "../../lib/format";
+import { quotePriceName } from "../../lib/plainText";
 
 /**
  * 종가 말풍선을 자기 너비의 몇 %만큼 왼쪽으로 옮길지 (trade-r4). 막대 가운데 절반에서는 표시선 가운데(-50%),
@@ -26,6 +27,7 @@ export function PriceLadder({
   entry,
   target,
   last,
+  basis,
   currency,
   easy = false,
   reveal = false,
@@ -33,8 +35,10 @@ export function PriceLadder({
   stop: number;
   entry: number;
   target: number;
-  /** 직전 장마감 종가 (없으면 표시하지 않는다). */
+  /** 시세의 가격 (실시간 현재가, 못 받은 종목은 직전 장마감 종가. 없으면 표시하지 않는다). */
   last: number | null;
+  /** last의 기준 (Quote.basis) — 이름("현재가"·"종가")을 고른다. 없으면 종가. */
+  basis?: QuoteBasis;
   currency: Currency;
   easy?: boolean;
   /** 기다린 끝에 처음 그릴 때만 true: 두 구간이 사는 가격 점에서 양쪽으로 펴지고 종가 표시가 조금 늦게 나타난다 (캐시로 바로 그리면 움직이지 않는다). */
@@ -49,7 +53,7 @@ export function PriceLadder({
     { key: "entry", label: easy ? "사는 가격" : "진입", price: entry, pos: l.entry, cls: "text-ink", dot: "border-ink bg-card", legend: "border-[1.5px] border-ink bg-card" },
     { key: "target", label: easy ? "목표 가격" : "목표", price: target, pos: l.target, cls: "text-up", dot: "border-card bg-up", legend: "bg-up" },
   ];
-  // 종가가 바뀌면(장마감 뒤 다음 날) 말풍선·세로선이 새 자리로 미끄러진다 (말풍선은 정렬도 함께)
+  // 가격이 바뀌면(실시간 시세는 5초마다, 종가는 장마감 뒤 다음 날) 말풍선·세로선이 새 자리로 미끄러진다 (말풍선은 정렬도 함께)
   const lastMove = cn("transition-[left,translate,opacity] duration-base ease-standard", fadeLast && "starting:opacity-0 delay-150");
   // 두 구간은 사는 가격 점에서 바깥으로 펴진다 (손실 구간은 오른쪽 끝, 이익 구간은 왼쪽 끝이 축)
   const zone = cn("absolute inset-y-0 scale-x-100", reveal && "transition-[scale] duration-slow ease-enter starting:scale-x-0");
@@ -63,7 +67,7 @@ export function PriceLadder({
             style={{ left: `${l.last}%`, "--bubble-shift": `${bubbleShift(l.last)}%` } as CSSProperties}
           >
             <span className="block rounded-md bg-ink px-1.5 py-0.5 text-[11px] font-bold whitespace-nowrap text-on-ink tabular-nums">
-              종가 {formatPrice(last, currency)}
+              {quotePriceName(basis, easy)} {formatPrice(last, currency)}
             </span>
           </div>
         )}
@@ -90,7 +94,8 @@ export function PriceLadder({
       </ol>
       {l.outside && (
         <figcaption className="mt-1 text-[12px] text-mute">
-          직전 종가가 {l.outside === "below" ? (easy ? "손절 가격보다 낮아요" : "손절가보다 낮습니다") : easy ? "목표 가격보다 높아요" : "목표가보다 높습니다"}.
+          {basis === "live" ? (easy ? "지금 가격이" : "현재가가") : "직전 종가가"}{" "}
+          {l.outside === "below" ? (easy ? "손절 가격보다 낮아요" : "손절가보다 낮습니다") : easy ? "목표 가격보다 높아요" : "목표가보다 높습니다"}.
         </figcaption>
       )}
     </figure>

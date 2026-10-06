@@ -166,7 +166,7 @@ export function NotificationSettingsCard() {
           알림 설정
         </h2>
         <p className="mt-1 text-[13px] leading-relaxed text-sub">
-          웹 알림 문장은 주린이모드를 따라요. 오늘의 내 종목 뉴스·펀더멘털 점검·단타 연습 알림은 웹에만 와요.
+          웹 알림 문장은 주린이모드를 따라요. 오늘의 내 종목 뉴스·펀더멘털 점검 알림은 웹에만 와요.
         </p>
       </div>
       <DiscordSection s={s} />

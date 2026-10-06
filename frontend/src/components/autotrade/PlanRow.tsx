@@ -33,7 +33,6 @@ function MiniSteps({ p }: { p: TradePlan }) {
  * 가격 줄은 계획 상세·/plans 목록에서 본다.
  */
 export function PlanRow({ p, easy = false, compact = false }: { p: TradePlan; easy?: boolean; compact?: boolean }) {
-  const day = p.horizon === "DAY";
   const live = p.status === "active" || p.status === "entry_pending" || p.status === "holding";
   const descId = useId();
   // 링크 이름은 "○○ 계획 보기"로 짧게 두고, 상태·출처·손익은 설명으로 잇는다 (화면 읽기에서 이름이 내용을 가리지 않게).
@@ -118,7 +117,6 @@ export function PlanRow({ p, easy = false, compact = false }: { p: TradePlan; ea
               {easy ? "손절 가격" : "손절"} {formatPrice(p.stopPrice, p.currency)}
             </span>
           </span>
-          {day && <span className="text-mute">15:15 정리</span>}
           {p.pnlKrw != null && <span className={cn("font-semibold tabular-nums", trendClass(p.pnlKrw))}>손익 {formatSignedKrw(p.pnlKrw)}</span>}
           {/* 날짜는 끝난 계획에만 (진행 중은 단계 막대가 '지금'을 말한다) */}
           {!live && <span className="ml-auto text-mute tabular-nums">{formatDateTime(p.activatedAt)}</span>}

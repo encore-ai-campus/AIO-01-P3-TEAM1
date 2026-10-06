@@ -255,17 +255,17 @@ def test_webhook_log_and_send_file_console(tmp_path, capsys):
     assert "content" not in payload_of(opener.requests[1])
 
 
-# --- 보유 기간 이름 (DAY 단타, 모르는 값은 그대로) ---
+# --- 보유 기간 이름 (모르는 값은 그대로) ---
 
-def test_horizon_labels_include_day_and_fall_back_to_raw_value():
+def test_horizon_labels_fall_back_to_raw_value():
     from paper_engine.judge.risk import AccountContext, assess
     from paper_engine.judge.scenario import Scenario
     from paper_engine.notify import HORIZON_LABEL, format_report, horizon_label
 
-    assert HORIZON_LABEL == {"SWING": "스윙", "LONG_TERM": "장기", "DAY": "단타"}
-    assert horizon_label("DAY") == "단타" and horizon_label("WEEKLY") == "WEEKLY"
-    s = Scenario(symbol="005930", currency="KRW", horizon="DAY", entry_price=100_000, target_price=104_000,
+    assert HORIZON_LABEL == {"SWING": "스윙", "LONG_TERM": "장기"}
+    assert horizon_label("LONG_TERM") == "장기" and horizon_label("WEEKLY") == "WEEKLY"
+    s = Scenario(symbol="005930", currency="KRW", horizon="LONG_TERM", entry_price=100_000, target_price=104_000,
                  stop_price=98_000, probability=0.5, holding_days=1)
     text = format_report(s, assess(s, AccountContext(equity_krw=10_000_000, buying_power=10_000_000,
                                                      commission_rate=0.0)), "삼성전자")
-    assert "삼성전자 (005930) 단타 매수" in text
+    assert "삼성전자 (005930) 장기 매수" in text

@@ -6,7 +6,6 @@ import { ApiError, isBlocked } from "../api/client";
 import type {
   CheckStatus,
   Currency,
-  DayLockReason,
   ExitReason,
   ExperienceLevel,
   FundamentalsOverall,
@@ -14,6 +13,7 @@ import type {
   InvestorAnswers,
   NotificationKind,
   PlanEvent,
+  QuoteBasis,
   ReasonCode,
   RecommendationSource,
   ReportFailureReason,
@@ -60,22 +60,25 @@ export const SECTOR_MISSING = "업종 자료 없음";
 /** 펀더멘털 점검 고정 문구 (서버도 caption으로 같은 값을 낸다). */
 export const FUNDAMENTALS_CAPTION = "공시 숫자를 정해진 기준으로 본 것이며 투자 권유가 아닙니다";
 
-/** 시장가 주문의 화면 추정 금액 안내. */
+/** 시장가 주문의 화면 추정 금액 안내. 시세를 받지 못해 직전 종가로 보일 때의 문장. */
 export const MARKET_ORDER_ESTIMATE = "직전 장마감 가격 기준 추정이에요. 시장가는 주문 시점 가격으로 체결돼요";
+/** 시장가 주문의 화면 추정 금액 안내 — 실시간 시세로 보일 때 (docs/API.md 공통 규칙 "실시간 시세"). */
+export const MARKET_ORDER_ESTIMATE_LIVE = "지금 시세 기준 추정이에요. 시장가는 주문 시점 가격으로 체결돼요";
+export const marketOrderEstimate = (basis: QuoteBasis | undefined): string => (basis === "live" ? MARKET_ORDER_ESTIMATE_LIVE : MARKET_ORDER_ESTIMATE);
 
-/** 장마감 기준 한 줄 설명 (가격 옆 "?" 등). */
-export const CLOSE_BASIS_NOTE = "화면의 가격과 평가는 직전 정규장 종가예요. 모의 체결은 주문 시점 가격으로 해요";
+/**
+ * 시세 가격의 이름 (Quote.basis): 실시간이면 현재가(쉬운 보기는 "지금 가격"), 장마감 기준이면 종가.
+ * 계좌 평가·미리 보기·랭킹처럼 장마감 기준인 곳은 이 함수를 쓰지 않고 "종가"를 그대로 적는다.
+ */
+export function quotePriceName(basis: QuoteBasis | undefined, easy = false): string {
+  return basis === "live" ? (easy ? "지금 가격" : "현재가") : "종가";
+}
+
+/** 장마감 기준 한 줄 설명 (가격 옆 "?" 등). 계좌 평가·랭킹·미리 보기 같은 장마감 기준 화면의 설명이다 (종목 시세는 실시간). */
+export const CLOSE_BASIS_NOTE = "계좌 평가와 랭킹은 직전 정규장 종가예요. 모의 체결은 주문 시점 가격으로 해요";
 
 /** 분석 상세의 가격은 장마감 기준이 아니다 (일부러 둔 예외). */
 export const ANALYSIS_PRICE_LABEL = "분석 시각 가격";
-
-/** 단타 연습 상시 문구. */
-export const DAY_COST_NOTE = "단타는 비용이 손익을 크게 좌우해요";
-export const DAY_LAG_NOTE = "분 단위 데이트레이딩 연습이에요. 목표·손절을 두 번 연속 확인해 팔아서 손절이 10초 넘게 늦을 수 있어요";
-export const DAY_EOD_NOTE = "그날 15:15가 지나면 체결 대기 주문은 취소하고, 가진 주식은 바로 정리해요";
-export const DAY_AI_REVIEW_PENDING = "AI 복기 — 준비 중";
-export const MINUTE_PARTIAL = "일부 구간만 있어요";
-export const MINUTE_UNAVAILABLE = "이 날짜의 분봉은 받을 수 없어요";
 
 /** 투자 성향·경험 진단 안내. */
 export const NOT_SUITABILITY = "법정 적합성 진단이 아니에요";
@@ -87,9 +90,9 @@ export const NOT_SUITABILITY = "법정 적합성 진단이 아니에요";
 export const REPORT_KEEPS_RUNNING = "이 화면을 닫아도 계속 만들어요. 만드는 동안 '리포트' 메뉴에 표시가 붙고, 완성되면 알림으로 알려 드려요";
 export const AI_REVIEW_NOTE = "AI 검토는 사실을 보증하지 않아요";
 
-/** 화면 아래 공통 출처 줄 (docs/DECISIONS.md 14-1). quoteProvider는 MarketStatus.quoteProvider. */
+/** 화면 아래 공통 출처 줄 (docs/DECISIONS.md 14-1·17장). quoteProvider는 MarketStatus.quoteProvider. */
 export function sourceLine(quoteProvider: string): string {
-  return `시세: ${quoteProvider} 조회 · 장마감 기준 | 공시·재무: 금융감독원 OpenDART, 금융위원회(공공데이터포털) | 뉴스 제목: Google 뉴스 검색 결과(각 언론사)`;
+  return `시세: ${quoteProvider} 조회 · 실시간 (계좌·랭킹은 장마감 기준) | 공시·재무: 금융감독원 OpenDART, 금융위원회(공공데이터포털) | 뉴스 제목: Google 뉴스 검색 결과(각 언론사)`;
 }
 
 // ---------------------------------------------------------------- 리포트
@@ -164,8 +167,6 @@ export const REASON_TEXT: Record<ReasonCode, string> = {
   position_exists: "이미 이 종목의 모의 주문이나 보유가 있어요(한 종목은 하나만 진행해요)",
   halted: "지금은 새 모의 매수를 멈춰 두었어요",
   price_passed: "가격이 이미 목표 가격을 넘었거나 손절 가격 아래로 내려왔어요",
-  day_entry_closed: "지금은 단타 계획을 만들 수 없는 시간이에요(국내 거래일 15:15 전까지만 만들어요)",
-  day_trading_locked: "단타 연습장이 잠겨 있어요. 주린이모드를 끄고 단타 연습 퀴즈를 통과하면 열려요",
   cash_short: "매수 가능 금액보다 사려는 금액이 커요",
   position_limit: "한 종목에 넣을 수 있는 비중 한도를 넘어요",
   total_limit: "총 투자 금액 한도를 넘어요",
@@ -239,7 +240,6 @@ export const EXIT_REASON_TEXT: Record<ExitReason, Wording> = {
   STOP: { easy: "손절 가격에 닿아 손실이 더 커지지 않게 모의 계좌에서 팔았어요", expert: "손절가 도달" },
   EXPIRED: { easy: "보유 기간이 끝나 그날 가격에 모의 계좌에서 팔았어요", expert: "보유 기한 경과" },
   MANUAL: { easy: "직접 모의 계좌에서 팔았어요", expert: "사용자 매도" },
-  EOD: { easy: "단타라 장 마감 전에 모의 계좌에서 정리했어요", expert: "장 마감 전 정리" },
 };
 
 export const exitReasonText = (reason: string | null | undefined, easy = true): string => {
@@ -254,7 +254,6 @@ const CLOSED_PREFIX: Record<ExitReason, string> = {
   STOP: "손절 가격에 닿아 손실이 더 커지지 않게",
   EXPIRED: "보유 기간이 끝나",
   MANUAL: "직접",
-  EOD: "단타라 장 마감 전에",
 };
 
 const numOf = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
@@ -311,13 +310,11 @@ export const SOURCE_TEXT: Record<RecommendationSource, { label: string; hint: st
   report: { label: "AI 리포트", hint: "AI 리포트의 결론에서 나온 계획" },
   analysis: { label: "AI 교차검증 분석", hint: "여러 AI가 서로 검증한 분석에서 나온 계획 (리포트 없음)" },
   demo: { label: "연습용 예시 계획 (AI 아님)", hint: "최근 변동폭으로 정한 규칙 기반 예시" },
-  day: { label: "단타 연습 계획 (직접 입력, AI 아님)", hint: "단타 연습장에서 내가 정한 가격" },
 };
 
 export const HOLDING_STYLE_TEXT: Record<HoldingStyle, { label: string; hint: string }> = {
   swing: { label: "스윙", hint: "목표·손절(정했으면 보유 기한)에 닿으면 자동으로 팔아요" },
   long: { label: "장기 보유", hint: "자동으로 팔지 않아요. 내가 팔 때까지 보유해요" },
-  day: { label: "단타", hint: "그날 15:15가 지나면 정리해요" },
 };
 
 export const NOTIFICATION_KIND_TEXT: Record<NotificationKind, string> = {
@@ -362,12 +359,7 @@ export const THESIS_AXIS_TEXT: Record<ThesisAxis, string> = {
   balance_sheet: "재무 안정",
 };
 
-// ---------------------------------------------------------------- 단타 잠금 · 투자자 프로필
-
-export const DAY_LOCK_TEXT: Record<DayLockReason, string> = {
-  beginner_mode: "주린이모드가 켜져 있어요. 마이에서 끌 수 있어요",
-  quiz_not_passed: "단타 연습 퀴즈 5문항을 모두 맞혀야 열려요",
-};
+// ---------------------------------------------------------------- 투자자 프로필
 
 export const EXPERIENCE_LEVEL_TEXT: Record<ExperienceLevel, string> = {
   intro: "입문",

@@ -1,5 +1,6 @@
 // 가짜 API의 상태와 규칙 (docs/API.md 주문 규칙을 단순하게 흉내 낸다). 개발 화면 확인·테스트 전용.
-// 가격: 화면에 보이는 값은 장마감 기준(종목의 close·prevClose), 모의 체결·청산 판단은 장중 확인 가격(price) — docs/API.md 공통 규칙.
+// 가격: 종목 시세(Quote·StockDetail)는 실시간(basis "live", 값 = 종목의 장중 가격 price), 그 밖의 화면 가격(계좌 평가·미리 보기 등)은 장마감 기준(종목의 close·prevClose),
+// 모의 체결·청산 판단은 장중 확인 가격(price) — docs/API.md 공통 규칙 "실시간 시세"·"장마감 기준".
 import type {
   AccountSummary,
   AnalysisDetail,
@@ -8,15 +9,6 @@ import type {
   Candle,
   DailyMove,
   DailyMoveList,
-  DayLockReason,
-  DayPlanList,
-  DayPreview,
-  DayQuiz,
-  DayQuizQuestionId,
-  DayQuizResult,
-  DayReview,
-  DaySession,
-  DayStatus,
   Fill,
   FundamentalKey,
   FundamentalsView,
@@ -27,7 +19,6 @@ import type {
   Market,
   MarketStatus,
   Me,
-  MinuteCandles,
   Notification,
   NotificationSettings,
   NotificationTestResult,
@@ -46,7 +37,6 @@ import type {
   Thesis,
   ThesisAxis,
   ThesisCheck,
-  TradeCosts,
   TradePlan,
   TradePlanDetail,
   ChaosConfig,
@@ -65,24 +55,19 @@ import {
   kstDay,
   kstDayStartMs,
   kstIso,
-  marketIso,
+  marketDay,
   marketMinutes,
-  nextWeekday,
   session,
   sessionEndIso,
-  sessionStartIso,
   weekdaysEnding,
 } from "./clock";
 import { answersError, assess, cleanAnswers } from "./investor";
 import { FUNDAMENTALS_CAPTION, FUNDAMENTALS_SOURCE, dailyMoveOf, judgeRows, metricsOf, overallOf } from "./longterm";
-import { aggregateBars, minuteBars } from "./minute";
-import { gradeQuiz, quizAnswersError, quizQuestions } from "./quiz";
 import { finishSample, sampleTargets, type SampleKind } from "./sampleReports";
 import {
   type MockStock,
   type MockUser,
   OTHER_RATES,
-  floorTick,
   makeAnalysis,
   reportPlan,
   roundTick,
@@ -95,7 +80,7 @@ export const INITIAL_CAPITAL = 10_000_000;
 export const USD_KRW = 1_380;
 const QUOTA_LIMIT = 5;
 // 저장 형식이 바뀌면 숫자를 올린다 (예전 상태는 버리고 처음부터)
-const STORAGE_KEY = "paper-mock-db-v3"; // v3: 예시 NAVER 계획이 실행 준비 흐름을 보이도록 바뀜 (2026-10-05)
+const STORAGE_KEY = "paper-mock-db-v4"; // v4: 보유 방식은 스윙·장기 둘만 (예전 저장 상태를 버린다, 2026-10-06)
 
 export class MockError extends Error {
   readonly status: number;
@@ -115,8 +100,8 @@ type Owned<T> = T & { userId: number };
 type MockOrder = Owned<Order> & { fx: number };
 type MockJob = Owned<Job> & { symbol: string; polls: number };
 type MockReport = Owned<ReportDetail>;
-/** 추천은 팀 공용. status·myPlan·planCount는 볼 때 계산한다. ownerId: day 추천을 만든 사람 (그 사람만 본다). */
-type MockRec = Omit<Recommendation, "status" | "myPlan" | "planCount"> & { ownerId: number | null };
+/** 추천은 팀 공용. status·myPlan·planCount는 볼 때 계산한다. */
+type MockRec = Omit<Recommendation, "status" | "myPlan" | "planCount">;
 /** nextAt: 시연용 진행 시각 (이 시각이 지나면 다음 단계로). exitRequested: 보유 중 중단으로 매도를 요청함. */
 type MockPlan = Owned<TradePlan> & { events: PlanEvent[]; nextAt: number | null; exitRequested: boolean };
 type MockSettings = Omit<NotificationSettings, "webhookConfigured">;
@@ -124,7 +109,6 @@ interface MockProfile {
   beginnerMode: boolean;
   answers: InvestorAnswers | null;
   assessedAt: string | null;
-  dayQuizPassedAt: string | null;
 }
 /** 산 이유 (active·name·market은 볼 때 정한다). */
 type MockThesis = Owned<Omit<Thesis, "active" | "name" | "market">>;
@@ -161,8 +145,6 @@ export interface MockOptions {
   persist: boolean;
   /** 정규장 여부를 고정한다 (테스트용). 없으면 실제 시각으로 판단. */
   marketOpen: Partial<Record<Market, boolean>>;
-  /** 단타 계획을 만들 수 있는 시각인지 고정한다 (테스트용 — true면 오늘이 세션). null이면 실제 시각(국내 평일 15:15 전). */
-  dayAcceptingPlans: boolean | null;
   /** 분석 작업이 끝날 때까지 필요한 상태 조회 횟수. */
   jobPolls: number;
   jobFails: boolean;
@@ -187,7 +169,6 @@ const DEFAULTS: MockOptions = {
   jitter: false,
   persist: false,
   marketOpen: {},
-  dayAcceptingPlans: null,
   jobPolls: 3,
   jobFails: false,
   halted: false,
@@ -237,7 +218,6 @@ function freshState(): State {
   seedAnalyses();
   seedReports();
   seedAutotrade();
-  seedDayPlan();
   seedTheses();
   if (options.sampleReports) addSampleReports();
   return state;
@@ -308,7 +288,7 @@ export function setSession(username: string | null) {
 }
 
 function profileOf(userId: number): MockProfile {
-  return (state.profiles[userId] ??= { beginnerMode: true, answers: null, assessedAt: null, dayQuizPassedAt: null });
+  return (state.profiles[userId] ??= { beginnerMode: true, answers: null, assessedAt: null });
 }
 
 export function toMe(u: MockUser): Me {
@@ -340,8 +320,6 @@ export function investorProfile(userId: number): InvestorProfile {
     riskProfile: a?.riskProfile ?? null,
     recommendedBeginnerMode: a?.recommendedBeginnerMode ?? null,
     assessedAt: p.assessedAt,
-    dayQuizPassedAt: p.dayQuizPassedAt,
-    dayTradingUnlocked: !p.beginnerMode && p.dayQuizPassedAt !== null,
   };
 }
 
@@ -371,21 +349,7 @@ export function setInvestorProfile(username: string, patch: Partial<MockProfile>
   Object.assign(profileOf(u.id), patch);
 }
 
-export function dayQuiz(userId: number): DayQuiz {
-  return { questions: quizQuestions(), passedAt: profileOf(userId).dayQuizPassedAt };
-}
-
-export function submitDayQuiz(userId: number, body: Record<string, unknown>): DayQuizResult {
-  onlyKeys(body, ["answers"]);
-  const err = quizAnswersError(body.answers);
-  if (err) throw new MockError(400, err);
-  const graded = gradeQuiz(body.answers as Record<DayQuizQuestionId, string>);
-  const p = profileOf(userId);
-  if (graded.passed) p.dayQuizPassedAt = kstIso(); // 틀리면 이전 통과 기록을 지우지 않는다
-  return { ...graded, passedAt: p.dayQuizPassedAt };
-}
-
-// ---------------------------------------------------------------- 시세 (장마감 기준)
+// ---------------------------------------------------------------- 시세 (실시간)
 
 function stockOf(symbol: string): MockStock {
   const s = state.stocks.find((x) => x.symbol === symbol.toUpperCase());
@@ -393,7 +357,7 @@ function stockOf(symbol: string): MockStock {
   return s;
 }
 
-/** 장중 확인 가격을 조금 움직인다 (종목마다 2초에 한 번, 종가 ±30% 안에서). 화면의 종가는 바뀌지 않는다. */
+/** 장중 확인 가격(= 실시간 시세의 현재가)을 조금 움직인다 (종목마다 2초에 한 번, 종가 ±30% 안에서). 계좌 평가의 종가는 바뀌지 않는다. */
 function tick(s: MockStock) {
   if (!options.jitter) return;
   const now = Date.now();
@@ -407,24 +371,34 @@ function tick(s: MockStock) {
 /** 종가의 기준 시각 = 기준일의 정규장 종료. */
 const closeAsOf = (s: MockStock) => sessionEndIso(s.market, basisDay(s.market));
 
+/** 지금 그 시장이 정규장인지 (options.marketOpen으로 고정할 수 있다). */
+const marketIsOpen = (s: MockStock) => session(s.market, new Date(), options.marketOpen[s.market]).isOpen;
+
+/**
+ * 실시간 시세: price = 장중 가격(s.price), asOf = 지금(받은 시각), basis "live".
+ * prevClose는 단순하게 종목의 전 거래일 종가(s.prevClose)로 고정한다 (서버는 가격이 속한 거래일의 전 거래일 종가를 거래일 달력으로 정한다 — docs/API.md "실시간 시세").
+ * 증권사 조회 키가 없으면(brokerReady 꺼짐) 현재가도 종가도 받지 못한 Quote다 (basis "close", 값 null).
+ */
 export function quoteOf(s: MockStock): Quote {
   tick(s);
-  const ok = options.brokerReady;
-  const change = s.currency === "USD" ? Math.round((s.close - s.prevClose) * 100) / 100 : s.close - s.prevClose;
+  if (!options.brokerReady) {
+    return { symbol: s.symbol, name: s.name, currency: s.currency, price: null, prevClose: null, change: null, changeRate: null, asOf: null, basis: "close" };
+  }
+  const change = s.currency === "USD" ? Math.round((s.price - s.prevClose) * 100) / 100 : s.price - s.prevClose;
   return {
     symbol: s.symbol,
     name: s.name,
     currency: s.currency,
-    price: ok ? s.close : null,
-    prevClose: ok ? s.prevClose : null,
-    change: ok ? change : null,
-    changeRate: ok ? s.close / s.prevClose - 1 : null,
-    asOf: ok ? closeAsOf(s) : null,
-    basis: "close",
+    price: s.price,
+    prevClose: s.prevClose,
+    change,
+    changeRate: s.price / s.prevClose - 1,
+    asOf: kstIso(),
+    basis: "live",
   };
 }
 
-/** 테스트·시연용: 장중 확인 가격을 바꾼다 (지정가 체결·목표가 도달을 일으킬 때). 화면의 종가는 그대로. */
+/** 테스트·시연용: 장중 확인 가격(= 실시간 시세의 현재가)을 바꾼다 (지정가 체결·목표가 도달을 일으킬 때). 계좌 평가의 종가는 그대로. */
 export function setPrice(symbol: string, price: number) {
   stockOf(symbol).price = price;
 }
@@ -445,7 +419,10 @@ export function quotes(symbols: string[]): Quote[] {
     .map(quoteOf);
 }
 
-/** 완성 일봉 120개 (과거 → 최신). 마지막 봉 = 기준일(종가 = close), 그 앞 봉 종가 = prevClose. 미완성 봉은 없다. */
+/**
+ * 일봉 120개 (과거 → 최신). 완성 봉은 기준일로 끝난다 (마지막 완성 봉 = 기준일(종가 = close), 그 앞 봉 종가 = prevClose).
+ * 오늘 정규장이 열려 있으면 마지막에 오늘 진행 중인 봉이 붙는다 (시가 = 직전 종가, 종가 = 지금 가격) — 실시간 시세를 받을 수 있을 때만.
+ */
 function candles(s: MockStock): Candle[] {
   const days = weekdaysEnding(basisDay(s.market), 120);
   const r = seededRandom(s.symbol);
@@ -453,28 +430,39 @@ function candles(s: MockStock): Candle[] {
   closes[days.length - 1] = s.close;
   closes[days.length - 2] = s.prevClose;
   for (let i = days.length - 3; i >= 0; i--) closes[i] = closes[i + 1] / (1 + (r() - 0.5) * 0.05);
-  return days.map((date, i) => {
+  const done = days.map((date, i) => {
     const close = roundTick(closes[i], s.currency);
     const open = roundTick(i === 0 ? close : closes[i - 1] * (1 + (r() - 0.5) * 0.01), s.currency);
     const high = roundTick(Math.max(open, close) * (1 + r() * 0.015), s.currency);
     const low = roundTick(Math.min(open, close) * (1 - r() * 0.015), s.currency);
     return { date, open, high, low, close, volume: Math.round(200_000 + r() * 2_000_000) };
   });
+  const today = marketDay(s.market);
+  if (!options.brokerReady || today <= days[days.length - 1] || !marketIsOpen(s)) return done;
+  const t = seededRandom(`${s.symbol}-${today}-today`);
+  const open = s.close;
+  const close = s.price;
+  const high = Math.max(open, close, roundTick(Math.max(open, close) * (1 + t() * 0.006), s.currency));
+  const low = Math.min(open, close, roundTick(Math.min(open, close) * (1 - t() * 0.006), s.currency));
+  return [...done, { date: today, open, high, low, close, volume: Math.round(100_000 + t() * 900_000) }].slice(-120);
 }
 
 export function stockDetail(symbol: string): StockDetail {
   const s = stockOf(symbol);
   const bars = candles(s);
   const last = bars[bars.length - 1];
+  const quote = quoteOf(s);
+  // 마지막 봉이 오늘 진행 중이면 시세를 받은 시각, 완성 봉이면 그 봉 날짜의 정규장 종료 시각
+  const inProgress = last !== undefined && quote.basis === "live" && last.date === marketDay(s.market) && marketIsOpen(s);
   return {
     symbol: s.symbol,
     name: s.name,
     exchange: s.exchange,
     market: s.market,
     currency: s.currency,
-    quote: quoteOf(s),
+    quote,
     candles: bars,
-    asOf: last ? sessionEndIso(s.market, last.date) : null,
+    asOf: last ? (inProgress ? quote.asOf : sessionEndIso(s.market, last.date)) : null,
     warnings: s.warnings,
   };
 }
@@ -503,7 +491,7 @@ export function marketStatus(): MarketStatus {
 const isOpen = (m: Market) => session(m, new Date(), options.marketOpen[m]).isOpen;
 const fxOf = (s: { currency: string }) => (s.currency === "USD" ? USD_KRW : 1);
 const commissionRate = (m: Market) => (m === "KR" ? 0.00015 : 0.001);
-const SELL_TAX_KR = 0.002; // 매도 거래세 0.20% (docs/API.md "단타 연습")
+const SELL_TAX_KR = 0.002; // 매도 거래세 0.20%
 const sellTaxRate = (m: Market) => (m === "KR" ? SELL_TAX_KR : 0);
 const priceText = (n: number, c: string) =>
   c === "USD" ? `$${n.toFixed(2)}` : `${Math.round(n).toLocaleString("ko-KR")}원`;
@@ -650,10 +638,10 @@ function validate(userId: number, s: MockStock, req: OrderRequest) {
   if (need > power) throw new MockError(400, `매수 가능 금액 부족 (가능 ${wonText(power)})`);
 }
 
-/** 보유 방식 정하기 (docs/API.md "보유 방식"). day·모르는 값, 규칙 위반은 400. */
+/** 보유 방식 정하기 (docs/API.md "보유 방식"). 모르는 값, 규칙 위반은 400. */
 function styleOf(raw: unknown, req: OrderRequest): "swing" | "long" {
   if (raw !== undefined && raw !== null && raw !== "swing" && raw !== "long") {
-    throw new MockError(400, raw === "day" ? "단타 주문은 단타 연습장에서 만들어요." : "보유 방식은 swing 또는 long이어야 합니다.");
+    throw new MockError(400, "보유 방식은 swing 또는 long이어야 합니다.");
   }
   const any = req.targetPrice != null || req.stopPrice != null || req.days != null;
   const style = (raw as "swing" | "long" | undefined) ?? (any ? "swing" : "long");
@@ -796,10 +784,6 @@ export function modifyOrder(userId: number, id: number, body: { targetPrice?: nu
   const o = ownOrder(userId, id);
   const touches = body.targetPrice !== undefined || body.stopPrice !== undefined || body.days !== undefined;
   if (o.style === "long" && touches) throw new MockError(400, "장기 보유 주문에는 목표가·손절가·보유 기한을 넣지 않아요.");
-  if (o.style === "day") {
-    if (body.days !== undefined) throw new MockError(400, "단타 주문에는 보유 기한이 없어요.");
-    if (body.targetPrice !== undefined || body.stopPrice !== undefined) throw new MockError(400, "단타 계획에서 바꿔요");
-  }
   if (body.targetPrice !== undefined) o.targetPrice = body.targetPrice;
   if (body.stopPrice !== undefined) o.stopPrice = body.stopPrice;
   if (body.days !== undefined) o.expireDate = addDays(kstDay(), body.days);
@@ -1180,14 +1164,11 @@ export function requestReport(user: MockUser, symbol: string, chaos?: ChaosReque
 }
 
 // ---------------------------------------------------------------- AI 추천 · 매매 계획 · 자동매매 · 알림
-// 리스크 엔진(judge/risk.py)의 계산을 단순하게 흉내 낸다: 건당 위험(SWING 1%, DAY 0.5%), 최소 손익비 2.0, 매수 가능 금액, 총 금액 한도, 예산.
+// 리스크 엔진(judge/risk.py)의 계산을 단순하게 흉내 낸다: 건당 위험 1%, 최소 손익비 2.0, 매수 가능 금액, 총 금액 한도, 예산.
 // 가격은 장마감 기준(종가), 활성화는 정규장이면 장중 확인 가격으로 한 번 더 본다.
 // 계획은 시연용으로 시간이 지나면 저절로 진행한다 (주문 접수 → planStepMs 뒤 진입가 체결 → planStepMs 뒤 목표가 청산).
 
-const LIMITS = {
-  SWING: { riskPerTrade: 0.01, maxDailyLoss: null as number | null, maxDailyTrades: null as number | null },
-  DAY: { riskPerTrade: 0.005, maxDailyLoss: 0.02 as number | null, maxDailyTrades: 10 as number | null },
-};
+const RISK_PER_TRADE = 0.01;
 const MIN_REWARD_RISK = 2.0;
 const STOP_SLIPPAGE = 0.01;
 const DEMO_PER_USER = 5;
@@ -1221,8 +1202,6 @@ interface RecInput {
   riskLevel: Recommendation["riskLevel"];
   createdAt: string;
   validUntil: string;
-  horizon?: Recommendation["horizon"];
-  ownerId?: number | null;
 }
 
 function makeRec(id: number, x: RecInput): MockRec {
@@ -1239,7 +1218,6 @@ function makeRec(id: number, x: RecInput): MockRec {
     name: s.name,
     market: s.market,
     currency: s.currency,
-    horizon: x.horizon ?? "SWING",
     priceAtCreation: s.close, // 만들 때의 직전 종가 (출처와 무관)
     entryPrice: x.entryPrice,
     targetPrice: x.targetPrice,
@@ -1258,7 +1236,6 @@ function makeRec(id: number, x: RecInput): MockRec {
     riskLevel: x.riskLevel,
     validUntil: x.validUntil,
     createdAt: x.createdAt,
-    ownerId: x.ownerId ?? null,
   };
 }
 
@@ -1268,15 +1245,12 @@ function toRecommendation(r: MockRec, userId: number): Recommendation {
   const plans = state.plans.filter((p) => p.recommendationId === r.id);
   const mine = plans.filter((p) => p.userId === userId).sort((a, b) => b.id - a.id);
   const my = mine.find((p) => LIVE.includes(p.status)) ?? mine[0] ?? null;
-  const { ownerId: _owner, ...rest } = r;
-  void _owner;
-  return { ...rest, status: recOpen(r) ? "open" : "expired", myPlan: my ? { id: my.id, status: my.status } : null, planCount: plans.length };
+  return { ...r, status: recOpen(r) ? "open" : "expired", myPlan: my ? { id: my.id, status: my.status } : null, planCount: plans.length };
 }
 
-/** 추천 찾기. 남의 day 추천은 404 (userId를 주면 확인한다). */
-function recOf(id: number, userId?: number): MockRec {
+function recOf(id: number): MockRec {
   const r = state.recommendations.find((x) => x.id === id);
-  if (!r || (userId !== undefined && r.source === "day" && r.ownerId !== userId)) throw new MockError(404, "추천을 찾을 수 없습니다.");
+  if (!r) throw new MockError(404, "추천을 찾을 수 없습니다.");
   return r;
 }
 
@@ -1287,8 +1261,7 @@ export function listRecommendations(
   runEngine();
   return state.recommendations
     .filter((r) => (q.status === "all" ? true : recOpen(r)))
-    .filter((r) => (q.source ? r.source === q.source : r.source !== "day")) // day는 source=day일 때만
-    .filter((r) => r.source !== "day" || r.ownerId === userId) // 그리고 내 것만
+    .filter((r) => !q.source || r.source === q.source)
     .filter((r) => !q.sourceId || r.sourceId === Number(q.sourceId))
     .filter((r) => !q.symbol || r.symbol === q.symbol.toUpperCase())
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id - a.id)
@@ -1296,7 +1269,7 @@ export function listRecommendations(
 }
 
 export function getRecommendation(userId: number, id: number): Recommendation {
-  return toRecommendation(recOf(id, userId), userId);
+  return toRecommendation(recOf(id), userId);
 }
 
 interface RiskInput {
@@ -1307,7 +1280,6 @@ interface RiskInput {
   stopPrice: number;
   probability: number;
   budgetKrw: number | null;
-  horizon: "SWING" | "DAY";
 }
 
 interface RiskResult {
@@ -1320,14 +1292,6 @@ interface RiskResult {
   loss: number;
 }
 
-/** 오늘(KST) 단타 주문 수·확정 손실. */
-function dayToday(userId: number) {
-  const today = kstDay();
-  const mine = userOrders(userId).filter((o) => o.style === "day" && kstDay(new Date(o.createdAt)) === today);
-  const lossKrw = mine.reduce((n, o) => n + (o.pnlKrw !== null && o.pnlKrw < 0 ? -o.pnlKrw : 0), 0);
-  return { orders: mine.length, lossKrw };
-}
-
 /** 리스크 엔진 assess 흉내 (종가 기준 자산·가격). approved는 리스크 엔진 사유만으로 정한다. */
 function assessRisk(x: RiskInput): RiskResult {
   if (!options.brokerReady) throw new MockError(503, "증권사 조회 키가 없어 종가를 받을 수 없습니다.");
@@ -1335,11 +1299,10 @@ function assessRisk(x: RiskInput): RiskResult {
   const acc = account(x.userId);
   const fx = fxOf(s);
   const c = commissionRate(s.market);
-  const lim = LIMITS[x.horizon];
   const { gain, loss } = perShare({ entryPrice: x.entryPrice, targetPrice: x.targetPrice, stopPrice: x.stopPrice, market: s.market });
   const unitKrw = x.entryPrice * fx * (1 + c);
   const limits: [string, number][] = [
-    ["건당 위험 한도", Math.floor((acc.equityKrw * lim.riskPerTrade) / (loss * fx))],
+    ["건당 위험 한도", Math.floor((acc.equityKrw * RISK_PER_TRADE) / (loss * fx))],
     ["매수 가능 금액", Math.floor(Math.max(0, acc.buyingPowerKrw ?? 0) / unitKrw)],
     ["총 금액 한도", Math.floor(MAX_TOTAL_INVEST_KRW / unitKrw)],
   ];
@@ -1356,11 +1319,6 @@ function assessRisk(x: RiskInput): RiskResult {
   const rr = gain / loss;
   if (rr < MIN_REWARD_RISK) add("reward_risk_low", `손익비 ${rr.toFixed(2)}가 기준(${MIN_REWARD_RISK.toFixed(1)})보다 낮습니다.`);
   if (x.probability * gain - (1 - x.probability) * loss <= 0) add("ev_negative", "비용을 반영한 기대값이 0 이하입니다.");
-  if (lim.maxDailyLoss !== null || lim.maxDailyTrades !== null) {
-    const today = dayToday(x.userId);
-    if (lim.maxDailyLoss !== null && today.lossKrw >= acc.equityKrw * lim.maxDailyLoss) add("daily_loss_limit", "일일 손실 한도에 도달했습니다.");
-    if (lim.maxDailyTrades !== null && today.orders >= lim.maxDailyTrades) add("daily_trades_limit", `일일 매매 건수 한도(${lim.maxDailyTrades}건)에 도달했습니다.`);
-  }
   if (s.warnings.length) add("warning_stock", `매수 유의 종목입니다: ${s.warnings[0]}`);
   if (quantity < 1) {
     if (engineQty < 1) add("size_too_small", `${limitedBy === "예산" ? "건당 위험 한도" : limitedBy} 때문에 살 수 있는 수량이 0주입니다.`);
@@ -1423,7 +1381,6 @@ function computePreview(userId: number, r: MockRec, budgetKrw: number | null): R
     stopPrice: r.stopPrice,
     probability: r.probability,
     budgetKrw,
-    horizon: r.horizon,
   };
   const risk = assessRisk(input);
   const extra = { reasons: [] as string[], codes: [] as string[] };
@@ -1443,11 +1400,11 @@ function parseBudgetParam(raw: unknown): number | null {
 }
 
 export function riskPreview(userId: number, id: number, budget: string | null): RiskPreview {
-  return computePreview(userId, recOf(id, userId), parseBudgetParam(budget));
+  return computePreview(userId, recOf(id), parseBudgetParam(budget));
 }
 
 /** 정규장이면 장중 확인 가격으로 한 번 더 본다 (문장에 장중 가격 숫자를 넣지 않는다). */
-function intradayCheck(s: MockStock, target: number, stop: number) {
+function sessionPriceCheck(s: MockStock, target: number, stop: number) {
   if (!isOpen(s.market)) return;
   if (s.price >= target) throw blocked(["장중 가격이 이미 목표가 이상이에요"], ["price_passed"]);
   if (s.price <= stop) throw blocked(["장중 가격이 이미 손절가 이하예요"], ["price_passed"]);
@@ -1467,10 +1424,9 @@ function planEvent(p: MockPlan, kind: string, message: string, details: Record<s
 
 const qtyText = (n: number) => `${n.toLocaleString("ko-KR")}주`;
 
-/** 계획을 만들고 바로 진입 지정가 주문까지 낸다 (활성화·단타 계획 공통). */
+/** 계획을 만들고 바로 진입 지정가 주문까지 낸다. */
 function startPlan(user: MockUser, r: MockRec, pv: RiskPreview, budgetKrw: number | null, via: "web" | "discord", acknowledged: boolean): MockPlan {
   const now = kstIso();
-  const day = r.horizon === "DAY";
   const p: MockPlan = {
     id: nextId(),
     userId: user.id,
@@ -1480,7 +1436,6 @@ function startPlan(user: MockUser, r: MockRec, pv: RiskPreview, budgetKrw: numbe
     market: r.market,
     currency: r.currency,
     source: r.source,
-    horizon: r.horizon,
     status: "active",
     via,
     quantity: pv.quantity,
@@ -1527,7 +1482,7 @@ function startPlan(user: MockUser, r: MockRec, pv: RiskPreview, budgetKrw: numbe
     link,
   );
 
-  // 바로 한 번 진행: 진입 지정가 주문 (DAY는 style day, 보유 기한 없음)
+  // 바로 한 번 진행: 진입 지정가 주문
   const s = stockOf(p.symbol);
   const o = newOrder(
     user.id,
@@ -1539,10 +1494,10 @@ function startPlan(user: MockUser, r: MockRec, pv: RiskPreview, budgetKrw: numbe
       limitPrice: p.entryPrice,
       targetPrice: p.targetPrice,
       stopPrice: p.stopPrice,
-      days: day ? undefined : Math.ceil(p.holdingDays * 1.4),
+      days: Math.ceil(p.holdingDays * 1.4),
     },
     now,
-    day ? "day" : "swing",
+    "swing",
   );
   o.note = `자동매매 계획 #${p.id}`;
   state.orders.push(o);
@@ -1559,15 +1514,14 @@ function startPlan(user: MockUser, r: MockRec, pv: RiskPreview, budgetKrw: numbe
 }
 
 export function activate(user: MockUser, id: number, body: { budgetKrw?: unknown; token?: unknown; acknowledged?: unknown }): TradePlanDetail {
-  const r = recOf(id, user.id);
-  if (r.source === "day") throw new MockError(400, "단타 계획은 만들 때 이미 활성화돼요.");
+  const r = recOf(id);
   const token = typeof body.token === "string" && body.token ? body.token : null;
   if (token && token !== demoToken(id)) throw new MockError(400, "활성화 링크가 만료되었거나 올바르지 않습니다.");
   if (body.acknowledged !== undefined && typeof body.acknowledged !== "boolean") throw new MockError(400, "acknowledged는 true 또는 false여야 합니다.");
   const budgetKrw = parseBudgetParam(body.budgetKrw);
   const pv = computePreview(user.id, r, budgetKrw);
   if (!pv.activatable) throw blocked(pv.reasons, pv.reasonCodes);
-  intradayCheck(stockOf(r.symbol), r.targetPrice, r.stopPrice);
+  sessionPriceCheck(stockOf(r.symbol), r.targetPrice, r.stopPrice);
   const p = startPlan(user, r, pv, budgetKrw, token ? "discord" : "web", body.acknowledged === true);
   return toPlanDetail(p);
 }
@@ -1586,9 +1540,7 @@ function closePlan(p: MockPlan, o: MockOrder) {
         ? "손절가 도달"
         : o.exitReason === "EXPIRED"
           ? "보유 기한 경과"
-          : o.exitReason === "EOD"
-            ? "장 마감 전 정리"
-            : "사용자 매도";
+          : "사용자 매도";
   planEvent(
     p,
     "closed",
@@ -1599,7 +1551,7 @@ function closePlan(p: MockPlan, o: MockOrder) {
   notify(p.userId, "closed", `${p.name} 청산 (${why})`, `${priceText(o.exitPrice ?? 0, p.currency)}에 ${qtyText(p.quantity)} 매도 · 손익 ${krwText(o.pnlKrw ?? 0)}`, `/plans/${p.id}`);
 }
 
-/** 진행 중 계획을 연결된 주문에 맞추고, 시연용으로 시간이 지나면 다음 단계로 보낸다. DAY는 15:15(진입 기한) 뒤 정리한다. */
+/** 진행 중 계획을 연결된 주문에 맞추고, 시연용으로 시간이 지나면 다음 단계로 보낸다. */
 function advancePlans() {
   const nowMs = Date.now();
   for (const p of state.plans) {
@@ -1607,14 +1559,13 @@ function advancePlans() {
     const o = state.orders.find((x) => x.id === p.orderId);
     if (!o) continue;
     const link = `/plans/${p.id}`;
-    const day = p.horizon === "DAY";
     const pastCutoff = nowMs > Date.parse(p.entryDeadline);
     if (p.status === "entry_pending") {
       if (o.status === "ENTRY_PENDING" && pastCutoff) {
         o.status = "CANCELED";
-        o.note = day ? "단타 진입 마감" : "진입 기한 만료";
+        o.note = "진입 기한 만료";
         p.status = "expired";
-        p.failureReason = day ? "단타 진입 마감(15:15)까지 체결되지 않아 주문을 취소했습니다." : "진입 기한까지 체결되지 않아 주문을 취소했습니다.";
+        p.failureReason = "진입 기한까지 체결되지 않아 주문을 취소했습니다.";
         planEvent(p, "expired", "진입 기한이 지나 주문을 취소했습니다", { orderId: o.id });
         notify(p.userId, "expired", `${p.name} 진입 기한 만료`, "진입가에 체결되지 않아 계획이 끝났습니다.", link);
         continue;
@@ -1640,9 +1591,7 @@ function advancePlans() {
       }
     }
     if (p.status === "holding") {
-      if (o.status === "EXIT_WATCHING" && day && pastCutoff) {
-        exit(o, stockOf(o.symbol).price, "EOD", kstIso()); // 2회 확인 없이 바로
-      } else if (o.status === "EXIT_WATCHING" && !p.exitRequested && p.nextAt !== null && nowMs >= p.nextAt) {
+      if (o.status === "EXIT_WATCHING" && !p.exitRequested && p.nextAt !== null && nowMs >= p.nextAt) {
         exit(o, p.targetPrice, "TARGET", kstIso());
       }
       if (o.status === "CLOSED") closePlan(p, o);
@@ -1945,221 +1894,14 @@ function checkOf(t: MockThesis, s: MockStock, at: string, previous: ThesisCheck 
   };
 }
 
-// ---------------------------------------------------------------- 단타 연습
-
-const DAY_CUTOFF_MIN = 15 * 60 + 15; // 15:15 KST 진입 마감
-const MINUTE_STEPS = [1, 3, 5, 10, 15, 30, 60];
-
-/** 지금 단타 계획을 만들 수 있는지와 그 세션 (docs/API.md "세션 규칙"). */
-function daySession(now = new Date()): DaySession {
-  const today = kstDay(now);
-  const accepting = options.dayAcceptingPlans ?? (isWeekday(today) && marketMinutes("KR", now) < DAY_CUTOFF_MIN);
-  const date = accepting ? today : nextWeekday(today);
-  return {
-    date,
-    acceptingPlans: accepting,
-    opensAt: sessionStartIso("KR", date),
-    entryCutoffAt: marketIso("KR", date, DAY_CUTOFF_MIN),
-    closeAt: sessionEndIso("KR", date),
-    isOpen: isOpen("KR"),
-  };
-}
-
-function dayLocks(userId: number): DayLockReason[] {
-  const p = profileOf(userId);
-  const out: DayLockReason[] = [];
-  if (p.beginnerMode) out.push("beginner_mode");
-  if (!p.dayQuizPassedAt) out.push("quiz_not_passed");
-  return out;
-}
-
-const DAY_LIMITS = { riskPerTrade: LIMITS.DAY.riskPerTrade, maxDailyLoss: 0.02, maxDailyTrades: 10, minRewardRisk: MIN_REWARD_RISK };
-
-export function dayStatus(userId: number): DayStatus {
-  const lockReasons = dayLocks(userId);
-  const today = dayToday(userId);
-  return {
-    unlocked: lockReasons.length === 0,
-    lockReasons,
-    session: daySession(),
-    limits: { ...DAY_LIMITS },
-    today: { orders: today.orders, lossKrw: Math.round(today.lossKrw), lossLimitKrw: Math.round(account(userId).equityKrw * DAY_LIMITS.maxDailyLoss) },
-  };
-}
-
-interface DayInput {
-  s: MockStock;
-  entryPrice: number;
-  targetPrice: number;
-  stopPrice: number;
-  budgetKrw: number | null;
-}
-
-/** 두 POST의 입력 검사 (국내 종목, 양수 가격을 호가 단위로 내린 뒤 0 < stop < entry < target, 예산 양수, 모르는 키 400). */
-function dayInput(body: Record<string, unknown>, allowed: string[]): DayInput {
-  onlyKeys(body, allowed);
-  const s = stockOf(String(body.symbol ?? ""));
-  if (s.market !== "KR") throw new MockError(400, "단타 연습은 국내 종목만 돼요.");
-  const price = (k: string) => {
-    const n = Number(body[k]);
-    if (typeof body[k] !== "number" || !Number.isFinite(n) || n <= 0) throw new MockError(400, `${k}는 0보다 큰 숫자여야 합니다.`);
-    return floorTick(n, s.currency);
-  };
-  const entryPrice = price("entryPrice");
-  const targetPrice = price("targetPrice");
-  const stopPrice = price("stopPrice");
-  if (!(0 < stopPrice && stopPrice < entryPrice && entryPrice < targetPrice)) throw new MockError(400, "손절가 < 사는 가격 < 목표가 순서여야 합니다.");
-  // 서버(daytrade.service._budget)처럼 JSON 숫자만 받는다 (숫자 문자열 "100000"도 400). 일반 활성화는 숫자 문자열도 받는다.
-  const budget = body.budgetKrw;
-  if (budget === undefined || budget === null) return { s, entryPrice, targetPrice, stopPrice, budgetKrw: null };
-  if (typeof budget !== "number" || !Number.isFinite(budget) || budget <= 0) throw new MockError(400, "budgetKrw는 0보다 큰 숫자여야 합니다.");
-  return { s, entryPrice, targetPrice, stopPrice, budgetKrw: budget };
-}
-
-function costs(qty: number, entry: number, exitPrice: number): TradeCosts {
-  const c = commissionRate("KR");
-  const commissionKrw = Math.round(entry * qty * c) + Math.round(exitPrice * qty * c);
-  const taxKrw = Math.round(exitPrice * qty * SELL_TAX_KR);
-  return { commissionKrw, taxKrw, totalKrw: commissionKrw + taxKrw };
-}
-
-function dayCheck(userId: number, x: DayInput): { pv: RiskPreview; session: DaySession } {
-  const input: RiskInput = { userId, s: x.s, entryPrice: x.entryPrice, targetPrice: x.targetPrice, stopPrice: x.stopPrice, probability: 0.5, budgetKrw: x.budgetKrw, horizon: "DAY" };
-  const risk = assessRisk(input);
-  const sess = daySession();
-  const extra = { reasons: [] as string[], codes: [] as string[] };
-  if (!sess.acceptingPlans) {
-    extra.reasons.push("지금은 단타 계획을 만들 수 없는 시각입니다 (국내 거래일 15:15 전까지).");
-    extra.codes.push("day_entry_closed");
-  }
-  busyReasons(userId, x.s, x.s.name, extra);
-  return { pv: previewOf(input, risk, extra), session: sess };
-}
-
-function lockedError(userId: number): MockError | null {
-  return dayLocks(userId).length ? blocked(["단타 연습장이 잠겨 있습니다 (주린이모드 켬 또는 단타 연습 퀴즈 미통과)."], ["day_trading_locked"]) : null;
-}
-
-export function dayPreview(userId: number, body: Record<string, unknown>): DayPreview {
-  const locked = lockedError(userId);
-  if (locked) throw locked;
-  const x = dayInput(body, ["symbol", "entryPrice", "targetPrice", "stopPrice", "budgetKrw"]);
-  const { pv, session: sess } = dayCheck(userId, x);
-  return { ...pv, session: sess, costsAtTarget: costs(pv.quantity, x.entryPrice, x.targetPrice), costsAtStop: costs(pv.quantity, x.entryPrice, x.stopPrice) };
-}
-
-export function createDayPlan(user: MockUser, body: Record<string, unknown>): TradePlanDetail {
-  const x = dayInput(body, ["symbol", "entryPrice", "targetPrice", "stopPrice", "budgetKrw", "acknowledged"]);
-  if (body.acknowledged !== true) throw new MockError(400, "실행 확인 체크리스트를 모두 켜 주세요 (acknowledged: true).");
-  const locked = lockedError(user.id);
-  if (locked) throw locked;
-  const { pv, session: sess } = dayCheck(user.id, x);
-  if (!pv.activatable) throw blocked(pv.reasons, pv.reasonCodes);
-  intradayCheck(x.s, x.targetPrice, x.stopPrice);
-  const r = makeRec(nextId(), {
-    source: "day",
-    sourceId: null,
-    requestedBy: user.nickname,
-    symbol: x.s.symbol,
-    entryPrice: x.entryPrice,
-    targetPrice: x.targetPrice,
-    stopPrice: x.stopPrice,
-    holdingDays: 1,
-    probability: null,
-    confidence: null,
-    summary: "단타 연습 계획 (직접 입력, AI 아님)",
-    reasons: [],
-    risks: [],
-    riskLevel: null,
-    createdAt: kstIso(),
-    validUntil: sess.entryCutoffAt,
-    horizon: "DAY",
-    ownerId: user.id,
-  });
-  state.recommendations.push(r);
-  return toPlanDetail(startPlan(user, r, pv, x.budgetKrw, "web", true));
-}
-
-/** 그 세션의 내 단타 계획 = 진입 기한(15:15)의 KST 날짜가 date인 것. */
-function dayPlansOf(userId: number, date: string): MockPlan[] {
-  return state.plans.filter((p) => p.userId === userId && p.horizon === "DAY" && kstDay(new Date(p.entryDeadline)) === date);
-}
-
-export function listDayPlans(userId: number, dateParam: string | null): DayPlanList {
-  runEngine();
-  const date = parseDayParam(dateParam) ?? kstDay();
-  return { date, results: dayPlansOf(userId, date).sort((a, b) => b.id - a.id).map(toPlan) };
-}
-
-export function dayReview(userId: number, dateParam: string | null): DayReview {
-  runEngine();
-  const date = parseDayParam(dateParam) ?? basisDay("KR");
-  if (date > kstDay()) throw new MockError(400, "오늘보다 뒤 날짜는 복기할 수 없습니다.");
-  const plans = dayPlansOf(userId, date).sort((a, b) => a.activatedAt.localeCompare(b.activatedAt) || a.id - b.id);
-  const items = plans.map((p) => {
-    const fills = state.fills.filter((f) => f.orderId === p.orderId);
-    const buy = fills.find((f) => f.side === "BUY") ?? null;
-    const sell = fills.find((f) => f.side === "SELL") ?? null;
-    return {
-      plan: toPlan(p),
-      entryAt: buy?.filledAt ?? null,
-      entryPrice: buy?.price ?? null,
-      exitAt: sell?.filledAt ?? null,
-      exitPrice: sell?.price ?? null,
-      exitReason: sell && sell.reason !== "ENTRY" ? sell.reason : null,
-      pnlKrw: p.pnlKrw,
-      costsKrw: fills.reduce((n, f) => n + f.commission + f.tax, 0),
-      events: p.events,
-    };
-  });
-  const closed = items.filter((i) => i.pnlKrw !== null);
-  return {
-    date,
-    plans: items,
-    totals: {
-      filled: items.filter((i) => i.entryAt !== null).length,
-      wins: closed.filter((i) => (i.pnlKrw ?? 0) > 0).length,
-      losses: closed.filter((i) => (i.pnlKrw ?? 0) <= 0).length,
-      pnlKrw: closed.reduce((n, i) => n + (i.pnlKrw ?? 0), 0),
-      costsKrw: items.reduce((n, i) => n + i.costsKrw, 0),
-    },
-  };
-}
-
-/** 분봉 (완성된 정규장 세션만). 기준일보다 뒤 날짜·허용하지 않는 간격·미국 종목은 400. 약 5거래일보다 오래된 날짜는 partial. */
-export function minuteCandles(symbol: string, dateParam: string | null, minutesParam: string | null): MinuteCandles {
-  const s = stockOf(symbol);
-  if (s.market !== "KR") throw new MockError(400, "분봉은 국내 종목만 돼요.");
-  const minutes = minutesParam === null || minutesParam === "" ? 1 : Number(minutesParam);
-  if (!MINUTE_STEPS.includes(minutes)) throw new MockError(400, `minutes는 ${MINUTE_STEPS.join("·")} 중 하나여야 합니다.`);
-  const basis = basisDay("KR");
-  const date = parseDayParam(dateParam) ?? basis;
-  if (date > basis) throw new MockError(400, "아직 끝나지 않은 세션입니다 (완성된 정규장 세션만 볼 수 있어요).");
-  const empty = (partial: boolean): MinuteCandles => ({ symbol: s.symbol, date, minutes, asOf: null, candles: [], partial });
-  if (!isWeekday(date)) return empty(false);
-  const recent = weekdaysEnding(basis, 5);
-  if (date < recent[0]) return empty(true); // 증권사가 주는 과거 범위 밖
-  const bar = candles(s).find((b) => b.date === date);
-  if (!bar) return empty(true);
-  return {
-    symbol: s.symbol,
-    date,
-    minutes,
-    asOf: sessionEndIso("KR", date),
-    candles: aggregateBars(minuteBars(s.symbol, bar, s.currency), minutes),
-    partial: false,
-  };
-}
-
 // ---------------------------------------------------------------- 초기 데이터
 
-/** 앨리스는 진단을 마친 중급(주린이모드 끔)·퀴즈 통과 — 지금 화면(전문가 보기) 테스트가 그대로 돈다. 다른 팀원은 진단 전(켬). */
+/** 앨리스는 진단을 마친 중급(주린이모드 끔) — 지금 화면(전문가 보기) 테스트가 그대로 돈다. 다른 팀원은 진단 전(켬). */
 function seedProfiles() {
   state.profiles[1] = {
     beginnerMode: false,
     answers: { q1: "1_3y", q2: ["kr_stock", "us_stock"], q3: "monthly", q4: "explain", q5: "loss_20", q6: "weeks", q7: "growth" },
     assessedAt: daysAgoIso(12),
-    dayQuizPassedAt: daysAgoIso(10),
   };
 }
 
@@ -2350,7 +2092,6 @@ function seedAutotrade() {
     market: "KR",
     currency: "KRW",
     source: "analysis",
-    horizon: "SWING",
     status: "closed",
     via: "discord",
     quantity: 14,
@@ -2389,91 +2130,6 @@ function seedAutotrade() {
   n(80, "closed", "삼성전자 청산 (목표가 도달)", "77,000원에 14주 매도 · 손익 +102,850원", "/plans/95", 26, true);
   n(81, "recommendation", "SK하이닉스 AI 추천", "AI 리포트 결론: 진입 181,000원 · 목표 203,000원 · 손절 173,000원", "/recommendations/91", 5, false);
   n(82, "recommendation", "NAVER 시연용 추천", "진입 191,200원 · 목표 210,000원 · 손절 183,000원", "/recommendations/93", 1, false);
-}
-
-/** 앨리스의 끝난 단타 계획 하나 (KR 기준일 세션: 09:12 체결 → 15:15 장 마감 전 정리) — 복기 화면 자료. */
-function seedDayPlan() {
-  const s = stockOf("086520");
-  const day = basisDay("KR");
-  const bar = candles(s).find((b) => b.date === day)!;
-  const bars = minuteBars(s.symbol, bar, s.currency);
-  const entry = floorTick(bars[12].low, s.currency); // 09:12 봉 안의 가격
-  const stop = floorTick(entry * 0.985, s.currency);
-  const target = floorTick(entry + (entry - stop) * 3, s.currency);
-  const exitPrice = bars[6 * 60 + 15].close; // 15:15 봉
-  const iso = (hh: number, mm: number, ss = 0) => `${day}T${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}+09:00`;
-  const qty = 10;
-  const rec = makeRec(89, {
-    source: "day",
-    sourceId: null,
-    requestedBy: "앨리스",
-    symbol: s.symbol,
-    entryPrice: entry,
-    targetPrice: target,
-    stopPrice: stop,
-    holdingDays: 1,
-    probability: null,
-    confidence: null,
-    summary: "단타 연습 계획 (직접 입력, AI 아님)",
-    reasons: [],
-    risks: [],
-    riskLevel: null,
-    createdAt: iso(9, 5),
-    validUntil: iso(15, 15),
-    horizon: "DAY",
-    ownerId: 1,
-  });
-  state.recommendations.push(rec);
-  const o = newOrder(1, s, { symbol: s.symbol, quantity: qty, orderType: "LIMIT", limitPrice: entry, targetPrice: target, stopPrice: stop }, iso(9, 5), "day");
-  o.note = "자동매매 계획 #97";
-  state.orders.push(o);
-  enter(o, entry, iso(9, 12, 4));
-  exit(o, exitPrice, "EOD", iso(15, 15, 6));
-  const plan: MockPlan = {
-    id: 97,
-    userId: 1,
-    recommendationId: rec.id,
-    symbol: s.symbol,
-    name: s.name,
-    market: "KR",
-    currency: "KRW",
-    source: "day",
-    horizon: "DAY",
-    status: "closed",
-    via: "web",
-    quantity: qty,
-    budgetKrw: 1_000_000,
-    entryPrice: entry,
-    targetPrice: target,
-    stopPrice: stop,
-    holdingDays: 1,
-    entryDeadline: iso(15, 15),
-    orderId: o.id,
-    fillPrice: entry,
-    filledAt: o.filledAt,
-    exitPrice,
-    exitReason: "EOD",
-    closedAt: o.closedAt,
-    pnlKrw: o.pnlKrw,
-    failureReason: null,
-    activatedAt: iso(9, 5),
-    updatedAt: o.closedAt ?? iso(15, 15),
-    nextAt: null,
-    exitRequested: false,
-    events: [],
-  };
-  planEvent(plan, "activated", "웹에서 계획 활성화 (예산 1,000,000원)", { via: "web", budgetKrw: 1_000_000, acknowledged: true }, iso(9, 5));
-  planEvent(plan, "risk_checked", `리스크 엔진 통과: ${qtyText(qty)} (예산), 손익비 ${rec.rewardRisk.toFixed(2)}`, { approved: true, quantity: qty, limitedBy: "예산", rewardRisk: rec.rewardRisk, reasons: [] }, iso(9, 5));
-  planEvent(plan, "order_placed", `${s.name} ${qtyText(qty)} ${priceText(entry, "KRW")} 지정가 매수 주문 접수`, { orderId: o.id, limitPrice: entry, quantity: qty }, iso(9, 5, 2));
-  planEvent(plan, "filled", `${s.name} ${qtyText(qty)} ${priceText(entry, "KRW")}에 체결`, { orderId: o.id, fillPrice: entry, quantity: qty }, iso(9, 12, 4));
-  planEvent(
-    plan,
-    "closed",
-    `장 마감 전 정리로 청산 (${priceText(exitPrice, "KRW")}, 손익 ${krwText(o.pnlKrw ?? 0)})`,
-    { orderId: o.id, exitReason: "EOD", exitPrice, pnlKrw: o.pnlKrw },
-    iso(15, 15, 6),
-  );
-  state.plans.push(plan);
 }
 
 /** 앨리스의 장기 보유(셀트리온) 산 이유와 최근 점검 (기준선은 직전 보고서 값이라 일부 지표가 달라졌다). */

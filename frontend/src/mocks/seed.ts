@@ -3,8 +3,9 @@ import type { AnalysisDetail, Currency, ExecutionPlan, Market, Scenario, Verdict
 import { basisDay, kstIso } from "./clock";
 
 /**
- * 가짜 종목. 가격은 둘로 나눈다 (docs/API.md 공통 규칙 "장마감 기준"):
- * close·prevClose는 화면에 보이는 직전 장마감 종가와 그 전 종가, price는 모의 체결·청산 판단에만 쓰는 장중 확인 가격.
+ * 가짜 종목. 가격은 둘로 나눈다 (docs/API.md 공통 규칙 "실시간 시세"·"장마감 기준"):
+ * close·prevClose는 계좌 평가·미리 보기 등 장마감 기준 화면의 직전 장마감 종가와 그 전 종가,
+ * price는 실시간 시세(Quote·StockDetail)의 현재가이자 모의 체결·청산 판단에 쓰는 장중 가격.
  * 처음에는 price = close이고, setPrice(테스트)·지터(개발 화면)는 price만 움직인다.
  */
 export interface MockStock {
@@ -101,7 +102,7 @@ export function roundTick(price: number, currency: Currency): number {
   return Math.round(price / tick) * tick;
 }
 
-/** 호가 단위로 내림 (단타 계획의 입력 가격을 맞출 때 — docs/API.md "단타 연습"). */
+/** 호가 단위로 내림 (예시 리포트의 목표·손절 가격을 맞출 때). */
 export function floorTick(price: number, currency: Currency): number {
   if (currency === "USD") return Math.floor(price * 100 + 1e-9) / 100;
   const tick = tickOf(price, currency);

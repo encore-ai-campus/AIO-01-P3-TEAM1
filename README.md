@@ -4,7 +4,7 @@
 모든 예측과 결과를 기록해 모델·규칙별 성적을 추적한다. 실제 주문은 내지 않는다.
 
 - 시작하기·규칙·명령: [AGENTS.md](AGENTS.md)
-- 계획: [docs/TEAM_PAPER_TRADING_PLAN.md](docs/TEAM_PAPER_TRADING_PLAN.md) · 공통 결정: [docs/DECISIONS.md](docs/DECISIONS.md)
+- 지금 상태·기술 스택·남은 작업: [docs/TEAM_PAPER_TRADING_PLAN.md](docs/TEAM_PAPER_TRADING_PLAN.md) · 공통 결정: [docs/DECISIONS.md](docs/DECISIONS.md)
 - 엔진 설계: [docs/DESIGN.md](docs/DESIGN.md) · 키움 API: [docs/KIWOOM.md](docs/KIWOOM.md) · 배포와 CI/CD: [docs/DEPLOY.md](docs/DEPLOY.md)
 
 ```bash

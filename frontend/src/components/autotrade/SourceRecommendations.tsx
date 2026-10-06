@@ -20,7 +20,7 @@ export function SourceRecommendations({
   sourceId,
   view,
 }: {
-  source: Exclude<RecommendationSource, "demo" | "day">;
+  source: Exclude<RecommendationSource, "demo">;
   sourceId: number;
   view?: ViewMode;
 }) {

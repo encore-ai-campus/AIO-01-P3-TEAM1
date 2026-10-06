@@ -1,9 +1,10 @@
 """모의 트레이딩 API (docs/API.md "모의 트레이딩"). 증권사는 가짜 클라이언트(conftest.FakeClient)다.
 
 가짜 장 달력은 지금 정규장이 열려 있거나(1시간 전 ~ 1시간 뒤) 곧 열린다 → 장마감 기준일은 늘 어제(KST)이고,
-화면 가격(시세·평가·랭킹)은 어제 봉의 종가 = 현재가 × 0.98 (CLOSE), 그 전 종가 = 현재가 × 0.97이다. 체결은 현재가(장중)로 한다.
+평가·랭킹은 어제 봉의 종가 = 현재가 × 0.98 (CLOSE), 그 전 종가 = 현재가 × 0.97이다. 체결은 현재가(장중)로 한다.
+시세(Quote)는 실시간이다: 가격 = 현재가, prevClose = 어제 종가 (오늘이 거래일). 자세한 날짜별 규칙은 test_live_quotes.py.
 """
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from accounts.models import profile_of
@@ -12,7 +13,7 @@ from django.utils import timezone
 from paper_engine.judge.risk import SELL_TAX_RATE
 
 from config import engine
-from trading import market
+from trading import market, service
 from trading.models import PaperAccount, PaperOrder, Reservation
 
 from .conftest import login, set_price, switch
@@ -193,6 +194,21 @@ def test_order_validation(api, fake):
     assert not PaperOrder.objects.exists()
 
 
+def test_market_long_check_uses_current_price(api, fake, monkeypatch):
+    """시장가 장기 보유 점검 가격은 현재가 (실시간 시세 = 화면 예상 금액과 같다), 받지 못하면 직전 종가 (docs/API.md POST /api/orders)."""
+    seen = []
+    real = service.assess_position
+    monkeypatch.setattr(service, "assess_position", lambda price, *rest: seen.append(price) or real(price, *rest))
+    # 현재가 70,000 × 145주 ≈ 1,016만원 > 매수 가능 1,000만원 (직전 종가 68,600이면 996만원이라 통과한다)
+    response = buy(api, quantity=145)
+    assert response.status_code == 400 and "cash_short" in response.json()["reasonCodes"]
+    assert seen == [70000]
+    cache.clear()
+    fake.prices = lambda symbols: (_ for _ in ()).throw(OSError("현재가 조회 실패"))
+    assert buy(api, quantity=1).status_code == 201  # 체결은 지금처럼 장중 확인 가격
+    assert seen[-1] == pytest.approx(70000 * CLOSE)
+
+
 def test_duplicate_symbol_rejected(api, fake):
     assert buy(api).status_code == 201
     response = buy(api, quantity=1)
@@ -205,7 +221,7 @@ def test_buying_power_shortage_rejected(api, fake):
     response = buy(api, quantity=150, targetPrice=77000, stopPrice=66000)
     assert response.status_code == 400 and "매수 가능 금액 부족" in response.json()["detail"]
     assert "reasonCodes" not in response.json()
-    # 장기 보유: 비중 점검 (직전 종가 68,600 × 150주 = 1,029만원 > 매수 가능 1,000만원, 자산의 100%도 넘음) → 사유 코드
+    # 장기 보유: 비중 점검 (시장가는 현재가 70,000 × 150주 = 1,050만원 > 매수 가능 1,000만원, 자산의 100%도 넘음) → 사유 코드
     response = buy(api, quantity=150)
     assert response.status_code == 400 and set(response.json()) == {"detail", "reasonCodes"}
     assert response.json()["reasonCodes"] == ["cash_short", "position_limit"]
@@ -312,34 +328,41 @@ def test_quotes(api, fake):
     samsung = quotes["005930"]
     assert set(samsung) == {"symbol", "name", "currency", "price", "prevClose", "change", "changeRate", "asOf",
                             "basis"}
-    assert samsung["name"] == "삼성전자" and samsung["currency"] == "KRW" and samsung["basis"] == "close"
-    # 장마감 기준: 가격은 직전 정규장 종가(어제), prevClose는 그 전 종가 (현재가 70,000이 아니다)
-    assert isinstance(samsung["price"], float) and samsung["price"] == pytest.approx(70000 * CLOSE)
-    assert samsung["prevClose"] == pytest.approx(70000 * PREV)
-    assert samsung["change"] == pytest.approx(70000 * (CLOSE - PREV))
-    assert samsung["changeRate"] == pytest.approx(CLOSE / PREV - 1)
-    yesterday = f"{timezone.localdate() - timedelta(days=1)}"
-    calendar = market.calendar("KR")  # 서버가 쓴 (캐시한) 장 달력
-    assert samsung["asOf"] == calendar["previousBusinessDay"]["integrated"]["regularMarket"]["endTime"]
-    assert calendar["previousBusinessDay"]["date"] == yesterday
-    assert quotes["AAPL"]["currency"] == "USD" and quotes["AAPL"]["price"] == pytest.approx(200 * CLOSE)
+    assert samsung["name"] == "삼성전자" and samsung["currency"] == "KRW" and samsung["basis"] == "live"
+    # 실시간: 가격은 현재가, prevClose는 오늘(거래일)의 전 거래일 종가 = 어제 봉의 종가
+    assert isinstance(samsung["price"], float) and samsung["price"] == 70000
+    assert samsung["prevClose"] == pytest.approx(70000 * CLOSE)
+    assert samsung["change"] == pytest.approx(70000 * (1 - CLOSE))
+    assert samsung["changeRate"] == pytest.approx(1 / CLOSE - 1)
+    # asOf = 현재가를 받은 시각 (서버 시각 KST, 초까지)
+    received = datetime.fromisoformat(samsung["asOf"])
+    assert samsung["asOf"].endswith("+09:00") and received.microsecond == 0
+    assert timedelta(0) <= datetime.fromisoformat(body["asOf"]) - received < timedelta(seconds=5)
+    assert quotes["AAPL"]["currency"] == "USD" and quotes["AAPL"]["price"] == 200
+    assert quotes["AAPL"]["basis"] == "live"
     assert api.get("/api/quotes").json()["quotes"] == []
     too_many = ",".join(f"{i:06d}" for i in range(51))
     assert api.get(f"/api/quotes?symbols={too_many}").status_code == 400
 
 
 def test_quote_without_close_is_null(api, fake):
-    """일봉을 받지 못한 종목(종목 목록에는 있음)은 가격·기준 시각이 null이다."""
+    """현재가도 일봉도 받지 못한 종목(종목 목록에는 있음)은 장마감 기준 Quote이고 가격·기준 시각이 null이다."""
     quote = api.get("/api/quotes?symbols=035720").json()["quotes"][0]
     assert (quote["price"], quote["prevClose"], quote["change"], quote["asOf"], quote["basis"]) == (
         None, None, None, None, "close")
 
 
-def test_quotes_are_cached(api, fake):
+def test_quotes_are_cached(api, fake, monkeypatch):
+    monkeypatch.setattr(market, "PRICE_TTL", 60)  # 현재가 1초 캐시가 테스트 도중 지나지 않게
     api.get("/api/quotes?symbols=005930")
     api.get("/api/quotes?symbols=005930")
-    assert fake.calls.count("prices") == 0  # 현재가는 화면 시세에 쓰지 않는다
-    assert fake.calls.count("daily_candles") == 1  # 종목·기준일마다 일봉 1번
+    assert fake.calls.count("prices") == 1  # 현재가는 종목마다 캐시 (팀 전체가 같이 쓴다)
+    assert fake.calls.count("daily_candles") == 1
+    cache.delete("trading:candles:005930")  # 일봉 60초 캐시가 지났다고 본다
+    cache.delete("trading:live:005930")  # 현재가 캐시도
+    api.get("/api/quotes?symbols=005930")
+    assert fake.calls.count("prices") == 2
+    assert fake.calls.count("daily_candles") == 1  # 전 거래일 종가는 종목·날짜마다 일봉 1번 (직전 영업일 봉이면 하루 캐시)
 
 
 def test_search(api, fake):
@@ -358,14 +381,19 @@ def test_stock_detail(api, fake):
     body = api.get("/api/stocks/000660").json()
     assert set(body) == {"symbol", "name", "exchange", "market", "currency", "quote", "candles", "asOf", "warnings"}
     assert (body["symbol"], body["exchange"], body["market"], body["currency"]) == ("000660", "KOSPI", "KR", "KRW")
-    assert body["quote"]["price"] == pytest.approx(200000 * CLOSE) and body["warnings"] == ["투자경고"]
-    assert len(body["candles"]) == 2  # 오늘 미완성 봉은 없다 (기준일 = 어제까지)
+    assert body["quote"]["price"] == 200000 and body["quote"]["basis"] == "live" and body["warnings"] == ["투자경고"]
+    assert len(body["candles"]) == 3  # 오늘 진행 중인 봉까지
     candle = body["candles"][-1]
     assert set(candle) == {"date", "open", "high", "low", "close", "volume"}
-    assert candle["date"] == f"{timezone.localdate() - timedelta(days=1)}"
-    assert candle["close"] == pytest.approx(200000 * CLOSE) and isinstance(candle["volume"], float)
+    assert candle["date"] == f"{timezone.localdate()}"
+    assert candle["close"] == pytest.approx(200000) and isinstance(candle["volume"], float)
     assert body["candles"][0]["date"] < body["candles"][-1]["date"]
-    assert body["asOf"] == body["quote"]["asOf"]  # 마지막 봉 = 종가 봉
+    assert body["asOf"] == body["quote"]["asOf"]  # 마지막 봉이 오늘 진행 중 → 현재가를 받은 시각
+    fake.ended.add("KR")  # 오늘 정규장이 끝났다 → 오늘 봉은 완성 봉
+    cache.clear()
+    body = api.get("/api/stocks/000660").json()
+    assert body["candles"][-1]["date"] == f"{timezone.localdate()}" and body["quote"]["basis"] == "live"
+    assert body["asOf"] == market.calendar("KR")["today"]["integrated"]["regularMarket"]["endTime"]
     assert api.get("/api/stocks/999999").status_code == 404
 
 

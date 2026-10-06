@@ -1,5 +1,5 @@
 // 마이: 주린이모드 스위치(끌 때 한 줄 확인), 투자 성향·경험 진단 7문항(결과·추천대로 바꾸기·다시 진단),
-// 단타 연습 입구(주린이모드 끔일 때), 랭킹 카드, 내 수익률(장마감 기준).
+// 랭킹 카드, 내 수익률(장마감 기준).
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -55,10 +55,9 @@ describe("마이 · 주린이모드 스위치", () => {
     expect(db.investorProfile(3).beginnerMode).toBe(true);
   });
 
-  it("확인하면 끄고(PATCH) 단타 연습 입구가 나온다. 다시 켜기는 확인 없이 바로", async () => {
+  it("확인하면 끈다(PATCH). 다시 켜기는 확인 없이 바로", async () => {
     renderApp("/my", "carol");
     await waitFor(() => expect(modeSwitch().checked).toBe(true));
-    expect(screen.queryByRole("region", { name: "단타 연습장" })).toBeNull();
     fireEvent.click(modeSwitch());
     fireEvent.click(screen.getByRole("button", { name: "주린이모드 끄기" }));
     await waitFor(() => expect(db.investorProfile(3).beginnerMode).toBe(false));
@@ -68,14 +67,10 @@ describe("마이 · 주린이모드 스위치", () => {
     expect(modeSwitch().checked).toBe(false);
     await waitFor(() => expect(toast().textContent).toContain("주린이모드를 껐어요"));
 
-    const day = await screen.findByRole("region", { name: "단타 연습장" });
-    expect(within(day).getByText("단타 연습 퀴즈 5문항을 모두 맞혀야 열려요")).toBeTruthy();
-    expect(within(day).getByRole("link", { name: "단타 연습 퀴즈 풀기" }).getAttribute("href")).toBe("/day/quiz");
-
     fireEvent.click(modeSwitch());
     expect(screen.queryByRole("group", { name: "주린이모드 끄기 확인" })).toBeNull();
     await waitFor(() => expect(db.investorProfile(3).beginnerMode).toBe(true));
-    await waitFor(() => expect(screen.queryByRole("region", { name: "단타 연습장" })).toBeNull());
+    expect(modeSwitch().checked).toBe(true);
   });
 
   it("끄기 확인이 열리면 '주린이모드 끄기'로 포커스가 가고, Esc는 취소 — 포커스는 스위치로 돌아온다", async () => {
@@ -302,46 +297,20 @@ describe("마이 · 투자 성향·경험 진단", () => {
   });
 });
 
-describe("마이 · 단타 연습 입구 · 랭킹 · 내 수익률", () => {
-  it("주린이모드 끔 + 퀴즈 통과(앨리스)면 단타 연습장·퀴즈 다시 풀기", async () => {
-    renderApp("/my");
-    const day = await screen.findByRole("region", { name: "단타 연습장" });
-    expect(await within(day).findByText(/연습 퀴즈 통과/)).toBeTruthy();
-    expect(within(day).getByRole("link", { name: "단타 연습장 열기" }).getAttribute("href")).toBe("/day"); // 모의투자 탭 입구와 같은 이름
-    expect(within(day).getByRole("link", { name: "퀴즈 다시 풀기" }).getAttribute("href")).toBe("/day/quiz");
-    expect(within(day).queryByText(/성향 진단:/)).toBeNull(); // 위험중립형
-  });
-
-  it("안정형·안정추구형이면 단타 입구에 성향 안내 한 줄", async () => {
-    db.setInvestorProfile("alice", {
-      answers: { q1: "1_3y", q2: ["kr_stock", "us_stock"], q3: "monthly", q4: "explain", q5: "no_loss", q6: "years", q7: "practice" },
-    });
-    renderApp("/my");
-    const day = await screen.findByRole("region", { name: "단타 연습장" });
-    expect(await within(day).findByText("하루 안에 사고파는 연습은 손실 변동이 커요. 성향 진단: 안정형")).toBeTruthy();
-  });
-
-  it("프로필을 받지 못하면 진단·단타 입구 카드가 스켈레톤에 멈추지 않고 오류와 '다시 시도'", async () => {
+describe("마이 · 프로필 오류 · 랭킹 · 내 수익률", () => {
+  it("프로필을 받지 못하면 진단 카드가 스켈레톤에 멈추지 않고 오류와 '다시 시도'", async () => {
     let fail = true;
     server.use(
       http.get("*/api/me/investor-profile", () => (fail ? HttpResponse.json({ detail: "잠시 후 다시 시도해 주세요." }, { status: 500 }) : undefined)),
     );
-    renderApp("/my"); // 앨리스: 주린이모드 끔 → 단타 입구도 보인다
+    renderApp("/my");
     const diagnosis = await screen.findByRole("region", { name: "투자 성향·경험 진단" });
     expect(await within(diagnosis).findByText("잠시 후 다시 시도해 주세요.")).toBeTruthy();
-    const day = await screen.findByRole("region", { name: "단타 연습장" });
-    expect(within(day).getByRole("button", { name: "다시 시도" })).toBeTruthy();
     fail = false;
     fireEvent.click(within(diagnosis).getByRole("button", { name: "다시 시도" }));
-    expect(await within(day).findByText(/연습 퀴즈 통과/)).toBeTruthy();
-    expect(within(screen.getByRole("region", { name: "투자 성향·경험 진단" })).queryByRole("alert")).toBeNull();
-  });
-
-  it("주린이모드 켬이면 단타 입구가 없다", async () => {
-    renderApp("/my", "bob");
-    await screen.findByRole("region", { name: "투자 성향·경험 진단" });
-    await waitFor(() => expect(modeSwitch().checked).toBe(true));
-    expect(screen.queryByRole("region", { name: "단타 연습장" })).toBeNull();
+    const card = screen.getByRole("region", { name: "투자 성향·경험 진단" });
+    expect(await within(card).findByText("진단 결과: 중급 · 위험중립형 → 주린이모드 끔 추천")).toBeTruthy();
+    expect(within(card).queryByRole("alert")).toBeNull();
   });
 
   it("내 성적: 공개면 수익률 옆에 랭킹 순위(→ 전체 순위), 랭킹 상위 3명, 장마감 기준 시각은 내 수익률에 한 번", async () => {
@@ -413,7 +382,7 @@ describe("마이 · 단타 연습 입구 · 랭킹 · 내 수익률", () => {
   it("알림 설정 카드에 웹 전용 알림 안내", async () => {
     renderApp("/my");
     const card = await screen.findByRole("region", { name: "알림 설정" });
-    expect(within(card).getByText(/오늘의 내 종목 뉴스·펀더멘털 점검·단타 연습 알림은 웹에만 와요/)).toBeTruthy();
+    expect(within(card).getByText(/오늘의 내 종목 뉴스·펀더멘털 점검 알림은 웹에만 와요/)).toBeTruthy();
   });
 });
 

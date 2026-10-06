@@ -89,10 +89,10 @@ def test_report_has_all_evaluation_material_and_escapes_html():
 
 
 def test_report_horizon_labels_follow_notify():
-    """기간 줄의 투자 기간 이름은 notify.horizon_label 하나를 쓴다 (DAY = 단타, 모르는 값은 그대로)."""
+    """기간 줄의 투자 기간 이름은 notify.horizon_label 하나를 쓴다 (모르는 값은 그대로)."""
     log = as_log(candidate())
     assert "스윙 · 보유 10거래일" in report.build_html(log)
-    for horizon, label in (("DAY", "단타"), ("LONG_TERM", "장기"), ("WEEKLY", "WEEKLY")):
+    for horizon, label in (("LONG_TERM", "장기"), ("WEEKLY", "WEEKLY")):
         card = log["results"][0]["candidates"][0]
         card["final"]["horizon"] = card["scenario"]["horizon"] = horizon
         assert f"{label} · 보유 10거래일" in report.build_html(log)

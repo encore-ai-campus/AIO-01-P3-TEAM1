@@ -116,12 +116,6 @@ export function prevWeekday(day: string): string {
   return d;
 }
 
-export function nextWeekday(day: string): string {
-  let d = addDays(day, 1);
-  while (!isWeekday(d)) d = addDays(d, 1);
-  return d;
-}
-
 /** 그 시장 현지 날짜 YYYY-MM-DD. */
 export function marketDay(market: Market, now: Date = new Date()): string {
   const z = zoned(now, TZ[market]);
@@ -151,10 +145,6 @@ export function marketIso(market: Market, day: string, minutes: number): string 
 /** 그 날짜의 정규장 종료 시각 ISO (KR 15:30+09:00, US 뉴욕 16:00). */
 export function sessionEndIso(market: Market, day: string): string {
   return marketIso(market, day, HOURS[market].close);
-}
-
-export function sessionStartIso(market: Market, day: string): string {
-  return marketIso(market, day, HOURS[market].open);
 }
 
 /** day로 끝나는(포함) 평일 n개 (과거 → 최신). */

@@ -11,22 +11,19 @@
 from datetime import datetime
 
 from notifications.service import Notice
-from paper_engine.agents.executor import DAY_CLOSE_AT, money, qty_text, signed_money
+from paper_engine.agents.executor import money, qty_text, signed_money
 from reports.text import COMPLETED_LINE
 from trading.store import KST
 
-from .models import HORIZON_DAY, Recommendation, TradePlan
+from .models import Recommendation, TradePlan
 
 __all__ = ["money", "qty_text", "signed_money", "pct", "when", "day_time", "EXIT_LABEL", "REASON_TEXT",
            "recommendation", "plan_activated", "order_placed", "order_requeued", "filled", "closed", "ended"]
 
-DAY_CUTOFF_TEXT = f"{DAY_CLOSE_AT:%H:%M}"  # 단타 진입 마감·정리 시각 "15:15" (KST, 엔진 DAY_CLOSE_AT)
-
 # 청산 사유: 전문가 이름 (docs/API.md "청산 사유" 표의 화면 이름)과 쉬운 문장 앞부분
-EXIT_LABEL = {"TARGET": "목표가 도달", "STOP": "손절가 도달", "EXPIRED": "보유 기한 경과", "MANUAL": "사용자 매도",
-              "EOD": "장 마감 전 정리"}
+EXIT_LABEL = {"TARGET": "목표가 도달", "STOP": "손절가 도달", "EXPIRED": "보유 기한 경과", "MANUAL": "사용자 매도"}
 EXIT_EASY = {"TARGET": "목표 가격에 닿아", "STOP": "손절 가격에 닿아 손실이 더 커지지 않게", "EXPIRED": "보유 기간이 끝나",
-             "MANUAL": "요청대로", "EOD": "단타 연습이라 장 마감 전에"}
+             "MANUAL": "요청대로"}
 
 # 실행 불가 사유 코드 → 쉬운 문장 (docs/API.md "실행 불가 사유 코드". 화면 표는 frontend/src/lib/plainText.ts REASON_TEXT)
 REASON_TEXT = {
@@ -42,19 +39,17 @@ REASON_TEXT = {
     "position_exists": "이미 이 종목의 모의 주문이나 보유가 있어요",
     "halted": "지금은 새 모의 매수를 멈춰 두었어요",
     "price_passed": "가격이 이미 목표 가격을 넘었거나 손절 가격 아래로 내려왔어요",
-    "day_entry_closed": "지금은 단타 계획을 만들 수 없는 시간이에요",
-    "day_trading_locked": "단타 연습장이 잠겨 있어요",
     "cash_short": "매수 가능 금액보다 사려는 금액이 커요",
     "position_limit": "한 종목에 넣을 수 있는 비중 한도를 넘어요",
     "total_limit": "총 투자 금액 한도를 넘어요",
 }
 
 SOURCE_WHO = {Recommendation.REPORT: "AI 리포트가", Recommendation.ANALYSIS: "AI 교차검증 분석이",
-              Recommendation.DEMO: "정해진 규칙(AI 아님)이", Recommendation.DAY: "직접 입력한 단타 연습 계획이"}
+              Recommendation.DEMO: "정해진 규칙(AI 아님)이"}
 SOURCE_EASY = {Recommendation.REPORT: "AI 리포트", Recommendation.ANALYSIS: "AI 교차검증 분석",
-               Recommendation.DEMO: "연습용 예시 계획 (AI 아님)", Recommendation.DAY: "단타 연습 (AI 아님)"}
+               Recommendation.DEMO: "연습용 예시 계획 (AI 아님)"}
 SOURCE_LABEL = {Recommendation.REPORT: "AI 리포트", Recommendation.ANALYSIS: "AI 교차검증 분석",
-                Recommendation.DEMO: "연습용 예시 계획 (AI 아님)", Recommendation.DAY: "단타 연습 계획 (AI 아님)"}
+                Recommendation.DEMO: "연습용 예시 계획 (AI 아님)"}
 
 
 # --- 숫자 표기 ---
@@ -75,10 +70,6 @@ def day_time(at: datetime) -> str:
     return f"{local.month}월 {local.day}일 {local:%H:%M}"
 
 
-def _day(plan: TradePlan) -> bool:
-    return plan.horizon == HORIZON_DAY
-
-
 def _plan_prices(plan: TradePlan) -> tuple[str, str, str]:
     c = plan.currency
     return money(plan.entry_price, c), money(plan.target_price, c), money(plan.stop_price, c)
@@ -86,10 +77,6 @@ def _plan_prices(plan: TradePlan) -> tuple[str, str, str]:
 
 def _exit_rule(target: str, stop: str) -> str:
     return f"{target}이 되면 팔고, {stop} 아래로 내려가면 손실이 더 커지지 않게 팔아요."
-
-
-def _wait_until(plan: TradePlan) -> str:
-    return f"오늘 {DAY_CUTOFF_TEXT}" if _day(plan) else day_time(plan.entry_deadline)
 
 
 def reason_sentences(codes) -> str:
@@ -132,10 +119,7 @@ def recommendation(rec: Recommendation) -> Notice:
 def plan_activated(plan: TradePlan) -> Notice:
     entry, target, stop = _plan_prices(plan)
     qty = qty_text(plan.quantity)
-    if _day(plan):
-        tail = (f"오늘 {DAY_CUTOFF_TEXT}까지 사지 못하면 사지 않고 끝나고, 산 뒤에도 {DAY_CUTOFF_TEXT}에는 모두 정리해요.")
-    else:
-        tail = f"{day_time(plan.entry_deadline)}까지 사지 못하면 사지 않고 끝나요."
+    tail = f"{day_time(plan.entry_deadline)}까지 사지 못하면 사지 않고 끝나요."
     numbers = (f"{qty} · 진입 {entry} 지정가 · 목표 {target} · 손절 {stop} · 진입 기한 {when(plan.entry_deadline)}")
     return Notice(
         title=f"{plan.name} 모의 자동매매를 시작했어요",
@@ -152,7 +136,7 @@ def order_placed(plan: TradePlan, order_id: int, quantity: float) -> Notice:
     qty = qty_text(quantity)
     return Notice(
         title=f"{plan.name} 모의 매수 주문을 냈어요",
-        body=f"모의 계좌에 {plan.name} {qty}를 {entry} 이하에 사는 주문을 냈어요. {_wait_until(plan)}까지 기다려요.",
+        body=f"모의 계좌에 {plan.name} {qty}를 {entry} 이하에 사는 주문을 냈어요. {day_time(plan.entry_deadline)}까지 기다려요.",
         expert_title=f"{plan.name} 진입 주문 접수",
         expert_body=f"{_order_line(plan, quantity)} 주문 접수 (모의 주문 #{order_id}). 진입 기한 {when(plan.entry_deadline)}",
         numbers=f"{qty} · 지정가 {entry} · 모의 주문 #{order_id}")
@@ -168,7 +152,7 @@ def order_requeued(plan: TradePlan, order_id: int, quantity: float, previous_qua
     return Notice(
         title=f"{plan.name} 모의 매수 주문을 다시 냈어요",
         body=(f"그날 정해진 가격에 사지 못해 모의 계좌에 {plan.name} {qty}를 {entry} 이하에 사는 주문을 다시 냈어요.{shrink} "
-              f"{_wait_until(plan)}까지 기다려요."),
+              f"{day_time(plan.entry_deadline)}까지 기다려요."),
         expert_title=f"{plan.name} 진입 주문 다시 접수",
         expert_body=(f"{_order_line(plan, quantity)} 다시 주문 (모의 주문 #{order_id}{expert_shrink}). "
                      f"진입 기한 {when(plan.entry_deadline)}"),
@@ -179,10 +163,9 @@ def filled(plan: TradePlan, fill_price: float, quantity: float) -> Notice:
     c = plan.currency
     _, target, stop = _plan_prices(plan)
     fill, qty = money(fill_price, c), qty_text(quantity)
-    tail = f" 오늘 {DAY_CUTOFF_TEXT}에는 남은 수량을 모두 정리해요." if _day(plan) else ""
     return Notice(
         title=f"{plan.name} 모의 계좌에서 샀어요",
-        body=f"모의 계좌에서 {plan.name} {qty}를 {fill}에 샀어요. {_exit_rule(target, stop)}{tail}",
+        body=f"모의 계좌에서 {plan.name} {qty}를 {fill}에 샀어요. {_exit_rule(target, stop)}",
         expert_title=f"{plan.name} 진입 체결",
         expert_body=f"{fill} × {qty}. 목표 {target} / 손절 {stop} 자동 감시",
         numbers=f"체결 {fill} × {qty} · 목표 {target} · 손절 {stop}")
@@ -209,8 +192,6 @@ def closed(plan: TradePlan, exit_price: float | None, exit_reason: str | None, p
 END_EASY = {
     "no_order_by_deadline": "진입 기한까지 모의 주문을 내지 못해 모의 자동매매를 끝냈어요. 산 것은 없어요.",
     "unfilled_by_deadline": "진입 기한까지 {entry} 이하로 내려오지 않아 모의 계좌에서 사지 않고 끝냈어요. 돈은 그대로예요.",
-    "day_unfilled": (f"단타 진입 마감({DAY_CUTOFF_TEXT})까지 {{entry}} 이하로 내려오지 않아 모의 계좌에서 사지 않고 끝냈어요. "
-                     "돈은 그대로예요."),
     "user_stopped": "요청대로 모의 자동매매를 멈췄어요. 산 것은 없어요.",
     "order_cancelled": "모의 주문을 직접 취소해서 모의 자동매매도 멈췄어요. 산 것은 없어요.",
     "order_rejected": "모의 주문을 낼 수 없어 모의 자동매매를 시작하지 못했어요.",

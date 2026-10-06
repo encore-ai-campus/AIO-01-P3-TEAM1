@@ -1,6 +1,6 @@
 """관리자 화면: 사용자 화면에 프로필(닉네임·공개 여부)과 투자자 프로필(읽기 전용)을 붙이고, 각 목록도 따로 둔다.
 
-투자자 프로필은 점수·단계·주린이모드·퀴즈 통과 시각만 보인다 (진단 답 원문은 보이지 않는다). 관리자 화면에서 고치지 않는다 —
+투자자 프로필은 점수·단계·주린이모드·진단 시각만 보인다 (진단 답 원문은 보이지 않는다). 관리자 화면에서 고치지 않는다 —
 값은 본인이 API로만 바꾼다 (docs/API.md "투자자 프로필과 주린이모드"). 지우면 기본값(주린이모드 켬·진단 전)으로 돌아간다.
 """
 from django import forms
@@ -44,7 +44,7 @@ def _labeled(code, labels: dict) -> str | None:
 class InvestorProfileDisplay:
     """투자자 프로필 읽기 전용 칸 (인라인과 목록이 같이 쓴다)."""
     investor_fields = ("beginner_mode", "experience_score", "experience", "risk_score", "risk",
-                       "recommended_beginner_mode", "assessed_at", "day_quiz_passed_at", "updated_at")
+                       "recommended_beginner_mode", "assessed_at", "updated_at")
 
     @admin.display(description="경험 단계", ordering="experience_level")
     def experience(self, obj):
@@ -55,7 +55,7 @@ class InvestorProfileDisplay:
         return _labeled(obj.risk_profile, RISK_PROFILE_LABELS)
 
     def has_add_permission(self, request, obj=None):
-        return False  # 본인이 진단·스위치·퀴즈로 만든다
+        return False  # 본인이 진단·스위치로 만든다
 
     def has_change_permission(self, request, obj=None):
         return False  # 읽기 전용
@@ -105,7 +105,7 @@ class ProfileAdmin(admin.ModelAdmin):
 class InvestorProfileAdmin(InvestorProfileDisplay, admin.ModelAdmin):
     fields = ("user", *InvestorProfileDisplay.investor_fields)
     readonly_fields = fields
-    list_display = ("user", "beginner_mode", "experience", "risk", "assessed_at", "day_quiz_passed_at")
+    list_display = ("user", "beginner_mode", "experience", "risk", "assessed_at")
     list_filter = ("beginner_mode", "experience_level", "risk_profile")
     search_fields = ("user__username",)
     list_select_related = ("user",)

@@ -44,13 +44,13 @@ export function useExitWatch(orderId: number | null, enabled: boolean) {
   return { reservation, held };
 }
 
-/** 계획이 바뀌면 다시 받아야 하는 것들 (추천의 myPlan·planCount, 계획, 알림, 모의 계좌·주문, 단타 상태·계획). */
+/** 계획이 바뀌면 다시 받아야 하는 것들 (추천의 myPlan·planCount, 계획, 알림, 모의 계좌·주문). */
 export function useRefreshAutotrade() {
   const qc = useQueryClient();
   return useCallback(
     () =>
       Promise.all(
-        ["recommendations", "recommendation", "plans", "plan", "notifications", "account", "orders", "reservations", "fills", "day"].map((k) =>
+        ["recommendations", "recommendation", "plans", "plan", "notifications", "account", "orders", "reservations", "fills"].map((k) =>
           qc.invalidateQueries({ queryKey: [k] }),
         ),
       ),

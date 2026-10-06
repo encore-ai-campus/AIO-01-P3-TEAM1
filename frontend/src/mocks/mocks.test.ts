@@ -1,15 +1,14 @@
-// 가짜 API("서버") 규칙: 장마감 기준, 투자자 프로필·퀴즈, 사유 코드, 보유 방식, 단타 연습, 리포트 한도, 장기투자.
+// 가짜 API("서버") 규칙: 장마감 기준, 투자자 프로필, 사유 코드, 보유 방식, 리포트 한도, 장기투자.
 // 시각에 기대는 것은 freezeTime(src/test/time.ts)으로 Date만 고정한다.
 import { describe, expect, it } from "vitest";
 import { ApiError, api } from "../api/client";
-import type { DayPreview, InvestorAnswers, InvestorProfile, ReportQuota, TradePlanDetail } from "../api/types";
+import type { InvestorAnswers, InvestorProfile, ReportQuota } from "../api/types";
 import { basisDay, sessionEndIso, weekdaysEnding } from "./clock";
 import * as db from "./db";
 import { answersError, assess } from "./investor";
 import { dailyMoveOf } from "./longterm";
 import { seedStocks } from "./seed";
-import { gradeQuiz, quizAnswerKey, quizAnswersError, quizQuestions } from "./quiz";
-import { freezeTime as at, moveTime } from "../test/time";
+import { freezeTime as at } from "../test/time";
 
 const alice = () => {
   db.setSession("alice");
@@ -51,18 +50,24 @@ describe("장 달력 (가짜 API)", () => {
   });
 });
 
-describe("장마감 기준 시세·평가", () => {
-  it("시세는 직전 종가와 그 기준 시각이고, 장중 확인 가격(setPrice)이 바뀌어도 그대로다", () => {
+describe("실시간 시세와 장마감 기준 평가", () => {
+  it("시세는 실시간(장중 가격 · 받은 시각)이고 setPrice를 따라가며, 오늘 진행 중인 봉이 붙는다", () => {
     at("2026-10-06T11:00:00+09:00"); // 화요일 장중 → KR 기준일은 월요일
     const q = db.quotes(["005930"])[0];
-    expect(q).toMatchObject({ price: 71_200, prevClose: 70_500, change: 700, basis: "close", asOf: "2026-10-05T15:30:00+09:00" });
+    expect(q).toMatchObject({ price: 71_200, prevClose: 70_500, change: 700, basis: "live" });
+    expect(q.asOf).toMatch(/^2026-10-06T11:00:\d{2}\+09:00$/); // 받은 시각 = 지금 (KST, 초까지)
     db.setPrice("005930", 74_000); // 목표가(77,000) 아래라 보유는 그대로
-    expect(db.quotes(["005930"])[0].price).toBe(71_200);
+    expect(db.quotes(["005930"])[0]).toMatchObject({ price: 74_000, prevClose: 70_500, change: 3_500, basis: "live" });
 
+    // 일봉: 완성 봉 119개 + 오늘(화) 진행 중인 봉 = 120개. 시가는 직전 종가, 종가는 지금 가격
     const stock = db.stockDetail("005930");
-    expect(stock.candles.at(-1)).toMatchObject({ date: "2026-10-05", close: 71_200 });
-    expect(stock.candles.at(-2)?.close).toBe(70_500);
-    expect(stock.asOf).toBe("2026-10-05T15:30:00+09:00");
+    expect(stock.candles).toHaveLength(120);
+    expect(stock.candles.at(-1)).toMatchObject({ date: "2026-10-06", open: 71_200, close: 74_000 });
+    expect(stock.candles.at(-1)!.high).toBeGreaterThanOrEqual(74_000);
+    expect(stock.candles.at(-1)!.low).toBeLessThanOrEqual(71_200);
+    expect(stock.candles.at(-2)).toMatchObject({ date: "2026-10-05", close: 71_200 });
+    expect(stock.candles.at(-3)?.close).toBe(70_500);
+    expect(stock.asOf).toBe(stock.quote.asOf); // 마지막 봉이 진행 중이면 시세를 받은 시각
 
     const m = db.marketStatus();
     expect(m.quoteProvider).toBe("키움증권 REST API");
@@ -78,6 +83,36 @@ describe("장마감 기준 시세·평가", () => {
     expect(db.ranking(1).pricesAsOf.KR).toBe("2026-10-05T15:30:00+09:00");
     // 시장가 체결은 장중 가격
     expect(db.placeOrder(1, { symbol: "005380", quantity: 1, orderType: "MARKET" }).message).toBe("현대차 1주 248,000원에 매수 체결");
+  });
+
+  it("장이 닫혀 있으면 오늘 봉이 없고 StockDetail.asOf는 마지막 완성 봉의 정규장 종료 시각 (시세는 그래도 실시간)", () => {
+    at("2026-10-06T11:00:00+09:00", { marketOpen: { KR: false, US: false } });
+    const stock = db.stockDetail("005930");
+    expect(stock.quote).toMatchObject({ price: 71_200, basis: "live" });
+    expect(stock.candles).toHaveLength(120);
+    expect(stock.candles.at(-1)).toMatchObject({ date: "2026-10-05", close: 71_200 });
+    expect(stock.asOf).toBe("2026-10-05T15:30:00+09:00");
+    expect(stock.asOf).not.toBe(stock.quote.asOf);
+    // 미국도 장이 닫혀 있으면 마지막 완성 봉 (뉴욕 16:00)
+    expect(db.stockDetail("AAPL").asOf).toBe("2026-10-05T16:00:00-04:00");
+  });
+
+  it("증권사 조회 키가 없으면 현재가도 종가도 없는 Quote (basis close, 값 null) — 오늘 봉도 없다", () => {
+    at("2026-10-06T11:00:00+09:00", { brokerReady: false });
+    expect(db.quotes(["005930"])[0]).toEqual({
+      symbol: "005930",
+      name: "삼성전자",
+      currency: "KRW",
+      price: null,
+      prevClose: null,
+      change: null,
+      changeRate: null,
+      asOf: null,
+      basis: "close",
+    });
+    const stock = db.stockDetail("005930");
+    expect(stock.candles.at(-1)?.date).toBe("2026-10-05");
+    expect(stock.asOf).toBe("2026-10-05T15:30:00+09:00");
   });
 
   it("분석 상세에 뉴스 출처·자료 기준일", () => {
@@ -123,7 +158,7 @@ describe("투자자 프로필 · 주린이모드", () => {
   it("진단 전 기본값은 주린이모드 켬, 제출(PUT)은 모드를 바꾸지 않고 스위치(PATCH)만 바꾼다", () => {
     const b = bob();
     expect(db.toMe(b).beginnerMode).toBe(true);
-    expect(db.investorProfile(b.id)).toMatchObject({ beginnerMode: true, answers: null, experienceLevel: null, dayTradingUnlocked: false });
+    expect(db.investorProfile(b.id)).toMatchObject({ beginnerMode: true, answers: null, experienceLevel: null });
     const p = db.submitInvestorProfile(b.id, { answers: example });
     expect(p).toMatchObject({ beginnerMode: true, experienceScore: 1, recommendedBeginnerMode: true });
     expect(p.assessedAt).toBeTruthy();
@@ -136,35 +171,8 @@ describe("투자자 프로필 · 주린이모드", () => {
     expect(db.patchInvestorProfile(b.id, { beginnerMode: false }).beginnerMode).toBe(false);
     expect(db.toMe(b).beginnerMode).toBe(false);
     expect(caught(() => db.patchInvestorProfile(b.id, { beginnerMode: "no" })).status).toBe(400);
-    // 앨리스는 진단을 마친 중급 · 퀴즈 통과 (지금 화면 테스트가 전문가 보기로 돈다)
-    expect(db.investorProfile(1)).toMatchObject({ beginnerMode: false, experienceLevel: "intermediate", riskProfile: "neutral", dayTradingUnlocked: true });
-  });
-});
-
-describe("단타 연습 퀴즈", () => {
-  it("문항에는 정답이 없고, 5문항 모두 맞아야 통과, 틀려도 이전 통과 기록은 남는다", () => {
-    const qs = quizQuestions();
-    expect(qs.map((q) => q.id)).toEqual(["q1", "q2", "q3", "q4", "q5"]);
-    expect(JSON.stringify(qs)).not.toMatch(/answer|explanation/);
-    const key = quizAnswerKey();
-    expect(gradeQuiz(key)).toMatchObject({ passed: true, correct: 5, total: 5 });
-    const wrong = { ...key, q4: key.q4 === "a" ? "b" : "a" };
-    const graded = gradeQuiz(wrong);
-    expect(graded).toMatchObject({ passed: false, correct: 4 });
-    expect(graded.results.every((r) => r.explanation.length > 0)).toBe(true);
-    expect(quizAnswersError({ ...key, q6: "a" })).toMatch(/모르는 문항/);
-    expect(quizAnswersError({ ...key, q1: "z" })).toMatch(/없는 보기/);
-
-    const b = bob();
-    expect(db.dayQuiz(b.id).passedAt).toBeNull();
-    const passed = db.submitDayQuiz(b.id, { answers: key });
-    expect(passed.passedAt).toBeTruthy();
-    expect(db.submitDayQuiz(b.id, { answers: wrong }).passedAt).toBe(passed.passedAt);
-    // 잠금은 주린이모드 끔 + 퀴즈 통과
-    expect(db.investorProfile(b.id).dayTradingUnlocked).toBe(false);
-    db.patchInvestorProfile(b.id, { beginnerMode: false });
-    expect(db.investorProfile(b.id).dayTradingUnlocked).toBe(true);
-    expect(caught(() => db.submitDayQuiz(b.id, { answers: { q1: "a" } })).status).toBe(400);
+    // 앨리스는 진단을 마친 중급 (지금 화면 테스트가 전문가 보기로 돈다)
+    expect(db.investorProfile(1)).toMatchObject({ beginnerMode: false, experienceLevel: "intermediate", riskProfile: "neutral" });
   });
 });
 
@@ -172,7 +180,7 @@ describe("실행 불가 사유 코드 · 활성화", () => {
   it("미리 보기는 종가로 보고, 사유와 코드가 같은 길이·순서다", () => {
     const ok = db.riskPreview(1, 91, null);
     expect(ok).toMatchObject({ activatable: true, reasons: [], reasonCodes: [], lastPrice: 182_300, priceBasis: "close" });
-    expect(ok.lastPriceAsOf).toBe(db.quotes(["000660"])[0].asOf);
+    expect(ok.lastPriceAsOf).toBe(sessionEndIso("KR", basisDay("KR"))); // 미리 보기는 장마감 기준 (실시간 시세의 받은 시각이 아니다)
 
     db.options.halted = true;
     db.setClose("000660", 205_000); // 종가가 목표가(203,000) 이상
@@ -216,19 +224,18 @@ describe("실행 불가 사유 코드 · 활성화", () => {
 
   it("acknowledged는 activated 사건에 남는다 (없으면 false)", () => {
     const plan = db.activate(alice(), 91, { budgetKrw: 1_000_000, acknowledged: true });
-    expect(plan.horizon).toBe("SWING");
     expect(plan.events[0]).toMatchObject({ kind: "activated", details: { via: "web", budgetKrw: 1_000_000, acknowledged: true } });
     expect(db.activate(alice(), 92, {}).events[0].details.acknowledged).toBe(false);
   });
 });
 
 describe("보유 방식 style", () => {
-  it("목표·손절·기한이 없으면 long, 있으면 swing(둘 다 필요), day·모르는 값은 400", () => {
+  it("목표·손절·기한이 없으면 long, 있으면 swing(둘 다 필요), 모르는 값은 400", () => {
     const long = db.placeOrder(1, { symbol: "005380", quantity: 1, orderType: "MARKET" });
     expect(long.order?.style).toBe("long");
     expect(caught(() => db.placeOrder(1, { symbol: "035420", quantity: 1, orderType: "MARKET", days: 5 })).message).toMatch(/둘 다/);
     expect(caught(() => db.placeOrder(1, { symbol: "035420", quantity: 1, orderType: "MARKET", style: "swing" })).message).toMatch(/둘 다/);
-    expect(caught(() => db.placeOrder(1, { symbol: "035420", quantity: 1, orderType: "MARKET", style: "day" } as never)).status).toBe(400);
+    expect(caught(() => db.placeOrder(1, { symbol: "035420", quantity: 1, orderType: "MARKET", style: "short" } as never)).status).toBe(400);
     expect(caught(() => db.placeOrder(1, { symbol: "035420", quantity: 1, orderType: "MARKET", style: "long", targetPrice: 1 })).status).toBe(400);
     const swing = db.placeOrder(1, { symbol: "035420", quantity: 1, orderType: "MARKET", targetPrice: 210_000, stopPrice: 185_000 });
     expect(swing.order?.style).toBe("swing");
@@ -249,107 +256,6 @@ describe("보유 방식 style", () => {
     const order = db.listOrders(1, "active").find((o) => o.symbol === "005380")!;
     expect(order.style).toBe("long");
     expect(caught(() => db.modifyOrder(1, order.id, { days: 3 })).status).toBe(400);
-  });
-});
-
-describe("단타 연습", () => {
-  const input = { symbol: "005380", entryPrice: 247_000, targetPrice: 262_000, stopPrice: 244_000 };
-
-  it("잠금·세션·한도 상태", () => {
-    at("2026-10-06T10:00:00+09:00");
-    expect(db.dayStatus(2).lockReasons).toEqual(["beginner_mode", "quiz_not_passed"]);
-    const s = db.dayStatus(1);
-    expect(s).toMatchObject({
-      unlocked: true,
-      session: { date: "2026-10-06", acceptingPlans: true, entryCutoffAt: "2026-10-06T15:15:00+09:00", closeAt: "2026-10-06T15:30:00+09:00" },
-      limits: { riskPerTrade: 0.005, maxDailyLoss: 0.02, maxDailyTrades: 10, minRewardRisk: 2 },
-    });
-    moveTime("2026-10-06T15:16:00+09:00");
-    expect(db.dayStatus(1).session).toMatchObject({ date: "2026-10-07", acceptingPlans: false });
-  });
-
-  it("미리 보기: 잠기면 400 day_trading_locked, 만들 수 없는 시각이면 200 + day_entry_closed, 비용 합계", () => {
-    at("2026-10-06T10:00:00+09:00");
-    expect(caught(() => db.dayPreview(2, input)).extra).toEqual({ reasonCodes: ["day_trading_locked"] });
-    const pv = db.dayPreview(1, { ...input, entryPrice: 247_050 }) as DayPreview; // 호가 단위로 내림
-    expect(pv.activatable).toBe(true);
-    expect(pv.limitedBy).toBe("건당 위험 한도");
-    expect(pv.costsAtTarget.taxKrw).toBe(Math.round(262_000 * pv.quantity * 0.002));
-    expect(pv.costsAtTarget.totalKrw).toBe(pv.costsAtTarget.commissionKrw + pv.costsAtTarget.taxKrw);
-    expect(pv.costsAtStop.totalKrw).toBeLessThan(pv.costsAtTarget.totalKrw);
-    expect(caught(() => db.dayPreview(1, { ...input, symbol: "AAPL" })).status).toBe(400);
-    expect(caught(() => db.dayPreview(1, { ...input, stopPrice: 250_000 })).status).toBe(400);
-    expect(caught(() => db.dayPreview(1, { ...input, extra: 1 })).message).toMatch(/모르는 키/);
-    // 예산도 가격처럼 JSON 숫자만 (숫자 문자열은 400 — 서버 daytrade.service._budget)
-    expect(db.dayPreview(1, { ...input, budgetKrw: 1_000_000 }).budgetKrw).toBe(1_000_000);
-    expect(db.dayPreview(1, { ...input, budgetKrw: null }).budgetKrw).toBeNull();
-    for (const budgetKrw of ["1000000", "", true, 0, -1])
-      expect(caught(() => db.dayPreview(1, { ...input, budgetKrw })).message).toBe("budgetKrw는 0보다 큰 숫자여야 합니다.");
-    expect(caught(() => db.createDayPlan(alice(), { ...input, budgetKrw: "1000000", acknowledged: true })).status).toBe(400);
-
-    moveTime("2026-10-06T15:20:00+09:00");
-    const closed = db.dayPreview(1, input);
-    expect(closed.activatable).toBe(false);
-    expect(closed.reasonCodes).toContain("day_entry_closed");
-    expect(closed.session.date).toBe("2026-10-07");
-  });
-
-  it("계획 만들기 → 체결 → 15:15 뒤 장 마감 전 정리(EOD), 복기", () => {
-    at("2026-10-06T10:00:00+09:00", { planStepMs: Infinity });
-    const me = alice();
-    expect(caught(() => db.createDayPlan(me, input)).extra).toBeNull(); // acknowledged 없음 = 입력 오류
-    const plan = db.createDayPlan(me, { ...input, acknowledged: true }) as TradePlanDetail;
-    expect(plan).toMatchObject({ horizon: "DAY", source: "day", status: "entry_pending", entryDeadline: "2026-10-06T15:15:00+09:00" });
-    expect(plan.recommendation).toMatchObject({ source: "day", horizon: "DAY", holdingDays: 1, probabilityAssumed: true, summary: "단타 연습 계획 (직접 입력, AI 아님)" });
-    expect(db.listOrders(1, "active").find((o) => o.id === plan.orderId)).toMatchObject({ style: "day", expireDate: null });
-    // day 추천은 source=day일 때만, 만든 사람만 본다
-    expect(db.listRecommendations(1, { status: "all" }).some((r) => r.source === "day")).toBe(false);
-    expect(db.listRecommendations(1, { status: "all", source: "day" }).map((r) => r.id)).toContain(plan.recommendationId);
-    expect(db.listRecommendations(2, { status: "all", source: "day" })).toEqual([]);
-    expect(caught(() => db.getRecommendation(2, plan.recommendationId)).status).toBe(404);
-    expect(caught(() => db.activate(me, plan.recommendationId, {})).status).toBe(400);
-    // 같은 종목은 하나만
-    expect(caught(() => db.createDayPlan(me, { ...input, acknowledged: true })).extra?.reasonCodes).toEqual(["plan_exists", "position_exists"]);
-
-    db.setPrice("005380", 246_500); // 지정가 아래 → 체결
-    expect(db.listDayPlans(1, null).results[0].status).toBe("holding");
-    moveTime("2026-10-06T15:16:00+09:00");
-    const after = db.listDayPlans(1, "2026-10-06").results[0];
-    expect(after).toMatchObject({ status: "closed", exitReason: "EOD" });
-    expect(db.dayStatus(1).today.orders).toBe(1);
-
-    moveTime("2026-10-06T16:00:00+09:00");
-    const review = db.dayReview(1, null); // 기준일 = 오늘 (15:40 이후)
-    expect(review.date).toBe("2026-10-06");
-    expect(review.plans[0]).toMatchObject({ entryPrice: 246_500, exitReason: "EOD", exitPrice: 246_500 });
-    expect(review.plans[0].costsKrw).toBeGreaterThan(0);
-    expect(review.totals).toMatchObject({ filled: 1, wins: 0, losses: 1 });
-    expect(caught(() => db.dayReview(1, "2026-10-07")).status).toBe(400);
-  });
-
-  it("앨리스의 끝난 단타 계획이 기준일 복기에 있다 (09:12 체결 → 15:15 정리)", () => {
-    at("2026-10-06T10:00:00+09:00");
-    const review = db.dayReview(1, null);
-    expect(review.date).toBe("2026-10-05");
-    expect(review.plans).toHaveLength(1);
-    expect(review.plans[0]).toMatchObject({ exitReason: "EOD", entryAt: "2026-10-05T09:12:04+09:00", exitAt: "2026-10-05T15:15:06+09:00" });
-    expect(review.totals.filled).toBe(1);
-  });
-
-  it("분봉은 완성된 정규장 세션만", () => {
-    at("2026-10-06T10:00:00+09:00");
-    const m = db.minuteCandles("005930", null, null);
-    expect(m).toMatchObject({ symbol: "005930", date: "2026-10-05", minutes: 1, asOf: "2026-10-05T15:30:00+09:00", partial: false });
-    expect(m.candles).toHaveLength(390);
-    expect(m.candles[0].time).toBe("2026-10-05T09:00:00+09:00");
-    expect(m.candles.at(-1)?.time).toBe("2026-10-05T15:29:00+09:00");
-    expect(m.candles.at(-1)?.close).toBe(db.stockDetail("005930").candles.at(-1)?.close);
-    expect(db.minuteCandles("005930", "2026-10-05", "5").candles).toHaveLength(78);
-    expect(caught(() => db.minuteCandles("005930", "2026-10-06", null)).status).toBe(400); // 아직 진행 중
-    expect(caught(() => db.minuteCandles("005930", null, "2")).status).toBe(400);
-    expect(caught(() => db.minuteCandles("AAPL", null, null)).status).toBe(400);
-    expect(db.minuteCandles("005930", "2026-10-04", null)).toMatchObject({ candles: [], asOf: null, partial: false }); // 일요일
-    expect(db.minuteCandles("005930", "2026-09-01", null)).toMatchObject({ candles: [], partial: true }); // 받을 수 있는 범위 밖
   });
 });
 

@@ -18,6 +18,7 @@ import { cn } from "../../../lib/cn";
 import { formatDateTime, formatPrice } from "../../../lib/format";
 import { scrollToTop } from "../../../lib/motion";
 import { DISCLAIMER, opinionText } from "../../../lib/plainText";
+import { stockAsOfBasis } from "../../../lib/quote";
 import { type ReportTargets, draftOf, oneLinerOf, opinionOf, planGuide, researchOf, scenarioOf, stepsOf, trustOf, validTargets } from "../../../lib/reports";
 import { Icon } from "../../Icon";
 import { Collapse } from "../../motion/Collapse";
@@ -41,7 +42,7 @@ const ReportChart = lazy(() => import("./ReportChart").then((m) => ({ default: m
 // 범례 견본 색 (차트의 선 색과 같은 토큰: 목표 = 상승, 사는 가격 = 보조 글자, 손절 = 하락)
 const SWATCH: Record<PriceLineKind, string> = { target: "border-up", entry: "border-sub", stop: "border-down" };
 
-/** 일봉(완성 봉, 장마감 기준) + AI가 제안한 가격 선과 그 값을 적은 범례. 완성된 리포트에서만 불러온다. */
+/** 일봉(오늘 정규장이 열렸으면 진행 중인 봉까지 — 실시간 시세 기준) + AI가 제안한 가격 선과 그 값을 적은 범례. 완성된 리포트에서만 불러온다. */
 function ChartSection({ symbol, market, currency, targets }: { symbol: string; market: Market; currency: Currency; targets: ReportTargets | null }) {
   const { data: stock, isError, refetch, isFetching } = useStock(symbol);
   const ok = targets !== null && validTargets(targets);
@@ -98,9 +99,14 @@ function ChartSection({ symbol, market, currency, targets }: { symbol: string; m
         <p className="mt-1.5 flex flex-wrap items-center gap-x-1.5 text-[12px] leading-snug text-sub">
           일봉 · 최근 {stock.candles.length}일 ·
           {stock.asOf ? (
-            <Term k="장마감 기준">
-              <AsOf at={stock.asOf} market={market} />
-            </Term>
+            stockAsOfBasis(stock) === "live" ? (
+              // 마지막 봉이 오늘 진행 중이다 — 기준 표시는 시세를 받은 시각
+              <AsOf at={stock.asOf} market={market} basis="live" />
+            ) : (
+              <Term k="장마감 기준">
+                <AsOf at={stock.asOf} market={market} />
+              </Term>
+            )
           ) : (
             <Term k="장마감 기준" />
           )}

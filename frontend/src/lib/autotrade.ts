@@ -26,14 +26,12 @@ export const SOURCE: Record<RecommendationSource, { label: string; chip: string;
   report: { label: "AI 리포트", chip: "bg-brand-soft text-brand-ink", icon: "doc", hint: "AI 리포트의 결론에서 나온 계획" },
   analysis: { label: "AI 교차검증 분석", chip: "bg-brand-soft text-brand-ink", icon: "sparkle", hint: "여러 AI가 서로 검증한 분석에서 나온 계획 (리포트 없음)" },
   demo: { label: "연습용 예시 · AI 아님", chip: "bg-warn-soft text-warn-ink", icon: "chart", hint: "최근 변동폭(ATR)으로 목표·손절을 정한 규칙 기반 예시" },
-  day: { label: "단타 연습 · AI 아님", chip: "bg-warn-soft text-warn-ink", icon: "bolt", hint: "단타 연습장에서 직접 입력한 계획" },
 };
 
 /** 보유 방식 배지 (Position·Order의 style). */
 export const STYLE_BADGE: Record<HoldingStyle, { label: string; chip: string }> = {
   swing: { label: "스윙", chip: "bg-brand-soft text-brand-ink" },
   long: { label: "장기", chip: "bg-ok-soft text-ok-ink" },
-  day: { label: "단타", chip: "bg-warn-soft text-warn-ink" },
 };
 
 export const RISK_LEVEL: Record<RiskLevel, { label: string; chip: string }> = {
@@ -62,7 +60,6 @@ export const EXIT_REASON: Record<NonNullable<TradePlan["exitReason"]>, string> =
   STOP: "손절가 도달",
   EXPIRED: "보유 기한 경과",
   MANUAL: "사용자 매도",
-  EOD: "장 마감 전 정리",
 };
 
 /** 청산 사유 → 화면 이름. 모르는 값은 그대로 (docs/API.md "화면은 모르는 값이면 그대로 보인다"). */
@@ -292,11 +289,11 @@ export function splitProposals<T extends { source: RecommendationSource }>(recs:
   return { main: recs.filter((r) => r.source === "report"), others: recs.filter((r) => r.source !== "report") };
 }
 
-const KIND_SHORT: Record<RecommendationSource, string> = { report: "AI 리포트", analysis: "교차검증 분석", demo: "연습용 예시", day: "단타 연습" };
+const KIND_SHORT: Record<RecommendationSource, string> = { report: "AI 리포트", analysis: "교차검증 분석", demo: "연습용 예시" };
 
 /** 접힌 "다른 계획 ○개 (…)" 괄호 안: 실제로 들어 있는 출처만 (분석만 있으면 "교차검증 분석"). */
 export function otherKinds(recs: readonly { source: RecommendationSource }[]): string {
-  const order: RecommendationSource[] = ["analysis", "demo", "day", "report"];
+  const order: RecommendationSource[] = ["analysis", "demo", "report"];
   return order.filter((s) => recs.some((r) => r.source === s)).map((s) => KIND_SHORT[s]).join("·");
 }
 
@@ -420,8 +417,8 @@ export function priceLadder(stop: number, entry: number, target: number, last: n
 }
 
 /**
- * 직전 종가에서 계획의 가격까지 남은 거리 (계획 상세의 "얼마나 남았나" 한 줄 — trade-25).
- * 사기 전(active·entry_pending): 사는 가격까지. 보유 중(holding): 목표·손절까지. 그 밖이거나 종가가 없으면 빈 목록.
+ * 시세의 가격(실시간 현재가, 못 받은 종목은 직전 종가)에서 계획의 가격까지 남은 거리 (계획 상세의 "얼마나 남았나" 한 줄 — trade-25).
+ * 사기 전(active·entry_pending): 사는 가격까지. 보유 중(holding): 목표·손절까지. 그 밖이거나 시세가 없으면 빈 목록.
  */
 export function ladderDistances(
   status: TradePlanStatus,

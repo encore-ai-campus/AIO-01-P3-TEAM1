@@ -76,9 +76,17 @@ def test_failed_close_is_cached_so_polling_does_not_repeat_calls(api, fake):
     fake.daily_candles = broken
     for _ in range(3):  # 화면이 되풀이해 보내는 폴링
         quotes = api.get("/api/quotes?symbols=005930,000660").json()["quotes"]
-        assert [(q["price"], q["prevClose"], q["changeRate"], q["asOf"]) for q in quotes] == [(None,) * 4] * 2
+        # 현재가는 보이고 전 거래일 종가(등락)만 비어 있다
+        assert [(q["price"], q["prevClose"], q["changeRate"], q["basis"]) for q in quotes] == [
+            (70000, None, None, "live"), (200000, None, None, "live")]
     assert sorted(calls) == ["000660", "005930"]  # 종목마다 한 번만 (실패도 잠시 캐시한다)
-    assert fake.calls.count("prices") == 0  # 화면 시세에 현재가를 부르지 않는다
+    # 현재가도 받지 못하면 장마감 기준 — 그 일봉 실패도 잠시 캐시한다
+    cache.clear()
+    fake.prices = lambda symbols: (_ for _ in ()).throw(OSError("현재가 조회 실패"))
+    for _ in range(3):
+        quotes = api.get("/api/quotes?symbols=005930,000660").json()["quotes"]
+        assert [(q["price"], q["prevClose"], q["asOf"], q["basis"]) for q in quotes] == [(None, None, None, "close")] * 2
+    assert sorted(calls) == ["000660", "000660", "005930", "005930"]
 
 
 def test_quotes_limits_new_close_lookups_per_request(api, fake, monkeypatch):
@@ -86,10 +94,17 @@ def test_quotes_limits_new_close_lookups_per_request(api, fake, monkeypatch):
     path = "/api/quotes?symbols=005930,005935,000660"
     first = api.get(path).json()["quotes"]
     assert fake.calls.count("daily_candles") == 1
-    assert [q["price"] is not None for q in first] == [True, False, False]  # 나머지는 다음 폴링에 채운다
+    assert all(q["price"] is not None for q in first)  # 현재가는 한 번에 묶어 받는다
+    assert [q["prevClose"] is not None for q in first] == [True, False, False]  # 나머지는 다음 폴링에 채운다
     api.get(path)
     third = api.get(path).json()["quotes"]
-    assert fake.calls.count("daily_candles") == 3 and all(q["price"] is not None for q in third)
+    assert fake.calls.count("daily_candles") == 3 and all(q["prevClose"] is not None for q in third)
+    # 현재가를 받지 못한 종목의 종가(장마감 기준)도 같은 예산을 쓴다
+    cache.clear()
+    fake.prices = lambda symbols: (_ for _ in ()).throw(OSError("현재가 조회 실패"))
+    first = api.get(path).json()["quotes"]
+    assert fake.calls.count("daily_candles") == 4
+    assert [(q["basis"], q["price"] is not None) for q in first] == [("close", True), ("close", False), ("close", False)]
 
 
 # --- 한 시장·한 번의 실패 ---

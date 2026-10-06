@@ -1,15 +1,17 @@
-"""시세 서비스 (docs/DECISIONS.md 8-2·14-1). 증권사 조회는 `config.engine.broker_client()` 하나로 하고 Django 캐시에 짧게 둔다.
+"""시세 서비스 (docs/DECISIONS.md 8-2·14-1·17). 증권사 조회는 `config.engine.broker_client()` 하나로 하고 Django 캐시에 짧게 둔다.
 
-- **화면에 보이는 가격은 장마감 기준**이다 (docs/API.md 공통 규칙 "장마감 기준"): `basis`·`closes`·`close_price`·`completed_candles`.
+- **종목 조회의 시세는 실시간**이다 (docs/API.md 공통 규칙 "실시간 시세"): `quotes`(현재가 + 전 거래일 종가)·`candles`·`quote_price`.
+  현재가를 받지 못한 종목만 장마감 기준 Quote(basis "close")다.
+- **그 밖에 화면에 보이는 가격은 장마감 기준**이다 (docs/API.md 공통 규칙 "장마감 기준"): `basis`·`closes`·`close_price`·`completed_candles`.
   종가는 종목·기준일별로 캐시한다 (같은 종목·같은 기준일은 몇 명이 봐도 증권사 일봉 조회 1번).
-- `current_prices`·`confirmed_prices`·`last_price`는 **내부 경로 전용**이다 (모의 체결, sync, 예약 실행, 재주문, 활성화의 장중 확인).
-- 현재가 1초, 일봉 120개·장 달력·환율 60초, 종가·종목 목록(거래소별)·종목 정보·매수 유의는 하루
-  (종가는 봉 날짜가 기준일보다 앞이거나 오늘 봉인데 현지 17:00(CLOSE_FINAL_AT) 전이면 10분).
-- 분봉(단타 연습, 국내만)은 완성된 정규장 세션만 낸다: 종목·날짜·간격별로 다 받은 세션은 하루, 일부만 받았으면 5분 캐시.
+- `confirmed_prices`·`last_price`는 **내부 경로 전용**이다 (모의 체결, sync, 예약 실행, 재주문, 활성화의 장중 확인).
+  `current_prices`는 내부 경로와 실시간 시세가 같이 쓴다 (같은 1초 캐시).
+- 현재가 1초, 일봉 120개·장 달력·환율 60초, 종가·전 거래일 종가(실시간 시세의 prevClose)·종목 목록(거래소별)·종목 정보·매수 유의는 하루
+  (종가는 봉 날짜가 기준일보다 앞이거나 오늘 봉인데 현지 17:00(CLOSE_FINAL_AT) 전이면 10분, 전 거래일 종가는 장 달력의 직전 영업일과 맞지 않으면 10분).
 - 체결에 쓰는 확인 가격(confirmed_prices)은 캐시하지 않는다.
 - 클라이언트가 없거나 조회가 실패하면(KiwoomApiError, OSError) Unavailable(503). 환율만은 실패하면 None (엔진 Desk 방식).
 - 응답 형식은 엔진 조회 클라이언트(키움·토스 같음) 형식이다: 가격은 문자열, 일봉은 openPrice/.../timestamp.
-- 단타 진입 세션 판정(day_entry_open)과 시세 출처 이름(quote_provider)은 여기 하나만 둔다 (autotrade·daytrade·longterm이 쓴다).
+- 시세 출처 이름(quote_provider)은 여기 하나만 둔다 (longterm이 쓴다).
 """
 import re
 from datetime import date, datetime, time, timedelta
@@ -17,7 +19,6 @@ from zoneinfo import ZoneInfo
 
 from django.core.cache import cache
 from django.utils import timezone
-from paper_engine.agents.executor import DAY_CLOSE_AT
 from paper_engine.data.calendar import NEW_YORK, close_basis_day, close_of, session_end_iso
 from paper_engine.data.kiwoom import KiwoomApiError
 from paper_engine.scheduler import current_session, regular_sessions
@@ -26,9 +27,10 @@ from paper_engine.trading import MARKET_LISTS
 from config import engine
 from config.api import Unavailable
 
-PRICE_TTL, SHORT_TTL, DAY_TTL = 1, 60, 24 * 3600  # 현재가 1초는 내부 경로(체결·예약 기준 가격)용
+PRICE_TTL, SHORT_TTL, DAY_TTL = 1, 60, 24 * 3600  # 현재가 1초는 실시간 시세와 내부 경로(체결·예약 기준 가격)가 같이 쓴다
 CANDLE_COUNT = 120
-CLOSE_BATCH = 10  # closes 한 번이 새로 받는 종가 수 (종목마다 일봉 조회 1번). 나머지는 다음 호출(폴링)에 채운다
+# closes·quotes 한 번이 새로 받는 종가(실시간 시세는 전 거래일 종가) 수 (종목마다 일봉 조회 1번). 나머지는 다음 호출(폴링)에 채운다
+CLOSE_BATCH = 10
 # 받은 종가 봉이 기준일보다 앞이면(증권사가 아직 그날 봉을 안 줌, 또는 장 달력이 모르는 휴장일) 하루가 아니라 이만큼만 둔다
 CLOSE_LAG_TTL = 10 * 60
 # 오늘(시장 현지) 봉의 종가는 이 현지 시각부터 굳은 값으로 본다. 그 전에는 CLOSE_LAG_TTL만 캐시하고 일별 자산은 기다린다
@@ -42,11 +44,8 @@ WARNING_LABELS = {
     "INVESTMENT_RISK": "투자위험", "INVESTMENT_WARNING": "투자경고", "INVESTMENT_CAUTION": "투자주의",
     "INVESTMENT_CAUTION_ALERT": "투자주의 환기", "ADMINISTRATIVE_ISSUE": "관리종목", "TRADING_SUSPENDED": "거래정지",
 }
-BASIS = "close"  # Quote.basis: 가격 기준은 지금 장마감 종가 하나뿐이다
-# 분봉 (docs/API.md "단타 연습"): 허용 간격(분), 국내 정규장 구간, 일부만 받은 세션의 캐시
-MINUTE_STEPS = (1, 3, 5, 10, 15, 30, 60)
-KR_REGULAR = (time(9, 0), time(15, 30))
-MINUTE_PARTIAL_TTL = 5 * 60
+# Quote.basis: 현재가(실시간) · 현재가를 받지 못한 종목은 직전 정규장 종가(장마감 기준)
+BASIS_LIVE, BASIS_CLOSE = "live", "close"
 # MarketStatus.quoteProvider: 엔진 설정 BROKER별 시세 출처 이름 (toss는 로컬 개발 전용, 그 밖은 키움)
 QUOTE_PROVIDERS = {"toss": "토스증권 Open API(개발)", "kiwoom": "키움증권 REST API"}
 _MISSING = object()
@@ -179,22 +178,32 @@ def warnings(symbol: str) -> list[str]:
 
 # --- 시세 ---
 
-def current_prices(symbols: list[str]) -> dict[str, float]:
-    """현재가 (표시·평가용). 종목마다 1초 캐시하고 없는 것만 한 번에 묶어 조회한다. 받지 못한 종목은 빠진다."""
+def live_prices(symbols: list[str]) -> dict[str, tuple[float, str]]:
+    """현재가와 받은 시각: {symbol: (가격, 받은 시각 ISO — 서버 시각, 초까지)}.
+
+    종목마다 1초 캐시하고 없는 것만 한 번에 묶어 조회한다. 받지 못한 종목은 빠진다. 증권사 오류는 Unavailable(503).
+    """
     out, missing = {}, []
     for symbol in dict.fromkeys(symbols):
-        value = cache.get(f"trading:price:{symbol}", _MISSING)
+        value = cache.get(f"trading:live:{symbol}", _MISSING)
         if value is _MISSING:
             missing.append(symbol)
         elif value is not None:
             out[symbol] = value
     if missing:
         fetched = {p["symbol"]: float(p["lastPrice"]) for p in _call("prices", missing) if p.get("lastPrice")}
+        at = timezone.localtime().replace(microsecond=0).isoformat()
         for symbol in missing:
-            cache.set(f"trading:price:{symbol}", fetched.get(symbol), PRICE_TTL)
-            if symbol in fetched:
-                out[symbol] = fetched[symbol]
+            value = (fetched[symbol], at) if symbol in fetched else None
+            cache.set(f"trading:live:{symbol}", value, PRICE_TTL)
+            if value is not None:
+                out[symbol] = value
     return out
+
+
+def current_prices(symbols: list[str]) -> dict[str, float]:
+    """현재가 (실시간 시세·내부 평가용). live_prices와 같은 1초 캐시. 받지 못한 종목은 빠진다."""
+    return {symbol: price for symbol, (price, _) in live_prices(symbols).items()}
 
 
 def confirmed_prices(symbols: list[str]) -> dict[str, float]:
@@ -342,65 +351,112 @@ def completed_candles(symbol: str) -> list[dict]:
     return [c for c in candles(norm_symbol(symbol)) if c["timestamp"][:10] <= day]
 
 
-def quotes(symbols: list[str]) -> list[dict]:
-    """Quote 목록 (장마감 기준, docs/API.md Quote). 종목 목록에 없는 종목은 빠진다.
+# --- 실시간 시세 (docs/API.md 공통 규칙 "실시간 시세", docs/DECISIONS.md 17) ---
 
-    price = 직전 정규장 종가, prevClose = 그 전 거래일 종가 (같은 일봉), asOf = 종가 봉 날짜의 정규장 종료 시각.
-    한 호출이 새로 받는 종가는 CLOSE_BATCH(10)개까지라 처음 보는 종목은 잠깐 null일 수 있다 (다음 폴링에 채운다).
-    종가를 받지 못한 종목도 price·asOf가 null이다.
+def _session_today(market: str, today: date) -> tuple[bool, str | None]:
+    """(오늘(그 시장 현지 날짜)에 정규장이 있는지, 장 달력의 직전 영업일 YYYY-MM-DD).
+
+    장 달력(60초 캐시)을 받지 못하면 (평일인지, None) — 평일을 거래일로 본다.
     """
-    known = directory()
-    items = [item for s in dict.fromkeys(map(norm_symbol, symbols)) if (item := known.get(s))]
-    found = closes([i["symbol"] for i in items]) if items else {}
-    out = []
-    for item in items:
-        close = found.get(item["symbol"]) or {}
-        price, prev = close.get("price"), close.get("prevClose")
-        both = price is not None and bool(prev)
-        out.append({"symbol": item["symbol"], "name": item["name"], "currency": CURRENCY[item["market"]],
-                    "price": price, "prevClose": prev, "change": price - prev if both else None,
-                    "changeRate": price / prev - 1 if both else None, "asOf": close.get("asOf"), "basis": BASIS})
-    return out
+    tz = MARKET_TZ[market]
+    try:
+        cal = calendar(market)
+        found = any(start.astimezone(tz).date() == today for start, _ in regular_sessions(cal))
+        previous = (cal.get("previousBusinessDay") or {}).get("date")
+    except (Unavailable, AttributeError, KeyError, TypeError, ValueError):
+        return today.weekday() < 5, None
+    return found, previous
 
 
-# --- 분봉 (단타 연습, docs/API.md "단타 연습") ---
+def _prev_close(symbol: str, market: str, today: date, session: tuple[bool, str | None],
+                budget: list[int]) -> float | None:
+    """현재가가 속한 거래일의 전 거래일 종가 (일봉 candles()에서). 예산이 없으면 받지 않고 None (다음 호출에 채운다).
 
-def minute_candles(symbol: str, day: str, minutes: int = 1) -> dict:
-    """MinuteCandles: 국내 종목 symbol의 day(YYYY-MM-DD, KST) 정규장(09:00~15:30) 분봉, 과거 → 최신.
-
-    완성된 정규장 세션만 낸다 — day가 KR 기준일 이하인지는 부르는 쪽(뷰)이 본다. 봉은 엔진 조회 클라이언트의
-    minute_candles(symbol, day, minutes) → (봉 목록, 세션 시작까지 받았는지)를 화면 형식으로 바꾼 것이고, 정규장 밖 봉은
-    한 번 더 거른다. partial = 그 세션을 09:00부터 다 받지 못함. 종목·날짜·간격별 캐시: 다 받았으면 하루, 일부만이면 5분.
-    증권사 조회가 실패하면 Unavailable(503, 캐시하지 않는다).
+    가격이 속한 거래일 = 오늘(현지) 정규장이 있으면 오늘, 없으면(주말·휴장) 마지막 일봉 날짜.
+    전 거래일 종가 = 날짜가 그 거래일보다 앞선 마지막 일봉의 종가. 일봉이 없으면 None.
+    종목·오늘(현지 날짜)별로 하루 캐시한다 — 기준이 된 봉(오늘 거래일이면 전 거래일 봉, 아니면 마지막 봉)의 날짜가
+    장 달력의 직전 영업일과 다르거나 장 달력을 받지 못했으면 10분(CLOSE_LAG_TTL), 받지 못하면 60초.
     """
-    symbol = norm_symbol(symbol)
-    key = f"trading:minute:{symbol}:{day}:{minutes}"
+    trading, previous = session
+    key = f"trading:prev:{symbol}:{today}:{int(trading)}"
     value = cache.get(key, _MISSING)
     if value is not _MISSING:
         return value
-    rows, complete = _call("minute_candles", symbol, day, minutes)
-    candles = _minute_rows(rows, day)
-    value = {"symbol": symbol, "date": day, "minutes": minutes,
-             "asOf": session_end("KR", day) if candles else None, "candles": candles, "partial": not complete}
-    cache.set(key, value, DAY_TTL if complete else MINUTE_PARTIAL_TTL)
+    if budget[0] <= 0:
+        return None
+    budget[0] -= 1
+    try:
+        rows = candles(symbol)
+        day = f"{today}" if trading else rows[-1]["timestamp"][:10]
+        before = [c for c in rows if c["timestamp"][:10] < day]
+        value = float(before[-1]["closePrice"]) if before else None
+    except (Unavailable, IndexError, KeyError, TypeError, ValueError):
+        value = None
+    if value is None:
+        cache.set(key, None, SHORT_TTL)  # 실패·봉 없음은 60초 뒤에 다시
+        return None
+    checked = before[-1]["timestamp"][:10] if trading else day
+    cache.set(key, value, DAY_TTL if previous is not None and checked == previous else CLOSE_LAG_TTL)
     return value
 
 
-def _minute_rows(rows, day: str) -> list[dict]:
-    """엔진 분봉(토스 형식, 문자열) → MinuteCandle. 그 날짜 정규장 밖이거나 읽지 못하는 봉은 버리고 시각순으로 둔다."""
-    session = date.fromisoformat(day)
-    out = {}
-    for row in rows or []:
-        try:
-            at = datetime.fromisoformat(row["timestamp"])
-            at = (at if at.tzinfo else at.replace(tzinfo=KST)).astimezone(KST)
-            candle = {"time": at.isoformat(), "open": float(row["openPrice"]), "high": float(row["highPrice"]),
-                      "low": float(row["lowPrice"]), "close": float(row["closePrice"]), "volume": float(row["volume"])}
-        except (KeyError, TypeError, ValueError):
+def _quote(item: dict, price: float | None, prev: float | None, as_of: str | None, basis_: str) -> dict:
+    both = price is not None and bool(prev)
+    return {"symbol": item["symbol"], "name": item["name"], "currency": CURRENCY[item["market"]],
+            "price": price, "prevClose": prev, "change": price - prev if both else None,
+            "changeRate": price / prev - 1 if both else None, "asOf": as_of, "basis": basis_}
+
+
+def quotes(symbols: list[str]) -> list[dict]:
+    """Quote 목록 (실시간, docs/API.md Quote·공통 규칙 "실시간 시세"). 종목 목록에 없는 종목은 빠진다.
+
+    live: price = 현재가 (live_prices, 1초 캐시), asOf = 받은 시각, prevClose = 그 가격이 속한 거래일의 전 거래일 종가 (_prev_close).
+    현재가를 받지 못한 종목(조회 실패면 모두)은 장마감 기준(basis "close", closes): price = 직전 정규장 종가,
+    prevClose = 그 전 거래일 종가, asOf = 종가 봉 날짜의 정규장 종료 시각. 종가를 받지 못하면 price·asOf가 null.
+    한 호출이 새로 받는 일봉은 두 경우를 합쳐 CLOSE_BATCH(10)개까지라 처음 보는 종목은 prevClose(close면 price도)가
+    잠깐 null일 수 있다 (다음 폴링에 채운다).
+    """
+    known = directory()
+    items = [item for s in dict.fromkeys(map(norm_symbol, symbols)) if (item := known.get(s))]
+    if not items:
+        return []
+    try:
+        live = live_prices([i["symbol"] for i in items])
+    except Unavailable:
+        live = {}  # 현재가 조회 실패: 모두 장마감 기준으로
+    budget = [CLOSE_BATCH]
+    found = closes([i["symbol"] for i in items if i["symbol"] not in live], budget)
+    local: dict[str, tuple[date, tuple[bool, str | None]]] = {}  # 시장 → (현지 오늘, _session_today)
+    out = []
+    for item in items:
+        symbol, mkt = item["symbol"], item["market"]
+        if symbol not in live:
+            close = found.get(symbol) or {}
+            out.append(_quote(item, close.get("price"), close.get("prevClose"), close.get("asOf"), BASIS_CLOSE))
             continue
-        if at.date() == session and KR_REGULAR[0] <= at.time() <= KR_REGULAR[1]:
-            out[candle["time"]] = candle  # 같은 시각이 두 번 오면 나중 것
-    return [out[k] for k in sorted(out)]
+        if mkt not in local:
+            today = timezone.now().astimezone(MARKET_TZ[mkt]).date()
+            local[mkt] = today, _session_today(mkt, today)
+        today, session = local[mkt]
+        price, as_of = live[symbol]
+        out.append(_quote(item, price, _prev_close(symbol, mkt, today, session, budget), as_of, BASIS_LIVE))
+    return out
+
+
+def quote_price(symbol: str) -> float | None:
+    """시세와 같은 가격: 현재가, 받지 못하면 직전 정규장 종가 (직접 주문의 시장가 매수 가능 점검 — docs/API.md POST /api/orders)."""
+    symbol = norm_symbol(symbol)
+    try:
+        price = current_prices([symbol]).get(symbol)
+    except Unavailable:
+        price = None
+    return price if price is not None else close_price(symbol)
+
+
+def in_progress(market: str, day: str) -> bool:
+    """day(그 시장 현지 날짜) 일봉이 오늘 진행 중인 봉인지: 오늘 봉이고 오늘 정규장 종료(장 달력, 없으면 기본 시각) 전."""
+    now = timezone.now()
+    return day == f"{now.astimezone(MARKET_TZ[market]).date()}" and now < datetime.fromisoformat(session_end(market, day))
 
 
 def fx_rate() -> float | None:
@@ -430,54 +486,6 @@ def sessions(market: str) -> list:
 
 def is_open(market: str, now) -> bool:
     return bool(current_session(sessions(market), now))
-
-
-# --- 단타 연습 세션 (docs/API.md "단타 연습" 세션 규칙 — 판정은 여기 하나: autotrade.risk·daytrade.session·trading.service) ---
-
-def regular_market(entry) -> dict | None:
-    """장 달력 날짜 항목의 정규장 구간 {"startTime", "endTime", ...}. 휴장일이거나 모양이 다르면 None (국내는 integrated 아래)."""
-    if not isinstance(entry, dict):
-        return None
-    found = entry.get("integrated") or entry
-    regular = found.get("regularMarket") if isinstance(found, dict) else None
-    return regular if isinstance(regular, dict) and regular.get("startTime") and regular.get("endTime") else None
-
-
-def next_weekday(day: date) -> date:
-    day += timedelta(days=1)
-    while day.weekday() >= 5:
-        day += timedelta(days=1)
-    return day
-
-
-def kr_trading_day(now) -> tuple[bool, date]:
-    """(오늘(KST)이 국내 거래일인지, 오늘 다음 국내 거래일). 국내 장 달력(60초 캐시)으로 보고,
-    받지 못했거나 장 달력이 오늘을 모르면 주말만 거른다 (공휴일은 모른다)."""
-    today = now.astimezone(KST).date()
-    try:
-        cal = calendar("KR")
-    except Unavailable:
-        cal = None
-    entry = cal.get("today") if isinstance(cal, dict) else None
-    if not isinstance(entry, dict) or entry.get("date") != f"{today}":
-        return today.weekday() < 5, next_weekday(today)
-    following = (cal.get("nextBusinessDay") or {}).get("date")
-    try:
-        next_day = date.fromisoformat(following) if following else next_weekday(today)
-    except (TypeError, ValueError):
-        next_day = next_weekday(today)
-    return regular_market(entry) is not None, next_day
-
-
-def day_entry_cutoff(day: date) -> datetime:
-    """그 세션(KST 날짜)의 단타 진입 마감 = 엔진 DAY_CLOSE_AT (15:15 KST). 체결 대기 단타 주문 취소·보유 정리와 같은 시각."""
-    return datetime.combine(day, DAY_CLOSE_AT, tzinfo=KST)
-
-
-def day_entry_open(now) -> bool:
-    """지금 단타 진입(단타 계획 만들기·style day 주문 접수)을 받는지 = DaySession.acceptingPlans:
-    오늘(KST)이 국내 거래일이고 지금이 그날 단타 진입 마감(15:15 KST) 전."""
-    return now < day_entry_cutoff(now.astimezone(KST).date()) and kr_trading_day(now)[0]
 
 
 # --- 시세 출처 ---

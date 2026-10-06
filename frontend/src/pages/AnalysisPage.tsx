@@ -23,7 +23,7 @@ import { useRevealAfterLoading } from "../hooks/useMotionState";
 import { crossCheckSummary, duringSession } from "../lib/autotrade";
 import { cn } from "../lib/cn";
 import { formatDate, formatDateTime, formatDayLabel, formatPercent, formatPrice, formatRate, formatRequester, formatUsd } from "../lib/format";
-import { ANALYSIS_PRICE_LABEL } from "../lib/plainText";
+import { ANALYSIS_PRICE_LABEL, quotePriceName } from "../lib/plainText";
 import { INDICATOR_EASY, analysisErrorEasy, indicatorValue, noPlanSentence, providerName } from "../lib/reports";
 
 const DIRECTION: Record<string, { label: string; cls: string }> = {
@@ -308,18 +308,18 @@ export function AnalysisPage() {
                 {quote?.price != null ? (
                   <>
                     <p className="mt-1 flex items-baseline gap-2">
-                      <span className="text-[14px] font-semibold text-sub">종가</span>
+                      <span className="text-[14px] font-semibold text-sub">{quotePriceName(quote.basis, easy)}</span>
                       <span className="text-[26px] font-bold tabular-nums">
                         <Flash value={quote.price}>{formatPrice(quote.price, a.currency)}</Flash>
                       </span>
                     </p>
                     <PriceChange change={quote.change} rate={quote.changeRate} currency={a.currency} className="text-[14px] font-semibold" />
-                    <AsOf at={quote.asOf} market={a.market} className="block" />
+                    <AsOf at={quote.asOf} market={a.market} basis={quote.basis} className="block" />
                   </>
                 ) : quotePending ? (
                   <Skeleton className="mt-2 h-8 w-40" />
                 ) : (
-                  // 종가를 받지 못했을 때: 분석 시각 가격임을 밝힌다 (장마감 종가로 읽히지 않게)
+                  // 시세를 받지 못했을 때: 분석 시각 가격임을 밝힌다 (현재가·장마감 종가로 읽히지 않게)
                   <p className="mt-1 flex flex-wrap items-baseline gap-x-2">
                     <span className="text-[14px] font-semibold text-sub">
                       {ANALYSIS_PRICE_LABEL}

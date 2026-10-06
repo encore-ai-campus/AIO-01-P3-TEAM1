@@ -1,6 +1,6 @@
 # 03. Orchestrator (담당 3)
 
-> **할 일 (2026-10-05 단순화 — `TEAM_DEV_PLAN.md` 11장)**: ① 추천 워크플로우: Orchestrator·Guard·runner·Handoff·실패 사유 코드 · ② UI/UX: 진행 단계 표시 확인 · ③ 추가 기능 논의: 단타 AI 팀(`day_plan`·`day_review`) 설계 · ④ 테스트: 오케스트레이션 테스트, 장애 시험.
+> **할 일 (2026-10-05 단순화 — `TEAM_DEV_PLAN.md` 11장)**: ① 추천 워크플로우: Orchestrator·Guard·runner·Handoff·실패 사유 코드 · ② UI/UX: 진행 단계 표시 확인 · ③ 추가 기능 논의: ~~단타 AI 팀(`day_plan`·`day_review`) 설계~~(2026-10-06 단타 폐기로 없어짐) · ④ 테스트: 오케스트레이션 테스트, 장애 시험.
 > 그 밖의 확정된 변경은 Claude가 구현한다(`docs/DECISIONS.md` 14장). 아래 세부 표는 워크플로우 개발의 약속·참고로 남긴다.
 
 목표: 실행 계획대로 Worker를 **병렬·순차로 돌리고**, Join Guard·부분 실패 정책·검토 반복·Handoff를 판단하며, State와 Trace를 남기고, `run_engine` 루프에서 리포트를 집어 실행한다.

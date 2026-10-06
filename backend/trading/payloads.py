@@ -1,13 +1,13 @@
 """응답 형식 (docs/API.md 타입). 키는 camelCase, 숫자는 number, 시각은 오프셋이 붙은 ISO 문자열.
 
-청산 사유(exitReason·Fill.reason)는 저장한 값 그대로다 (TARGET·STOP·EXPIRED·MANUAL·EOD — EOD는 단타 장 마감 전 정리).
+청산 사유(exitReason·Fill.reason)는 저장한 값 그대로다 (TARGET·STOP·EXPIRED·MANUAL).
 """
 from .models import SWING, PaperFill, Reservation
 from .store import iso
 
 
 def _style(row: dict) -> str:
-    """주문의 보유 방식 (swing · long · day). 열이 비었으면 기본값 swing."""
+    """주문의 보유 방식 (swing · long). 열이 비었으면 기본값 swing."""
     return row.get("style") or SWING
 
 

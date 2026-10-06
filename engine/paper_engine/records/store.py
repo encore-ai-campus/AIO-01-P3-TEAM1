@@ -99,13 +99,13 @@ CREATE TABLE IF NOT EXISTS paper_orders (
     status TEXT NOT NULL,            -- ENTRY_PENDING | EXIT_WATCHING | CLOSED | CANCELED
     filled_quantity REAL, fill_price REAL, fill_fx_rate REAL, filled_at TEXT,
     exit_price REAL, exit_fx_rate REAL,
-    exit_reason TEXT,                -- TARGET | STOP | EXPIRED | MANUAL | EOD
+    exit_reason TEXT,                -- TARGET | STOP | EXPIRED | MANUAL
     closed_at TEXT,
     pnl REAL, pnl_krw REAL,          -- 실현 손익 (종목 통화, 원화). 수수료·세금 포함
     signal_count INTEGER NOT NULL DEFAULT 0,  -- 청산 조건 연속 확인 횟수
     note TEXT,
     created_at TEXT NOT NULL,
-    style TEXT NOT NULL DEFAULT 'swing'  -- 보유 방식 swing | long | day (docs/API.md "보유 방식")
+    style TEXT NOT NULL DEFAULT 'swing'  -- 보유 방식 swing | long (docs/API.md "보유 방식")
 );
 CREATE TABLE IF NOT EXISTS paper_fills (
     id INTEGER PRIMARY KEY,
@@ -116,7 +116,7 @@ CREATE TABLE IF NOT EXISTS paper_fills (
     commission REAL NOT NULL, tax REAL NOT NULL,
     fx_rate REAL NOT NULL,           -- 종목 통화 1단위의 원화 가치 (KRW는 1)
     cash_change_krw REAL NOT NULL,   -- 현금 증감 (매수 음수, 매도 양수)
-    reason TEXT NOT NULL,            -- ENTRY | TARGET | STOP | EXPIRED | MANUAL | EOD
+    reason TEXT NOT NULL,            -- ENTRY | TARGET | STOP | EXPIRED | MANUAL
     filled_at TEXT NOT NULL
 );
 -- 일별 자산. 국내 장 마감 시장 기록 직후 하루 한 번.
@@ -365,7 +365,7 @@ class Store:
     def paper_today(self, day: str, style: str | None = None) -> tuple[int, float]:
         """(오늘 낸 모의 주문 수, 오늘 확정 손실 원화). 손실은 양수다.
 
-        style(swing | long | day)을 주면 그 보유 방식의 주문만 센다 (단타 한도는 style day 주문만 — docs/DECISIONS.md 14-4).
+        style(swing | long)을 주면 그 보유 방식의 주문만 센다.
         """
         where, args = "", ()
         if style is not None:

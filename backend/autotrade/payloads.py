@@ -27,7 +27,7 @@ def recommendation(rec: Recommendation, nickname: str | None, my_plan: dict | No
     return {
         "id": rec.id, "source": rec.source, "sourceId": _source_id(rec), "requestedBy": nickname,
         "symbol": rec.symbol, "name": rec.name, "market": rec.market, "currency": rec.currency,
-        "horizon": rec.horizon, "priceAtCreation": rec.price_at_creation, "entryPrice": rec.entry_price, "targetPrice": rec.target_price,
+        "priceAtCreation": rec.price_at_creation, "entryPrice": rec.entry_price, "targetPrice": rec.target_price,
         "stopPrice": rec.stop_price, "holdingDays": rec.holding_days, "targetReturn": rec.target_return,
         "stopLossRate": rec.stop_loss_rate, "rewardRisk": rec.reward_risk, "probability": rec.probability,
         "probabilityAssumed": rec.probability_assumed, "expectedReturn": rec.expected_return,
@@ -72,8 +72,7 @@ def plan(p: TradePlan) -> dict:
     """TradePlan. p.recommendation을 쓰므로 목록은 select_related("recommendation")로 읽는다."""
     return {
         "id": p.id, "recommendationId": p.recommendation_id, "symbol": p.symbol, "name": p.name,
-        "market": p.market, "currency": p.currency, "source": p.recommendation.source, "horizon": p.horizon,
-        "status": p.status,
+        "market": p.market, "currency": p.currency, "source": p.recommendation.source, "status": p.status,
         "via": p.via, "quantity": p.quantity, "budgetKrw": p.budget_krw, "entryPrice": p.entry_price,
         "targetPrice": p.target_price, "stopPrice": p.stop_price, "holdingDays": p.holding_days,
         "entryDeadline": iso(p.entry_deadline), "orderId": p.order_id, "fillPrice": p.fill_price,

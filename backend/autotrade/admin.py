@@ -14,9 +14,9 @@ class ReadOnly(admin.ModelAdmin):
 
 @admin.register(Recommendation)
 class RecommendationAdmin(ReadOnly):
-    list_display = ("id", "source", "horizon", "name", "symbol", "entry_price", "target_price", "stop_price",
-                    "reward_risk", "status", "valid_until", "created_at")
-    list_filter = ("source", "horizon", "status", "market")
+    list_display = ("id", "source", "name", "symbol", "entry_price", "target_price", "stop_price", "reward_risk",
+                    "status", "valid_until", "created_at")
+    list_filter = ("source", "status", "market")
     search_fields = ("symbol", "name")
 
 
@@ -32,9 +32,8 @@ class PlanEventInline(admin.TabularInline):
 
 @admin.register(TradePlan)
 class TradePlanAdmin(ReadOnly):
-    list_display = ("id", "user", "name", "symbol", "horizon", "status", "via", "quantity", "order", "pnl_krw",
-                    "activated_at")
-    list_filter = ("status", "horizon", "via")
+    list_display = ("id", "user", "name", "symbol", "status", "via", "quantity", "order", "pnl_krw", "activated_at")
+    list_filter = ("status", "via")
     search_fields = ("symbol", "name", "user__username")
     inlines = [PlanEventInline]
 

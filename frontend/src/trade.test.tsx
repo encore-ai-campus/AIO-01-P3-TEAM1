@@ -1,6 +1,6 @@
 // 종목 상세 · 주문(보유 방식) · 모의투자 탭 · 실행 확인 · 모의 자동매매 상세 · 매매 계획 카드 · 교차검증 분석 (F-trade).
 // 앨리스는 주린이모드 끔(전문가 보기), 밥은 진단 전이라 켬(쉬운 보기). 시각에 기대는 테스트는 freezeTime으로 KST 시각을 고정한다.
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { CandlestickSeries, HistogramSeries, LineSeries, createChart } from "lightweight-charts";
 import { http, HttpResponse } from "msw";
 import { MemoryRouter } from "react-router";
@@ -47,32 +47,29 @@ function recordBodies(suffix: string) {
   return seen;
 }
 
-/** 투자자 프로필(단타 잠금) 응답이 화면에 닿을 때까지 기다리는 함수를 돌려준다. "없다"를 확인하는 테스트가 응답 전에 통과하지 않게. */
-function watchProfile() {
-  let seen = false;
-  server.events.on("response:mocked", ({ request }) => {
-    if (new URL(request.url).pathname === "/api/me/investor-profile") seen = true;
-  });
-  return async () => {
-    await waitFor(() => expect(seen).toBe(true));
-    server.events.removeAllListeners();
-    await act(() => new Promise((r) => setTimeout(r, 30)));
-  };
-}
-
 // 화요일 장중 (KR 기준일 = 10월 5일 월요일 — 가짜 API는 휴일을 모른다)
 const TUE_MORNING = "2026-10-06T10:00:00+09:00";
 const KR_ASOF = "10월 5일(월) 15:30 장마감 기준";
+/** 실시간 시세의 기준 표기 (받은 시각 — 테스트 시계는 흐르므로 초는 정하지 않는다). */
+const LIVE_ASOF = /^실시간 · \d{2}:\d{2}:\d{2}$/;
 
-describe("종목 상세: 장마감 기준 시세와 AI 리포트 만들기", () => {
-  it("종가·기준 시각·완성 봉 안내, 오늘 이 종목 리포트가 있으면 '오늘 리포트 보기'와 남은 횟수", async () => {
+/** 현재가를 받지 못한 종목의 종목 상세: 서버가 낸 장마감 기준 Quote(basis "close") + 오늘 봉 없는 일봉. KR 종목용 (TUE_MORNING 기준). */
+const closeBasisStock = (symbol: string) => {
+  const d = db.stockDetail(symbol);
+  const asOf = "2026-10-05T15:30:00+09:00";
+  return { ...d, quote: { ...d.quote, asOf, basis: "close" as const }, candles: d.candles.slice(0, -1), asOf };
+};
+
+describe("종목 상세: 실시간 시세와 AI 리포트 만들기", () => {
+  it("현재가·실시간 기준·진행 중인 오늘 봉 안내, 오늘 이 종목 리포트가 있으면 '오늘 리포트 보기'와 남은 횟수", async () => {
     freezeTime(TUE_MORNING);
     renderApp("/stocks/005930");
     const quote = await screen.findByRole("region", { name: "시세" });
-    expect(within(quote).getByText("종가")).toBeTruthy();
+    expect(within(quote).getByText("현재가")).toBeTruthy();
     expect(within(quote).getByText("71,200원")).toBeTruthy();
-    expect(within(quote).getByText(KR_ASOF)).toBeTruthy();
-    expect(within(quote).getByText(/일봉 · 최근 120일 · 완성된 봉만 \(마지막 봉 10월 5일\(월\) 종가\)/)).toBeTruthy();
+    expect(within(quote).getByText(LIVE_ASOF).textContent).toMatch(/^실시간 · 10:0\d:\d{2}$/); // 받은 시각 (KST)
+    expect(within(quote).queryByText(/장마감 기준/)).toBeNull();
+    expect(within(quote).getByText(/일봉 · 최근 120일 · 마지막 봉 10월 6일\(화\)은 진행 중/)).toBeTruthy();
 
     // 앨리스가 오늘 신청한 삼성전자 리포트(#2)가 있다 → 큰 버튼이 "오늘 리포트 보기"
     const link = await screen.findByRole("link", { name: "오늘 리포트 보기" });
@@ -82,6 +79,32 @@ describe("종목 상세: 장마감 기준 시세와 AI 리포트 만들기", () 
     expect(await screen.findByText("오늘 2번 더 만들 수 있어요")).toBeTruthy();
     // 보조 버튼 (D-1)
     expect(screen.getByRole("button", { name: "AI 교차검증 분석" })).toBeTruthy();
+  });
+
+  it("장이 닫혀 있어도 시세는 실시간 현재가 — 마지막 봉은 완성된 종가 봉", async () => {
+    freezeTime(TUE_MORNING, { marketOpen: { KR: false, US: false } });
+    renderApp("/stocks/005930");
+    const quote = await screen.findByRole("region", { name: "시세" });
+    expect(within(quote).getByText("현재가")).toBeTruthy();
+    expect(within(quote).getByText(LIVE_ASOF)).toBeTruthy();
+    expect(within(quote).getByText(/일봉 · 최근 120일 · 완성된 봉만 \(마지막 봉 10월 5일\(월\) 종가\)/)).toBeTruthy();
+  });
+
+  it("쉬운 보기(밥)는 '지금 가격', 현재가를 받지 못한 종목은 종가와 장마감 기준 시각 그대로 (basis close)", async () => {
+    freezeTime(TUE_MORNING);
+    renderApp("/stocks/005930", "bob");
+    const live = await screen.findByRole("region", { name: "시세" });
+    expect(within(live).getByText("지금 가격")).toBeTruthy();
+    expect(within(live).getByText(LIVE_ASOF)).toBeTruthy();
+    cleanup();
+
+    server.use(http.get("*/api/stocks/:symbol", () => HttpResponse.json(closeBasisStock("005930"))));
+    renderApp("/stocks/005930");
+    const close = await screen.findByRole("region", { name: "시세" });
+    expect(within(close).getByText("종가")).toBeTruthy();
+    expect(within(close).getByText(KR_ASOF)).toBeTruthy();
+    expect(within(close).queryByText(/^실시간/)).toBeNull();
+    expect(within(close).getByText(/완성된 봉만 \(마지막 봉 10월 5일\(월\) 종가\)/)).toBeTruthy();
   });
 
   it("오늘 리포트가 없으면 큰 버튼 'AI 리포트 만들기' → 리포트를 만든다", async () => {
@@ -128,28 +151,6 @@ describe("종목 상세: 장마감 기준 시세와 AI 리포트 만들기", () 
     const panel = await screen.findByRole("region", { name: "주문" });
     expect(await within(panel).findByLabelText("수량")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /직접 주문\(고급\)/ })).toBeNull();
-  });
-
-  it("단타 연습장 링크: 잠금이 풀린 사람(앨리스)의 국내 종목에만, 이 종목을 골라 둔 채로", async () => {
-    renderApp("/stocks/005380");
-    const link = await screen.findByRole("link", { name: "이 종목으로 단타 연습" });
-    expect(link.getAttribute("href")).toBe("/day?symbol=005380");
-  });
-
-  it("단타 연습장 링크는 미국 종목에는 없다 (앨리스도)", async () => {
-    const profileLoaded = watchProfile();
-    renderApp("/stocks/AAPL");
-    await screen.findByRole("region", { name: "시세" });
-    await profileLoaded();
-    expect(screen.queryByRole("link", { name: "이 종목으로 단타 연습" })).toBeNull();
-  });
-
-  it("잠긴 사람(밥, 주린이모드 켬)은 국내 종목에도 단타 연습장 링크가 없다", async () => {
-    const profileLoaded = watchProfile();
-    renderApp("/stocks/005380", "bob");
-    await screen.findByRole("button", { name: /직접 주문\(고급\)/ });
-    await profileLoaded();
-    expect(screen.queryByRole("link", { name: "이 종목으로 단타 연습" })).toBeNull();
   });
 
   it("전문가 보기 모바일: 하단 버튼 → 주문 시트(대화상자). Esc로 닫히면 연 버튼으로 포커스가 돌아오고 배경 잠금이 풀린다", async () => {
@@ -375,7 +376,7 @@ describe("종목 상세 · 일봉 차트 (전문가 보기 캔들 · 쉬운 보�
 
   it("전문가 보기(앨리스): 캔들 + 이동평균 둘 + 거래량, 범례는 마지막 봉 (날짜·종가)", async () => {
     renderApp("/stocks/005930");
-    const box = await screen.findByRole("img", { name: /^일봉 차트 \(완성된 봉만, 마지막 봉 \d{4}-\d{2}-\d{2} 종가 기준\)$/ });
+    const box = await screen.findByRole("img", { name: /^일봉 차트 \(마지막 봉 \d{4}-\d{2}-\d{2}, 오늘 봉은 진행 중일 수 있음\)$/ });
     expect(kinds(chartOn(box))).toEqual(["candle", "line", "line", "volume"]);
     const last = db.stockDetail("005930").candles.at(-1)!;
     expect(box.getAttribute("aria-label")).toContain(last.date);
@@ -498,7 +499,9 @@ describe("주문: 보유 방식(스윙·장기 보유)", () => {
     const panel = await screen.findByRole("region", { name: "주문" });
     const group = await within(panel).findByRole("group", { name: "보유 방식" });
     expect(within(group).getByRole("button", { name: "장기 보유" }).getAttribute("aria-pressed")).toBe("true");
-    expect(within(panel).getByText("직전 장마감 가격 기준 추정이에요. 시장가는 주문 시점 가격으로 체결돼요.")).toBeTruthy();
+    expect(within(panel).getByText("지금 시세 기준 추정이에요. 시장가는 주문 시점 가격으로 체결돼요.")).toBeTruthy();
+    expect(within(panel).getByText("시장가 · 현재가")).toBeTruthy();
+    expect(within(panel).getByText(LIVE_ASOF)).toBeTruthy();
     expect(within(panel).queryByLabelText("목표가")).toBeNull();
     fireEvent.change(within(panel).getByLabelText("수량"), { target: { value: "2" } });
     fireEvent.click(within(panel).getByRole("button", { name: "매수하기" }));
@@ -512,6 +515,22 @@ describe("주문: 보유 방식(스윙·장기 보유)", () => {
     expect(db.listOrders(1, "active").find((o) => o.symbol === "005380")?.style).toBe("long");
   });
 
+  it("현재가를 받지 못한 종목(basis close)의 주문 패널은 '직전 종가'와 장마감 기준 문구 그대로", async () => {
+    freezeTime(TUE_MORNING);
+    server.use(http.get("*/api/stocks/:symbol", () => HttpResponse.json(closeBasisStock("005380"))));
+    renderApp("/stocks/005380");
+    const panel = await screen.findByRole("region", { name: "주문" });
+    expect(await within(panel).findByText("시장가 · 직전 종가")).toBeTruthy();
+    expect(within(panel).getByText(KR_ASOF)).toBeTruthy();
+    expect(within(panel).getByText("직전 장마감 가격 기준 추정이에요. 시장가는 주문 시점 가격으로 체결돼요.")).toBeTruthy();
+    fireEvent.click(within(await within(panel).findByRole("group", { name: "보유 방식" })).getByRole("button", { name: "스윙" }));
+    fireEvent.change(within(panel).getByLabelText("수량"), { target: { value: "1" } });
+    fireEvent.change(within(panel).getByLabelText("목표가"), { target: { value: "240000" } });
+    fireEvent.change(within(panel).getByLabelText("손절가"), { target: { value: "230000" } });
+    expect(within(panel).getByRole("alert").textContent).toBe("손절가 < 직전 종가 < 목표가 순서여야 해요.");
+    expect(within(panel).getAllByText(/^종가 대비/)).toHaveLength(2); // 목표가·손절가 칸 아래 읽기 도움
+  });
+
   it("스윙은 목표가·손절가가 둘 다 있어야 하고(순서 검사), style swing으로 보낸다", async () => {
     const seen = recordBodies("/api/orders");
     renderApp("/stocks/005380");
@@ -523,7 +542,7 @@ describe("주문: 보유 방식(스윙·장기 보유)", () => {
     expect(within(panel).getByText("스윙은 목표가와 손절가를 둘 다 넣어 주세요.")).toBeTruthy();
     fireEvent.change(within(panel).getByLabelText("목표가"), { target: { value: "240000" } });
     fireEvent.change(within(panel).getByLabelText("손절가"), { target: { value: "230000" } });
-    expect(within(panel).getByRole("alert").textContent).toBe("손절가 < 직전 종가 < 목표가 순서여야 해요.");
+    expect(within(panel).getByRole("alert").textContent).toBe("손절가 < 현재가 < 목표가 순서여야 해요.");
     fireEvent.change(within(panel).getByLabelText("목표가"), { target: { value: "270000" } });
     await waitFor(() => expect(buy.disabled).toBe(false));
     fireEvent.click(buy);
@@ -651,7 +670,7 @@ describe("주문: 보유 방식(스윙·장기 보유)", () => {
 });
 
 describe("모의투자 탭", () => {
-  it("전문가 보기(앨리스): 진행 중·보유(배지·장마감 기준)·끝난 계획·AI 추천·단타 연습장 입구", async () => {
+  it("전문가 보기(앨리스): 진행 중·보유(배지·장마감 기준)·끝난 계획·AI 추천", async () => {
     freezeTime(TUE_MORNING);
     renderApp("/portfolio");
     expect(await screen.findByRole("heading", { name: "모의투자" })).toBeTruthy();
@@ -670,10 +689,9 @@ describe("모의투자 탭", () => {
     expect(within(ended).getByRole("link", { name: "삼성전자 계획 보기" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "AI 추천" })).toBeTruthy();
     expect(await screen.findByRole("list", { name: "새 계획 제안 목록" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "단타 연습장 열기" }).getAttribute("href")).toBe("/day");
   });
 
-  it("쉬운 보기(밥): 새 계획 제안은 리포트에서 나온 것만, 나머지는 '다른 계획 ○개'로 접고, 단타 연습장은 잠김 안내", async () => {
+  it("쉬운 보기(밥): 새 계획 제안은 리포트에서 나온 것만, 나머지는 '다른 계획 ○개'로 접는다", async () => {
     renderApp("/portfolio", "bob");
     expect(await screen.findByRole("heading", { name: "진행 중 모의 자동매매" })).toBeTruthy();
     const main = await screen.findByRole("list", { name: "새 계획 제안 목록" });
@@ -684,22 +702,14 @@ describe("모의투자 탭", () => {
     const others = screen.getByRole("list", { name: "다른 계획 목록" });
     expect(within(others).getByText("연습용 예시 · AI 아님")).toBeTruthy();
     expect(within(others).getByText("AI 교차검증 분석")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: /단타 연습장 · 잠김/ })).toBeTruthy();
-    expect(screen.queryByRole("link", { name: "단타 연습장 열기" })).toBeNull();
     expect(screen.getByText("모든 매매는 모의 계좌에서만 이뤄져요 (실제 돈이 아니에요).")).toBeTruthy();
-  });
-
-  it("주린이모드 끔 + 퀴즈 미통과면 퀴즈 입구", async () => {
-    db.setInvestorProfile("carol", { beginnerMode: false });
-    renderApp("/portfolio", "carol");
-    expect(await screen.findByRole("link", { name: "단타 연습 퀴즈 풀기" })).toBeTruthy();
   });
 
   it("체결 내역의 청산 사유는 docs/API.md 표 이름", async () => {
     renderApp("/portfolio?tab=fills");
     const fills = await screen.findByRole("list", { name: "체결 내역" });
     expect(within(fills).getAllByText(/목표가 도달/).length).toBeGreaterThan(0);
-    expect(within(fills).getAllByText(/장 마감 전 정리/).length).toBeGreaterThan(0);
+    expect(within(fills).getAllByText(/매수 체결/).length).toBeGreaterThan(0);
   });
 
   it("탭은 ←/→로 옮기고(선택한 탭만 Tab으로 들어온다) 패널은 고른 탭 하나", async () => {
@@ -894,39 +904,32 @@ describe("모의 자동매매 상세 (쉬운 보기)", () => {
     await waitFor(() => expect(screen.getByRole("note").textContent).toContain("직접 모의 계좌에서 팔았어요"));
   });
 
-  it("진행 중: 도는 스피너 대신 차분한 점과 알림 약속, 가격 사다리와 '사는 가격까지 얼마나' (직전 종가 기준)", async () => {
+  it("진행 중: 도는 스피너 대신 차분한 점과 알림 약속, 가격 사다리와 '사는 가격까지 얼마나' (지금 가격 기준 · 실시간)", async () => {
     const plan = db.activate(userOf("bob"), 91, {});
     renderApp(`/plans/${plan.id}`, "bob");
     expect(await screen.findByText("자동으로 새로 받아요 · 단계가 바뀌면 알림으로 알려 드려요")).toBeTruthy();
     expect(screen.queryByText(/5초마다/)).toBeNull(); // 구현 세부는 title로만
-    expect(screen.getByRole("figure", { name: "가격 사다리" })).toBeTruthy();
+    const ladder = screen.getByRole("figure", { name: "가격 사다리" });
     expect(await screen.findByText(/^사는 가격까지 -\d+\.\d%/)).toBeTruthy();
+    expect(screen.getByText("· 지금 가격 기준")).toBeTruthy();
+    expect(within(ladder).getByText(/^지금 가격 /)).toBeTruthy(); // 사다리 말풍선
+    expect(screen.getByText(LIVE_ASOF)).toBeTruthy();
     // 멈추기는 이동 링크와 구분선으로 떨어져 있고, 누르면 무엇이 일어나는지 한 줄로 먼저 말한다
     expect(screen.getByText("멈추면 사는 주문을 취소해요. 돈은 그대로예요.")).toBeTruthy();
   });
 
-  it("끝난 계획에는 다음 행동: 단타는 '단타 연습장으로', 그 밖은 '새 계획 제안 보기'. 끝난 단계 이름은 과거형", async () => {
-    const day = renderApp("/plans/97?view=easy");
-    const steps = await screen.findByRole("list", { name: "모의 자동매매 단계" });
-    expect(within(steps).getByText("샀어요")).toBeTruthy();
-    expect(within(steps).getByText("목표·손절 지켜봤어요")).toBeTruthy();
-    expect(screen.getByRole("link", { name: /단타 연습장으로/ }).getAttribute("href")).toBe("/day");
-    day.unmount();
-
-    renderApp("/plans/95?view=easy");
-    expect((await screen.findByRole("link", { name: /새 계획 제안 보기/ })).getAttribute("href")).toBe("/recommendations");
-    expect(screen.getByRole("note").textContent).toBe("목표 가격에 닿아 모의 계좌에서 팔았어요 · 손익 +102,850원");
-  });
-
-  it("끝난 단타 계획: 단계 모두 완료 + 쉬운 결과, 전문가 보기는 '장 마감 전 정리'", async () => {
-    renderApp("/plans/97?view=easy");
+  it("끝난 계획: 단계 모두 완료(과거형) + 쉬운 결과, 다음 행동은 '새 계획 제안 보기'. 전문가 보기는 청산 사유 표 이름", async () => {
+    const easy = renderApp("/plans/95?view=easy");
     const steps = await screen.findByRole("list", { name: "모의 자동매매 단계" });
     expect(within(steps).getAllByRole("listitem")).toHaveLength(4);
-    expect(screen.getByRole("note").textContent).toMatch(/^단타라 장 마감 전에 모의 계좌에서 정리했어요 · 손익 /);
-    expect(screen.getByText("단타라 그날 15:15가 지나면 정리해요.")).toBeTruthy();
+    expect(within(steps).getByText("샀어요")).toBeTruthy();
+    expect(within(steps).getByText("목표·손절 지켜봤어요")).toBeTruthy();
+    expect((await screen.findByRole("link", { name: /새 계획 제안 보기/ })).getAttribute("href")).toBe("/recommendations");
+    expect(screen.getByRole("note").textContent).toBe("목표 가격에 닿아 모의 계좌에서 팔았어요 · 손익 +102,850원");
+    easy.unmount();
 
-    renderApp("/plans/97");
-    await waitFor(() => expect(screen.getAllByRole("note").some((n) => n.textContent?.includes("청산 완료 · 장 마감 전 정리"))).toBe(true));
+    renderApp("/plans/95");
+    await waitFor(() => expect(screen.getAllByRole("note").some((n) => n.textContent?.includes("청산 완료 · 목표가 도달"))).toBe(true));
   });
 });
 
@@ -969,7 +972,8 @@ describe("AI 교차검증 분석 (두 모드 모두 과정을 보인다)", () =>
     expect(await screen.findByText("AI 세 곳이 각자 계획을 내고 서로 검증했어요 · 통과 2 · 최종 승인 claude")).toBeTruthy();
     expect(screen.getAllByText(/확률/).length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: "이 종목 주문하기" })).toBeTruthy();
-    expect(await screen.findByText(/장마감 기준$/)).toBeTruthy(); // 위쪽 종가 (분석의 가격은 "분석 시각 가격")
+    expect(await screen.findByText(LIVE_ASOF)).toBeTruthy(); // 위쪽 현재가 (분석의 가격은 "분석 시각 가격")
+    expect(screen.getByText("현재가")).toBeTruthy();
     expect(screen.getByText(/^분석 시각 가격/)).toBeTruthy();
     expect(within(screen.getByRole("region", { name: "지표" })).getByText("rsi14")).toBeTruthy(); // 진단용 원래 키
   });
@@ -1082,7 +1086,7 @@ describe("AI 교차검증 분석 (두 모드 모두 과정을 보인다)", () =>
     expect(await screen.findByText("분석을 찾을 수 없어요")).toBeTruthy();
   });
 
-  it("분석 카드: 쉬운 보기는 분석 상세로, 전문가 보기는 종목 주문으로 (가격은 종가 + 기준 시각)", async () => {
+  it("분석 카드: 쉬운 보기는 분석 상세로, 전문가 보기는 종목 주문으로 (가격은 현재가 + 받은 시각, 못 받은 종목은 종가 + 장마감 기준)", async () => {
     freezeTime(TUE_MORNING);
     db.setSession("alice");
     const a = db.listAnalyses("005930", null)[0];
@@ -1098,12 +1102,33 @@ describe("AI 교차검증 분석 (두 모드 모두 과정을 보인다)", () =>
     const easy = wrap("easy");
     expect(easy.getByRole("link").getAttribute("href")).toBe(`/analyses/${a.id}`);
     expect(easy.getByText("통과한 계획 있음")).toBeTruthy();
-    expect(easy.getByText(KR_ASOF)).toBeTruthy();
+    expect(quote.basis).toBe("live");
+    expect(easy.getByText(LIVE_ASOF)).toBeTruthy();
+    expect(easy.getByText("지금 가격")).toBeTruthy();
     expect(easy.queryByText(/점수/)).toBeNull();
     easy.unmount();
     const expert = wrap("expert");
     expect(expert.getByRole("link").getAttribute("href")).toBe(`/stocks/005930?analysis=${a.id}`);
     expect(expert.getByText("BUY")).toBeTruthy();
+    expect(expert.getByText("현재가")).toBeTruthy();
+    expert.unmount();
+  });
+
+  it("분석 카드: 현재가를 받지 못한 종목(basis close)은 종가와 '장마감 기준' 시각 그대로", () => {
+    freezeTime(TUE_MORNING);
+    db.setSession("alice");
+    const a = db.listAnalyses("005930", null)[0];
+    const quote = { ...db.quotes(["005930"])[0], asOf: "2026-10-05T15:30:00+09:00", basis: "close" as const };
+    const view = render(
+      <MemoryRouter>
+        <Providers client={createQueryClient({ retry: false })}>
+          <AnalysisCard a={a} quote={quote} view="expert" />
+        </Providers>
+      </MemoryRouter>,
+    );
+    expect(view.getByText("종가")).toBeTruthy();
+    expect(view.getByText(KR_ASOF)).toBeTruthy();
+    expect(view.queryByText(/^실시간/)).toBeNull();
   });
 
   it("계획이 0개인 분석의 카드·종목 화면 요약은 까닭을 단정하지 않는다 (목록 응답에는 오류가 없다 — 까닭은 분석 상세의 과정 카드가 말한다)", async () => {
@@ -1150,11 +1175,30 @@ describe("검색", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("결과 위에 시장별 장마감 기준 시각", async () => {
+  it("결과 위에 '가격은 실시간이에요'와 받은 시각 한 줄", async () => {
     freezeTime(TUE_MORNING);
     renderApp("/search?q=삼성");
     const basis = await screen.findByLabelText("가격 기준");
+    expect(within(basis).getByText("가격은 실시간이에요")).toBeTruthy();
+    expect(within(basis).getAllByText(LIVE_ASOF)).toHaveLength(1); // 종목마다 받은 시각이 달라도 가장 늦은 시각 하나
+    expect(within(basis).queryByText(/장마감 기준/)).toBeNull();
+    expect(within(screen.getByRole("region", { name: "검색 결과" })).getAllByText("현재가").length).toBeGreaterThan(0); // 화면 읽기용 이름
+  });
+
+  it("현재가를 받지 못한 종목이 섞이면 그 종목의 시장별 장마감 기준 시각을 함께 보인다", async () => {
+    freezeTime(TUE_MORNING);
+    server.use(
+      http.get("*/api/quotes", ({ request }) => {
+        const symbols = (new URL(request.url).searchParams.get("symbols") ?? "").split(",").filter(Boolean);
+        const quotes = db.quotes(symbols).map((q, i) => (i === 0 ? { ...q, asOf: "2026-10-05T15:30:00+09:00", basis: "close" as const } : q));
+        return HttpResponse.json({ quotes, asOf: new Date().toISOString() });
+      }),
+    );
+    renderApp("/search?q=에코프로"); // 에코프로비엠·에코프로 두 종목 — 첫째만 현재가를 받지 못했다
+    const basis = await screen.findByLabelText("가격 기준");
+    expect(within(basis).getByText("가격은 실시간이에요 (받지 못한 종목은 직전 장마감 종가)")).toBeTruthy();
     expect(within(basis).getByText(KR_ASOF)).toBeTruthy();
+    expect(within(basis).getByText(LIVE_ASOF)).toBeTruthy();
   });
 
   it("검색어는 주소(?q=)에 남아 — 종목을 열었다가 뒤로 와도 검색어와 결과가 그대로다", async () => {
@@ -1379,7 +1423,7 @@ const pv = (activatable: boolean): RiskPreview => ({ ...db.riskPreview(1, 91, nu
 
 describe("lib/autotrade 표시 규칙", () => {
   it("청산 사유 이름은 docs/API.md 표 그대로, 모르는 값은 그대로", () => {
-    expect(EXIT_REASON).toEqual({ TARGET: "목표가 도달", STOP: "손절가 도달", EXPIRED: "보유 기한 경과", MANUAL: "사용자 매도", EOD: "장 마감 전 정리" });
+    expect(EXIT_REASON).toEqual({ TARGET: "목표가 도달", STOP: "손절가 도달", EXPIRED: "보유 기한 경과", MANUAL: "사용자 매도" });
     expect(exitReasonLabel("NEW")).toBe("NEW");
     expect(exitReasonLabel(null)).toBe("");
   });

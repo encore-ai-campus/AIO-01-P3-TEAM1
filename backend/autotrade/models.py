@@ -8,18 +8,10 @@ from django.db import models
 from django.db.models import Q
 from django.utils import timezone
 
-# 계획의 보유 기간 종류 (docs/API.md PlanHorizon): SWING(기본) | DAY (단타 연습 계획 — source day 추천만)
-HORIZON_SWING, HORIZON_DAY = "SWING", "DAY"
-HORIZONS = [(h, h) for h in (HORIZON_SWING, HORIZON_DAY)]
-
-
 class Recommendation(models.Model):
-    """AI(또는 시연 규칙)의 매수 제안 하나. 출처(리포트·분석)마다 하나만 만든다.
-
-    day는 단타 연습장에서 사용자가 직접 입력한 단타 계획의 껍데기다 (AI 아님, 만든 사람만 쓴다 — docs/API.md "단타 연습").
-    """
-    REPORT, ANALYSIS, DEMO, DAY = "report", "analysis", "demo", "day"
-    SOURCES = [(s, s) for s in (REPORT, ANALYSIS, DEMO, DAY)]
+    """AI(또는 시연 규칙)의 매수 제안 하나. 출처(리포트·분석)마다 하나만 만든다."""
+    REPORT, ANALYSIS, DEMO = "report", "analysis", "demo"
+    SOURCES = [(s, s) for s in (REPORT, ANALYSIS, DEMO)]
     OPEN, EXPIRED = "open", "expired"
     STATUSES = [(s, s) for s in (OPEN, EXPIRED)]
 
@@ -29,7 +21,7 @@ class Recommendation(models.Model):
     analysis = models.ForeignKey("analysis.AnalysisRun", on_delete=models.SET_NULL, null=True, blank=True,
                                  related_name="recommendations")
     requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
-                                     related_name="recommendations")  # 신청한(시연·단타면 만든) 팀원. 자동이면 None
+                                     related_name="recommendations")  # 신청한(시연이면 만든) 팀원. 자동이면 None
     symbol = models.CharField(max_length=20)
     name = models.CharField(max_length=200)
     market = models.CharField(max_length=2)  # KR | US
@@ -38,8 +30,7 @@ class Recommendation(models.Model):
     entry_price = models.FloatField()
     target_price = models.FloatField()
     stop_price = models.FloatField()
-    holding_days = models.IntegerField()  # 보유 거래일 (1~20). DAY는 1
-    horizon = models.CharField(max_length=5, choices=HORIZONS, default=HORIZON_SWING, db_default=HORIZON_SWING)  # SWING | DAY (source day일 때만 DAY)
+    holding_days = models.IntegerField()  # 보유 거래일 (1~20)
     probability = models.FloatField()  # 손절 전에 목표가에 도달할 확률 (0~1)
     probability_assumed = models.BooleanField(default=False)  # 확률이 없어 0.5로 둠
     confidence = models.FloatField(null=True, blank=True)  # 0~100
@@ -91,15 +82,13 @@ class TradePlan(models.Model):
     target_price = models.FloatField()
     stop_price = models.FloatField()
     holding_days = models.IntegerField()
-    # 추천에서 복사. DAY면 진입 주문이 style day이고 보유 기한 없이 그 세션 15:15 KST에 정리된다
-    horizon = models.CharField(max_length=5, choices=HORIZONS, default=HORIZON_SWING, db_default=HORIZON_SWING)
-    entry_deadline = models.DateTimeField()  # = 추천의 valid_until (DAY는 만든 날 15:15 KST)
+    entry_deadline = models.DateTimeField()  # = 추천의 valid_until
     order = models.ForeignKey("trading.PaperOrder", on_delete=models.SET_NULL, null=True, blank=True,
                               related_name="trade_plans")  # 지금 연결된 모의 주문 (재주문하면 바뀐다)
     fill_price = models.FloatField(null=True, blank=True)
     filled_at = models.DateTimeField(null=True, blank=True)
     exit_price = models.FloatField(null=True, blank=True)
-    exit_reason = models.CharField(max_length=8, null=True, blank=True)  # TARGET | STOP | EXPIRED | MANUAL | EOD
+    exit_reason = models.CharField(max_length=8, null=True, blank=True)  # TARGET | STOP | EXPIRED | MANUAL
     closed_at = models.DateTimeField(null=True, blank=True)
     pnl_krw = models.FloatField(null=True, blank=True)
     failure_reason = models.TextField(null=True, blank=True)

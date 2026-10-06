@@ -156,7 +156,6 @@ def test_scenario_validation():
         scenario(probability=1.2)
     with pytest.raises(ValueError):
         scenario(horizon="MONTH")
-    assert scenario(horizon="DAY", holding_days=1).horizon == "DAY"  # 단타 연습 계획의 한도용 (AI 경로에는 없다)
 
 
 def test_report_contains_key_numbers():
@@ -167,33 +166,23 @@ def test_report_contains_key_numbers():
     assert "20일선 지지" in text
 
 
-# --- 단타(DAY) 한도 · 사유 코드 · 장기 보유 점검 (docs/DECISIONS.md 14-3·14-4, docs/API.md "실행 불가 사유 코드") ---
+# --- 한도 · 사유 코드 · 장기 보유 점검 (docs/DECISIONS.md 14-3, docs/API.md "실행 불가 사유 코드") ---
 
-def test_day_horizon_has_its_own_limits_and_is_not_tradable_by_ai():
-    assert "DAY" in HORIZONS and "DAY" not in TRADABLE_HORIZONS
-    assert LIMITS["DAY"] == RiskLimits(risk_per_trade=0.005, max_position=None, min_reward_risk=2.0,
-                                       max_daily_loss=0.02, max_daily_trades=10)
+def test_horizons_have_limits_and_only_swing_is_tradable_by_ai():
+    assert HORIZONS == ("SWING", "LONG_TERM") and TRADABLE_HORIZONS == ("SWING",)
+    assert set(LIMITS) == set(HORIZONS)
     assert LIMITS["LONG_TERM"].max_position == 1.0
     assert LIMITS["SWING"].max_position is None and LIMITS["SWING"].max_daily_trades is None
 
 
-def test_day_sizes_with_half_percent_risk():
-    s = scenario(horizon="DAY", holding_days=1, stop_price=90_000, target_price=125_000)
-    swing = assess(scenario(stop_price=90_000, target_price=125_000), account())
-    day = assess(s, account())
-    assert swing.quantity == 9 and day.quantity == 4  # 위험 한도 10만원 → 5만원 (1주당 손실 약 11,078원)
-    assert day.approved and day.limited_by == "건당 위험 한도" and day.codes == []
-
-
-def test_day_daily_trades_and_loss_limits():
-    s = scenario(horizon="DAY", holding_days=1)
-    assert assess(s, account(daily_trades=9)).approved
-    r = assess(s, account(daily_trades=10))
-    assert not r.approved and r.codes == ["daily_trades_limit"] and "10건" in r.reasons[0]
-    r = assess(s, account(daily_loss_krw=200_000))  # 자산 1천만원의 2%
-    assert r.codes == ["daily_loss_limit"]
-    assert assess(scenario(), account(daily_loss_krw=200_000)).approved  # 스윙은 3%
+def test_daily_trades_and_loss_limits(monkeypatch):
     assert assess(scenario(), account(daily_trades=50)).approved  # 스윙에는 건수 한도가 없다
+    assert not assess(scenario(), account(daily_loss_krw=300_000)).approved  # 자산 1천만원의 3%
+    monkeypatch.setitem(LIMITS, "SWING", RiskLimits(risk_per_trade=0.01, max_position=None, min_reward_risk=2.0,
+                                                    max_daily_loss=0.03, max_daily_trades=10))
+    assert assess(scenario(), account(daily_trades=9)).approved
+    r = assess(scenario(), account(daily_trades=10))
+    assert not r.approved and r.codes == ["daily_trades_limit"] and "10건" in r.reasons[0]
 
 
 def test_codes_align_with_reasons():

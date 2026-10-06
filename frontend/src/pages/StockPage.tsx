@@ -1,8 +1,9 @@
 // /stocks/:symbol 종목 상세 (docs/컨셉변경계획.md 4-2, docs/DECISIONS.md 13-1 D-1, docs/투자서비스확장계획.md 2-3).
 // 모바일 한 열(= DOM·읽는 순서): 시세(+ 내 모의 주문 한 줄)·차트 → 큰 버튼 "AI 리포트 만들기"(여정 ① 만들기) + 보조 "AI 교차검증 분석"
-//   → 펀더멘털 → (단타 잠금이 풀렸고 국내 종목이면) 단타 연습장 링크 → 주문.
+//   → 펀더멘털 → 주문.
 // PC 2단: 왼쪽은 '보기'(시세·차트·펀더멘털), 오른쪽 sticky는 '하기' — 전문가 보기는 주문 패널, 쉬운 보기는 AI 리포트 묶음(그 사람의 주 행동).
 //   쉬운 보기의 직접 주문(고급)은 왼쪽 맨 아래 (펼치면 길어지므로 sticky 열에 두지 않는다). 같은 요소를 두 번 그리지 않고 grid 자리만 바꾼다.
+// 시세는 실시간(5초마다 새로 받음, Quote.basis "live" → "실시간 · 15:20:31"), 현재가를 받지 못한 종목만 직전 종가("장마감 기준").
 // 차트: 쉬운 보기는 종가 선(낮게 — 360×740에서 큰 버튼이 첫 화면에 들어오게), 전문가 보기는 캔들·이동평균·거래량.
 // 전문가 보기 모바일은 하단 고정 버튼 → 주문 바텀시트 (.order-dock: PC 패널과 한 벌 DOM, 열린 동안만 모달 — hooks/useModal).
 import { Suspense, lazy, type MouseEvent, type ReactNode, type RefObject, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
@@ -19,7 +20,7 @@ import { Collapse } from "../components/motion/Collapse";
 import { ACTED_MS, OrderPanel, type Prefill } from "../components/OrderPanel";
 import { ChaosForm } from "../components/reports/ChaosForm";
 import { AsOf, EmptyState, ErrorState, Flash, Notice, PageHeader, PriceChange, Skeleton, Spinner, VerdictBadge } from "../components/ui";
-import { useBeginnerMode, useViewMode } from "../hooks/useBeginnerMode";
+import { useViewMode } from "../hooks/useBeginnerMode";
 import { useModal } from "../hooks/useModal";
 import { useRevealAfterLoading } from "../hooks/useMotionState";
 import { formatOpensAt } from "../lib/autotrade";
@@ -27,7 +28,8 @@ import { cn } from "../lib/cn";
 import { formatDateTime, formatDayLabel, formatKrw, formatPercent, formatPrice, formatQty, formatRate, formatRequester, trendClass } from "../lib/format";
 import { prefersReducedMotion } from "../lib/motion";
 import { useOrderBarPresence } from "../lib/orderBar";
-import { reportStatusText } from "../lib/plainText";
+import { quotePriceName, reportStatusText } from "../lib/plainText";
+import { stockAsOfBasis } from "../lib/quote";
 import { todayReport } from "../lib/reports";
 
 // 차트 라이브러리는 종목 상세에서만 쓰므로 따로 불러온다. 불러온 적이 있으면(다시 온 화면) 차트를 페이드하지 않는다
@@ -39,10 +41,10 @@ const CandleChart = lazy(() =>
   }),
 );
 
-// 2단 배치: 왼쪽(보기)은 1열에 차례로, 오른쪽(하기)은 2열 1~4행을 걸치는 sticky 하나 (블록마다 좌우를 정하면 같은 행 높이가 묶여 빈틈이 생긴다)
+// 2단 배치: 왼쪽(보기)은 1열에 차례로, 오른쪽(하기)은 2열 1~3행을 걸치는 sticky 하나 (블록마다 좌우를 정하면 같은 행 높이가 묶여 빈틈이 생긴다)
 const GRID = "grid gap-3 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-x-6";
 const LEFT = "min-w-0 lg:col-start-1";
-const RIGHT = "lg:sticky lg:top-8 lg:col-start-2 lg:row-span-4 lg:row-start-1";
+const RIGHT = "lg:sticky lg:top-8 lg:col-start-2 lg:row-span-3 lg:row-start-1";
 /** 차트 높이: 쉬운 보기는 낮은 선 차트, 전문가 보기 PC는 화면 높이에 맞춰(800px 화면에서 300px) 큰 버튼이 첫 화면에 들어오게. */
 const CHART_H = {
   easy: "h-[208px] lg:h-[320px]",
@@ -235,7 +237,7 @@ function ReportCta({ stock, easy }: { stock: StockDetail; easy: boolean }) {
 
 type Trading = ReturnType<typeof useSymbolTrading>;
 
-/** 내 모의 주문 한 줄 (보유·체결 대기·매수 예약). 한 줄 문장으로 — 시세 카드의 '종가'·가격 글자와 겹치지 않게. */
+/** 내 모의 주문 한 줄 (보유·체결 대기·매수 예약). 한 줄 문장으로 — 시세 카드의 가격 이름('현재가'·'종가')·가격 글자와 겹치지 않게. */
 function summaryLine(t: Trading, stock: StockDetail): ReactNode | null {
   if (t.state === "holding" && t.order) {
     const p = t.position;
@@ -392,21 +394,6 @@ function AdvancedOrder({
   );
 }
 
-/** 단타 연습장으로 (이 종목을 미리 골라 둔다). 국내 종목이고 잠금이 풀린 사람(주린이모드 끔 + 퀴즈 통과)에게만 보인다 (docs/API.md "단타 연습"). */
-function DayPracticeLink({ stock }: { stock: StockDetail }) {
-  return (
-    <Link
-      to={`/day?symbol=${encodeURIComponent(stock.symbol)}`}
-      className="press-row flex h-12 items-center justify-between rounded-2xl bg-card px-5 text-[15px] font-semibold hover:bg-fill/60"
-    >
-      <span className="flex items-center gap-1.5">
-        <Icon name="bolt" className="size-4 text-warn" />이 종목으로 단타 연습
-      </span>
-      <Icon name="chevron" className="size-4 text-mute-weak" />
-    </Link>
-  );
-}
-
 /**
  * 화면 머리 제목: 종목 이름. 모바일에서 시세의 가격 줄이 머리 아래로 지나가면 둘째 줄에 작은 가격이 올라온다 (판단 기준인 '지금 가격'을 잃지 않게).
  * 가격 줄은 화면 읽기에서 뺀다 (제목 이름은 종목 이름 그대로). PC는 머리가 붙지 않으므로 그리지 않는다.
@@ -437,7 +424,6 @@ function HeaderTitle({ stock, show }: { stock: StockDetail; show: boolean }) {
 
 function Detail({ stock, prefill, reveal }: { stock: StockDetail; prefill: Prefill | null; reveal: boolean }) {
   const { easy, view } = useViewMode();
-  const { profile } = useBeginnerMode();
   const { data: me } = useMe();
   const userId = me?.id ?? null;
   const t = useSymbolTrading(stock.symbol);
@@ -461,7 +447,6 @@ function Detail({ stock, prefill, reveal }: { stock: StockDetail; prefill: Prefi
   const dockId = useId();
   const dockTitleId = useId();
   const crossTitleId = useId();
-  const showDay = stock.market === "KR" && Boolean(profile?.dayTradingUnlocked);
   const bar = barAction(t, prefill);
   const expanded = orderOpen ?? busy;
 
@@ -563,10 +548,14 @@ function Detail({ stock, prefill, reveal }: { stock: StockDetail; prefill: Prefi
     </Suspense>
   );
 
+  // 마지막 봉이 오늘 진행 중인 봉이면(StockDetail.asOf가 실시간 시세의 받은 시각) 그 봉의 종가는 아직 정해지지 않았다
+  const barLive = stockAsOfBasis(stock) === "live";
   const caption = lastBar
     ? easy
-      ? `종가 · 최근 ${stock.candles.length}일 · ${formatDayLabel(lastBar.date)}까지`
-      : `일봉 · 최근 ${stock.candles.length}일 · 완성된 봉만 (마지막 봉 ${formatDayLabel(lastBar.date)} 종가)`
+      ? `${barLive ? "일봉 선 (마지막은 오늘 진행 중)" : "종가"} · 최근 ${stock.candles.length}일 · ${formatDayLabel(lastBar.date)}까지`
+      : barLive
+        ? `일봉 · 최근 ${stock.candles.length}일 · 마지막 봉 ${formatDayLabel(lastBar.date)}은 진행 중`
+        : `일봉 · 최근 ${stock.candles.length}일 · 완성된 봉만 (마지막 봉 ${formatDayLabel(lastBar.date)} 종가)`
     : `일봉 · 최근 ${stock.candles.length}일`;
 
   const quoteCard = (
@@ -575,7 +564,7 @@ function Detail({ stock, prefill, reveal }: { stock: StockDetail; prefill: Prefi
         {stock.symbol} · {stock.exchange}
       </p>
       <p ref={priceRow} className="mt-1 flex items-baseline gap-2">
-        <span className="text-[14px] font-semibold text-sub">종가</span>
+        <span className="text-[14px] font-semibold text-sub">{quotePriceName(q.basis, easy)}</span>
         <span className="text-[30px] leading-tight font-bold tracking-tight tabular-nums">
           <Flash value={q.price}>{formatPrice(q.price, stock.currency)}</Flash>
         </span>
@@ -584,7 +573,12 @@ function Detail({ stock, prefill, reveal }: { stock: StockDetail; prefill: Prefi
         <span className="sr-only">전 거래일 종가 대비 </span>
         <PriceChange change={q.change} rate={q.changeRate} currency={stock.currency} />
       </p>
-      <AsOf at={q.asOf ?? stock.asOf} market={stock.market} className="mt-1 block" />
+      {q.asOf ? (
+        <AsOf at={q.asOf} market={stock.market} basis={q.basis} className="mt-1 block" />
+      ) : (
+        // 시세를 못 받았을 때: 가격은 없고 마지막 봉의 장마감 시각만 있다
+        <AsOf at={stock.asOf} market={stock.market} className="mt-1 block" />
+      )}
       <MySummary t={t} stock={stock} onOpen={openOrder} className={easy ? undefined : "lg:hidden"} />
       {stock.warnings.length > 0 && (
         <div className="mt-3 space-y-2">
@@ -632,9 +626,6 @@ function Detail({ stock, prefill, reveal }: { stock: StockDetail; prefill: Prefi
         {quoteCard}
         {actions}
         <FundamentalsPanel symbol={stock.symbol} view={view} className={LEFT} />
-        <Collapse open={showDay} className={LEFT}>
-          <DayPracticeLink stock={stock} />
-        </Collapse>
 
         {easy ? (
           <AdvancedOrder

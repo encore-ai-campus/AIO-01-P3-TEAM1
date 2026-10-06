@@ -548,7 +548,6 @@ describe("PageHeader", () => {
       "/analyses/3",
       "/plans/3",
       "/recommendations/2",
-      "/day/quiz",
       "/stocks/005930",
       "/ranking",
       "/notifications",
@@ -558,7 +557,6 @@ describe("PageHeader", () => {
     expect(paths.map(parentPath)).toEqual([
       "/reports",
       "/reports",
-      "/portfolio",
       "/portfolio",
       "/portfolio",
       "/search",

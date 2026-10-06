@@ -15,17 +15,15 @@ export interface ChartColors {
   entryLine: string; // 사는 가격 선
   targetLine: string; // 목표 가격 선
   stopLine: string; // 손절 가격 선
-  entryMark: string; // 진입 표시
-  exitMark: string; // 청산 표시 (화살표와 '청산' 글자 — 흰 바탕에서도 읽히게 경고 글자색)
   accentLine: string; // 보조 선 (일봉의 20일 이동평균 — 경고 주황, 캔들의 빨강·파랑과 겹치지 않게)
   volUp: string; // 상승 거래량 막대 (반투명)
   volDown: string; // 하락 거래량 막대 (반투명)
 }
 
-type Token = "up" | "down" | "sub" | "mute-weak" | "fill" | "ink" | "warn" | "warn-ink";
+type Token = "up" | "down" | "sub" | "mute-weak" | "fill" | "warn";
 
 // 토큰을 읽지 못할 때(테스트 css:false, CSS가 아직 오지 않음) 쓰는 값. 라이트는 지금까지 차트에 쓰던 상수 그대로다
-// (대문자 유지 — day.test.tsx가 진입 표시 '#191F28'를 본다). 다크는 index.css의 다크 토큰과 같다.
+// (대문자 유지). 다크는 index.css의 다크 토큰과 같다.
 const FALLBACK: Record<Theme, Record<Token, string>> = {
   light: {
     up: "#F04452",
@@ -33,9 +31,7 @@ const FALLBACK: Record<Theme, Record<Token, string>> = {
     sub: "#4E5968",
     "mute-weak": "#8B95A1",
     fill: "#F2F4F6",
-    ink: "#191F28",
     warn: "#FF9F00",
-    "warn-ink": "#9A5B00",
   },
   dark: {
     up: "#F25C68",
@@ -43,9 +39,7 @@ const FALLBACK: Record<Theme, Record<Token, string>> = {
     sub: "#B0B8C1",
     "mute-weak": "#6B7684",
     fill: "#23272F",
-    ink: "#E9ECEF",
     warn: "#FF9F00",
-    "warn-ink": "#FFB547",
   },
 };
 
@@ -94,8 +88,6 @@ export function chartColors(theme: Theme): ChartColors {
     entryLine: t("sub"),
     targetLine: up,
     stopLine: down,
-    entryMark: t("ink"),
-    exitMark: t("warn-ink"), // 경고 주황(warn)은 흰 바탕 위 화살표·글자가 약 2:1이라 글자용 진한 주황
     accentLine: t("warn"),
     volUp: withAlpha(up, FALLBACK[theme].up, VOLUME_ALPHA[theme]),
     volDown: withAlpha(down, FALLBACK[theme].down, VOLUME_ALPHA[theme]),

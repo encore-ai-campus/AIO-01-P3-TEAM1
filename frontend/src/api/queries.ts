@@ -31,14 +31,14 @@ import type {
 } from "./types";
 
 /**
- * 폴링 간격 (ms, docs/API.md 공통 규칙). 화면의 가격은 장마감 기준(직전 종가)이라 하루 한 번 바뀌므로 시세는 60초,
- * 체결·현금은 장중에 바뀌므로 계좌 10초, 주문·매매 계획 5초.
- * 시세(quote, stock)와 계좌(account)는 로그인해 있는 동안 탭이 가려져도 계속 받는다.
+ * 폴링 간격 (ms, docs/API.md 공통 규칙). 종목 시세는 실시간(2026-10-06)이라 5초 (전 60초 — 서버가 종목마다 1초 캐시하므로 팀이 같이 봐도 증권사 조회는 늘지 않는다),
+ * 계좌 평가는 장마감 기준이지만 체결·현금이 장중에 바뀌므로 10초, 주문·매매 계획 5초.
+ * 시세(quote, stock)와 계좌(account)는 계약대로 로그인해 있는 동안 탭이 가려져도 계속 받는다.
  * 나머지는 탭이 보이지 않으면 멈추고, 돌아오면 바로 다시 받는다.
  */
 export const POLL = {
-  quote: 60_000,
-  stock: 60_000,
+  quote: 5000,
+  stock: 5000,
   account: 10_000,
   ranking: 30_000,
   orders: 5000,
@@ -48,9 +48,8 @@ export const POLL = {
   reports: 30000,
   report: 3000, // SSE가 없거나 끊겼을 때 리포트 Snapshot 다시 받기
   notifications: 15000, // 안 읽은 알림 수
-  plan: 5000, // 진행 중 계획 (단타 계획 목록 포함)
+  plan: 5000, // 진행 중 계획
   recommendations: 30000,
-  dayStatus: 30_000, // 단타 세션(15:15 진입 마감)·오늘 한도
 };
 
 /** 탭이 보일 때만 ms마다 다시 받는다. */
@@ -111,20 +110,13 @@ export const keys = {
   plan: (id: number) => ["plan", id] as const,
   notifications: (unread: boolean) => ["notifications", unread] as const,
   notificationSettings: ["notificationSettings"] as const,
-  // 계정: 투자자 프로필·단타 연습 퀴즈 (훅은 api/profile.ts)
+  // 계정: 투자자 프로필 (훅은 api/profile.ts)
   investorProfile: ["investorProfile"] as const,
-  dayQuiz: ["dayQuiz"] as const,
   // 장기투자 (훅은 api/longterm.ts)
   dailyMoves: (date: string | null) => ["longterm", "dailyMoves", date] as const,
   dailyMove: (symbol: string, date: string | null) => ["longterm", "dailyMove", symbol, date] as const,
   theses: ["longterm", "theses"] as const,
   fundamentals: (symbol: string) => ["fundamentals", symbol] as const,
-  // 단타 연습 (훅은 api/day.ts). "day"로 시작하는 키는 프로필이 바뀌면 함께 다시 받는다
-  minuteCandles: (symbol: string, date: string | null, minutes: number) => ["minuteCandles", symbol, date, minutes] as const,
-  dayStatus: ["day", "status"] as const,
-  dayPreview: (input: object | null) => ["day", "preview", input] as const,
-  dayPlans: (date: string | null) => ["day", "plans", date] as const,
-  dayReview: (date: string | null) => ["day", "review", date] as const,
 };
 
 export interface RecommendationParams {
@@ -164,7 +156,7 @@ export function useEquity(days = 30) {
 
 /**
  * 여러 종목 시세를 한 번에 (최대 50개). 종목 → Quote 맵으로 돌려준다.
- * 가격은 장마감 기준(직전 종가)이고, 기준 시각은 각 Quote.asOf다 (응답 맨 위 asOf는 응답 시각이라 쓰지 않는다).
+ * 가격은 실시간이고(Quote.basis "live"), 현재가를 받지 못한 종목만 직전 종가("close")다. 기준 시각은 각 Quote.asOf다 (응답 맨 위 asOf는 응답 시각이라 쓰지 않는다).
  */
 export function useQuotes(symbols: string[], opts: ListOptions = {}) {
   const list = [...new Set(symbols)].sort().slice(0, 50);

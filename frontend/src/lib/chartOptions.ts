@@ -1,4 +1,4 @@
-// 차트(lightweight-charts) 손동작 — 세 차트(종목 일봉 CandleChart · 단타 분봉 MinuteChart · 쉬운 리포트 ReportChart)가 같이 쓴다.
+// 차트(lightweight-charts) 손동작 — 두 차트(종목 일봉 CandleChart · 쉬운 리포트 ReportChart)가 같이 쓴다.
 // 차트는 긴 세로 화면 한가운데 있다. 차트 위에서 휠을 굴리거나 세로로 쓸어도 페이지가 내려가야 한다 (차트가 스크롤을 먹지 않게).
 // 차트는 끌기(마우스·가로 터치) · 두 손가락 벌리기 · 시간 축 끌기 · Ctrl/⌘ + 휠(트랙패드 두 손가락 벌리기 포함)로만 움직인다.
 // 색은 lib/chartTheme.ts. 이 파일은 색을 다루지 않는다.

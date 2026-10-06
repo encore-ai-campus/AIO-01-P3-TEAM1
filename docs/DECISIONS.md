@@ -9,7 +9,7 @@
 pyproject.toml      uv 작업 공간 (members: engine, backend). 루트는 패키지가 아니다
 engine/             paper-engine 패키지 (paper_engine/), 테스트 engine/tests/. 런타임 의존성 없음 (표준 라이브러리만)
 backend/            paper-backend: Django 프로젝트 (config/, accounts/, trading/, analysis/, reports/, autotrade/, notifications/,
-                    longterm/(장기투자, 2026-10-05), daytrade/(단타 연습, 2026-10-05) — 앱별 설명은 AGENTS.md "구조"). 외부 의존성은 여기만
+                    longterm/(장기투자, 2026-10-05) — 앱별 설명은 AGENTS.md "구조". daytrade/(단타 연습)는 2026-10-06 폐기, 16장). 외부 의존성은 여기만
 frontend/           Vite + React + TypeScript
 backtest/           백테스트 (DB 없이 단독 실행, engine을 import)
 deploy/             compose.dev.yml (로컬 Redis. `--profile postgres`로 PostgreSQL도)
@@ -68,7 +68,6 @@ KiwoomClient(appkey, secretkey, token_cache=None, calendar=None, base_url=BASE_U
   market_calendar(market) · listed_stocks(exchange) · warnings(symbol) · investor_trading(symbol, count=20)
   rankings(type_, market, duration="1d", count=30) · rankings_with_time(type_, market, duration="1d", count=30, exclude_caution=True)
   exchange_rate(base="USD", quote="KRW")
-  minute_candles(symbol, day, minutes=1) -> (봉 목록, complete)   # 2026-10-05: 단타 연습 분봉 (14-4). 국내만
 KiwoomApiError(status, body)        # 모든 조회 오류. 엔진은 이것만 잡는다
 data.calendar.MarketCalendar(data_gokr_api_key, cache_dir).calendar(market, now=None)
 data.calendar.drop_incomplete(candles, calendar, now)
@@ -79,11 +78,7 @@ data.calendar.drop_incomplete(candles, calendar, now)
   `KiwoomClient(cfg.kiwoom_appkey, cfg.kiwoom_secretkey, cfg.token_cache, MarketCalendar(cfg.data_gokr_api_key, ROOT/".cache"), cfg.kiwoom_base_url)`.
 - 미국 시세를 키움이 지원하지 않으면 해당 메서드는 `KiwoomApiError`를 낸다. `MARKETS=KR`이면 엔진은 미국을 부르지 않는다.
 - 계좌·주문 관련(`accounts`, `holdings`, `buying_power`, `sellable_quantity`, `commissions`)과 주문 TR은 만들지 않는다.
-- **`minute_candles(symbol: str, day: str, minutes: int = 1) -> tuple[list[dict], bool]`** (2026-10-05 추가, 두 클라이언트 같은 이름·인자·반환 — `test_toss.py`가 검사한다):
-  `day`(YYYY-MM-DD, KST) 국내 정규장 09:00~15:30(양 끝 포함) 분봉을 과거 → 최신으로, 봉은 일봉과 같은 내부(토스) 형식에 `timestamp`가 봉 시작 시각(`+09:00`).
-  **두 번째 값은 `complete`**(세션 시작 09:00까지 받았는지)다 — 쪽 수 한도 `MINUTE_MAX_PAGES`(20)에 걸리거나 증권사가 더 오래된 봉을 주지 않으면 `False`이고, 웹 API는 `partial = not complete`로 낸다.
-  `minutes`는 `kiwoom.MINUTE_STEPS`(1·3·5·10·15·30·45·60, 웹 API는 45를 받지 않는다), 아니면 `ValueError`. 미국 종목은 `KiwoomApiError`(토스는 `TossApiError`).
-  키움은 `ka10080`(`docs/KIWOOM.md` 4장), 토스는 `interval=1m` 쪽 넘기기 + 엔진이 `minutes` 간격으로 묶는다 (`docs/API.md` "단타 연습"). 공용 도우미 `minute_session`·`bar_time`·`bucket_minutes`는 `data/kiwoom.py`.
+- **`minute_candles`는 없다** (2026-10-05에 단타 연습 분봉용으로 두 클라이언트에 같은 이름·인자·반환으로 더했다가 **2026-10-06 단타 폐기로 둘 다 지웠다** — 16장). 키움 `ka10080` 조사는 `docs/KIWOOM.md` 4장에 남아 있으나 쓰지 않는다.
 
 ### 3-1. 로컬 개발 전용: 토스 조회 클라이언트 (2026-10-02 추가)
 
@@ -150,13 +145,13 @@ config.py       Config.broker · toss_client_id · toss_client_secret · toss_to
 | filled_quantity, fill_price, fill_fx_rate | REAL NULL | 매수 체결 |
 | filled_at | TEXT NULL | |
 | exit_price, exit_fx_rate | REAL NULL | 매도 체결 |
-| exit_reason | TEXT NULL | TARGET \| STOP \| EXPIRED \| MANUAL \| EOD (단타 장 마감 전 정리, 2026-10-05). 8자 이하 (Django 열 길이) |
+| exit_reason | TEXT NULL | TARGET \| STOP \| EXPIRED \| MANUAL (`EOD`는 2026-10-05에 단타 장 마감 전 정리용으로 더했다가 2026-10-06 단타 폐기로 지웠다 — 16장). 8자 이하 (Django 열 길이) |
 | closed_at | TEXT NULL | |
 | pnl, pnl_krw | REAL NULL | 실현 손익 (종목 통화, 원화). 수수료·세금 포함 |
 | signal_count | INTEGER | 청산 조건 연속 확인 횟수 (`LOCAL_EXIT_CONFIRMATIONS`=2) |
-| note | TEXT NULL | 취소 사유 등 (단타 주문이 15:15에 취소되면 "단타 진입 마감") |
+| note | TEXT NULL | 취소 사유 등 |
 | created_at | TEXT ISO | |
-| style | TEXT | 보유 방식 `swing` \| `long` \| `day`, 기본 `swing` (2026-10-05, 14-3). 주문 뒤 바뀌지 않는다. 엔진 SQLite는 열이 없으면 더하고 목표·손절·기한이 모두 없는 기존 주문을 `long`으로, Django는 `trading/0002_order_style` |
+| style | TEXT | 보유 방식 `swing` \| `long`, 기본 `swing` (2026-10-05, 14-3. `day`는 2026-10-06 단타 폐기로 지웠다 — 16장). 주문 뒤 바뀌지 않는다. 엔진 SQLite는 열이 없으면 더하고 목표·손절·기한이 모두 없는 기존 주문을 `long`으로, Django는 `trading/0002_order_style` |
 
 `paper_fills` — 체결 내역
 | 열 | 형식 | 설명 |
@@ -169,7 +164,7 @@ config.py       Config.broker · toss_client_id · toss_client_secret · toss_to
 | commission, tax | REAL | 종목 통화 |
 | fx_rate | REAL | 종목 통화 1단위의 원화 가치 (KRW는 1) |
 | cash_change_krw | REAL | 현금 증감 (매수 음수, 매도 양수) |
-| reason | TEXT | ENTRY \| TARGET \| STOP \| EXPIRED \| MANUAL \| EOD |
+| reason | TEXT | ENTRY \| TARGET \| STOP \| EXPIRED \| MANUAL |
 | filled_at | TEXT ISO | |
 
 `equity_daily` — 일별 자산 (국내 장 마감 기록 직후 하루 한 번. 웹 계좌는 KR 기준일이 오늘이 된 뒤 — 국내 거래일 15:40 KST 이후 — 장마감 기준 평가로, 14-1)
@@ -201,10 +196,9 @@ config.py       Config.broker · toss_client_id · toss_client_secret · toss_to
   사용자 컨펌 없이 모의 주문을 낸다 (진입가 지정가, 목표·손절·기한은 `make_plan`).
 - 리스크 엔진 입력(`AccountContext`)은 모의 계좌에서 만든다: 총자산=평가액, 매수 가능액, 수수료율=모의 수수료율,
   기존 보유 평가액, 오늘 확정 손실·주문 수, 자동 관리 금액.
-- **보유 방식 `style`** (2026-10-05, 14-3·14-4): `swing`은 위 목표·손절·기한 규칙 그대로. `long`은 자동 매도가 없다 (보유 기한을 쓰지 않는다).
-  `day`는 주문 접수 시각(`created_at`)의 KST 날짜가 세션이고, 그 날짜 15:15 KST(`DAY_CLOSE_AT`) 이후 첫 확인에서 체결 대기면 취소(`note` "단타 진입 마감"),
-  보유면 2회 확인 없이 바로 확인 가격으로 매도한다(`exit_reason` `EOD`. 장이 닫혀 놓쳤으면 다음 정규장 첫 확인에서). `long`·`day`는 보유 기한으로 팔지 않는다.
-  오늘 확정 손실·주문 수(`paper_today(day, style)`)는 보유 방식별로 센다 — 단타 한도는 `day` 주문만, 웹의 AI 추천 계획(SWING 한도)은 `swing` 주문만.
+- **보유 방식 `style`** (2026-10-05, 14-3): `swing`은 위 목표·손절·기한 규칙 그대로. `long`은 자동 매도가 없다 (보유 기한을 쓰지 않는다).
+  오늘 확정 손실·주문 수(`paper_today(day, style)`)는 보유 방식별로 센다 — 웹의 AI 추천 계획(SWING 한도)은 `swing` 주문만 센다 (`style` 인자는 `swing`·`long`).
+  (`day` 방식과 15:15 강제 정리·`EOD`는 2026-10-06 단타 폐기로 지웠다 — 16장.)
 
 ### 4-3. 상태 전이
 
@@ -222,9 +216,9 @@ JSON 열은 읽고 쓰기만 한다 (PostgreSQL 전용 조회를 쓰지 않는�
 | 표 (앱·마이그레이션) | 새 열·표 | 설명 |
 |---|---|---|
 | `reservations` (`trading/0002_order_style`) | `style` TEXT NULL | BUY 예약을 받을 때 정한 보유 방식(`swing`·`long`). 실행할 때 이 값으로 주문한다. SELL 예약은 null. 기존 BUY 예약은 마이그레이션이 같은 규칙으로 채웠다 |
-| `investor_profiles` (`accounts/0003_investorprofile`) | 새 표 (사용자당 하나) | `beginner_mode`(기본 켬), 진단 답 `answers`(JSON, q2는 보기 순서로)·점수·단계·성향·추천 모드·`assessed_at`, 단타 퀴즈 `day_quiz_passed_at`. 행이 없으면 기본값으로 본다 (14-7 B10) |
-| `recommendations` (`autotrade/0002_horizon`) | `horizon` TEXT (`SWING`·`DAY`, 기본 `SWING`), `source`에 `day` 더함 | `day` 추천(단타 계획의 껍데기)만 `DAY` (14-4) |
-| `trade_plans` (`autotrade/0002_horizon`) | `horizon` TEXT | 추천에서 복사. `DAY`면 진입 주문이 style `day`, 재주문 없음 |
+| `investor_profiles` (`accounts/0003_investorprofile`) | 새 표 (사용자당 하나) | `beginner_mode`(기본 켬), 진단 답 `answers`(JSON, q2는 보기 순서로)·점수·단계·성향·추천 모드·`assessed_at`. (단타 퀴즈 `day_quiz_passed_at`은 2026-10-06 `accounts/0004`로 지웠다 — 16장.) 행이 없으면 기본값으로 본다 (14-7 B10) |
+| `recommendations` (`autotrade/0002_horizon`) | `horizon` TEXT (`SWING`·`DAY`, 기본 `SWING`), `source`에 `day` 더함 | **2026-10-06 단타 폐기로 `autotrade/0003`(행)·`0004`(열)에서 `horizon`·`source = day`를 지웠다 (16장)** — 이력: `day` 추천(단타 계획의 껍데기)만 `DAY` (14-4) |
+| `trade_plans` (`autotrade/0002_horizon`) | `horizon` TEXT | **2026-10-06 `autotrade/0003`(행)·`0004`(열)에서 지웠다 (16장)** — 이력: 추천에서 복사. `DAY`면 진입 주문이 style `day`, 재주문 없음 |
 | `daily_move_notes` (`longterm/0001_initial`) | 새 표 (종목·날짜당 하나, 팀 공용) | 오늘의 내 종목 뉴스 (`DailyMove`). 업종 등락은 v1에서 늘 null이라 열이 없다. `llm_model`·`cost_usd`는 API에 내지 않는다 |
 | `investment_theses` (`longterm/0001_initial`) | 새 표 (사용자·종목당 하나) | 산 이유 (`Thesis`). `baseline`(JSON)은 9개 지표 값을 모두 담는다 (판정은 셋만) |
 | `thesis_checks` (`longterm/0001_initial`, `0002_thesischeck_facts`) | 새 표 + **`facts`** JSON (2026-10-05) | 산 이유 점검 한 번 (`ThesisCheck`). `facts`는 판정에만 쓰는 값(보고서·매출 성장률·같은 누적 기간의 순이익·영업현금흐름) — 다음 점검이 "2개 보고서 연속" 조건을 볼 때 읽는다. API에 내지 않는다. `caption`은 고정 문구라 저장하지 않는다 |
@@ -531,7 +525,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 | E-3 | 뉴스 출처: **네이버 폐기**, 발표까지 Google 뉴스 RSS 유지 + 출처 표시 (13-3) | 제안은 "네이버로 바꾸는 것을 검토" |
 | E-4 | 장기 보유의 종목당 비중 한도 **100%** (`RiskLimits.max_position = 1.0` — 한 종목에 계좌 전부까지 살 수 있다. 실제 한도는 현금) | 제안은 "팀 결정(값 미정)" |
 | E-5 | 펀더멘털 점검 기준값과 LLM 생략 기준은 제안값으로 시작하고, 과거 공시 몇 종목으로 검산 뒤 확정 | – |
-| E-6 | 단타 `DAY` 한도는 아래 값으로 시작하고 2단계 시작 때 백테스트로 다시 본다: 건당 위험 0.5% · 하루 최대 손실 2% · 하루 최대 거래 10건 · 최소 손익비 2.0(스윙과 같음) · 강제 청산 15:15 KST(장 마감 단일가 15:20 전) | 제안은 "팀 결정(값 없음)"이라 값을 정해 넣었다 |
+| E-6 | **폐기 (2026-10-06, 단타 폐기 — 16장).** 이력: 단타 `DAY` 한도는 아래 값으로 시작하고 2단계 시작 때 백테스트로 다시 본다: 건당 위험 0.5% · 하루 최대 손실 2% · 하루 최대 거래 10건 · 최소 손익비 2.0(스윙과 같음) · 강제 청산 15:15 KST(장 마감 단일가 15:20 전) | 제안은 "팀 결정(값 없음)"이라 값을 정해 넣었다 |
 | E-7 | **선물 모의거래는 하지 않는다 (폐기).** `docs/research/선물모의거래_조사.md`는 참고용으로만 남긴다. KIS 키·`paper:fut:*`·`margin_call`·`expiry_warning`·선물 메뉴를 만들지 않는다 | 제안은 "발표 뒤 조건 확인 후 결정" |
 
 ### 13-3. 운영·데이터 (결정필요사항 1장)
@@ -547,17 +541,20 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 | 약관 ("교육용이라 상관없나") | **상관있다.** 약관(계약)은 비상업·교육 목적이어도 그대로 적용된다. 저작권 위험이 낮은 것은 교육용이어서가 아니라 제목·사실만 쓰기 때문이다. 원문: Google 뉴스 RSS "personal feed reader … personal, non-commercial use" 밖, **키움 「오픈 API 서비스 이용약관」 제5조 ③** "시세 정보를 … 개인의 업무에 한하여 이용해야 하며, 제3자에게 제공해서는 아니 된다", **토스 Open API FAQ** "비상업적인 용도라 하더라도 제 3자에게 배포하는 행위는 엄격히 금지". OpenDART·공공데이터포털(재무·특일)은 허용. 현실적 위험은 소송보다 **키 정지·차단**이다 |
 | 약관 대응 (발표 전) | 배포 URL은 계정 있는 사람만(가입 경로 없음 유지, 시험 계정은 시험 기간만), 검색엔진 색인 막기, ~~공개 시연 영상의 시세·뉴스 화면은 가짜 데이터(`VITE_MOCK=1`)로~~ → **2026-10-05 사용자 결정: 가능한 부분은 실제 데이터를 쓰고, 실시간 시세는 장마감 기준으로 쓰며 그렇게 표시한다**(14-1), 화면 하단 출처 문구, 키움에 교육용 다중 표시 문의. 토스 조회는 원래 "혼자 로컬"까지만 회색이라 **`scripts/dev.sh`(0.0.0.0)로 팀원에게 보이는 지금 방식은 토스 FAQ 범위 밖**이다 — 키움 키를 받으면 바로 바꾼다 (사용자가 그때까지 토스 유지를 정함). 할 일 목록: 조사 보고서 9-2 |
 
-## 14. 구현 결정 (2026-10-04): 장마감 기준 · 장기투자 · 단타 연습 · 리포트 끝 알림
+## 14. 구현 결정 (2026-10-04): 장마감 기준 · 장기투자 · 단타 연습(2026-10-06 폐기, 16장) · 리포트 끝 알림
 
 사용자(팀장)가 2026-10-04에 정한 두 가지와, 그것을 구현하려고 정한 공통 결정이다. API 계약은 `docs/API.md`(각 절의 "구현 예정(2026-10-04, Claude)" — 2026-10-05에 모두 만들어 "구현: 2026-10-05 (Claude)"로 바꿨다. 만들면서 계약 문장과 달라진 곳은 그 자리와 아래 각 절에 "2026-10-05 구현"으로 적었다).
 앞 장(특히 8-7·12-6의 파일 소유, 13장의 담당 번호)과 다르면 이 장이 우선한다.
+**2026-10-06: 이 장의 단타 연습(14-4와 흩어진 단타 줄)은 사용자 결정으로 폐기했다 — 16장.** 폐기한 줄은 이력으로 남기고 "폐기(2026-10-06)"를 붙였다.
 
 | 사용자 결정 | 뜻 |
 |---|---|
 | **표시·계산만 장마감 기준, 체결은 엔진 내부 장중** | 화면의 가격·평가·랭킹·미리 보기·추천 가격은 직전 정규장 종가로 계산하고 보인다. 모의 체결·청산 판단(체결 확인·예약 실행·재주문·활성화의 장중 확인·시장가 체결)만 지금처럼 장중 확인 가격을 쓴다 (14-1) |
-| **확장 1·2단계까지 구현** | `docs/투자서비스확장계획.md` 5장 로드맵의 1단계(장기투자)와 2단계 (a)(단타 연습)를 이번에 만든다. 2단계의 AI 팀(`day_plan`·`day_review`)은 추천 워크플로우라 팀 몫이고, 3단계(WebSocket 틱)는 하지 않는다 |
+| **확장 1·2단계까지 구현** | `docs/투자서비스확장계획.md` 5장 로드맵의 1단계(장기투자)와 2단계 (a)(단타 연습)를 이번에 만든다. 2단계의 AI 팀(`day_plan`·`day_review`)은 추천 워크플로우라 팀 몫이고, 3단계(WebSocket 틱)는 하지 않는다. **→ 2단계 (a) 단타 연습은 2026-10-06 폐기 (16장)** |
 
 ### 14-1. 장마감 기준
+
+> **2026-10-06 바뀜 (사용자 결정, 17장)**: 종목 조회의 시세(`Quote`·`StockDetail`)는 실시간이다. 이 절의 나머지(계좌 평가·랭킹·일별 자산·미리 보기·`priceAtCreation`·리포트)는 그대로다.
 
 - **왜**: ① 화면의 숫자가 장중에 흔들리지 않아 초보가 읽기 쉽고, 미리 보기·활성화·평가·랭킹이 같은 숫자를 쓴다 (미리 보기에서 본 수량이 그대로 주문 수량이 된다).
   ② 증권사 조회가 "보이는 종목마다 1초에 1번"(8-2)에서 "종목·기준일마다 일봉 1번"으로 줄어 키움 한도(토큰당 초당 5회)에 여유가 생긴다.
@@ -568,7 +565,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
   (봉 날짜를 쓰므로 장 달력이 대체공휴일을 몰라도 실제 마지막 거래일로 표시된다 — 13-3 "휴장일").
 - **코드 접점**: 엔진 `data/calendar.py`의 `close_basis_day`·`session_end_iso`·`close_of`(표준 라이브러리), 백엔드 `trading/market.py`의 `basis`·`closes`·`close_price`·`completed_candles`
   (종목·기준일별 캐시, 한 호출이 새로 받는 종목은 10개까지). `current_prices`·`confirmed_prices`·`last_price`는 **내부 경로 전용**으로 남긴다.
-- **장마감 기준인 것**: 시세(`Quote`)·종목 상세(완성 봉만)·계좌 평가·수익률·랭킹·일별 자산 기록(`record_equity`)·리스크 미리 보기와 활성화 수량·`priceAtCreation`·시연 추천 진입가·리포트 PDF 차트·분봉(완성 세션만)·
+- **장마감 기준인 것**: 시세(`Quote`)·종목 상세(완성 봉만)·계좌 평가·수익률·랭킹·일별 자산 기록(`record_equity`)·리스크 미리 보기와 활성화 수량·`priceAtCreation`·시연 추천 진입가·리포트 PDF 차트·(분봉은 2026-10-06 삭제 — 16장)·
   **리포트 시세 Worker 결과**(`MarketResult.price`·`changePct`·지표 — 팀의 `market_agent`도 `market.close_price`·`completed_candles`를 쓰고 `asOf`를 낸다, `docs/tasks/00-공통.md` 10절. 리포트 상세·PDF는 팀 전체가 본다).
   분석의 `priceAtAnalysis`는 분석 시각 가격 그대로 두는 **일부러 둔 예외**다 (화면 "분석 시각 가격", 장중이었으면 "장중 가격"이라고 밝힌다). 지표 기준일(`dataAsOf`)을 따로 낸다.
 - **일별 자산 기록(`record_equity`)** (2026-10-05 확정): 그날 기록은 **KR 기준일이 오늘이 된 뒤**(국내 거래일 15:40 KST = 정규장 종료 + `CLOSE_SETTLE_MIN`) 하루 한 번 남긴다.
@@ -586,13 +583,13 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 ### 14-2. 범위와 파일 소유 (2026-10-04부터)
 
 - **팀은 추천 워크플로우만 만든다**: AI 리포트 Agent 워크플로우(Worker·출력 계약·Orchestrator·Guard·AutoHealing·장애 주입·복구 지표), 자동 리포트(B9, 01 T1-3·T1-4·T1-5의 자동 리포트 부분),
-  단타의 AI 팀(`day_plan`·`day_review`), 그리고 **UI/UX 고도화**(Claude가 만든 화면을 다듬기), **기능 논의**, **테스트**(사용성 시험·장애 시험 포함).
+  (단타의 AI 팀 `day_plan`·`day_review`는 2026-10-06 폐기 — 16장), 그리고 **UI/UX 고도화**(Claude가 만든 화면을 다듬기), **기능 논의**, **테스트**(사용성 시험·장애 시험 포함).
   워크플로우에 붙어 있는 작은 계약 B1 `plainSummary`(출력 계약, 2)도 팀 몫 그대로다.
 - **B3 `opinion`·`oneLiner`는 Claude가 지금 만든다** (2026-10-05 바뀜 — 앞의 "4의 T4-1에서 한 PR에"를 버렸다): `payloads.summary`에 두 필드
   (`status == "completed"`일 때만 `results["report_agent"]`의 `verdict`·`oneLiner`, 그 밖은 null). 왜: 리포트 목록 카드·쉬운 보기 화면이 먼저 이 값을 쓰고,
   결과를 그대로 옮기는 작은 일이라 4가 AutoHealing에 집중하게 했다. 4는 나중에 같은 `summary`·`detail` 함수에 T4-1·T4-7의 나머지 필드(`source`·`chaosEnabled`·`costUsd`·`hasPdf`·`chaos`·`recovery`)를
   더한다 — Claude가 넣은 B3 두 필드와 그 테스트는 지우지 않고 그 위에 더한다.
-- **그 밖은 Claude가 만든다**: 장마감 기준, 컨셉 변경 B3·B4~B8·B10과 D-1·D-4·D-5·D-7(횟수 한도)·U12, 보유 방식, 장기투자, 단타 연습, 컨셉 P0·P1 화면.
+- **그 밖은 Claude가 만든다**: 장마감 기준, 컨셉 변경 B3·B4~B8·B10과 D-1·D-4·D-5·D-7(횟수 한도)·U12, 보유 방식, 장기투자, ~~단타 연습~~(2026-10-06 폐기 — 16장), 컨셉 P0·P1 화면.
 - **파일 소유의 원본은 `docs/tasks/00-공통.md` 2절**이다 (2026-10-04에 다시 썼다). 요점:
   - **팀 파일** — Claude는 만들거나 고치지 않는다: `backend/reports/{contracts.py, agents/, orchestrator.py, guards.py, runner.py, healing.py, chaos.py, stats.py, payloads.py(B3 두 필드 말고), auto.py, budget.py(새)}`,
     `backend/reports/models.py`와 `migrations/0002*` 이후, `registry.py`·YAML Registry, `management/commands/auto_report.py`, `engine/paper_engine/llm.py`의 `complete_json_once`.
@@ -627,17 +624,17 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 
 ### 14-3. 보유 방식과 장기투자 (확장 1단계)
 
-- **보유 방식 `style`** (`PaperOrder.style`, 엔진 SQLite `paper_orders.style`): `swing` · `long` · `day`, 기본 `swing`. 웹 주문에 `style`이 없으면 목표·손절·기한이 모두 없을 때 `long`.
+- **보유 방식 `style`** (`PaperOrder.style`, 엔진 SQLite `paper_orders.style`): `swing` · `long` (`day`는 2026-10-06 단타 폐기로 지웠다 — 16장), 기본 `swing`. 웹 주문에 `style`이 없으면 목표·손절·기한이 모두 없을 때 `long`.
   기존 주문(과 기존 매수 예약)은 마이그레이션에서 같은 규칙으로 채운다 — 목표·손절이 다 갖춰지지 않은 기존 `swing`(기한만·목표만·손절만)은 그대로 두는 **예외**다:
   있는 값대로만 자동 매도(기한만이면 기한 매도만), 배지는 "스윙", `PATCH`는 준 값만 바꾸고 둘 다를 요구하지 않는다. 새 주문·예약에는 허용하지 않는다 (아래 "보유 방식 규칙 더하기", 2026-10-05). 장기 보유가 웹 직접 매수라 `TradePlan`이 없으므로 주문 단위로 나눈다 (`docs/투자서비스확장계획.md` 3-1).
-  `long`은 자동 매도가 없다 (엔진이 `long`이면 보유 기한을 쓰지 않는다). `day`는 단타 계획만 만든다.
+  `long`은 자동 매도가 없다 (엔진이 `long`이면 보유 기한을 쓰지 않는다).
 - **보유 방식 규칙 더하기** (2026-10-05 확정, `docs/API.md` "보유 방식"):
   - **`swing`은 목표가·손절가가 둘 다 있어야 한다** (없으면 `400`). `style` 없이 `days`만 주면 추론이 `swing`이라 역시 `400`이다 — 스윙의 자동 매도 기준은 목표·손절이고,
     기한만 있는 주문은 "스윙" 배지와 실제 동작(기한 매도만)이 어긋난다. `days`는 선택.
   - **예약은 `style`을 저장한다**: 정규장 밖 시장가 매수 예약은 받을 때 `style`을 정해 `Reservation.style`(새 열, 매도 예약은 null)에 두고(`long` 비중 점검도 그때),
     실행할 때 그 값으로 주문한다 (다시 추론하지 않는다 — 받을 때와 실행할 때 규칙이 갈리거나 사용자가 고른 `style`이 사라지지 않게). 열은 `trading/0002` 마이그레이션에 같이 넣는다 (이미 합쳐졌으면 다음 마이그레이션).
-  - **단타 주문은 `PATCH /api/orders/{id}`로 바꾸지 않는다**: `days`를 주면 `400`(보유 기한이 없다), `targetPrice`·`stopPrice`를 주면 `400` "단타 계획에서 바꿔요" —
-    단타 주문의 목표·손절은 단타 계획(`TradePlan`)의 값이라 주문만 바꾸면 계획·복기와 어긋난다.
+  - **(폐기 2026-10-06 — 16장) 단타 주문은 `PATCH /api/orders/{id}`로 바꾸지 않는다**: `days`를 주면 `400`(보유 기한이 없다), `targetPrice`·`stopPrice`를 주면 `400` "단타 계획에서 바꿔요" —
+    단타 주문의 목표·손절은 단타 계획(`TradePlan`)의 값이라 주문만 바꾸면 계획·복기와 어긋난다. (폐기 — 단타 삭제, 16장)
 - **장기 매수 점검**: 종목당 비중 한도 100%(E-4, `LIMITS["LONG_TERM"].max_position = 1.0`). 손절이 없어 손절 기반 `assess`를 쓸 수 없으므로
   엔진에 `assess_position(price, quantity, account, limits) -> (ok, reasons, codes)`(매수 가능 금액 `cash_short`·비중 한도 `position_limit`·총 금액 한도 `total_limit`)를 더해 웹 `long` 매수가 쓴다.
   `price`는 지정가 또는 직전 종가(장마감 기준 — 화면 추정과 같은 값), 막히면 `POST /api/orders`가 `400 {"detail", "reasonCodes"}`. 수량은 사용자가 정한다.
@@ -675,7 +672,9 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
     알림은 그날 대상이 모두 끝난 뒤 사용자당 1개. 수급 근거는 외국인·기관·개인 셋까지.
   - 펀더멘털 점검: 산 이유당 하루 한 번, 한 바퀴에 최대 5개. DART 키가 없으면 점검 기록을 남기지 않고, 그 회사 재무제표가 없으면 모든 지표 `na`인 기록을 남긴다.
 
-### 14-4. 단타 연습 (확장 2단계 a)
+### 14-4. 단타 연습 (확장 2단계 a) — 폐기 (2026-10-06)
+
+> **폐기 (2026-10-06, 사용자 결정 — 16장).** 아래는 2026-10-05 구현 때의 결정 이력이다. 코드·API·화면에서 모두 지웠고 지금 계약이 아니다.
 
 - **잠금**: 주린이모드 끔 + 단타 연습 퀴즈 통과. 서버가 막는다 (`day_trading_locked`). 퀴즈는 5문항(당일 청산·손절·비용·VI·모의)이고 **5문항을 모두 맞혀야** 통과한다 —
   초보에게 가장 위험한 방식이라 일부만 알아도 열리지 않게 했다. 다시 풀 수 있고, 통과 기록은 틀려도 지우지 않는다. 문항·정답·해설은 서버 코드에만 둔다.
@@ -739,9 +738,9 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
   그중 표 밖의 내부 코드(`invalid_order`·`market_closed`·`order_too_large`·`fx_unavailable`)는 API `reasonCodes`로 내지 않는다 (`trading.service`가 `400 {"detail"}`로 바꾼다).
   종가 `price_passed` 문장은 "직전 종가(80,721원)가 이미 목표가 이상" (괄호 — 계약의 "직전 종가 {종가}가"는 "…원가"로 읽혀서). 재주문 점검에서 막혀 `failed`가 되면 사건 details에 `reasonCodes`도 남긴다.
   엔진이 체결 시점에 진입 주문을 취소한 note "체결 시점 현금 부족 (현금 X원)"의 괄호 금액은 계획 `failureReason`에 옮기지 않는다.
-- **B10**: `accounts.InvestorProfile`은 행이 없으면 기본값(`beginnerMode` 켬)으로 본다 (신호·데이터 마이그레이션 없이). 점수표는 순수 함수 모듈 `accounts/assessment.py`. 단타 퀴즈 통과 시각도 이 모델에 둔다.
-  (2026-10-05 구현: `q2`는 보기 순서로 저장해 돌려주고, 같은 값이 두 번이면 `400`. 다른 앱은 `accounts/modes.py`의 `beginner_modes(user_ids)`·`day_trading_lock(user)`로 읽는다.
-  퀴즈 문항·정답·해설은 `accounts/quiz.py`, 거래세 숫자는 엔진 `SELL_TAX_RATE["KR"]`에서. 관리 화면은 읽기만 하고 진단 원답은 보이지 않는다.)
+- **B10**: `accounts.InvestorProfile`은 행이 없으면 기본값(`beginnerMode` 켬)으로 본다 (신호·데이터 마이그레이션 없이). 점수표는 순수 함수 모듈 `accounts/assessment.py`. (단타 퀴즈 통과 시각 `day_quiz_passed_at`도 이 모델에 뒀다가 2026-10-06 지웠다 — 16장.)
+  (2026-10-05 구현: `q2`는 보기 순서로 저장해 돌려주고, 같은 값이 두 번이면 `400`. 다른 앱은 `accounts/modes.py`의 `beginner_modes(user_ids)`로 읽는다 (`day_trading_lock(user)`와 퀴즈 `accounts/quiz.py`는 2026-10-06 폐기로 지웠다 — 16장).
+  관리 화면은 읽기만 하고 진단 원답은 보이지 않는다.)
 - **D-1**: 교차검증 분석은 종목 상세의 보조 버튼과 리포트 탭의 "교차검증 분석" 묶음으로 남기고, 분석 목록에 `mine=1`을 더한다.
 - **U12 약관 대응**: 분석 상세에 뉴스 매체·시각(`newsItems`)과 출처 표기(`newsProvider` "Google 뉴스 검색 결과")를 더한다 (기존 `news: string[]`은 그대로, 링크는 내지 않는다 — 긴 주소가 AI 입력에 섞이지 않게).
   검색엔진 색인 막기: `frontend/index.html`의 `noindex,nofollow`, `robots.txt`(Disallow: /), nginx `X-Robots-Tag`. 화면 아래 출처 줄(14-1).
@@ -754,9 +753,8 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
   AI 의견 배지는 화면과 같은 "긍정적 · 지켜보기 · 부정적"(전의 매수·관망·회피는 권유로 읽혀서). **양식 판 `TEMPLATE_VERSION`**(지금 2)을 파일 이름에 넣는다 —
   `PAPER_ROOT/reports/<id>.v2.pdf`. 양식이 바뀌면 판을 올려 예전 파일(판 번호 없는 `<id>.pdf` = 1판)을 다시 쓰지 않고 새로 만든 뒤 지운다.)
 - **이름과 목록 봉투** (2026-10-05 확정, `docs/API.md`): 목록 엔드포인트(자원의 모음을 돌려주는 것이 일인 응답)는 항목 배열을 늘 `results`에 담는다 (`GET /api/longterm/daily-moves`의 `items` → `results`, `date`는 그대로).
-  한 대상을 돌려주는 객체(한 종목·한 세션 — `StockDetail`·`MinuteCandles`·`DayReview`·`TradePlanDetail`)는 목록 엔드포인트가 아니라 배열 필드가 자기 이름을 쓴다 (`candles`·`plans`·`events`). 같은 세션이라도 `GET /api/day/plans`(계획 목록)는 `results`, `GET /api/day/review`(세션 복기 한 건)는 `plans`다.
+  한 대상을 돌려주는 객체(한 종목 — `StockDetail`·`TradePlanDetail`)는 목록 엔드포인트가 아니라 배열 필드가 자기 이름을 쓴다 (`candles`·`events`). (이 규칙을 정할 때는 단타 연습의 `MinuteCandles`·`DayReview`·`GET /api/day/*`도 있었으나 2026-10-06 폐기로 지웠다 — 16장.)
   2026-10-04 전부터 있는 `/api/quotes`의 `quotes`·`/api/account/equity`의 `points`는 프론트가 이미 써서 그대로 둔다.
-  단타 숫자는 뜻이 드러나게: `DayStatus.today.trades` → `today.orders`(하루 한도와 같은 셈 — 낸 단타 주문 수, 취소 포함), `DayReview.totals.trades` → `totals.filled`(진입 체결된 계획 수).
 - **"구현 예정" 표시 위치** (`docs/API.md` 머리): 새 타입은 선언 줄, 이미 서버가 내는 타입에 더한 필드는 그 필드 줄마다. 만들면 "구현: 날짜 (Claude)"로 바꾼다 (2026-10-05: 이 장의 것은 모두 바꿨다).
 
 ### 14-8. 새 설정 키 (`.env`. `.env.example`·`deploy/.env.docker.example`·CI에 같이)
@@ -769,13 +767,13 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 | `DAILY_MOVE_MODEL` | (없음) | 오늘의 내 종목 뉴스 설명에 쓸 LLM 모델. 없으면 `APPROVER`, 그것도 없으면 템플릿 문장만 |
 | `THESIS_CHECK_AT` | `18:00` | 펀더멘털 점검 시각 (KST. 정기공시 감지는 거래일, 월요일 전체 재점검) |
 
-설정 키로 두지 않은 상수: `CLOSE_SETTLE_MIN` 10분, `DAY_CLOSE_AT` 15:15, `LIMITS["DAY"]`, 시장 대용 ETF(`069500`·`229200`), 단타 퀴즈 통과 기준 5/5, 리포트 알림 sweep 창 24시간,
-분봉 쪽 수 한도 `MINUTE_MAX_PAGES` 20, 금지 표현 목록(`paper_engine/wording.py`).
+설정 키로 두지 않은 상수: `CLOSE_SETTLE_MIN` 10분, 시장 대용 ETF(`069500`·`229200`), 리포트 알림 sweep 창 24시간, 금지 표현 목록(`paper_engine/wording.py`).
+(`DAY_CLOSE_AT`·`LIMITS["DAY"]`·단타 퀴즈 통과 기준·`MINUTE_MAX_PAGES`는 2026-10-06 단타 폐기로 지웠다 — 16장.)
 
 ## 15. UI/UX 개선: 모션 · 화면 모드(다크) · 배치 (2026-10-05)
 
 사용자 요청: "UI/UX 개선점을 모두 조사하고 개선·테스트까지 — 자연스럽고 세련된 애니메이션, 사용자 경험 전반 향상, 컴포넌트 위치의 당위성, 다크모드 전환".
-범위는 `frontend/`뿐이다(백엔드·`docs/API.md` 계약 변경 없음, 외부 의존성 추가 없음). 9개 영역(앱 뼈대·홈·종목·리포트·모의투자·단타·마이 + 모션·다크)을 감사해
+범위는 `frontend/`뿐이다(백엔드·`docs/API.md` 계약 변경 없음, 외부 의존성 추가 없음). 9개 영역(앱 뼈대·홈·종목·리포트·모의투자·단타·마이 + 모션·다크 — 단타 화면은 2026-10-06 삭제, 16장)을 감사해
 305건을 찾고 검증자가 반박해 6건을 버리고 40건을 더했다. 공용 기반 → 화면 영역별 구현 → 통합 → 독립 검증 순으로 반영했다.
 **화면별 배치 순서와 그 이유는 `docs/화면배치.md`**에 적었다.
 
@@ -858,4 +856,57 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 - 로그인 첫 화면: 로고 56px → 이름 26px → 부제(`SERVICE_TAGLINE`) → 설명 한 줄(`SERVICE_INTRO` "진짜 돈 대신 종이 위에서 — AI가 쓴 리포트를 읽고 따져 본 뒤, 가상 현금으로 모의투자를 연습해요.") → 3단계 칩. 상수는 `lib/plainText.ts`.
 - **쓰지 않는 것**: 배를 노란색으로 칠하지 않는다(세월호 추모의 노란 종이배와 겹친다), 물결·화살표·차트를 덧그리지 않는다. 문구에 배 은어(탑승·승선·선장·출항·순항 — 리딩방 은어와 닿는다), '띄우다'(주가 띄우기)·'접다'(포기), 침몰·가라앉다·구조, '배(倍)' 말장난을 쓰지 않는다.
 - 2·3위 후보(바꾸고 싶을 때): **"따져봄"**("AI 리포트로 따져 보는 모의투자 연습" — 검토 원칙을 가장 정확히 말하고 안전 심사 1위, 마크(안경)는 다시 다듬어야 함), **"검산"**(√ 체크 마크가 가장 독창적, 이름이 딱딱함). 이름은 `lib/plainText.ts` `SERVICE_NAME` 한 곳 + 백엔드 두 상수(`notifications/service.py` `HEADER`, `reports/pdf.py` `SERVICE_NAME`)다.
+
+
+## 16. 단타 폐기 (2026-10-06, 사용자 결정)
+
+사용자(팀장)가 2026-10-06에 2026-10-05에 구현한 "단타 연습"을 **전부 없애기로** 했다 (선물 폐기 E-7과 같은 방식). 투자 방식은 **스윙·장기 두 개**만 남는다.
+13-2 E-6, 14-4와 그 앞뒤의 단타 결정은 이력으로 남기고 "폐기(2026-10-06)"로 표시했다. 이 장이 우선한다. 계약은 `docs/API.md`, 조사는 `docs/research/단타_실시간시세_조사.md`(폐기 기록).
+
+### 16-1. 없앤 것
+
+| 영역 | 없앤 것 |
+|---|---|
+| 보유 방식 | `style = "day"` (보유 방식은 `swing`·`long`). 상수 `DAY`(엔진 executor·`trading.models`), `STYLES`의 `day` |
+| 단타 세션·정리 | `DAY_CLOSE_AT`(15:15), `DAY_ENTRY_CLOSED`("단타 진입 마감"), `day_session`·`day_cutoff`·`_day_close`, 청산 사유 `EOD`, 실행 불가 사유 코드 `day_entry_closed`·`day_trading_locked`, 계획 실패·만료 사유 `day_unfilled`, 백엔드 `market.day_entry_open`·`day_entry_cutoff`, `DaySession` |
+| 계획 보유 기간 `horizon` | `Recommendation.horizon`·`TradePlan.horizon` 필드와 API 필드 `horizon`, 프론트 `PlanHorizon`. 엔진 `judge/risk.py`의 `LIMITS["DAY"]`(E-6 한도), `judge/scenario.py` `HORIZONS`의 `"DAY"`, `notify.py` `HORIZON_LABEL`의 `"DAY"`. `SWING`·`LONG_TERM`은 그대로 |
+| 추천 출처 | `Recommendation.source = "day"` (`source`는 `report`·`analysis`·`demo`) |
+| 분봉 | 엔진 `KiwoomClient.minute_candles`·`TossClient.minute_candles`(두 클라이언트가 같게 유지하므로 둘 다), `minute_session`·`bucket_minutes`·`_kr_minute_candle`·`_minute_time`·`MINUTE_STEPS`·`MINUTE_MAX_PAGES`, 백엔드 `trading.market.minute_candles`·`MINUTE_*`·`_minute_rows`, `MinuteCandlesView`, `GET /api/stocks/{symbol}/minute-candles` |
+| 단타 연습 앱 | `backend/daytrade` 전체 (`/api/day/*` — 상태·미리 보기·계획·복기), `INSTALLED_APPS`·`config/urls`·`backend/pyproject.toml` testpaths의 `daytrade` |
+| 단타 퀴즈·잠금 | `GET/POST /api/me/day-trading-quiz`, `accounts/quiz.py`, `DayQuizView`, `InvestorProfile.day_quiz_passed_at`, 응답의 `dayQuizPassedAt`·`dayTradingUnlocked`, `accounts/modes.py`의 단타 잠금(`lock_reasons`·`day_trading_lock`·`LOCK_*` 코드·`DayLockReason`) |
+| 프론트 | `/day`·`/day/quiz`·`/day/review` 화면, `components/day/`, `DayQuizEntry`, 모의투자 탭의 "단타 연습장" 카드(`DayEntry`), 마이·종목 상세의 단타 진입점, `api/day.ts`, 관련 mock·테스트 |
+| 함께 없앤 것 | 단타에만 쓰이던 인자·함수: 엔진 `buy_checks`·`buy_blockers`의 `now` 인자(15:15 진입 마감 판정용), 백엔드 `trading.market`의 `kr_trading_day`·`next_weekday`·`regular_market`(다른 곳에서 쓰지 않음) |
+| 팀 몫이던 일 | 단타의 AI 팀(`day_plan`·`day_review`)과 AI 복기 — 만들지 않는다 |
+
+### 16-2. 데이터 처리 (마이그레이션 4개 — SQLite·PostgreSQL 둘 다에서 돈다)
+
+- **`trading/0003_remove_day_style`** (RunPython): `PaperOrder` `style = "day"` 중 `ENTRY_PENDING`은 `CANCELED`(`closed_at` = 지금, `note` = "단타 기능 삭제"), 나머지 `style = "day"`는 `"swing"`으로 바꾼다. 되돌리기는 아무것도 하지 않는다.
+- **`autotrade/0003_remove_day_rows`** (RunPython): `horizon = "DAY"`이거나 추천 `source = "day"`인 `TradePlan`을 지운다 (`PlanEvent`는 CASCADE). 그 계획을 가리키던 `Notification`(`link == "/plans/<id>"`)과 `link`가 `/day`로 시작하는 `Notification`도 지운다
+  (`notifications/0002`에 의존). `source = "day"` `Recommendation`은 `PROTECT`라 계획을 먼저 지운 뒤 지운다.
+- **`autotrade/0004_remove_horizon`**: `Recommendation.horizon`·`TradePlan.horizon`을 지우고 `source`의 선택지를 `report`·`analysis`·`demo`로 바꾼다.
+  행 정리(0003)와 나눈 까닭: PostgreSQL은 행을 지운 같은 트랜잭션에서 그 표를 `ALTER`하면 "pending trigger events"로 막는다.
+- **`accounts/0004_remove_day_quiz`**: `InvestorProfile.day_quiz_passed_at`을 지운다.
+- 팀 개발 DB(PostgreSQL)의 단타 행은 **0개**였다. 공유 DB에는 이 작업에서 직접 `migrate`를 돌리지 않았다.
+  열을 지우므로 **migrate한 DB에서는 이 변경 전 코드가 돌지 않는다** (`horizon` 열을 읽음). 공유 개발 DB는 팀원이 이 커밋을 받은 뒤에 migrate한다 (`scripts/dev.sh`를 다시 띄우면 migrate한다). 테스트는 SQLite 메모리 DB에서 돈다.
+
+### 16-3. 남긴 것 (헷갈리기 쉬운 것)
+
+- **투자 성향 진단**의 문항·보기(q6의 `intraday` 포함)는 그대로다 — 저장된 `answers`와 호환된다. 결과 문구에 있던 "단타 연습장" 안내만 뺐다.
+- 일봉·시세·장마감 기준 가격, `EquityDaily.day`(날짜 열), `--days` 옵션처럼 **'날짜(day)'**라는 단어는 단타와 무관하다. 지우지 않았다.
+- 하루 주문 수·손실 한도(`paper_today`)는 스윙 계획에 계속 쓴다 (`style` 인자는 `swing`·`long`만).
+- `docs/research/단타_실시간시세_조사.md`는 지우지 않고 "폐기된 기능의 조사 기록"으로 표시했다. 키움 `ka10080`(분봉) 조사 내용은 `docs/KIWOOM.md`에 남기되 쓰지 않는다.
+- 위 이력(13-2 E-6, 14-4, 14-7 등)은 지우지 않았다. 지금 코드·계약은 이 장과 `docs/API.md`가 기준이다.
+
+## 17. 시세 실시간 표시 (2026-10-06, 사용자 결정)
+
+사용자가 "종목 조회는 종가 기준이 아니라 실시간으로 보여야 한다"고 정했다 (14-1의 시세 부분을 바꾼다). 계약은 `docs/API.md` 공통 규칙 "실시간 시세".
+
+- **실시간으로 바꾼 것**: `Quote`(`/api/quotes`, `StockDetail.quote`) — 증권사 현재가, `basis: "live"`, `asOf` = 받은 시각. `StockDetail.candles`는 오늘 진행 중인 봉까지.
+  직접 주문의 시장가 매수 가능 점검 가격도 현재가로 (화면의 예상 금액 = 시세 × 수량과 같게). 화면 시세 폴링 60초 → 5초.
+- **`prevClose`**: 그 가격이 속한 거래일(오늘 정규장이 있으면 오늘, 없으면 마지막 일봉 날짜)의 전 거래일 종가. 장 달력을 못 받으면 평일을 거래일로 본다.
+- **그대로 장마감 기준인 것**: 계좌 평가·수익률·`Position`, 랭킹, 일별 자산 기록, 리스크 미리 보기와 활성화 수량, `priceAtCreation`, 시연 추천 진입가, 리포트(시세 Worker·PDF), 분석. 이유: 미리 보기에서 본 수량이 그대로 주문 수량이 되고 수익률·랭킹이 하루 동안 흔들리지 않게 (14-1 ①).
+  그래서 같은 화면에서 시세(실시간)와 계좌 평가(장마감 기준)가 다를 수 있다 — 표기("실시간 · 시각" / "장마감 기준")로 구분한다.
+- **현재가를 받지 못하면** 그 종목은 장마감 기준 Quote(`basis: "close"`)로 낸다.
+- **조회량**: 현재가는 종목마다 1초 캐시를 팀 전체가 같이 쓴다. 키움은 국내 현재가를 여러 종목 한 번(`ka10095`)에 받으므로 한도(초당 5회) 안이다.
+- **약관**: 실시간 시세를 여러 사람 화면에 계속 띄우는 모양이 된다 (13-3, U10 — 종가도 증권사 시세라 원래 문제를 없애지는 못했다). 사용자 결정으로 감수한다. 출처 줄은 "시세: {제공처} 조회 · 실시간 (계좌·랭킹은 장마감 기준)".
 

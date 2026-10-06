@@ -6,7 +6,8 @@
 
 화면에 보이는 평가(계좌·랭킹·일별 자산)는 **장마감 기준**(직전 정규장 종가, market.closes)이고, 체결·청산·예약 실행·
 목표·손절 순서 점검은 지금처럼 장중 확인 가격(market.confirmed_prices·last_price)을 쓴다 (docs/API.md 공통 규칙 "장마감 기준").
-주문의 보유 방식(style: swing·long·day)은 docs/API.md "보유 방식"을 따른다.
+직접 주문의 시장가 장기 보유 점검 가격은 실시간 시세와 같은 현재가다 (market.quote_price, 2026-10-06).
+주문의 보유 방식(style: swing·long)은 docs/API.md "보유 방식"을 따른다.
 
 주문 변경은 엔진 주문 잠금(data/paper.lock) → DB 트랜잭션 → 계좌 행 잠금(select_for_update) 순서로 잡은 구간에서 한다.
 웹 요청과 run_engine이 같은 순서로 잡으므로 서로 기다릴 뿐 엇갈려 막히지 않는다. 시세 조회는 잠금 밖에서 먼저 한다.
@@ -18,7 +19,7 @@ from zoneinfo import ZoneInfo
 from accounts.models import Profile, profile_of
 from django.db import IntegrityError, transaction
 from django.utils import timezone
-from paper_engine.agents.executor import DAY_CLOSE_AT, STATUS_LABEL, OrderRejected, PaperExecutor, qty_text
+from paper_engine.agents.executor import STATUS_LABEL, OrderRejected, PaperExecutor, qty_text
 from paper_engine.data.calendar import close_basis_day
 from paper_engine.data.kiwoom import KiwoomApiError
 from paper_engine.judge.risk import LIMITS, AccountContext, assess_position
@@ -32,7 +33,7 @@ from config import engine
 from config.api import Rejected, Unavailable
 
 from . import market
-from .models import DAY, LONG, STYLES, SWING, EquityDaily, PaperAccount, PaperOrder, Reservation
+from .models import LONG, STYLES, SWING, EquityDaily, PaperAccount, PaperOrder, Reservation
 from .payloads import order_json, position_json, reservation_json
 from .store import AccountStore, iso
 
@@ -41,14 +42,10 @@ MARKET, LIMIT = "MARKET", "LIMIT"
 NO_PRICE = "확인된 가격이 없어 주문하지 않음"
 RESERVATION_RETRY = timedelta(minutes=10)  # 예약 실행이 일시 오류로 실패하면 정규장 시작 뒤 이만큼 다시 시도한다
 DUPLICATE = "같은 종목에 진행 중인 모의 주문이 있음 (같은 종목은 포지션 하나만)"
-# 단타(style day) 주문은 국내 거래일 0시 ~ 15:15 KST 전에만 받는다 (판정은 market.day_entry_open, 시각은 엔진 DAY_CLOSE_AT)
-DAY_ENTRY_CLOSED = f"단타 진입 마감: 단타 주문은 국내 거래일 {DAY_CLOSE_AT:%H:%M} KST 전에만 받음"
 NEEDS_EXITS = "{label} 주문은 목표가와 손절가를 함께 지정해야 함 (기한은 선택)"
 LONG_NO_EXITS = "장기 보유 주문은 목표가·손절가·기한을 받지 않음 (자동 매도 없음, 직접 팔 때까지 보유)"
 LONG_FIXED = "장기 보유 주문은 목표가·손절가·기한을 바꿀 수 없음 (보유 방식은 주문 뒤에 바뀌지 않음)"
-DAY_FROM_PLAN = "단타 계획에서 바꿔요"
-DAY_NO_DAYS = f"단타 주문에는 보유 기한이 없음 (그 세션 {DAY_CLOSE_AT:%H:%M} KST에 정리)"
-STYLE_LABEL = {SWING: "스윙", LONG: "장기 보유", DAY: "단타"}
+STYLE_LABEL = {SWING: "스윙", LONG: "장기 보유"}
 
 
 class Blocked(Rejected):
@@ -134,7 +131,7 @@ def _expire(days: int | None, at: datetime) -> str | None:
 def order_style(style: str | None, target: float | None, stop: float | None, days: int | None) -> str:
     """보유 방식 (docs/API.md "보유 방식"). style이 없으면 목표·손절·기한이 모두 없을 때 long, 하나라도 있으면 swing.
 
-    swing·day는 목표가와 손절가가 둘 다 있어야 하고, long은 셋 다 받지 않으며, day는 기한을 받지 않는다. 어기면 Rejected.
+    swing은 목표가와 손절가가 둘 다 있어야 하고, long은 셋 다 받지 않는다. 어기면 Rejected.
     """
     no_exits = target is None and stop is None and days is None
     if style is None:
@@ -143,10 +140,8 @@ def order_style(style: str | None, target: float | None, stop: float | None, day
         raise Rejected("style은 swing 또는 long입니다.")
     if style == LONG and not no_exits:
         raise Rejected(LONG_NO_EXITS)
-    if style in (SWING, DAY) and (target is None or stop is None):
+    if style == SWING and (target is None or stop is None):
         raise Rejected(NEEDS_EXITS.format(label=STYLE_LABEL[style]))
-    if style == DAY and days is not None:
-        raise Rejected(DAY_NO_DAYS)
     return style
 
 
@@ -170,8 +165,8 @@ def buy(account: PaperAccount, username: str, symbol: str, quantity: float, orde
         target: float | None, stop: float | None, days: int | None, at: datetime, *, style: str | None = None) -> dict:
     """모의 매수 → OrderResult. 정규장 밖 시장가는 예약, 정규장 밖 지정가는 체결 대기로 접수한다.
 
-    style(swing·long·day)이 없으면 order_style의 추론 규칙. long은 엔진 비중 점검(assess_position, 장마감 기준)을 먼저
-    통과해야 하고 막히면 Blocked. day(단타 계획의 주문)는 국내 종목·국내 거래일 15:15 KST 전에만 받고 예약하지 않는다.
+    style(swing·long)이 없으면 order_style의 추론 규칙. long은 엔진 비중 점검(assess_position — 시장가는 현재가,
+    자산은 장마감 기준)을 먼저 통과해야 하고 막히면 Blocked.
     """
     style = order_style(style, target, stop, days)
     item = market.stock_item(symbol)
@@ -179,11 +174,6 @@ def buy(account: PaperAccount, username: str, symbol: str, quantity: float, orde
         raise Rejected(f"'{symbol}' 종목을 찾을 수 없음")
     symbol, name, mkt = item["symbol"], item["name"], item["market"]
     currency = market.CURRENCY[mkt]
-    if style == DAY:
-        if mkt != "KR":
-            raise Rejected("단타 주문은 국내 종목만 받음")
-        if not market.day_entry_open(at):  # 단타 계획과 같은 세션 규칙 (docs/API.md "단타 연습")
-            raise Rejected(DAY_ENTRY_CLOSED)
     info = market.stock_info(symbol)
     if info is not None and info.get("status", "ACTIVE") != "ACTIVE":
         raise Rejected(f"{name}({symbol})은(는) 거래 가능한 상태가 아님 ({info.get('status')})")
@@ -195,8 +185,6 @@ def buy(account: PaperAccount, username: str, symbol: str, quantity: float, orde
     open_ = market.is_open(mkt, at)
     store = AccountStore(account)
     if limit is None and not open_:
-        if style == DAY:
-            raise Rejected("단타 주문은 정규장 밖 시장가로 예약하지 않음 (지정가로 주문)")
         return _reserve_buy(account, item, quantity, target, stop, days, at, style)
     price = market.confirmed_price(symbol) if open_ else market.last_price(symbol)
     if price is None:
@@ -212,12 +200,13 @@ def buy(account: PaperAccount, username: str, symbol: str, quantity: float, orde
 def check_long(account: PaperAccount, item: dict, quantity: float, limit: float | None, at: datetime) -> None:
     """장기 보유 매수의 비중 점검 (엔진 assess_position: 매수 가능 금액·종목당 비중 한도 100%·총 금액 한도). 막히면 Blocked.
 
-    가격은 지정가 주문이면 지정가, 시장가면 직전 종가 (화면 추정과 같은 값). 자산·매수 가능 금액은 장마감 기준 평가(summary)다.
+    가격은 지정가 주문이면 지정가, 시장가면 현재가 (실시간 시세와 같은 값 — 화면의 예상 금액과 같다. 받지 못하면 직전 종가).
+    자산·매수 가능 금액은 장마감 기준 평가(summary)다.
     수량은 사용자가 정하고 이 점검은 줄이지 않는다. 수량·가격이 0 이하면 엔진 접수 점검이 사유를 내므로 여기서는 넘긴다.
     """
     symbol, mkt = item["symbol"], item["market"]
     currency = market.CURRENCY[mkt]
-    price = limit if limit is not None else market.close_price(symbol)
+    price = limit if limit is not None else market.quote_price(symbol)
     if price is None:
         raise Rejected(NO_PRICE)
     if quantity <= 0 or price <= 0:
@@ -253,7 +242,7 @@ def _reserve_buy(account: PaperAccount, item: dict, quantity: float, target: flo
     fx = fx_if_needed(store, currency)
     with _rejects(), locked(account, Notes()) as executor:
         reasons = executor.buy_blockers(symbol, mkt, currency, quantity, price, None, fx, target, stop, True,
-                                        style=style, now=at)
+                                        style=style)
         if Reservation.objects.filter(account=account, kind="BUY", symbol=symbol).exists():
             reasons.append("같은 종목의 매수 예약이 이미 있음")
         if reasons:
@@ -313,18 +302,13 @@ def modify(account: PaperAccount, order_id: int, target: float | None, stop: flo
            at: datetime) -> dict:
     """목표가·손절가·기한 수정 → Order. 현재가를 받으면 손절가 < 현재가 < 목표가 순서를 본다 (장중 가격, 문장에는 숫자 없음).
 
-    보유 방식은 바뀌지 않는다: long은 셋 다 받지 않고, day는 기한을 받지 않으며 목표·손절은 단타 계획에서 바꾼다.
+    보유 방식은 바뀌지 않는다: long은 셋 다 받지 않는다.
     """
     store = AccountStore(account)
     row = order_of(store, order_id)
     style = row.get("style") or SWING
     if style == LONG and (target is not None or stop is not None or days is not None):
         raise Rejected(LONG_FIXED)
-    if style == DAY:
-        if target is not None or stop is not None:
-            raise Rejected(DAY_FROM_PLAN)
-        if days is not None:
-            raise Rejected(DAY_NO_DAYS)
     expire = _expire(days, at)
     try:
         price = market.last_price(row["symbol"])

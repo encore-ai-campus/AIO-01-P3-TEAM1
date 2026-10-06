@@ -104,14 +104,6 @@ export const handlers = [
     "*/api/me/investor-profile",
     route(async (u, { request }) => db.patchInvestorProfile(u.id, await json(request))),
   ),
-  http.get(
-    "*/api/me/day-trading-quiz",
-    route((u) => db.dayQuiz(u.id)),
-  ),
-  http.post(
-    "*/api/me/day-trading-quiz",
-    route(async (u, { request }) => db.submitDayQuiz(u.id, await json(request))),
-  ),
 
   // 모의 트레이딩
   http.get(
@@ -128,13 +120,6 @@ export const handlers = [
   http.get(
     "*/api/stocks/:symbol/fundamentals",
     route((u, { params }) => db.fundamentals(u.id, String(params.symbol))),
-  ),
-  http.get(
-    "*/api/stocks/:symbol/minute-candles",
-    route((_u, ctx) => {
-      const sp = urlOf(ctx).searchParams;
-      return db.minuteCandles(String(ctx.params.symbol), sp.get("date"), sp.get("minutes"));
-    }),
   ),
   http.get(
     "*/api/stocks/:symbol",
@@ -357,28 +342,6 @@ export const handlers = [
       db.deleteThesis(u.id, String(params.symbol));
       return undefined;
     }),
-  ),
-
-  // 단타 연습
-  http.get(
-    "*/api/day/status",
-    route((u) => db.dayStatus(u.id)),
-  ),
-  http.post(
-    "*/api/day/preview",
-    route(async (u, { request }) => db.dayPreview(u.id, await json(request))),
-  ),
-  http.get(
-    "*/api/day/plans",
-    route((u, ctx) => db.listDayPlans(u.id, urlOf(ctx).searchParams.get("date"))),
-  ),
-  http.post(
-    "*/api/day/plans",
-    route(async (u, { request }) => db.createDayPlan(u, await json(request)), { status: 201 }),
-  ),
-  http.get(
-    "*/api/day/review",
-    route((u, ctx) => db.dayReview(u.id, urlOf(ctx).searchParams.get("date"))),
   ),
 
   http.get("*/api/health", () => HttpResponse.json({ status: "ok" })),

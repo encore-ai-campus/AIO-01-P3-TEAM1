@@ -131,7 +131,6 @@ def test_activate_places_limit_order(api, clock, user, sent, at):
     assert body.status_code == 201, body.json()
     plan = body.json()
     assert plan["status"] == "entry_pending" and plan["via"] == "web" and plan["quantity"] == 25
-    assert plan["horizon"] == "SWING" and plan["recommendation"]["horizon"] == "SWING"
     assert plan["source"] == "analysis" and plan["recommendation"]["myPlan"] == {"id": plan["id"],
                                                                                "status": "entry_pending"}
     assert [e["kind"] for e in plan["events"]] == ["activated", "risk_checked", "order_placed"]
@@ -716,6 +715,7 @@ def test_requeue_sizes_from_intraday_equity(api, clock, user, monkeypatch):
         {"symbol": s, "lastPrice": f"{intraday.get(s, client.price[s]):g}"} for s in symbols if s in client.price])
     monkeypatch.setattr(client, "confirmed_prices", lambda symbols: {
         s: intraday.get(s, client.price[s]) for s in symbols if s in client.price})
+    clock("2026-09-22T10:05:00")  # 몇 분 뒤 (매수 점검이 받아 둔 현재가 1초 캐시는 지났다)
     seen = []
     real = risk.assess
 

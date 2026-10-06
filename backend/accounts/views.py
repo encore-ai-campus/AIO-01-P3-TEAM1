@@ -1,4 +1,4 @@
-"""계정 API (docs/API.md "계정"): CSRF 쿠키, 로그인·로그아웃, 내 정보, 프로필 수정, 투자자 프로필·주린이모드, 단타 연습 퀴즈."""
+"""계정 API (docs/API.md "계정"): CSRF 쿠키, 로그인·로그아웃, 내 정보, 프로필 수정, 투자자 프로필·주린이모드."""
 from django.contrib.auth import authenticate, login, logout
 from django.db import IntegrityError, transaction
 from django.middleware.csrf import get_token
@@ -11,9 +11,9 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
-from accounts import assessment, quiz
+from accounts import assessment
 from accounts.models import NICKNAME_TAKEN, InvestorProfile, clean_nickname, nickname_error, profile_of
-from accounts.modes import beginner_mode_of, investor_profile, lock_reasons
+from accounts.modes import beginner_mode_of, investor_profile
 from config.api import Rejected
 
 LOGIN_FAILED = "아이디 또는 비밀번호가 올바르지 않습니다."
@@ -44,31 +44,9 @@ INVESTOR_PROFILE_SCHEMA = inline_serializer("InvestorProfile", {
     "riskProfile": serializers.ChoiceField(choices=list(assessment.RISK_PROFILE_LABELS), allow_null=True),
     "recommendedBeginnerMode": serializers.BooleanField(allow_null=True),
     "assessedAt": serializers.DateTimeField(allow_null=True),
-    "dayQuizPassedAt": serializers.DateTimeField(allow_null=True),
-    "dayTradingUnlocked": serializers.BooleanField(),
 })
 ASSESSMENT_SCHEMA = inline_serializer("InvestorProfileSubmit", {"answers": serializers.DictField()})
 BEGINNER_MODE_SCHEMA = inline_serializer("BeginnerModePatch", {"beginnerMode": serializers.BooleanField()})
-DAY_QUIZ_SCHEMA = inline_serializer("DayQuiz", {
-    "questions": serializers.ListField(child=inline_serializer("DayQuizQuestion", {
-        "id": serializers.CharField(),
-        "text": serializers.CharField(),
-        "choices": serializers.ListField(child=inline_serializer("DayQuizChoice", {
-            "id": serializers.CharField(), "text": serializers.CharField()})),
-    })),
-    "passedAt": serializers.DateTimeField(allow_null=True),
-})
-DAY_QUIZ_SUBMIT_SCHEMA = inline_serializer("DayQuizSubmit", {
-    "answers": serializers.DictField(child=serializers.CharField())})
-DAY_QUIZ_RESULT_SCHEMA = inline_serializer("DayQuizResult", {
-    "passed": serializers.BooleanField(),
-    "correct": serializers.IntegerField(),
-    "total": serializers.IntegerField(),
-    "results": serializers.ListField(child=inline_serializer("DayQuizAnswerResult", {
-        "id": serializers.CharField(), "correct": serializers.BooleanField(),
-        "explanation": serializers.CharField()})),
-    "passedAt": serializers.DateTimeField(allow_null=True),
-})
 
 
 def me(user, profile=None) -> dict:
@@ -93,8 +71,6 @@ def investor_profile_json(profile: InvestorProfile) -> dict:
         "riskProfile": profile.risk_profile,
         "recommendedBeginnerMode": profile.recommended_beginner_mode,
         "assessedAt": iso(profile.assessed_at),
-        "dayQuizPassedAt": iso(profile.day_quiz_passed_at),
-        "dayTradingUnlocked": not lock_reasons(profile),
     }
 
 
@@ -226,27 +202,3 @@ class InvestorProfileView(APIView):
         profile.save(update_fields=["beginner_mode", "updated_at"])
         return Response(investor_profile_json(profile))
 
-
-class DayQuizView(APIView):
-    """단타 연습 퀴즈 (docs/API.md "단타 연습 퀴즈"). 정답·해설은 채점 결과에만 (accounts/quiz.py)."""
-
-    @extend_schema(responses=DAY_QUIZ_SCHEMA)
-    def get(self, request):
-        return Response({"questions": quiz.public_questions(),
-                         "passedAt": iso(investor_profile(request.user).day_quiz_passed_at)})
-
-    @extend_schema(request=DAY_QUIZ_SUBMIT_SCHEMA, responses=DAY_QUIZ_RESULT_SCHEMA)
-    def post(self, request):
-        """채점. 5문항을 모두 맞히면 통과 시각을 지금으로 바꾸고, 틀리면 이전 통과 기록을 그대로 둔다."""
-        data = body_of(request, ("answers",))
-        error = quiz.answers_error(data.get("answers"))
-        if error:
-            raise Rejected(error)
-        result = quiz.grade(data["answers"])
-        if result["passed"]:
-            profile = stored_investor_profile(request.user)
-            profile.day_quiz_passed_at = timezone.now()
-            profile.save(update_fields=["day_quiz_passed_at", "updated_at"])
-        else:
-            profile = investor_profile(request.user)
-        return Response({**result, "passedAt": iso(profile.day_quiz_passed_at)})

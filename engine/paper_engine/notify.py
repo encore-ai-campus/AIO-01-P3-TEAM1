@@ -22,7 +22,7 @@ from .judge.risk import RiskAssessment
 from .judge.scenario import Scenario
 from .judge.verdict import PASS_SCORE, Candidate
 
-HORIZON_LABEL = {"SWING": "스윙", "LONG_TERM": "장기", "DAY": "단타"}  # 모르는 값은 그대로 보인다 (horizon_label)
+HORIZON_LABEL = {"SWING": "스윙", "LONG_TERM": "장기"}  # 모르는 값은 그대로 보인다 (horizon_label)
 DIRECTION_LABEL = {"POSITIVE": "호재", "NEGATIVE": "악재", "NEUTRAL": "중립"}
 DISCORD_MAX_LEN = 2000  # Discord 메시지 하나의 최대 길이
 OPENCLAW_TIMEOUT_SEC = 60
@@ -309,7 +309,7 @@ def split_message(text: str, limit: int = DISCORD_MAX_LEN) -> list[str]:
 
 
 def horizon_label(horizon: str) -> str:
-    """보유 기간 유형의 화면 이름 (SWING 스윙 · LONG_TERM 장기 · DAY 단타). 모르는 값은 그대로."""
+    """보유 기간 유형의 화면 이름 (SWING 스윙 · LONG_TERM 장기). 모르는 값은 그대로."""
     return HORIZON_LABEL.get(horizon, horizon)
 
 

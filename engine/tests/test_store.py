@@ -226,17 +226,16 @@ def test_paper_order_style_defaults_to_swing_and_filters_today():
     store = Store(":memory:")
     swing = paper_order(store, "2026-09-29T10:00:00+09:00", "CLOSED", closed_at="2026-09-29T11:00:00+09:00",
                         pnl=-3.0, pnl_krw=-3.0)
-    day = paper_order(store, "2026-09-29T10:05:00+09:00", "CLOSED", closed_at="2026-09-29T15:15:00+09:00",
-                      pnl=-7.0, pnl_krw=-7.0, style="day", expire_date=None)
-    paper_order(store, "2026-09-29T10:10:00+09:00", style="day", symbol="000660")
+    long_ = paper_order(store, "2026-09-29T10:05:00+09:00", "CLOSED", closed_at="2026-09-29T14:00:00+09:00",
+                        pnl=-7.0, pnl_krw=-7.0, style="long", symbol="000660", target_price=None, stop_price=None,
+                        expire_date=None)
     paper_order(store, "2026-09-29T10:20:00+09:00", style="long", symbol="035720", target_price=None,
                 stop_price=None, expire_date=None)
-    assert store.paper_order(swing)["style"] == "swing" and store.paper_order(day)["style"] == "day"
-    assert store.paper_today("2026-09-29") == (4, 10.0)
-    assert store.paper_today("2026-09-29", style="day") == (2, 7.0)
+    assert store.paper_order(swing)["style"] == "swing" and store.paper_order(long_)["style"] == "long"
+    assert store.paper_today("2026-09-29") == (3, 10.0)
     assert store.paper_today("2026-09-29", style="swing") == (1, 3.0)
-    assert store.paper_today("2026-09-29", style="long") == (1, 0.0)
-    assert store.paper_today("2026-09-30", style="day") == (0, 0.0)
+    assert store.paper_today("2026-09-29", style="long") == (2, 7.0)
+    assert store.paper_today("2026-09-30", style="long") == (0, 0.0)
 
 
 def test_style_column_is_added_to_old_db(tmp_path):

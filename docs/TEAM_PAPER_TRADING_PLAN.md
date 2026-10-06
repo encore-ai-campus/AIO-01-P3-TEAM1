@@ -1,475 +1,299 @@
-# 팀 프로젝트 전환 계획: 키움 REST API 기반 모의매매 웹 서비스
+# 종이배 — 팀 모의투자 웹 서비스
 
-작성 2026-10-01. 이 파일은 계획만 담는다. 실제 작업은 새 디렉터리에서 한다.
-
-목차
-1. 배경과 목표
-2. 현재 프로젝트(`toss_trading`)에 구현된 기능
-3. 전환하면서 바꾸는 것 (증권사 API, 실주문 삭제, 알림)
-4. 팀 프로젝트로 새로 추가하는 것 (웹 화면, Django 백엔드, PostgreSQL, Redis, AWS EC2, CI/CD)
-5. 확정된 결정과 정해야 할 항목
-6. 작업 순서
-7. 검증
-8. 준비할 것
+작성 2026-10-06(화). 기준 커밋 `main` `d3325f2`(2026-10-05 UI/UX 개선·서비스 이름 "종이배").
+지금 상태를 확정했고, 앞으로는 3장의 네 가지(핵심 AI Agent 워크플로우·프론트엔드 개선·기능 개선·테스트 후 완성도 다듬기)만 한다. 배포·운영(EC2·키움 키·GitHub 배포 설정·운영 `.env`·Discord 채널)은 팀장(담당 1)이 따로 맡는다(`docs/DEPLOY.md`).
+옛 판(2026-10-01 "토스 → 키움 전환 계획")은 `git show d3325f2:docs/TEAM_PAPER_TRADING_PLAN.md`로 본다. `docs/DECISIONS.md`·`docs/KIWOOM.md`·`docs/DESIGN.md`의 "계획서 n장·단계 n"은 그 판을 가리킨다.
+결정의 역사는 `docs/DECISIONS.md`, 남은 결정·확인(U1~U22)은 `docs/결정필요사항.md`에 있다.
+근거는 파일:줄이나 문서 절로 단다. 실행해서 본 사실은 확인 방법을 붙인다. 코드·로그에서 미루어 본 것은 "추측", 문서에 없는 제안은 "제안"이라고 적는다.
 
 ---
 
-## 1. 배경과 목표
+## 1. 지금 상태
 
-`toss_trading`은 토스증권 Open API로 **실제 주문까지 내는 개인용 스윙 매매 자동화 프로그램**이다.
-이것을 팀 토이 프로젝트로 쓰기 위해 **새 디렉터리에 복제**하고 다음과 같이 바꾼다.
+### 1-1. 한 문장 소개
 
-| 항목 | 지금 | 바꾼 뒤 |
-|---|---|---|
-| 증권사 API | 토스증권 Open API | **키움 REST API** (시세·일봉·순위 조회만. 계좌는 비어 있고 쓰지 않는다) |
-| 주문 | 실주문 | **전부 삭제.** 가상 현금 계좌에서 체결을 흉내 내는 모의매매 |
-| 사용자 | 나 한 명 | **팀원 여러 명** (팀원별 로그인 계정) |
-| 조작 화면 | Discord `/toss` 명령, CLI | **웹 화면** (React + TypeScript) |
-| 서버 | 이 PC, 표준 라이브러리 HTTP 클라이언트 | **Django 백엔드** + 기존 엔진 |
-| DB | SQLite 파일 | **EC2 운영은 PostgreSQL, 로컬 개발 환경은 SQLite** (같은 Django 모델·마이그레이션) |
-| Redis | 이 PC의 컨테이너 | EC2의 컨테이너 |
-| 알림 | openclaw Discord 봇, 내 DM | **openclaw 유지**, 팀 채널로 **알림만** (명령은 웹) |
-| 실행 환경 | 이 PC (systemd) | **AWS EC2 + Docker Compose** |
-| 배포 | 수동 | **GitHub Actions** (검사 → 이미지 빌드 → EC2 자동 배포) |
-| AI 분석 | DevPass LLM Gateway | **그대로 유지** |
-| 통계·기록 | 예측 기록, 시장 기록, 일일 리포트, 백업 | **그대로 유지** (저장소만 Django DB로: EC2는 PostgreSQL, 로컬은 SQLite) |
+**종이배(가칭)**는 주식이 처음인 사람도 AI 리포트를 만들고·검토하고·모의 자동매매로 실행해 보는 팀 모의투자 웹 서비스다. 시세는 증권사 조회 API로만 받고, 매매는 팀원별 가상 현금 계좌에서만 체결한다(**실주문 코드 0건**).
+부제는 "종이 위에서 연습하는 AI 리포트 모의투자"다(`frontend/src/lib/plainText.ts:41-46`). 컨셉은 `docs/DECISIONS.md` 13장, 이름은 15-7.
 
-운영 중인 `toss_trading`(이 PC의 systemd `toss-trading`, Redis `toss:*`, `~/.openclaw/`)에는 영향을 주지 않는다.
+### 1-2. 기능별 상태
 
----
+**동작** = 실제 데이터로 돈다 · **시연판** = 규칙 입력으로 끝까지 돈다(AI 아님) · **구조만** = 저장·화면·API만 있고 실행 부분이 없다 · **예시** = 서버 API가 없어 화면이 예시 데이터를 "예시" 표시와 함께 보인다. 건수는 공유 개발 DB를 읽기 전용으로 조회한 값(10/6)이다.
 
-## 2. 현재 프로젝트(`toss_trading`)에 구현된 기능
-
-스윙 매매(보유 3~20거래일) 대상 종목을 **규칙으로 고르고 → 여러 AI가 교차검증하고 → 코드가 금액·한도를 정해 → 사용자 확인 후 실제 주문**하며,
-모든 예측과 결과를 기록해 어떤 모델·규칙이 맞는지 추적하는 시스템이다.
-
-원칙: **AI는 제안만 한다.** 지표 계산, 사실 확인, 수량·한도·주문 가능 여부는 모두 결정론적 코드가 판단한다.
-
-### 2-1. 데이터 수집 (`data/`)
-
-| 자료 | 출처 | 파일 |
-|---|---|---|
-| 현재가, 호가, 일봉(최대 200일), 종목 정보, 매수 유의사항, 투자자별 매매동향(국내), 거래대금·등락률 순위, 환율, 장 운영 시간 | 토스증권 Open API | `data/toss.py` (토큰 파일 캐시, 429 재시도, gzip 처리) |
-| 국내 재무(매출·영업이익·순이익·EPS·ROE·부채비율 등)와 공시 제목 | DART | `data/dart.py` |
-| 국내 최근 5년 연간 실적 추이 | 공공데이터포털 금융위원회 기업 재무정보 | `data/fina_stat.py` |
-| 미국 재무와 공시 | SEC EDGAR | `data/sec.py` |
-| 뉴스 제목 (최근 7일 15개) | Google News RSS | `data/news.py` |
-| 증권사 리포트 헤드라인 (증권사·목표가·상향/하향) | Google News RSS 제목 정규식 | `data/broker_reports.py` |
-| 기술 지표 (이동평균, RSI, ATR, 변화율) | 코드 계산 | `data/indicators.py` |
-| 호가 단위 | 코드 (국내 가격대별 표, 미국 0.01) | `data/ticks.py` |
-
-이 자료를 종목당 하나의 **스냅샷**(`data/snapshot.py`)으로 묶는다. PER·PBR·TTM 등 API에 없는 값은 코드가 계산한다.
-
-### 2-2. 종목 선별 (`judge/screen.py`, CLI `scan`)
-
-1. 전일 거래대금 상위 100종목(투자 유의 제외)에서 ETF·ETN·레버리지·거래정지 종목을 뺀다.
-2. 일봉으로 규칙 점수를 매긴다: 60일선 위, RSI 40~75, ATR 비율 1.5~8% 조건을 통과한 종목에
-   추세(20일선·60일선)·20일 모멘텀·RSI·변동성 점수(각 20점, 100점 만점).
-3. 선택하면 최근 2일 증권사 리포트 헤드라인의 종목도 후보에 넣는다 (종목명이 정확히 하나로 맞는 것만).
-4. 보유 종목, 진행 중 자동 관리 종목, 최근 24시간 안에 분석한 종목은 AI 분석 대상에서 빼고 다음 순위로 채운다.
-
-### 2-3. AI 교차검증 분석 (`pipeline.py`, `agents/`, `judge/`, CLI `analyze`)
-
-```
-데이터 수집 → 웹 조사 → 시나리오 제안 → 사실 검증 → 상호 채점 → 판정 → 최종 승인 → (사용자 확인) → 주문
-   코드        AI 조사자   AI 분석가      코드       AI 분석가    코드    AI 승인자
-```
-
-- **웹 조사** (`agents/researcher.py`): 여러 모델이 웹 검색으로 최근 실적·사건·목표주가·일정을 모은다.
-  코드가 링크 제거, 미래 날짜 제거, 출처 확인(`sourceVerified`)을 한다. 비용의 대부분(종목당 약 $0.2).
-- **시나리오 제안** (`agents/proposer.py`): 분석가 모델들이 서로를 보지 않고 각자 시나리오 1개(진입가·목표가·손절가·보유 기간·근거)를 낸다.
-  제안하지 않아도 된다.
-- **사실·조건 검증** (`judge/fact_check.py`): 근거로 든 숫자가 원본과 0.5% 안에서 맞는지, 인용 문장이 원문 그대로인지,
-  진입가가 현재가에서 5% 안인지, 보유 기간이 3~20거래일인지 확인. 틀리면 탈락.
-- **목표가 도달 가능성** (`judge/reach.py`): 목표까지 거리 ÷ (ATR × √보유일수). 표시용.
-- **상호 채점** (`agents/critic.py`): 각 분석가가 자기 것을 뺀 시나리오를 0~100점과 확률로 채점. 제안자는 가린다.
-- **판정** (`judge/verdict.py`): 모델 크기별 가중 평균 점수 60점 이상 + 참여 의결권 60% 이상 + 리스크 엔진 통과.
-- **최종 승인** (`agents/approver.py`): 통과한 시나리오만 승인 모델이 승인/거부.
-- 모델 시간 초과 처리: 시간 초과 모델은 이후 단계에서 빼고 의결권을 다시 나눈다. 핵심 모델이 시간 초과면 그 종목은 오류로 중단.
-- 최대 4종목 동시 분석. 단계별 시간·비용 기록. 종목당 약 $0.3.
-- 결과: `runs/*.json` 실행 기록과 PDF 리포트(`report.py`, HTML → Chrome으로 PDF).
-  알림에는 매수 추천과 한 줄 요약만, 나머지(모든 시나리오 카드, 모델별 점수·약점, 웹 조사, 비용)는 PDF로 첨부.
-
-### 2-4. 리스크 엔진 (`judge/risk.py`)
-
-- 기대값 = 확률 × 예상 수익 − (1−확률) × 예상 손실 − 비용. 0 이하면 탈락.
-- 최소 손익비 2.0 (AI에게는 알리지 않는다).
-- 수량 = (자산 × 건당 위험 1%) ÷ (진입가 − 손절 주문가). 총 투자 한도(`MAX_TOTAL_INVEST_KRW`), 매수 가능 금액, 유동성으로 상한.
-- 미국 종목 소수점 매수(금액 방식) 지원. 매수 유의 종목, 일일 손실 한도, 1주 미만은 탈락.
-
-### 2-5. 실주문 실행 (`agents/executor.py`, `data/orders.py`)
-
-- 이중 안전장치: `.env`의 `LIVE_TRADING=on` **그리고** `--live` 옵션이 있어야 실주문.
-- 실행 직전 점검: 중단 스위치, 분석 후 30분 이내, 현재가 2% 이내, 1억 원 상한, 같은 종목 중복 금지.
-- 사용자가 Discord에 **종목코드를 직접 입력**해야 주문이 나간다.
-- **자동 관리 주문**: 지정가 매수 → 체결되면 토스 OCO 조건주문(목표가 매도 / 손절 매도)을 걸고 → 기한이 지나면 시장가 매도.
-  손절 지정가가 안 채워지면 시장가로 바꾼다. 미국 소수점은 프로그램이 가격을 감시해 청산.
-- `sync`가 주문 상태를 확인하고 다음 단계로 진행 (장 시작 전후 2분 10초, 장중 1분, 그 외 5분 간격).
-- `orders`(목록), `halt`/`resume`(새 주문 중단 스위치).
-
-### 2-6. 사용자 명령 (Discord `/toss`, `commands.py`)
-
-- 조회: `보유`(평가 손익과 자동 관리 주문의 목표·손절·기한·예상 손익), `주문`, `미체결`, `예약`, `전략`
-- 매매: `<종목> <N>주 매수|매도 [지정가 P] [목표 P 손절 P 기한 N일]`, `<미국종목> <금액>달러 매수`, `전량매도`
-- 관리: `취소 N`, `주문 N 목표 P 손절 P`(목표·손절 수정), `예약취소 N`
-- 정규장 밖 시장가 명령은 "예약 / 지정가" 중 고르게 묻는다. 끝에 `예약`을 붙이면 다음 정규장 시작 때 실행.
-- 리포트: `리포트 [N일] [분석]`
-- 전략: `전략생성 <이름> 시장= 실행= 후보= 분석= 한도= 소수점= 리포트=`, `전략활성|전략중지|전략실행 N` 등
-
-### 2-7. 전략 자동 실행 (`strategies.py`, `scheduler.py`)
-
-- 전략 = 시장, 후보 수, AI 분석 수, 실행 방식(알림만 / 컨펌 후 주문), 종목당 한도, 소수점, 리포트 후보 여부.
-- 활성 전략마다 매일 정규장 1시간 전(국내 08:00, 미국 21:30/22:30)에 선별 → AI 분석 → (컨펌 전략이면) 주문 흐름.
-- 휴장일에는 돌지 않고, 하루 한 번만 돈다 (Redis에 기록). 선별 결과는 Redis에 30일 보관.
-
-### 2-8. 기록과 통계 (`records/`, CLI `track`, `stats`)
-
-- SQLite `data/trading.db`:
-  - `trades`: 사실 검증을 통과한 **모든 시나리오** (선정 여부와 무관). 탈락시킨 판단이 옳았는지도 보기 위해서다.
-  - `predictions`: 모델별 확률·점수 예측.
-  - `live_orders`, `manual_orders`: 실주문과 그 결과.
-  - `market_days`, `rankings`: 시장 기록.
-- **예측 추적** (`records/paper.py`, `track`): 완성된 일봉으로 각 시나리오의 체결·목표 도달·손절·만료를 판정 (애매하면 불리한 쪽).
-- **통계** (`stats`): 선정/탈락별 손익, 모델별 확률 예측 성적(Brier 점수), AI 확률 대 실제 도달률.
-- **시장 기록** (`records/market_log.py`, `record`): 장 마감 후 거래대금 상위 100, 등락률 상·하위 30, 벤치마크(KR 069500, US SPY), 환율.
-  과거 시점 순위는 API로 받을 수 없어서 백테스트 편향을 없애려고 매일 쌓는다.
-
-### 2-9. 일일 리포트 (`daily.py`, `report.py`, CLI `daily-report`)
-
-- 매일 07시 PDF: 계좌 요약, 진행 중 자동 관리 주문, 종료 주문, 누적 성적, 시장 동향(벤치마크 10일, 순위 상위 10),
-  기록(전략, 분석 실행, 예약, 예측 성적, 백업 상태).
-- **일일 AI 분석**: 보유 종목 + 자동 관리 종목 + 시장별 거래대금 상위 3개(최대 20종목)를 재분석해 리포트에 넣는다 (하루 약 $5).
-  같은 날 분석이 있으면 재사용, 24시간 안에 분석한 종목은 건너뜀.
-
-### 2-10. 상시 실행과 운영 (`__main__.py serve`)
-
-- 한 프로세스가 주문 상태 확인, 장 마감 후 시장 기록과 예측 추적, 07시 리포트, 예약 주문 실행, 전략 실행, Discord 명령 처리를 맡는다.
-- 백업: 매일 SQLite 사본 + Redis 키 JSON 내보내기, 14일 보관.
-- openclaw 연동: 알림·PDF 전송은 `openclaw message send`, 명령과 확인 답장은 openclaw 플러그인이 파일로 넘겨준다.
-  openclaw AI 에이전트에는 조회 도구와 "주문 제안" 도구만 준다 (실제 주문은 항상 사용자 입력 필요).
-
-### 2-11. 백테스트 (`backtest/`)
-
-- AI 없이 선별 → 리스크 엔진 → 매매 규칙을 과거 일봉으로 재현. 규칙 변형 실험(`backtest/experiments/`)과 결론 문서.
-
-### 2-12. 테스트
-
-- `tests/`에 모듈별 단위 테스트 (가짜 API 객체, 가짜 주문 객체, 가짜 알림). 실제 API·실주문 없이 돈다. `uv run pytest`.
-
----
-
-## 3. 전환하면서 바꾸는 것
-
-### 3-1. 증권사 API: 토스 → 키움 REST API
-
-원칙: **엔진 내부에서 쓰는 데이터 형식은 지금 것을 유지**한다 (일봉 `openPrice/highPrice/lowPrice/closePrice/volume/timestamp`,
-순위 `rank/symbol/tradingAmount/price.lastPrice/price.changeRate`, 종목 `securityType/status/...`).
-키움 응답을 이 형식으로 바꾸는 일은 새 클라이언트 안에서만 한다. 그러면 선별·백테스트·스냅샷 코드를 그대로 쓸 수 있다.
-
-- 새 `data/kiwoom.py` `KiwoomClient`: 지금 `TossClient`의 조회 메서드와 같은 이름·반환 형식.
-  - `prices`, `orderbook`, `confirmed_prices`, `stocks`, `daily_candles`, `completed_daily_candles`, `warnings`, `investor_trading`, `rankings`, `exchange_rate`
-  - 계좌 관련(`accounts`, `holdings`, `buying_power`, `sellable_quantity`, `commissions`)과 주문 TR은 만들지 않는다.
-  - 토큰 파일 캐시, 만료 전 재발급, 429 재시도, gzip은 `data/toss.py` 방식. 키움 TR별 호출 제한에 맞춘 간격 조절 추가.
-- **토스 경로를 직접 부르던 곳을 클라이언트 메서드로 먼저 옮긴다** (토스 상태에서 리팩터링 후 교체):
-  - 장 달력 → `client.market_calendar(market)` (`__main__.py:761,1410,1645,1649,1709`, `backtest/run.py:73`)
-  - 전체 종목 목록 → `client.listed_stocks(market)` (`__main__.py:1389`)
-  - 순위 + 기준 시각 → `client.rankings_with_time(...)` (`records/market_log.py:46`, `backtest/run.py:61`)
-  - 일봉 페이지 조회 → `client.candles_before(...)` (`backtest/run.py:44`)
-- **로컬 개발 전용 토스 조회 (2026-10-02 추가)**: 키움 앱키가 없어도 로컬에서 엔진을 돌려 볼 수 있게 원본의 조회 클라이언트를
-  `data/toss.py`로 되살렸다. `.env`의 `BROKER=toss`(+ `CLIENT_ID`, `CLIENT_SECRET`)로 켠다. 조회만 하고(계좌·주문 API 없음),
-  운영(EC2)은 키움만 쓴다 (`DJANGO_DEBUG=on`일 때만 받는다). 키움 코드는 그대로 둔다. 세부는 `docs/DECISIONS.md` 3-1장.
-- **장 달력**: 키움에는 토스 같은 달력 API가 없을 가능성이 크다. 새 `data/calendar.py`가 같은 형식을 만든다.
-  - 국내: 정규장 09:00~15:30 고정 + 공휴일은 data.go.kr 특일정보 API(`DATA_GOKR_API` 이미 있음) + KRX 연말 휴장일.
-  - 미국: NYSE 휴장·조기 폐장 규칙을 코드로 계산, 서머타임은 `zoneinfo`.
-- 종목 구분(ETF·ETN·우선주·스팩, 거래정지, 투자유의)은 키움 종목정보에서 매핑해 `screen.eligible`이 쓰는 필드로 채운다.
-- 미국 시장: 키움 REST API가 미국주식 시세·차트·환율을 지원한다고 알려져 있다(2026년 추가). 순위·종목 목록 지원은 확인 필요.
-  부족하면 국내만 먼저 하고(`MARKETS=KR`) 미국은 이후 과제.
-- 키움은 **앱키에 접속 IP 등록**이 필요할 수 있다 → EC2 공인 IP를 등록. 확인 필요.
-
-### 3-2. 실주문 삭제 → 모의매매 엔진
-
-삭제: `data/orders.py`, `LIVE_TRADING`, `--live`, `--bypass`, 사용자 확인(종목코드 입력) 절차, OCO 조건주문, 토스 오류 코드 안내,
-bypass 한도, 소수점 금액 주문 시간 제한, 실계좌 조회 전부.
-
-유지: 예측 추적(`trades`/`predictions`/`track`/`stats`), 리스크 엔진, 주문 계획(`make_plan`), 실행 직전 점검, 호가 단위, 예상 손익 계산.
-
-새 **모의 계좌**:
-- **팀원별 계좌** (2026-10-02 확정, 처음 계획은 팀 공용 1개), 초기 자금은 각자 `PAPER_CAPITAL_KRW` (기본 1천만원).
-  미국 종목은 원화 현금에서 체결 시점 환율로 환산. 엔진 자체 SQLite 계좌는 엔진 CLI·전략(AI 자동 매수)용으로 남는다 (`docs/DECISIONS.md` 8-1).
-- 주문 상태: `대기(ENTRY_PENDING)` → `보유·감시(EXIT_WATCHING)` → `종료(CLOSED)` / `취소(CANCELED)`.
-- 체결 규칙 (엔진이 실시간 시세로 판단, 정규장 안에서만):
-  - 시장가: 현재 확인 가격에 즉시 체결.
-  - 지정가 매수: 가격 ≤ 지정가면 체결. 당일 정규장 종료까지 안 되면 취소.
-  - 목표가·손절가·기한: 지금의 가격 감시 청산 로직(`executor._check_local_exit`, 2회 연속 확인) 재사용.
-  - 정규장 밖 시장가 주문은 다음 정규장 시작 때 실행하는 예약으로 넣는다.
-  - 비용: 수수료 `PAPER_COMMISSION_KR/US` (기본 0.015%) + 국내 매도 세금.
-- 계좌 평가액 = 현금 + 보유 평가액, 매수 가능액 = 현금 − 대기 매수 금액 (`backtest/sim.py`의 방식).
-- 실계좌를 보던 곳(보유 조회, 일일 리포트 계좌 요약, 분석 대상 제외, 리스크 엔진 입력)을 모두 모의 계좌로 바꾼다.
-- 전략의 "컨펌 후 주문"은 "**모의 자동 매수**"로 바뀐다.
-- 주문마다 **누가 냈는지**(팀원 계정 또는 "전략 N") 기록한다.
-- 중단 스위치는 "새 모의 매수 중단"으로 유지.
-
-### 3-3. 알림: openclaw는 팀 채널 알림 전용
-
-- 명령은 웹으로 옮기므로 **openclaw 플러그인(`/toss` 명령, 확인 답장, 에이전트 도구)은 삭제**한다.
-- 알림은 `openclaw message send --target channel:<팀 채널 ID>`만 쓴다: 매수 추천, 체결·청산, 전략 실행 결과, 일일 리포트 PDF, 오류.
-- openclaw는 **EC2에 설치하고 팀용 새 Discord 봇**을 쓴다 (이 PC의 개인 봇과 분리). 엔진 컨테이너에서 알림을 보내는 방법
-  (같은 컨테이너에 openclaw CLI를 넣을지, 호스트의 openclaw를 부를지)은 설치하면서 확인한다.
-- 팀 봇의 AI 대화 기능은 꺼 두거나 응답 범위를 제한해 알림 전용으로 쓴다.
-- `notify.py`의 `confirm`/`ask`와 파일 브리지 코드는 삭제. openclaw 설정이 없으면 콘솔 출력 (개발용).
-
----
-
-## 4. 팀 프로젝트로 새로 추가하는 것
-
-### 4-1. 전체 구조
-
-```
-                    ┌──────────────────────── AWS EC2 (Docker Compose) ────────────────────────┐
- 브라우저 ──HTTPS──▶ │ nginx ──┬─ /        React 빌드 파일                                       │
- (팀원)              │         └─ /api/    Django + DRF (gunicorn) ──┐                           │
-                    │                                               ├─▶ PostgreSQL (기록·계좌·전략) │
-                    │   엔진 (python manage.py run_engine) ──────────┤                           │
-                    │     체결 감시, 전략, 시장 기록, 리포트, AI 분석  └─▶ Redis (작업 큐·잠금·캐시) │
-                    │     │                                                                      │
-                    │     ├─▶ 키움 REST API, DART, SEC, DevPass, Google News                      │
-                    │     └─▶ openclaw ─▶ Discord 팀 채널 (알림)                                  │
-                    └────────────────────────────────────────────────────────────────────────────┘
-```
-
-- **웹(Django)은 짧은 요청만** 처리한다 (조회, 주문 등록, 전략 수정). 시세가 필요하거나 오래 걸리는 일(AI 분석, 체결, 리포트)은
-  Redis 작업 큐에 넣고 **엔진**이 처리한다. 웹은 작업 번호를 받아 상태를 확인한다.
-- 예외 (2026-10-02): **현재가·일봉 조회와 시장가 체결은 웹이 짧은 캐시(1초)로 직접** 한다. 화면이 1초마다 가격을 받고 주문 결과를
-  바로 보여 줘야 해서다. AI 분석처럼 오래 걸리는 일은 `jobs` 표에 넣고 `run_engine`이 처리한다 (`docs/DECISIONS.md` 8-2).
-- 엔진은 지금의 `serve` 루프를 Django 관리 명령으로 감싼 것이다. 엔진 로직(선별·분석·리스크·체결)은 그대로 쓰고,
-  저장소 계층(`records/store.py`)만 Django ORM으로 바꾼다.
-
-### 4-2. 저장소 구조 (새 GitHub 저장소)
-
-```
-paper_trading/
-  engine/              매매 엔진 파이썬 패키지 (기존 src/toss_trading 에서 이름 변경: paper_engine)
-  backend/             Django 프로젝트
-    config/            설정 (환경 변수에서 읽음)
-    accounts/          팀원 계정, 권한
-    trading/           모델, REST API, 관리자 화면, 관리 명령(run_engine, 기존 CLI 명령)
-  frontend/            React + TypeScript + Vite
-  backtest/            백테스트 (DB 없이 단독 실행)
-  deploy/              docker-compose.yml, nginx 설정, Dockerfile, EC2 설정 문서
-  .github/workflows/   ci.yml, deploy.yml
-  docs/                설계, 키움 API 매핑, 팀 개발 안내
-```
-
-### 4-3. 백엔드 (Django + Django REST Framework)
-
-**DB 모델 (EC2: PostgreSQL / 로컬 개발: SQLite)**
-
-- DB 엔진은 환경 변수로 고른다: `POSTGRES_HOST`가 있으면 PostgreSQL(EC2의 `db` 컨테이너), 없으면 SQLite(`backend/db.sqlite3`).
-  로컬 개발 환경은 SQLite를 쓰고, EC2에 올렸을 때만 PostgreSQL을 쓴다. 모델·마이그레이션은 같은 것을 쓰므로
-  PostgreSQL 전용 기능(JSONB 연산자, 배열 필드, `DISTINCT ON` 등)은 쓰지 않는다. 운영과 차이를 잡기 위해 CI는 PostgreSQL로 검사한다.
-
-
-| 구분 | 표 | 내용 |
-|---|---|---|
-| 기존 유지 | `trades`, `predictions` | AI 시나리오와 모델별 예측 (예측 추적·통계) |
-| 기존 유지 | `market_days`, `rankings` | 시장 기록 |
-| 모의 계좌 | `paper_account` | 현금, 초기 자금 |
-| 모의 계좌 | `paper_orders` | 주문·포지션 (진입가, 수량, 목표·손절·기한, 상태, 손익, 요청자) |
-| 모의 계좌 | `paper_fills` | 체결 내역 (매수/매도, 가격, 수량, 수수료, 세금, 환율, 시각) |
-| 모의 계좌 | `equity_daily` | 일별 자산 스냅샷 (대시보드 자산 추이 차트) |
-| Redis에서 이동 | `strategies`, `reservations`, `scan_results` | 웹에서 수정·조회하므로 DB로 옮긴다 |
-| 새로 | `analysis_runs` | AI 분석 실행 색인 (종목, 시각, 결과 요약, 비용, 실행 기록 JSON·PDF 경로, 요청자) |
-| 새로 | `jobs` | 웹이 요청한 작업 상태 (대기·실행 중·완료·실패, 결과) |
-| 새로 | `ai_usage` | AI 비용 사용량 (일별, 팀원별) |
-| Django 기본 | `auth_user` 등 | 팀원 계정 |
-
-- 실행 기록 JSON과 PDF 파일은 EC2 디스크 볼륨(`runs/`, `reports/`)에 두고 DB에는 경로만 둔다.
-- 마이그레이션은 Django 마이그레이션으로 관리.
-
-**Redis 용도**: 작업 큐, 전략 하루 한 번 실행 표시, 잠금(동시에 한 번만 도는 리포트 분석 등), 시세 캐시, 엔진 생존 신호.
-
-**REST API (요약)**
-
-| 경로 | 기능 |
-|---|---|
-| `POST /api/auth/login`, `logout`, `GET /api/auth/me` | 로그인 (세션 + CSRF) |
-| `GET /api/account` | 모의 계좌 요약 (현금, 평가액, 손익, 자산 추이) |
-| `GET /api/positions` | 보유 종목 (현재가, 손익, 목표·손절·기한, 예상 손익) |
-| `GET/POST /api/orders`, `PATCH/DELETE /api/orders/{id}` | 주문 목록·등록·목표/손절 수정·취소 |
-| `GET /api/fills` | 체결 내역 |
-| `GET/POST/DELETE /api/reservations` | 예약 주문 |
-| `GET/POST/PATCH /api/strategies`, `POST /api/strategies/{id}/run` | 전략 관리·즉시 실행 |
-| `GET /api/scans` | 선별 결과 |
-| `GET /api/stocks/search?q=`, `GET /api/stocks/{code}` | 종목 검색, 스냅샷(시세·일봉·지표·재무·뉴스·리포트) |
-| `POST /api/analyses`, `GET /api/analyses`, `GET /api/analyses/{id}` | AI 분석 요청·목록·상세(시나리오 카드, 점수, PDF) |
-| `GET /api/stats` | 예측 성적 (모델별 Brier·적중률, 선정/탈락별 손익, 팀원별 모의 성적) |
-| `GET /api/market` | 시장 기록 (일별 순위, 벤치마크) |
-| `GET /api/reports`, `POST /api/reports` | 일일 리포트 목록·생성 |
-| `GET /api/jobs/{id}` | 작업 상태 |
-| `GET/POST /api/admin/halt` | 중단 스위치 (관리자) |
-
-- API 명세는 `drf-spectacular`로 OpenAPI 문서를 만들고, 프론트엔드는 여기서 TypeScript 타입을 자동 생성한다 (`openapi-typescript`).
-- **권한**: 관리자(계정 생성, 전략 변경, 중단 스위치, 비용 한도) / 팀원(조회, 모의 주문, AI 분석 요청).
-- **AI 비용 한도**: 하루 전체 한도 `AI_DAILY_BUDGET_USD`와 팀원별 하루 분석 요청 수 한도. 넘으면 요청 거부.
-  웹에서 분석 요청 시 예상 비용(종목당 약 $0.3)을 보여준다.
-- Django 관리자 화면(`/admin`)으로 계정·데이터 확인.
-
-### 4-4. 프론트엔드 (React + TypeScript + CSS)
-
-- 도구: Vite, React Router, TanStack Query(서버 데이터 캐시·폴링), **Tailwind CSS**(2026-10-02 변경, 처음 계획은 CSS Modules),
-  차트는 `lightweight-charts`(캔들). 스타일은 토스증권 웹을 참고한 모바일 우선 반응형 (모바일 하단 탭, PC 왼쪽 메뉴).
-- **1차 구현 범위 (2026-10-02)**: 로그인 · 홈(내 자산 + AI 분석 종목 대시보드) · 종목 검색·상세·주문 · 내 주식 · AI 분석 상세 ·
-  랭킹보드(내 정보 공개를 켠 팀원의 현재 수익률) · My Page(실시간 수익률·투자금액·공개 체크박스). API 계약은 `docs/API.md`.
-  아래 표의 나머지 화면(전략, 선별 결과, 통계, 시장, 리포트, 관리)은 이후 단계.
-- **AI 리포트 (2026-10-02 추가, 구조만)**: 종목별 리포트 신청과 여러 Agent의 협업 과정(Trace)을 보는 화면 `/reports`.
-  실행 계획 그래프·Trace 타임라인·Shared State·실패 정책·Handoff 안내와 교육용 문서(`docs/교육용문서.md`)를 담는다.
-  Agent·Orchestrator 실행은 팀이 구현한다 (`docs/DECISIONS.md` 9장).
-- 개발 중에는 Vite 개발 서버가 `/api`를 로컬 Django로 넘긴다. API 완성 전에는 MSW로 가짜 응답을 써서 병렬 개발.
-- 반응형 (모바일에서도 조회·주문 가능), 다크 모드.
-
-**화면**
-
-| 화면 | 내용 |
-|---|---|
-| 로그인 | 팀원 계정 로그인 |
-| 대시보드 | 총자산·현금·평가 손익·오늘 손익, 자산 추이 차트, 진행 중 주문, 최근 체결, 오늘 전략 실행 결과 |
-| 보유·주문 | 보유 종목 표(현재가, 손익률, 목표·손절까지 거리, 남은 기한), 대기 주문 취소, 목표·손절 수정, 체결 내역 |
-| 주문하기 | 종목 검색(자동 완성), 시세·일봉 차트, 매수/매도 폼(시장가/지정가, 목표·손절·기한, 예약), 리스크 엔진 수량 제안 미리보기 |
-| 종목 상세 | 스냅샷(지표, 재무, 뉴스, 증권사 리포트), 이 종목의 과거 분석 결과, "AI 분석 요청" 버튼(예상 비용 표시) |
-| AI 분석 | 분석 목록(종목, 결과, 점수, 비용, 요청자), 상세(시나리오 카드, 모델별 점수와 약점, 판정 사유, 웹 조사, PDF 다운로드) |
-| 선별 결과 | 전략별·날짜별 후보 순위, 규칙 점수, 탈락·제외 사유 |
-| 전략 | 전략 목록, 생성·수정(시장, 후보 수, 분석 수, 자동 매수 여부, 한도), 활성·중지, 즉시 실행 |
-| 예약 | 예약 주문 목록, 취소 |
-| 통계 | AI 예측 성적(모델별 적중률·Brier, 확률 대 실제 도달률 그래프), 선정/탈락 손익 비교, 팀원별 모의 성적 순위 |
-| 시장 | 날짜별 거래대금·상승·하락 상위, 벤치마크 추이, 환율 |
-| 리포트 | 일일 리포트 목록과 PDF 보기, 새로 만들기 |
-| 관리 (관리자) | 팀원 계정, 중단 스위치, AI 비용 사용량, 엔진 상태(마지막 생존 신호, 작업 큐) |
-
-### 4-5. 인프라 (AWS EC2 + Docker Compose)
-
-- EC2: Ubuntu, `t3.medium`(메모리 4GB, Chrome PDF·PostgreSQL·엔진을 함께 돌리기 위해) 권장, EBS 30GB 이상.
-- IP: 단기 사용이라 **EC2 자동 할당 공인 IP**를 쓴다. 재부팅해도 유지되지만 인스턴스를 **중지 후 시작하면 바뀐다.**
-  바뀌면 키움 IP 등록, GitHub Secrets의 배포 주소, 팀원 접속 주소를 다시 맞춘다. 그래서 운영 중에는 인스턴스를 중지하지 않는다.
-  자주 껐다 켜야 하거나 기간이 길어지면 Elastic IP로 바꾼다 (인스턴스에 붙어 있는 동안 공인 IP와 요금이 같다).
-- 컨테이너 (`deploy/docker-compose.yml`):
-
-| 서비스 | 내용 |
-|---|---|
-| `nginx` | React 빌드 파일 제공, `/api`·`/admin` 프록시, HTTPS (Let's Encrypt 자동 갱신) |
-| `web` | Django + gunicorn |
-| `engine` | `python manage.py run_engine` (Chrome 포함, PDF 생성) |
-| `db` | PostgreSQL 16 (볼륨 영구 보관) |
-| `redis` | Redis 7 (AOF) |
-
-- openclaw: EC2에 설치, 팀용 새 Discord 봇 토큰. 엔진 → openclaw 연결 방법은 설치 때 확정.
-- 보안 그룹: 80·443 공개, 22는 팀원 IP만 (또는 AWS SSM으로 SSH 없이 접속). DB·Redis 포트는 외부에 열지 않는다.
-- 비밀 정보: EC2의 `.env` 파일에만 둔다 (키움 키, DevPass 키, DART·data.go.kr 키, Django 비밀키, DB 비밀번호, 봇 토큰). 저장소에 넣지 않는다.
-- 백업: 매일 `pg_dump` + Redis 내보내기, 14일 보관. 선택: S3 업로드, EBS 스냅샷.
-- 로그: 컨테이너 로그(`docker compose logs`), 엔진 오류는 Discord 알림.
-- 도메인: HTTPS를 쓰려면 도메인이 필요하다 (없으면 처음에는 HTTP + IP로 시작).
-
-### 4-6. CI/CD (GitHub Actions)
-
-**`ci.yml`** — 모든 PR과 `main` push에서 실행:
-1. 백엔드·엔진: `ruff` 검사 → `pytest` (EC2와 같은 PostgreSQL·Redis 서비스 컨테이너 사용, 외부 API는 전부 가짜 객체)
-2. 백테스트: `pytest backtest`
-3. 프론트엔드: `npm ci` → `eslint` → `tsc --noEmit` → `vitest` → `vite build`
-4. Docker 이미지 빌드 확인
-5. API 명세와 프론트엔드 타입이 맞는지 확인 (OpenAPI 생성 결과 비교)
-
-**`deploy.yml`** — `main`에 push(직접 또는 PR 병합)되고 CI가 통과하면:
-1. 이미지 빌드 (`web`/`engine` 공용 이미지, `nginx`+프론트 이미지) → GitHub Container Registry(GHCR)에 올림 (태그: 커밋 해시)
-2. EC2 접속 (SSH 키는 GitHub Secrets, 또는 AWS SSM) → `docker compose pull` → `migrate` → `docker compose up -d`
-3. 배포 후 상태 확인 (`/api/health`), 실패하면 이전 태그로 되돌림
-4. 배포 결과를 Discord 팀 채널로 알림
-
-**협업 규칙**
-- `main` 직접 push 허용. PR·리뷰 1명 필수 규칙과 브랜치 보호는 두지 않는다 (2026-10-02 결정). 큰 변경은 필요하면 PR로 리뷰를 받는다.
-- push 전에 로컬에서 테스트를 돌리고, CI(`ci.yml`)는 `main` push마다 돈다. 브랜치를 쓸 때 이름은 `feat/…`, `fix/…`.
-- 로컬 개발: DB는 SQLite (`POSTGRES_HOST`를 비워 둔다) + `docker compose -f deploy/compose.dev.yml up`(Redis) + `manage.py runserver` + `npm run dev`.
-  운영과 같은 PostgreSQL로 확인할 때만 `--profile postgres`로 PostgreSQL도 띄우고 `POSTGRES_HOST=127.0.0.1`을 준다.
-  (2026-10-02: 팀이 같이 보는 개발 DB로 호스트 PC의 PostgreSQL 컨테이너를 쓴다. `scripts/dev.sh`가 띄우고, 개발할 때만 같은 네트워크에 연다.
-  `docs/DECISIONS.md` 10장, `TEAM_DEV_PLAN.md` 12장.)
-  `.env.example`에 개발용 기본값.
-
-### 4-7. 팀 역할 분담 예시
-
-| 역할 | 담당 범위 |
-|---|---|
-| 프론트엔드 1~2명 | `frontend/` 화면, 차트, API 연결 |
-| 백엔드 1명 | `backend/` 모델, API, 인증, 권한, 작업 큐 |
-| 엔진·데이터 1명 | `engine/` 키움 클라이언트, 장 달력, 모의매매 체결, AI 분석 연결 |
-| 인프라 1명 (겸임 가능) | Docker, EC2, GitHub Actions, openclaw 알림, 백업 |
-
----
-
-## 5. 확정된 결정과 정해야 할 항목
-
-### 확정
-
-- 새 디렉터리 `~/Repos/paper_trading`, git 히스토리 없이 새로 시작. 팀 GitHub 저장소로 올린다.
-- 데이터는 복사하지 않는다 (`data/`, `runs/`, `.cache/`, `backtest/cache/`, `.env` 제외). 현재 DB에는 실포지션이 있으므로 절대 가져가지 않는다.
-- 증권사: 키움 REST API (조회만). AI: DevPass 유지.
-- 명령은 웹, Discord는 openclaw로 팀 채널 알림만. 이메일·webhook은 쓰지 않는다.
-- DB: **EC2 운영은 PostgreSQL, 로컬 개발 환경은 SQLite** (`POSTGRES_HOST` 유무로 전환, 같은 모델·마이그레이션). 팀원별 계정, EC2 + Docker Compose, GitHub Actions.
-- 엔진 로직은 표준 라이브러리 원칙 유지. Django·DRF·psycopg·gunicorn 등은 백엔드에서만 추가 (사유: 웹 서비스·다중 사용자·DB).
-- (2026-10-04, 팀장 결정) 서비스 컨셉: **"AI 리포트 데스크"**(2026-10-05 이름을 **"종이배"**로 바꿈) — 주식이 처음인 사람도 AI 리포트를 만들고·검토하고·모의 자동매매로 실행한다.
-  주린이모드(계정 저장), AI 교차검증 분석 유지, 투자 방식 확장은 장기·단타만(선물 폐기). 자세한 결정은 `docs/DECISIONS.md` 13장.
-
-### 정해야 할 항목 (기본값으로 진행, 바꾸려면 알려줄 것)
-
-1. 계좌 구조: **팀원별 계좌로 확정** (2026-10-02. 랭킹보드와 My Page가 팀원별 수익률을 쓴다). 팀원 계정은
-   `python manage.py create_team_accounts`로 만든다 (아이디·비밀번호 무작위, `team_accounts.txt`에 저장, git 제외).
-2. 초기 자금: 기본 1천만원.
-3. 미국 시장: 키움 확인 결과에 따라 포함 여부 결정.
-4. AI 비용 한도: 기본 하루 전체 $10, 팀원별 하루 분석 요청 5종목.
-5. 도메인: 있으면 HTTPS로, 없으면 IP + HTTP로 시작.
-6. GitHub 저장소 위치: 개인 계정 또는 팀 조직.
-
----
-
-## 6. 작업 순서
-
-메인 세션이 계획·분해·공통 결정·검토·통합을 맡고, 분리 가능한 구현은 Orca 작업자로 병렬 실행한다.
-여러 작업이 같은 파일을 건드리지 않도록 **공통 결정(DB 표 구조, API 명세, 설정 키 이름)은 메인이 먼저 확정**해 모든 작업자에 같이 준다.
-
-| 단계 | 내용 | 담당 | 병렬 |
+| 영역 | 된 것 | 상태 | 근거 (`DECISIONS` 절) |
 |---|---|---|---|
-| 0 | 복제, `git init`, 저장소 구조 재배치(`engine/`, `backend/`, `frontend/`), 패키지 이름 변경, 기존 테스트 통과 확인 | 메인 | – |
-| 1 | 토스 경로 직접 호출을 클라이언트 메서드로 이동 (3-1 리팩터링) + 테스트 | 메인 | – |
-| 2 | **공통 결정 문서**: DB 표 구조(4-3), REST API 명세 초안(OpenAPI), 설정 키, 작업 큐 형식 | 메인 | – |
-| 3 | 키움 API 확인: TR ID·필드·호출 제한·IP 등록, 응답 샘플 저장(`docs/KIWOOM.md`) — **키움 앱키 필요** | Opus 작업자 | ○ |
-| 4A | 키움 클라이언트, 장 달력, 클라이언트 교체, 백테스트 연결 (3단계 이후) | Opus 작업자 | ○ |
-| 4B | 모의매매 엔진: 실주문 삭제, 모의 계좌·체결, 알림 정리(confirm·플러그인 삭제) | Opus 작업자 | ○ |
-| 4C | Django: 모델·마이그레이션, ORM 저장소 구현, 인증·권한, REST API, 작업 큐, `run_engine` | Opus 작업자 | ○ |
-| 4D | React: 화면 전체 (MSW 가짜 응답으로 시작) | Sonnet 작업자 (어려운 화면은 Opus) | ○ |
-| 4E | Docker·Compose·nginx, GitHub Actions(ci·deploy), EC2 설정 문서 | Sonnet 작업자 | ○ |
-| 5 | 통합: 엔진 ↔ Django 저장소 연결, 프론트 ↔ 실제 API, 전체 테스트 | 메인 | – |
-| 6 | 구현에 관여하지 않은 작업자로 독립 리뷰 (주문 코드 잔존, 권한, 비밀 정보 노출, 비용 한도) | Opus 작업자 | – |
-| 7 | EC2 첫 배포 (AWS 계정·도메인·봇 준비 후), openclaw 설치, 실제 알림 확인 | 메인 + 사용자 | – |
+| 모의 계좌·주문 | 팀원별 계좌(1천만원), 시장가·지정가, 장 밖 예약, 지정가는 장 끝에 취소, 목표·손절은 2회 연속 확인 뒤 청산, 보유 방식 swing·long | 동작. 실측은 웹 시장가 체결 3건(10/2)뿐, 지정가 체결·자동 청산은 아직(U8) | 8-1·8-3·14-3 |
+| 장마감 기준 | 화면 숫자는 직전 정규장 종가(KR은 거래일 15:40에 넘어간다), 체결·청산만 장중 확인 가격 | 동작 | 14-1, `backend/trading/market.py:1-12` |
+| 종목·차트 | 검색, 완성 일봉, 매수 유의, 펀더멘털 신호등(로컬은 `MARKETS=KR`) | 동작 | 14-3 |
+| AI 교차검증 분석 | 웹 요청 → `run_engine`이 엔진 `analyze` 하위 프로세스를 돌린다. 팀원별 하루 5회, 팀 하루 $10 | 실제 LLM 실행은 CLI smoke-test 1건(10/2, $0.30)뿐. 웹 경로는 가짜 테스트로만 확인(분석 작업 0건) | 8-4 |
+| AI 리포트 | 신청·하루 3회 한도, YAML Registry, State·Trace, Snapshot·SSE, 선별 API, A4 PDF, 쉬운 보기, 끝 알림 | **구조만**: Agent·Orchestrator·AutoHealing 0줄(`backend/reports/registry.py:18` `AGENTS_IMPLEMENTED = False`). 신청은 `requested`로 남고, 흐름은 예시 Trace 재생으로만 보인다 | 9-1 |
+| 추천 → 활성화 → 모의 자동매매 → 알림 | 출처 report·analysis·demo, 리스크 엔진(건당 1%·손익비 2.0), 진입 지정가·3일 재주문·목표·손절·기한 청산, 단계별 사건·알림 | 시연판: demo 규칙 추천만 있고 report 출처는 0건. 장중 체결·청산은 가짜 시세 테스트만(U8) | 12장, `docs/tasks/06-추천·자동매매.md:64-73` |
+| 장기투자 | 장기 보유, "왜 샀나요?", 오늘의 내 종목 뉴스(16:30), 펀더멘털 점검(18:00), 웹 알림 | 동작(10/5 격리 환경). 실제 시각 실행은 아직(U15) | 14-3 |
+| ~~단타 연습~~ | – | **폐기 (2026-10-06, 사용자 결정)**. 코드·API·화면에서 모두 지웠다 | 16장 |
+| 주린이모드·화면 | 계정 저장, 7문항 진단, 홈 3단계 안내, 쉬운 보기, 실행 확인 체크리스트, 하단 탭 다섯, 다크 모드, 로고 | 동작. 쉬운 보기는 가짜 API(`VITE_MOCK=1`)로만 끝까지 봤다. 실기기 확인 전 | 14-7·15장 |
+| 알림 | 웹 알림, Discord Webhook 보낼 편지함(1회 재시도·글만) | 웹은 동작, Discord는 꺼짐(U7). 직접 주문에는 체결 알림이 없다(`filled`는 자동매매 계획만 — `backend/autotrade/executor.py:318`) | 12-4 |
+| `/ops`·오늘의 선별 | 관리자 복구 지표(숨은 입구, staff만), 리포트 탭의 선별 결과 | 예시: 복구 지표 API가 없고 선별 파일도 없다(404). 발표·보고서에 쓰지 않는다 | `frontend/src/components/admin/RecoveryStatsPanel.tsx:177-179` |
+| 엔진 CLI·백테스트 | 엔진 자체 계좌(SQLite)와 CLI, AI 없는 백테스트 | 동작. 웹 계좌와 별개 | `AGENTS.md:93-102` |
+
+### 1-3. 비어 있는 것·막힌 것
+
+- **핵심 AI Agent 워크플로우가 0줄이다.** `backend/reports`에 contracts·agents·orchestrator·guards·runner·healing·chaos·stats·budget과 마이그레이션 0002가 없다. 원격 브랜치는 `main`뿐이고 PR은 0건이다(`git branch -r`·`gh pr list`). 10/5 오전 뼈대 PR 5개(`docs/tasks/00-공통.md` 13절)도 없다. 과제 주제(에러 자가 치유)의 핵심이고, 산출물 3종·`docs/개선이력.md`·장애 시험 결과표도 아직 없다.
+- **공유 개발 DB의 리포트 3건(10/2~10/5 신청)이 모두 `requested`다.** runner를 켜면 이 3건이 먼저 돈다(3-1 Q5).
+- **10/6 개장 시험(U8·U15)은 시작하지 못했다.** 시험 계정이 없다. 호스트 PC(노트북)가 09:48~12:34에 절전과 짧은 깨어남을 되풀이했고, 그사이 토스 조회는 DNS 오류·403으로 실패했다(12:36부터 정상). 시각별 기록은 `docs/결정필요사항.md` U8.
+- **토스 client를 원본 개인 프로젝트(실주문)와 같이 쓴다.** 한쪽이 토큰을 새로 받으면 다른 쪽 토큰이 무효가 된다. 10/6에도 되풀이된다(엔진 로그 13:02 `token-revoked`, `.cache/toss_token.json`을 13시대에 여러 번 다시 씀). `AGENTS.md:26-27`과 어긋난다(U4 → U19).
+- **운영 전제는 팀장 몫으로 남았다.** 키움 키(U9)·`DATA_GOKR_API`(U14)·EC2·배포 설정이 없다. 운영 구성의 PDF는 HTML로 나간다(U22).
+- **알려진 한계(U16, 고칠지 미정)**: ① 가격 상한이 없다 — `/api/orders`는 목표 1e308 같은 값을 201로 저장한다(10/6 테스트 DB에서 재현. 같은 값에 500이 나던 단타 미리 보기는 단타 폐기로 없어졌다) ②·③ 분봉 한계(수능일·토스 15:30 봉)는 분봉 삭제(2026-10-06)로 없어졌다 ④ 장기투자 뉴스가 `DAILY_MOVE_MODEL` 없이 `APPROVER`를 쓴다(종목당 약 $0.02).
+- **약관**: Vite(`0.0.0.0:5173`)로 팀원에게 토스 시세를 보이는 지금 방식은 토스 FAQ의 제3자 배포 금지에 걸린다(U13). 키움 교육용 다중 표시 문의가 남았다(U10·U12).
+
+### 1-4. 품질
+
+- **테스트**(10/6 로컬): Python 1,629개(engine 754 + backend 875, SQLite 메모리 DB)·backtest 12개·ruff, 프론트 vitest 603개(27파일)·eslint·tsc가 통과한다.
+- **CI**(`d3325f2`, Deploy 실행 37316655698 성공): ruff → 실주문 코드 검사 → pytest → backtest → `makemigrations --check` → PostgreSQL 16 backend 875개 · eslint → tsc → vitest → build · 이미지 3개 → compose → `smoke_test.sh`(엔진 PDF 포함).
+- **안전 검사**: CI가 실주문 문자열과 `orders.py`를 막고(`.github/workflows/ci.yml:55-66`), 루트 `conftest.py`가 증권사·Discord 키를 비운다.
+
+### 1-5. 데이터·시세
+
+- **시세**: 로컬은 토스 조회(`BROKER=toss`, `DJANGO_DEBUG=on`일 때만 — `engine/paper_engine/config.py:154-165`), 운영은 키움 REST 조회 TR만(`docs/KIWOOM.md` 4장, 실측 0건).
+- **공유 개발 DB**: 호스트 PC의 PostgreSQL 16 컨테이너(포트 5434), 마이그레이션 모두 적용, 계정 6개(팀 5 + 관리자 1). 체결 3건·지정가 취소 1건(10/2), 분석 1건, 추천 1건(demo)·계획 0건, 리포트 3건(`requested`).
+- **그 밖의 자료**: DART(키 있음), data.go.kr(키 없음), Google 뉴스 RSS(제목·매체·시각), SEC EDGAR(US를 꺼 두어 안 씀).
 
 ---
 
-## 7. 검증
+## 2. 기술 스택 (README)
 
-- **테스트**: GitHub Actions의 `ci.yml` 전부 통과 (엔진·백엔드 `pytest`, 백테스트, 프론트 `eslint`·`tsc`·`vitest`·빌드).
-- **주문 코드 제거 확인**: 코드 검색으로 `orders.py`, `create_order`, `LIVE_TRADING`, `--live` 0건.
-  `tossinvest`는 로컬 개발용 조회 클라이언트 `engine/paper_engine/data/toss.py`의 주소 1건만 (계좌·주문 경로 없음).
-- **운영에 토스 없음 확인**: EC2의 `.env`·compose에 `BROKER`, `CLIENT_ID`, `CLIENT_SECRET`이 없고, 엔진이 키움으로 뜬다.
-- **키움 조회 실제 확인** (읽기 전용): 스냅샷 `005930`, 선별 `KR --no-ai`, 시장 기록, 백테스트 `--market KR`.
-- **모의매매 흐름** (웹에서): 로그인 → 종목 검색 → 10주 시장가 매수 → 체결·현금 감소 확인 → 목표·손절 지정 매수 → 엔진이 청산 →
-  통계·대시보드 반영 → 정규장 밖 시장가 주문이 예약으로 들어가는지.
-- **AI 분석**: 웹에서 1종목 분석 요청 → 작업 상태 → 결과 화면·PDF → 비용 한도 초과 시 거부.
-- **권한**: 팀원 계정으로 전략 변경·중단 스위치가 막히는지, 로그인 없이 API가 막히는지.
-- **배포**: `main` push → 자동 배포 → `/api/health` 정상 → Discord 팀 채널 알림 수신. 일부러 실패시켜 되돌리기 확인.
-- **기존 서비스 무영향**: 이 PC의 `toss-trading` 서비스 정상, 기존 Redis·openclaw 설정 변화 없음.
+### 2-1. 구조
+
+```
+브라우저 ─▶ nginx (HTTP_PORT → 8080. HTTPS 없음. 리포트 SSE는 버퍼링을 끈다)
+nginx ─┬─ /, /assets    → React 빌드 파일 (SPA)
+       └─ /api, /admin  → web: Django + DRF (gunicorn 워커 1 · 스레드 16)
+web · engine · migrate ─▶ db: PostgreSQL 16 (혼자 개발할 때는 SQLite). migrate가 먼저 성공해야 web·engine이 뜬다
+engine = python manage.py run_engine (5초 루프, 단계마다 오류 격리)
+  체결 확인 → 예약 실행 → 일별 자산 → 분석 작업 → 추천 수집 → 리포트 알림 → 자동 추천 → 자동매매 → 장기투자 → 알림 발송
+redis 7 = compose가 띄운다. 엔진 CLI(serve·장 밖 예약·info·daily-report·backup)만 쓰고 web·run_engine은 쓰지 않는다
+외부 ─▶ 키움 REST(운영) · 토스(로컬 전용) · DART · data.go.kr · Google 뉴스 RSS · DevPass LLM Gateway
+알림 ─▶ 웹 알림(DB) + Discord Webhook 보낼 편지함 (engine이 보낸다. 지금 꺼짐)
+CI/CD: push ─▶ ci.yml 검사 ─▶ [DEPLOY_ENABLED] GHCR 이미지 3개 ─▶ SSH 배포·되돌리기 ─▶ Discord 알림 (배포 단계는 아직 skipped)
+```
+
+근거: `deploy/docker-compose.yml:1-12`, `backend/trading/management/commands/run_engine.py:53-67`, `docs/DECISIONS.md` 8-2·8-4·11장. Redis를 여는 곳은 엔진 CLI(`engine/paper_engine/__main__.py:135-136·586-588·1064`)뿐이다(`backend`에는 redis 참조가 없다 — 코드 검색).
+
+### 2-2. 구성
+
+| 층 | 기술 | 버전 | 비고 |
+|---|---|---|---|
+| 언어·도구 | Python, uv 작업 공간(engine·backend), pytest·pytest-django·ruff | 3.12, uv 0.8(이미지), 9.1.1·4.14.0·0.16.10 | 잠금 패키지 29개(작업 공간 3개 포함). ruff E·F·W, line-length 120(E501은 끔) |
+| 엔진 | `engine/paper_engine` | 의존성 0 | 표준 라이브러리만. Redis RESP2·LLM HTTP·PDF(Chrome headless)를 직접 구현 |
+| 백엔드 | Django·DRF·drf-spectacular·psycopg[binary]·gunicorn·PyYAML | 5.2.17·3.18.1·0.30.0·3.3.6·26.2.0·6.0.3 | 앱 8개, 세션 인증 + CSRF, OpenAPI `/api/schema/` |
+| DB | SQLite / PostgreSQL | 16 | `POSTGRES_HOST`로 고른다. PostgreSQL 전용 기능 금지 |
+| 캐시·실시간 | LocMemCache, TanStack Query 폴링, 리포트만 SSE | – | WebSocket 없음. 폴링 간격은 `frontend/src/api/queries.ts:39-51` |
+| 프론트 | React·react-router·TanStack Query·Tailwind CSS·lightweight-charts·react-markdown·Pretendard | 19.3.0·8.4.0·5.104.0·4.3.3·5.2.1·10.1.0·1.3.9 | Vite SPA. 타입은 `docs/API.md`를 보고 손으로 쓴다 |
+| 프론트 도구 | TypeScript·Vite·Vitest·jsdom·Testing Library·MSW·ESLint | 6.0.3·8.3.2·4.1.11·29.1.1·16.3.3·2.15.0·10.11.0 | Node 22(CI). `VITE_MOCK=1`이면 브라우저 안 가짜 API |
+| 컨테이너 | nginx-unprivileged·python:3.12-slim-bookworm·node:22-alpine(빌드)·postgres·redis·Chromium | nginx 1.27·python 3.12·uv 0.8은 메이저.마이너, node 22·postgres 16·redis 7은 메이저 태그 | 다이제스트 고정 없음. read_only, cap_drop ALL, uid 10001. Chromium은 engine 이미지에만 |
+| CI/CD·서버 | GitHub Actions·GHCR·SSH 배포·되돌리기. 운영은 AWS EC2 Ubuntu `t3.medium`(메모리 4GB: Chrome PDF·PostgreSQL·엔진을 한 서버에서)·디스크 30GB 이상(계획) | Actions 실행기 ubuntu-24.04, EC2 OS 버전 미정 | `DEPLOY_ENABLED` 꺼짐, EC2 없음(`docs/DEPLOY.md` 4장) |
+| AI | DevPass LLM Gateway(OpenAI 호환, 웹 검색 도구) | – | 분석 모델은 `.env`, 리포트 Worker 모델은 `worker_definitions.yaml`(지금 null) |
+| 외부 데이터 | 키움 REST(운영)·토스(로컬)·DART·data.go.kr·SEC EDGAR·Google 뉴스 RSS | – | 조회만. 계좌·주문 TR 없음 |
+
+근거: `uv.lock`, `frontend/package-lock.json`, `deploy/Dockerfile`·`deploy/nginx/Dockerfile`·`deploy/docker-compose.yml`, `pyproject.toml:30-37`, `.github/workflows/ci.yml:22`.
+
+### 2-3. 저장소 구조
+
+```
+engine/paper_engine/  엔진 — data/(broker·kiwoom·toss·dart·calendar·news …) agents/(executor=모의 체결기 …) judge/ records/ longterm/
+backend/              config/ accounts/ trading/(run_engine) analysis/ reports/ autotrade/ notifications/ longterm/
+frontend/src/         pages/ components/ api/ lib/ mocks/(가짜 API)
+backtest/ · deploy/(compose, Dockerfile, nginx/, remote_deploy.sh, smoke_test.sh) · scripts/(dev.sh, kiwoom_check.py) · .github/workflows/ · docs/
+테스트: engine/tests/, backend/<앱>/tests/, frontend/src 안의 *.test.ts(x)
+```
+
+git에서 빼는 것은 `.gitignore:1-31`에 있다(원본 복사본 `personal_project_files/` — 보지도 고치지도 않는다, `data/`·`runs/`·`reports/`·`.cache/`, `.env`·`.env.docker`, 계정 파일). `.env.example`은 커밋한다. `frontend/.env.local`은 무시되지 않으니 커밋하지 않게 조심한다(`.gitignore`에 더하는 것은 제안). 실행 데이터는 `PAPER_ROOT` 아래에 둔다.
+
+### 2-4. 개발 환경과 검사 (절차는 `SETUP_PROMPT.md`, 명령 전체는 `AGENTS.md` "실행")
+
+```bash
+uv sync                                    # 엔진 + 백엔드 + 개발 도구
+scripts/dev.sh                             # (PostgreSQL 컨테이너 +) Django + run_engine + Vite를 다시 띄운다. status·stop·logs·db
+cd backend && uv run python manage.py create_team_accounts   # SQLite로 혼자 할 때만 (공유 DB에서는 계정이 새로 생긴다)
+cd frontend && VITE_MOCK=1 npm run dev     # 서버 없이 가짜 API로 화면만
+uv run ruff check . && uv run pytest && uv run pytest backtest          # push 전 검사 (CI와 같다)
+cd frontend && npx eslint . && npx tsc --noEmit && npx vitest run && npx vite build
+TEST_WITH_POSTGRES=1 uv run pytest backend    # CI용. .env가 공유 DB를 가리키면 그 서버에 테스트 DB를 만든다
+```
+
+macOS·Linux·WSL2에서만 돈다. 공유 개발 DB는 `.env`에 `POSTGRES_HOST=<호스트 IP>`·`POSTGRES_PORT=5434`·`POSTGRES_PASSWORD`·`DJANGO_SECRET_KEY`를 넣어 붙는다(`TEAM_DEV_PLAN.md` 12장). 그때 `dev.sh`는 엔진 루프를 띄우지 않는다 — **엔진 루프는 호스트 PC 하나만** 돈다.
+모델을 바꾸면 팀에 알리고 손으로 migrate한 뒤 바로 push한다(같은 절). 포트가 차 있으면 다음 빈 포트를 쓴다.
+
+### 2-5. 설정·비밀 값
+
+- **로컬**: 루트 `.env`. 키 이름·기본값은 `.env.example`, 설명은 `docs/DECISIONS.md` 2장·12-5·14-8. 프론트는 `frontend/.env.local`의 `VITE_API_TARGET`·`VITE_MOCK`.
+- **운영**: 서버의 `deploy/.env.docker`와 GitHub 변수·비밀 값 — `docs/DEPLOY.md` 4~5장(팀장).
+- **AI 모델·한도**: 분석은 `.env`의 `ANALYSTS`·`RESEARCHERS`·`APPROVER`·`REQUIRED_MODELS`, 장기투자 뉴스는 `DAILY_MOVE_MODEL`(없으면 `APPROVER`). 한도는 `AI_DAILY_BUDGET_USD`(팀 하루 $10)·`AI_DAILY_ANALYSES_PER_USER`(5)·`AI_DAILY_REPORTS_PER_USER`(3).
+- 키·토큰은 `.env`에만 두고 문서·로그·커밋에 남기지 않는다. 설정 키를 바꾸면 `ci.yml`·`deploy/.env.docker.example`도 고친다.
+
+### 2-6. 꼭 지킬 규칙 (원본: `AGENTS.md` 안전 규칙·DB, `docs/tasks/00-공통.md`, `docs/DECISIONS.md` 15장, `docs/API.md` 공통 규칙)
+
+1. **실주문 코드 0건.** 키움은 조회 TR만. `orders.py`·`create_order`·`LIVE_TRADING`·`--live`·`--bypass`는 코드에 나오면 안 된다(CI가 막는다). `tossinvest`는 `engine/paper_engine/data/toss.py` 한 곳에만.
+2. **토스 조회는 로컬 개발 전용**(토큰 발급 말고 GET만), 운영은 키움만. 원본 `toss_trading`에 영향을 주지 않는다 — Redis 키는 `paper:`만, 토스 client는 따로(U19).
+3. **AI는 제안만 한다.** 수량·한도·활성화는 리스크 엔진, 주문·체결은 `trading.service`와 모의 체결기. 최소 손익비 2.0은 프롬프트에 넣지 않는다.
+4. **엔진은 표준 라이브러리만**, 외부 패키지는 `backend/`에만. 키움 응답 → 내부(토스) 형식 변환은 `data/kiwoom.py` 안에서만.
+5. **DB**: 같은 모델·마이그레이션을 SQLite·PostgreSQL에 쓴다(PostgreSQL 전용 기능 금지).
+6. **계약을 먼저 고친다**: 웹 API는 `docs/API.md`, 워크플로우 약속은 `00-공통.md`. State·Trace는 `backend/reports/state.py` 함수로만. "Claude" 파일(`00-공통.md` 2절)은 팀원이 고치지 않고 팀장에게 알린다.
+7. **화면**: 색은 `frontend/src/index.css` 토큰만(`colors.test.ts`가 검사), 금지 표현은 `engine/paper_engine/wording.py` 하나, 면책 문장은 하나, 주문·체결 쉬운 문장에는 "모의", 주어는 "AI 의견"·"안전장치".
+8. **테스트는 실제 증권사·AI·Discord를 부르지 않는다.** 팀 코드는 브랜치 `feat/<담당>-<주제>` → PR(설명에 "03 T3-5"처럼 문서 항목) → CI 초록 + 다른 담당 1명 확인 → 합친다(급하면 1). 매일 아침 `main`을 자기 브랜치에 합친다(`00-공통.md` 12절). `main` 직접 push는 문서·작은 고침만(`docs/tasks/01-인프라.md:112`).
+
+### 2-7. 문서 지도
+
+| 문서 | 무엇 |
+|---|---|
+| `AGENTS.md` · `SETUP_PROMPT.md` | 작업 규칙·실행 명령의 원본 · 클론 직후 설치 절차 |
+| `TEAM_DEV_PLAN.md` | 워크플로우·AutoHealing 설계(4~5장), 장애 시험(8장), 산출물(9장), 역할(11장), 개발 환경(12장). 3장은 10/2 기준 |
+| `docs/결정필요사항.md` | 남은 결정·확인(U1~U22)과 다음 세션 시작점 |
+| `docs/DECISIONS.md` · `docs/API.md` | 공통 결정 1~16장 · 웹 API 계약(AI 리포트 469줄~, 추천·자동매매 663줄~, 장기투자 917줄~) |
+| `docs/tasks/00~06` | 00 공통 약속(파일 소유·서명·Trace·출력 계약·사유 코드), 01~05 담당별 할 일, 06 추천·자동매매 |
+| `docs/DESIGN.md` · `docs/KIWOOM.md` · `docs/DEPLOY.md` | 엔진 설계 · 키움 TR · CI/CD·서버 준비 |
+| `docs/컨셉변경계획.md` · `docs/투자서비스확장계획.md` · `docs/화면배치.md` | 컨셉·계약 변경 B(8장)·사용성 시험(12장) · 장기·스윙 확장(단타·선물은 폐기) · 화면 배치 |
+| `docs/프로젝트평가기준.md` · `docs/개장시험_2026-10-06.md` · `docs/교육용문서.md` · `docs/research/` | 평가 가이드 · 정규장 실측 S0~S19 · 리포트 화면의 교육 자료 · 약관·시세·장기투자 조사 |
 
 ---
 
-## 8. 준비할 것
+## 3. 남은 작업
 
-- 키움 REST API 앱키·시크릿 (빈 계좌로 신청 가능, 접속 IP 등록 여부 확인).
-- AWS 계정과 EC2 (공인 IP), 도메인(선택).
-- 팀 GitHub 저장소와 팀원 초대, GitHub Secrets(EC2 접속 정보).
-- 팀용 Discord 봇(새로 만들기)과 팀 서버·채널.
-- DevPass 키 (팀이 같이 쓸 키와 비용 한도).
+담당: 1 팀장·통합 · 2 Worker · 3 Orchestrator · 4 AutoHealing · 5 프론트(`TEAM_DEV_PLAN.md` 11장) · Claude = Claude가 만든 파일(팀장이 요청할 때) · 전원.
+번호: U = `docs/결정필요사항.md` · B = 계약 변경(`docs/컨셉변경계획.md` 8장) · T = `docs/tasks/` 작업 · D·E = `docs/DECISIONS.md` 13장 · DR = 장애 시험(`TEAM_DEV_PLAN.md` 8장) · S = 개장 시험 · Q = 3-1 설계 쟁점 · P0·P1 = 우선순위.
+
+### 3-0. 일정
+
+| 날짜 | 할 일 | 근거 |
+|---|---|---|
+| 10/6(화)~10/7(수) | 워크플로우 구현 — 뼈대 PR 5개부터(원래 10/5 오전). 10/7은 새 화면 작업 없이 실제 Agent 통합, 저녁 복도 시험 | `docs/tasks/00-공통.md` 13절, `05-프론트.md:140` |
+| 10/8(목) | 실제 Trace로 화면 맞추기, 1의 발표 시나리오 데이터(T1-26, P0)와 정규장 체결 장면 촬영, **15:00 화면 동결** — 그 배포본이 10/9 시험의 최종본 | `docs/컨셉변경계획.md:294,301`, `01-인프라.md:65` |
+| 10/9(금, 한글날) | 오전 장애 주입 시험, 오후 사용성 시험(리포트 실행기가 1건씩이라 시간대를 나눈다) | `docs/컨셉변경계획.md:302` |
+| 10/10~10/11 | 문구만 고친다. 산출물 3종(① 3·2, ② 4, ③ 1), 시연 영상·발표 자료(5) | 같은 문서 :303, `TEAM_DEV_PLAN.md` 9장 |
+| 10/12(월) | 리허설(20분), 필요하면 체결 장면 다시 찍기 | 같은 문서 :304 |
+| 10/13(화) 15:00 | 발표(팀당 20분) | `docs/프로젝트평가기준.md:22,26` |
+
+남은 정규장은 10/6 오후·10/7·10/8·10/12다. 늦어지면 UI·UX 추가 항목 → Handoff(T3-7) → 자동 리포트 화면 설정 순으로 줄인다. 신청 → 리포트 흐름, 대체 모델 복구와 그 시각화, 배포, 장애 시험 결과표, 주린이모드·쉬운 보기·계획 카드 상태와 실행 불가 사유·실제 금액·체크리스트·용어 바꾸기는 줄이지 않는다(`TEAM_DEV_PLAN.md:72`, `docs/컨셉변경계획.md:307`).
+
+### 3-1. 핵심 AI Agent 워크플로우 (담당 2·3·4, 자동 리포트는 1)
+
+앞(신청·Registry·State·Trace·SSE·화면)과 뒤(추천 수집·끝 알림 `reports/alerts.py`·PDF·한도)는 이어져 있고 가운데(Agent 실행)만 비어 있다. `completed` 리포트의 `report_agent.verdict`가 `"buy"`이고 `0 < stop < entry < target`이면 엔진 루프가 추천을 만든다(`backend/autotrade/sources.py:134-158`).
+약속의 원본은 `docs/tasks/00-공통.md`(파일 소유 2절·Trace 9절·출력 계약 10절)와 `docs/API.md` "AI 리포트" 절이다. 바꾸려면 문서를 먼저 고친다. PR 규칙은 2-6 규칙 8.
+**개발 환경**: 팀원 PC에는 증권사 조회 키가 없다고 보고 만든다(토스는 개발자 로컬 전용·client당 토큰 1개, 팀원용 키움 키는 대기 — `TEAM_DEV_PLAN.md:614`, U9). 그래서 신청 API는 503(`backend/reports/views.py:62`), market_agent는 `WorkerError`다. 각자 SQLite에서 가짜 조회 클라이언트·`fake_llm`·`fake_worker`로 만들고, 실제 자료·모델 통합(T2-10·T3-10·T4-10)은 호스트 PC에서 1과 같이 한다.
+
+**먼저 정할 설계 쟁점** — 정하면 `00-공통.md`·`API.md`에 적는다(목록은 U21).
+
+| # | 쟁점 | 지금 | 정할 사람 · 막는 작업 |
+|---|---|---|---|
+| Q1 | timeout 규칙 | `00-공통.md` 7절·T4-4는 "다음 모델로", `TEAM_DEV_PLAN.md` 5-1·DR-LLM-01·예시 재생 ③은 "같은 모델 1회 → 대체 모델"이다. 하나로 정하고 다른 쪽을 고친다 | 4(5와) · T4-4 전 |
+| Q2 | 제한 시간 | 호출 제한 90초(`engine/paper_engine/llm.py:10`)가 단계 `timeout` 60초(`team_definitions.yaml`)보다 길어 시간 초과 뒤 대체 모델로 넘어갈 시간이 없다(추측). 검토 재작성·Handoff에는 제한 시간이 없다. 버린 Worker 스레드가 `finish` 뒤에 기록하면 `StateError`다(`03-orchestrator.md` 주의) | 4·3 · T4-4·T3-5 전 |
+| Q3 | 필수 Worker 시간 초과의 사유 코드 | `join_blocked`인지 `timeout`인지(9절 표) | 3 · T3-5 |
+| Q4 | 검토 단계 입력 | 문서는 "Join Guard가 초안·조사 결과를 검토에 넘긴다", YAML `review`에는 join이 없다 | 3 · T3-5 전 |
+| Q5 | runner를 켜는 시점 | 묵은 `requested` 3건이 켜는 순간 실제 비용으로 돌고 끝 알림이 간다(같은 사람·종목 신청에는 이 행이 200으로 온다). 처리(끝내기·나이 제한·실행)를 정한다. 통합 전에는 별도 설정 키로 `runner.tick`을 막는다(제안 — `AGENTS_IMPLEMENTED`는 화면 SSE 깃발, `registry.py:17-18`) | 3·1 · ⑤ 전(오늘) |
+| Q6 | 시험 수단 | `errorTypes` 셋으로는 DR-CRT-01·02·DR-SEC-01을 못 만든다. Circuit Breaker(모델별·프로세스 전역 5분, T4-5)가 시나리오끼리 간섭한다 → 사이에 5분 대기나 재시작(제안). 리포트 한도 3건 → 시험 한도를 올리거나 계정을 나눈다(제안) | 4·1 · T4-6·T4-10 전 |
+| Q7 | 장애 분류·셈법 | `LlmError`에 상태 코드가 없어 server_error·bad_output을 나누기 어렵다 → 구조화된 오류(제안). LLM 실패 없는 실패(Worker 오류·단계 시간 초과)를 장애로 셀지 정한다 | 4 · T4-2·T4-7 전 |
+| Q8 | 그 밖 | `attempt`의 두 뜻, `chaos.parse` 인자, 권유 표현을 계약 검증에 넣을지(넣으면 재요청 = 장애 1건), 0002 새 열의 `db_default`(제안 — 옛 코드가 도는 공유 DB 대비, 본보기 `trading/migrations/0002_order_style.py`), 산출물 위치(`docs/deliverables/` 대 `docs/설계서.md`·`장애복구보고서.md`·`파이프라인보고서.md`) | 2·3·4·1 · 0002 전, 산출물은 10/8 전 |
+
+**담당별 구현** (따로 적지 않은 파일은 `backend/reports/` 아래)
+
+| 담당 | 파일 | 할 일 |
+|---|---|---|
+| 2 | `contracts.py`, `agents/`(base·WORKERS·prompts·Worker 6개) | 계약 6개(B1 `plainSummary` 숫자 금지·1~3개·100자, `MarketResult.asOf` 선택, `targets` 다섯 값). 프롬프트 요건(T2-7): "목표 가격 ○○원의 근거", "이 의견이 틀리는 경우", 소문자 `"buy"`, 권유형 금지. market은 장마감 기준, 일봉이 없으면 `WorkerError`. fundamental은 DART 키가 없으면 "자료 없음". news는 `guards.clean_text`(3)를 거친다 |
+| 2 | `worker_definitions.yaml` 값, `budget.py`, `views.py` 한 줄 | 모델·대체 모델(3의 스키마 뒤), 비용 예산 `check(now)`(0002 뒤), 실제 모델 1회(T2-10), 설계서 ① 역할 표(T2-11) |
+| 3 | `registry.py`, `team_definitions.yaml` | 스키마 `fallbacks`·`retry`, review `retry {target: report_agent, max_rounds: 2}`(T3-1) |
+| 3 | `orchestrator.py`, `guards.py`, FakeWorker | `run_report` 정상 경로 → Join·부분 실패(T3-5) → 검토 반복(T3-6) → Handoff(T3-7) → 입력 Guard `clean_text`(T3-8 — 2의 news와 DR-SEC-01이 쓴다) → 비용 `state.add_cost`(T3-9) |
+| 3 | `runner.py`, `run_engine.py` 세 곳 | `tick`(분석 작업 다음)·`recover`(시작)·`shutdown`(끝), 실패 사유 코드(T3-4·T3-12). T3-5 뒤 `AGENTS_IMPLEMENTED = True`, 실제 통합(T3-10), 설계서 ① 총괄(T3-11) |
+| 4 | `models.py`, `migrations/0002_*.py`, `payloads.py` | 새 열(user null 허용·source·chaos·cost_usd·pdf_path·색인)과 새 필드. Claude의 B3 `opinion`·`oneLiner`는 지우지 않는다(T4-1) |
+| 4 | `engine/paper_engine/llm.py`, `healing.py`, fake_llm | `complete_json_once`(T4-2), `LlmCaller`·`make_caller`, 재시도·대체 모델(T4-4), Circuit Breaker(T4-5) |
+| 4 | `chaos.py`, `stats.py`, `views.py`·`urls.py` 한 줄씩 | 장애 주입(T4-6), `GET /api/reports/recovery-stats`(T4-7), 보고서 ②·DR 설정표(T4-9·T4-10), recovery 문장(T4-11) |
+| 1 | `auto.py`, `auto_report` 명령, `run_engine.py` 한 줄 | 자동 리포트 B9(P1): `request`·`tick`(T1-4, 0002 뒤), `after_finish`의 PDF·발송(T1-5 — Discord는 U7 보류라 지금은 콘솔), `auto_report`(T1-6), 목록 `?source=`(T1-7). 발표 전에 할지는 U20 |
+
+**순서**(`00-공통.md` 13절): ① 3 registry 스키마 → ② 4 0002·payloads → ③ 2 contracts·`agents/base` → ④ 4 healing 서명·fake_llm → ⑤ 3 `run_report` 정상 경로·runner(완료 기준 `run_engine --once`로 requested → completed, `03-orchestrator.md:61`. 공유 DB에 붙이기 전에 Q5).
+YAML 모델 값은 ① 뒤, budget·`add_cost`·chaos 저장·B9는 ② 뒤, `AGENTS_IMPLEMENTED = True`는 T3-5 뒤, 실제 통합은 2의 Worker와 4의 호출기 뒤, DR 시험은 통합 뒤다.
+**체크포인트(제안 — 뼈대가 하루 늦어 02~04의 일정을 하루씩 민다)**: 10/6 ①~⑤ 합치기 → 10/7 오전 T3-5·T3-6·T4-4~T4-6·Worker 6개 → 10/7 오후 호스트 PC에서 실제 통합 → 10/8 오전 T3-7~T3-9·T4-7·T4-10 설정표, 15:00 전 실제 Trace로 화면 확인 → 10/8~10/11 산출물.
+
+**완료 기준**
+
+- [ ] 실제 리포트 1건이 몇 분 안에 나오고 노드가 대기 → 실행 중 → 완료로 바뀐다(SSE). 검토 결과로 경로가 갈리고 RETRY는 상한을 넘지 않는다. Trace만 보고 끝난 이유를 설명할 수 있다(`TEAM_DEV_PLAN.md:194-198`). 끝나고 5초 안에 `/recommendations`에 추천이 뜬다(`docs/tasks/02-worker.md:38`).
+- [ ] 장애 주입을 켜도 끝까지 나오고, 어느 모델이 실패하고 어느 모델이 대신 답했는지 보인다. 같은 seed는 같은 판정이다. 선택 Worker가 전부 실패하면 건너뛰고, 필수면 실패로 끝내고 사유를 화면·알림에 낸다(`TEAM_DEV_PLAN.md:256-272`).
+- [ ] `/ops`가 실측을 그린다. 자동 복구율은 시나리오 / 호출 장애 두 이름으로 나눠 적는다.
+- [ ] 가짜 LLM 테스트: 정상·선택 실패·Join 차단·RETRY 뒤 PASS·RETRY 한도·Handoff 거절·재시도·대체 모델. `uv run pytest backend/reports -q`가 1분 안(지금 139개), CI 초록(`00-공통.md:289-294`).
+- [ ] 산출물: 설계서 ①(3·2), 보고서 ②(4), 보고서 ③(1). 실제 구조와 시험 결과만 쓴다(`docs/프로젝트평가기준.md:69`).
+
+**주의**
+
+- 0002에서 user를 null로 열면 `payloads.summary`의 `get_username()`이 깨진다(`payloads.py:62`). user가 없는 리포트의 끝 알림은 활성 사용자 전체에게 간다(코드로 확인: `alerts.py:92,99` → `backend/notifications/service.py:161-162`. 건너뛰는 것은 `source == "auto"`뿐 — `alerts.py:67`).
+- 비용: 리포트는 동시에 1건, 하루 예산 $10을 분석·리포트·대체 모델·자동 리포트가 같이 쓴다. 한 리포트는 최대 Worker 실행 10번·LLM 시도 40번이다(Worker가 실행마다 LLM을 한 번 부른다고 본 계산). 실제 호출은 T2-10·T3-10·T4-10에서만 한다.
+- 루트 `conftest.py`는 `DEVPASS_APIKEY`·`DART_API_KEY`를 비우지 않는다 → 팀 테스트는 가짜 `engine_config`와 `fake_llm`을 꼭 끼운다. 스레드가 DB를 쓰는 테스트에는 `django_db(transaction=True)`가 필요할 것이다(추측). 새 이름에 CI 금지 문자열을 쓰지 않는다.
+
+### 3-2. 프론트엔드 개선 (담당 5)
+
+새 화면은 거의 없고 **실제 데이터로 맞추기**가 남았다. 5는 Claude의 "합쳤다" 알림 뒤 그 위에서 다듬는다(`00-공통.md` 2절).
+규칙: 색은 토큰만, 라이트·다크 × 390·1280 확인, 공용 부품은 `ui.tsx`·`components/motion/`, 배치를 바꾸면 `docs/화면배치.md`도 고친다, 상태를 색만으로 구분하지 않는다(`docs/DECISIONS.md` 15-3·15-6).
+다른 담당의 화면 몫(`TEAM_DEV_PLAN.md` 11장 ②): 1 발표 흐름 점검, 2 리포트 문장 품질, 3 진행 단계 표시가 실제 Trace와 맞는지, 4 자동 복구 문장·지표 화면.
+
+| 할 일 | 담당 | 언제 | 근거 |
+|---|---|---|---|
+| 실제 Trace·`recovery`로 T5-3~T5-6 확인, 신뢰 패널 둘째 줄을 T4-11과 맞추기, 같은 리포트의 `/ops`·RunSummary 수치 대조(`recovery.ts`와 `stats.py`가 같은 셈법) | 5, 4 | 10/7 확인, 10/8 오전 수정 | `docs/tasks/05-프론트.md:103-106,122,147` |
+| T5-10 본문 꾸미기(판정·한 줄 결론을 머리로, 근거·리스크 목록, 리스크 경고 블록 — 2의 `markdown` 형식을 보고). PDF는 실제 결과로 눈 확인, 0002 뒤 `pdf_path` 열로 | 5 | 10/8 | 같은 문서 :49-50,111 |
+| T5-19 교차검증 분석 배치 확정, T5-22 홈·종목 상세·모의투자 다듬기 | 5 | 10/8 15:00 전 | 같은 문서 :120,123 |
+| 실기기(iOS Safari·Android Chrome): 시트, 숫자 키패드, 토스트·연결 띠(safe-area), 차트 핀치, 홈 화면 아이콘 | 5 | 동결 전 | `docs/결정필요사항.md:124` |
+| 발표 화면 약 8분(쉬운 보기 2:30 → `?view=expert` 4:00 → 파이프라인 1:30), 프로젝터는 "밝게", 가짜 API 화면이면 표시 | 5 | 10/12 리허설 | `docs/컨셉변경계획.md:320-326` |
+
+팀장 할 일: 5에게 "합쳤다" 알리기와 팀에 이름 변경 공지(U18·U3). 상승·하락 글자(3.71:1)와 색 바탕 흰 글자 버튼(3.2~3.7:1)이 WCAG AA 4.5:1에 못 미치는데, 브랜드 색으로 고칠지 정한다(`docs/DECISIONS.md:813`).
+
+### 3-3. 기능 개선
+
+다른 담당의 논의 몫(`TEAM_DEV_PLAN.md` 11장 ③): 2 뉴스 출처 대안·장기투자 AI 문장, ~~3 단타 AI 팀(`day_plan`·`day_review`) 설계~~(단타 폐기, 2026-10-06), 4 키움 실시간 도입 조건, 5 화면 개선 아이디어.
+
+**발표 전** — 화면을 크게 바꾸지 않는 작은 일만, 10/8 15:00 전에.
+
+| 할 일 | 담당 | 근거 |
+|---|---|---|
+| U16①: 가격 입력 상한(예: 직전 종가의 몇 배)을 trading `views._number`에 둔다. `docs/API.md`를 먼저 고친다(U16 결정 뒤 — 제안. daytrade `_price`는 단타 폐기로 없어졌다) | Claude | `backend/trading/views.py:41` |
+| U16④: `DAILY_MOVE_MODEL`에 싼 모델 지정(U16 결정 뒤 — 제안) | 1 | `docs/결정필요사항.md:48` |
+| 예약 결과 알림: 예약이 실행되지 않거나 지워져도 엔진 콘솔에만 남는다. `docs/API.md`부터(우선순위 낮음) | Claude | `TEAM_DEV_PLAN.md:438`, `backend/trading/service.py:526-558` |
+| 목표·손절 수정 화면(`PATCH /api/orders/{id}`는 있다). 여유 있을 때만 — 줄일 때 가장 먼저 뺀다 | 5 | `TEAM_DEV_PLAN.md:437`, `docs/API.md:426` |
+
+**발표 뒤** — 그때까지는 알려진 한계로 적는다.
+
+- ETF 거래세 면제(엔진이 모든 국내 매도에 0.20% — `docs/결정필요사항.md:99`), 키움 실시간(4, 키 필요 — 단타 (b)용이었고 단타 폐기와 함께 필요 없어졌다), 뉴스 출처 공시·수치 중심(2).
+- 직접 주문의 체결 알림(1-2), 지난 AI 리포트 성적(컨셉 P1), 진단 문항·점수표 조정(E-2 — 10/9 뒤 "문구만" 규칙과 부딪힌다).
+- `TEAM_DEV_PLAN.md` 10-3 "시간이 남으면"(관심 종목, 홈 시장 요약, PWA, 서버 푸시 등). CSP를 넣으면 테마 인라인 스크립트의 sha256을 허용한다(`docs/DECISIONS.md:799`).
+- 범위 밖으로 정한 것: 모의 계좌 되돌리기, 성향으로 수량 배수(D-6), 선물(폐기), Discord 활성화 버튼(링크로 대신), 분할·추가 매수.
+
+### 3-4. 테스트 후 완성도 다듬기
+
+| 시험 | 언제 | 담당 | 무엇 | 기록 위치 |
+|---|---|---|---|---|
+| 정규장 실측 U8·U15(S0~S19) | 10/6 오후(15:30 전 준비 시 S14~S17 — 단타 시나리오 S6·S7·S11~S13·S18은 삭제로 시험하지 않음), 10/7·10/8, 예비 10/12 (제안 — 팀장 결정) | 1 | 예약 실행·체결·재주문, 15:40 기준 전환, 16:30 뉴스, 18:00 점검, 웹에서 분석 1건(제안). 준비는 아래 | `docs/개장시험_2026-10-06.md` 4절 표 → `06-추천·자동매매.md` "확인한 것" |
+| 복도 시험 | 10/7 저녁 | 5 진행, 1 준비 | 팀 밖 1~2명, 과제 ②만 | `docs/개선이력.md` |
+| 장애 주입 시험(DR 14개) | 10/9 오전 | 4(LLM·CRT·SEC, 결과 모음), 1(DB·PROC·NOTI·NET·CI) | 시나리오마다 ID·주입 장애·기대·실제·복구 시간·수동 개입·판정·증빙. 실패와 고친 것도 | 보고서 ② 결과표 |
+| 사용성 시험 | 10/9 오후 | 5 진행, 1 준비 | 팀 밖 5명, 과제 넷(리포트 만들기 · 손절 손실 말하기 · 자동매매 시작 · "사라는 말인가요?"), 과제당 5분, 성공 기준은 미리(`docs/컨셉변경계획.md` 12장) | 참가자 P1~P5 원표, `docs/개선이력.md` |
+| 동결 전 회귀 | 10/8 15:00 전 | 전원 | 2-4의 검사 + 아래 수동 확인 | CI 실행 기록 |
+
+**정규장 실측 준비**: `scripts/dev.sh`로 다시 띄우고 시험 계정을 만든다. 호스트 PC는 전원에 꽂고 덮개를 열어 둔다(배터리로 덮개를 닫으면 `caffeinate`가 있어도 잠든다 — `pmset -g log` 10/6 09:48). 접속 IP가 바뀌지 않는 네트워크에서 한다(제안). S9가 기대하는 "체결 알림"은 직접 주문에 없다(1-2) → 기대 결과를 고친다.
+
+**점검 기준**
+
+- **표현**: 규칙은 2-6 규칙 7, 금지 표현 원본은 `engine/paper_engine/wording.py`(권유 17·인과 5·예측 7). 화면 고정 문구는 검사 대상이 아니고 프론트 테스트 6개는 목록 일부만 복사한다 → 프론트 전체 문자열을 이 목록으로 훑는 테스트 하나(제안). 장중 가격·배 은어 금지, 연습용은 "(AI 아님)"(`docs/API.md:60-90`). 발표 영상(유튜브)의 모든 화면·알림이 대상이다.
+- **수치**: 시험한 값만 쓴다. 사용성은 "n/5"와 원표(백분율·평균 금지), 자동 복구율은 두 이름, 평균 복구시간은 첫 `agent_failed`부터 그 Worker의 `agent_completed`까지. "예시" 수치(`/ops`·예시 Trace·선별)는 캡처에 쓰지 않는다.
+- **동결 직전 수동 확인**: 발표 흐름 한 번(3-2), 라이트·다크 × 390·1280, 시험·발표 계정 주린이모드 켬·"밝게", 완성 리포트 3건 이상("보통 ○분" 문장의 조건, `frontend/src/lib/reports.ts:669-683`), "예시"·"가짜 API" 표시.
+- **제출 전**: `docs/프로젝트평가기준.md` 6장 체크리스트(증빙, 지표 기준, 실패 사례·수동 개입, 배포 차단, 실행 ID·커밋, 문서·구현·시험 일치, 비밀 값 없음, 배포 환경 시연).
+
+**제보와 심각도** — 정해진 것은 "500이면 `backend.log` 오류 줄을 붙여 1에게, 화면 문구·흐름은 5에게, 찾은 문제와 고친 것은 `docs/개선이력.md`에"뿐이다(`docs/개장시험_2026-10-06.md:116,122`, `TEAM_DEV_PLAN.md:390`).
+제안: 1이 오늘 `docs/개선이력.md`에 표 머리(날짜·제보자·화면/API·재현 단계·기대·실제·증빙·등급·담당·상태)를 만든다. 받는 사람은 500·데이터 1, 화면 5, 워크플로우 2·3·4. 등급도 제안이다.
+
+| 등급 | 예 | 처리 |
+|---|---|---|
+| 치명 | 안전 규칙 위반, 돈 숫자 틀림, 500, 과제를 진행할 수 없음 | 바로 고친다. 동결 뒤에도 예외로 허용 |
+| 높음 | 사용성 과제 실패의 원인, DR FAIL, 시연 화면 깨짐 | 10/8 15:00 전에. 그 뒤면 문구로 우회 |
+| 중간·낮음 | 그 밖 | 10/10~11에 문구로, 아니면 3-3 "발표 뒤"로 |
+
+**문서·점검표 정리**: 화면 문구 점검표(5 — 성공 기준에 있는데 파일이 없다, `docs/컨셉변경계획.md:339`). 문서 불일치(1·Claude): PDF 양식 판(`docs/API.md:667`·`docs/DECISIONS.md:754`는 2, 코드는 3), `backend/config/settings.py:129` 주석, `engine/paper_engine/__main__.py:25` 알림 순서, `README.md` 소개, `TEAM_DEV_PLAN.md` 3장 "시세 1초 폴링", `docs/개장시험_2026-10-06.md:12`의 토스 client 공유(U19).
+
+**막힌 것·정할 것**
+
+- **U19 토스 client(1, 제안)**: 개발용 토스 client를 따로 받는다. 그 전까지는 실측·시험 시간 밖에 `run_engine`을 내린다. 키움 키를 받는 즉시 `BROKER`를 키움으로 바꾼다.
+- **시험 환경(U13, 팀장)**: 호스트 PC·토스 조회로 팀 밖 사람에게 열면 약관에 걸린다. 가짜 API는 공휴일을 모르고 계획이 6초마다 진행해 과제 ③의 기준이 달라진다(`frontend/src/mocks/clock.ts:1`).
+- **시험 계정**: `시험1~3`으로 5명을 받으면 앞 사람의 리포트·계획이 남고, 같은 종목 계획은 `plan_exists`로 막히고, 리포트 한도 3건을 같이 쓴다 → 시험자 사이에 정리하거나 계정을 5개로(제안). 완성 리포트가 늦으면 가짜 API 예시로 대신할지 10/7 저녁에 정한다(제안).
+- **증빙 빈칸**: DR-API-01·02는 담당도 주입 수단도 없다(가이드의 예시가 DR-API-01이다). 가이드 7단계의 "정상 요청" 줄도 8장 표에 없다. DR-LLM-04·DR-NOTI-01·DR-CI-01은 Discord 알림이 증빙인데 실채널이 보류(U7)다 → 실채널을 열지, 웹 알림으로 판정할지 정한다.
+- **10/6 사례**: 토스 403은 엔진을 다시 띄우지 않았는데 10:48 뒤로 멈췄다. 원인(공인 IP 변경·네트워크 이동 — 추측)과 사람의 개입 여부는 확인이 필요하다. 보고서 ②에 쓰려면 그날 네트워크를 바꿨는지부터 확인한다. 호스트 PC 절전으로 엔진 루프가 멈춘 일(09:48~12:34)은 "사람이 조치해야 하는 운영 위험"으로 적을 수 있다(제안).

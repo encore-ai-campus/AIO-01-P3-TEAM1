@@ -514,8 +514,12 @@ describe("리포트 상세", () => {
     expect(screen.getAllByRole("table").length).toBeGreaterThan(0);
   });
 
-  it("목록 화면에서도 교육용 문서를 열 수 있다", async () => {
-    renderApp("/reports");
+  it("교육용 문서는 리포트 목록이 아니라 관리자 화면에서 연다", async () => {
+    const { unmount } = renderApp("/reports");
+    await screen.findByRole("list", { name: "리포트 목록" });
+    expect(screen.queryByRole("button", { name: /개념 문서/ })).toBeNull();
+    unmount();
+    renderApp("/ops");
     fireEvent.click(await screen.findByRole("button", { name: /개념 문서/ }));
     expect(await screen.findByRole("heading", { name: "04 Distributed Collaboration" }, { timeout: 5000 })).toBeTruthy();
   });
@@ -532,7 +536,7 @@ describe("리포트 상세", () => {
       },
     });
     try {
-      renderApp("/reports");
+      renderApp("/ops");
       const head = await screen.findByRole("button", { name: /개념 문서/ });
       fireEvent.click(head);
       await screen.findByRole("heading", { name: "04 Distributed Collaboration" }, { timeout: 5000 });

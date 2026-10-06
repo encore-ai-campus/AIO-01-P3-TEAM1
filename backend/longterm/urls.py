@@ -1,6 +1,6 @@
 """장기투자 API (docs/API.md "장기투자"). config/urls.py가 api/ 아래에 include한다. 끝 슬래시 없음.
 
-stocks/<symbol>/fundamentals는 trading의 stocks/<symbol>(슬래시 없는 한 단계)·stocks/<symbol>/minute-candles와 겹치지 않는다.
+stocks/<symbol>/fundamentals는 trading의 stocks/<symbol>(슬래시 없는 한 단계)와 겹치지 않는다.
 """
 from django.urls import path
 

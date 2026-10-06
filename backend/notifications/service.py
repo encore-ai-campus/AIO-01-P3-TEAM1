@@ -11,7 +11,7 @@ Discord로 보낼 곳(Webhook·openclaw)이 없으면 편지함 메시지를 ski
 - 웹 알림의 제목·본문은 **받는 사람의 주린이모드**를 따른다. 켬(행이 없으면 켬)이면 쉬운 문장(title·body),
   끔이면 전문가 문장(expert_title·expert_body, 없으면 쉬운 문장). 주린이모드는 accounts.modes.beginner_modes로 한 번에 읽는다.
 - Discord(팀 공용 채널 하나)는 받는 사람과 무관하게 쉬운 문장 + 숫자 한 줄(numbers)로 하나만 보내고 맨 앞에 HEADER를 붙인다.
-- daily_move·thesis_check는 웹 알림만 (사용자별 묶음이 팀 채널에 쌓이지 않게). 단타 계획 알림은 부르는 쪽이 discord=False로 보낸다.
+- daily_move·thesis_check는 웹 알림만 (사용자별 묶음이 팀 채널에 쌓이지 않게).
 """
 import os
 import re

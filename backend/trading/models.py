@@ -8,10 +8,10 @@ from django.db.models import Q
 from django.utils import timezone
 
 ACTIVE_STATUSES = ("ENTRY_PENDING", "EXIT_WATCHING")
-# 보유 방식 (docs/API.md "보유 방식", docs/DECISIONS.md 14-3): swing 목표·손절(·기한)로 자동 매도 · long 자동 매도 없음 ·
-# day 단타 연습 계획의 주문 (그 세션 15:15 KST에 정리). 주문할 때 정해지고 바뀌지 않는다
-SWING, LONG, DAY = "swing", "long", "day"
-STYLES = (SWING, LONG, DAY)
+# 보유 방식 (docs/API.md "보유 방식", docs/DECISIONS.md 14-3): swing 목표·손절(·기한)로 자동 매도 · long 자동 매도 없음.
+# 주문할 때 정해지고 바뀌지 않는다
+SWING, LONG = "swing", "long"
+STYLES = (SWING, LONG)
 
 
 class PaperAccount(models.Model):
@@ -52,14 +52,14 @@ class PaperOrder(models.Model):
     filled_at = models.DateTimeField(null=True, blank=True)
     exit_price = models.FloatField(null=True, blank=True)
     exit_fx_rate = models.FloatField(null=True, blank=True)
-    exit_reason = models.CharField(max_length=8, null=True, blank=True)  # TARGET | STOP | EXPIRED | MANUAL | EOD
+    exit_reason = models.CharField(max_length=8, null=True, blank=True)  # TARGET | STOP | EXPIRED | MANUAL
     closed_at = models.DateTimeField(null=True, blank=True)
     pnl = models.FloatField(null=True, blank=True)  # 실현 손익 (종목 통화). 수수료·세금 포함
     pnl_krw = models.FloatField(null=True, blank=True)
     signal_count = models.IntegerField(default=0)  # 청산 조건 연속 확인 횟수
     note = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField()
-    style = models.CharField(max_length=5, default=SWING, db_default=SWING)  # db_default: 예전 코드가 공유 DB에 넣어도 되게. swing | long | day (위 STYLES)
+    style = models.CharField(max_length=5, default=SWING, db_default=SWING)  # db_default: 예전 코드가 공유 DB에 넣어도 되게. swing | long (위 STYLES)
 
     class Meta:
         db_table = "paper_orders"
@@ -84,7 +84,7 @@ class PaperFill(models.Model):
     tax = models.FloatField()
     fx_rate = models.FloatField()  # 종목 통화 1단위의 원화 가치 (KRW는 1)
     cash_change_krw = models.FloatField()  # 현금 증감 (매수 음수, 매도 양수)
-    reason = models.CharField(max_length=8)  # ENTRY | TARGET | STOP | EXPIRED | MANUAL | EOD
+    reason = models.CharField(max_length=8)  # ENTRY | TARGET | STOP | EXPIRED | MANUAL
     filled_at = models.DateTimeField()
 
     class Meta:

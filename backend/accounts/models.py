@@ -33,10 +33,10 @@ class Profile(models.Model):
 
 
 class InvestorProfile(models.Model):
-    """투자자 프로필과 주린이모드 (docs/API.md "투자자 프로필과 주린이모드"·"단타 연습 퀴즈", docs/DECISIONS.md 14-7 B10).
+    """투자자 프로필과 주린이모드 (docs/API.md "투자자 프로필과 주린이모드", docs/DECISIONS.md 14-7 B10).
 
-    **행이 없으면 기본값**으로 본다 (beginnerMode 켬, 진단 전, 퀴즈 통과 없음) — 신호·데이터 마이그레이션 없이,
-    진단 제출이나 스위치·퀴즈 통과처럼 값을 바꿀 때 행을 만든다. 점수 계산은 accounts/assessment.py(결정론).
+    **행이 없으면 기본값**으로 본다 (beginnerMode 켬, 진단 전) — 신호·데이터 마이그레이션 없이,
+    진단 제출이나 스위치처럼 값을 바꿀 때 행을 만든다. 점수 계산은 accounts/assessment.py(결정론).
     """
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="investor_profile")
     beginner_mode = models.BooleanField(default=True)  # 주린이모드 (켬 = 쉬운 보기)
@@ -48,8 +48,6 @@ class InvestorProfile(models.Model):
     risk_profile = models.CharField(max_length=20, null=True, blank=True)  # stable | stable_seeking | neutral | active | aggressive
     recommended_beginner_mode = models.BooleanField(null=True, blank=True)
     assessed_at = models.DateTimeField(null=True, blank=True)  # 마지막 진단 제출 시각
-    # 단타 연습 퀴즈를 마지막으로 통과한 시각 (진단과 따로. 틀려도 지우지 않는다)
-    day_quiz_passed_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

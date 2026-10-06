@@ -7,6 +7,8 @@
 # 비밀 정보와 실행 데이터 (EC2 볼륨에만 둔다)
 .env
 .env.docker
+*.pem
+*.key
 /deploy/.deployed_tag
 /deploy/deploy_history.log
 /team_accounts.txt

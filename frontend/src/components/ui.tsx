@@ -12,11 +12,11 @@ import {
   useState,
 } from "react";
 import { Link, useLocation, useNavigate, useNavigationType } from "react-router";
-import type { Currency, Market, Verdict } from "../api/types";
+import type { Currency, Market, QuoteBasis, Verdict } from "../api/types";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { useSlidingIndicator } from "../hooks/useSlidingIndicator";
 import { cn } from "../lib/cn";
-import { formatAsOf, formatPrice, formatRate, formatSignedPrice, trendClass } from "../lib/format";
+import { formatPrice, formatQuoteAsOf, formatRate, formatSignedPrice, trendClass } from "../lib/format";
 import { parentPath } from "../lib/nav";
 import { NotificationBell } from "./autotrade/NotificationBell";
 import { BrandLockup } from "./BrandMark";
@@ -140,14 +140,26 @@ export function PriceChange({
 }
 
 /**
- * 장마감 기준 표시: "10월 2일(금) 15:30 장마감 기준" (미국은 "16:00(뉴욕)"). 가격·평가 옆에 붙인다.
+ * 가격 기준 표시. basis가 "live"(실시간 시세)면 "실시간 · 15:20:31"(받은 시각, 한국 시간),
+ * 아니면(기본 "close") "10월 2일(금) 15:30 장마감 기준" (미국은 "16:00(뉴욕)"). 가격·평가 옆에 붙인다.
  * at은 Quote.asOf·StockDetail.asOf·AccountSummary.pricesAsOf[market] 같은 기준 시각. 없으면 아무것도 그리지 않는다.
+ * Quote를 보이는 곳은 quote.basis를 넘긴다. 계좌 평가·랭킹·미리 보기처럼 장마감 기준인 곳은 basis를 넘기지 않는다.
  */
-export function AsOf({ at, market = "KR", className }: { at: string | null | undefined; market?: Market; className?: string }) {
+export function AsOf({
+  at,
+  market = "KR",
+  basis = "close",
+  className,
+}: {
+  at: string | null | undefined;
+  market?: Market;
+  basis?: QuoteBasis;
+  className?: string;
+}) {
   if (!at) return null;
   return (
     <time dateTime={at} className={cn("text-[12px] font-medium text-mute tabular-nums", className)}>
-      {formatAsOf(at, market)}
+      {formatQuoteAsOf(at, market, basis)}
     </time>
   );
 }

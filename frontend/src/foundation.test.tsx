@@ -1,4 +1,4 @@
-// 프론트 기반: 하단 탭·서비스 이름·출처 줄, 새 주소(단타 연습장), 장마감 기준 표시, 용어 풀이, 주린이모드·화면별 보기, 새 API 훅.
+// 프론트 기반: 하단 탭·서비스 이름·출처 줄, 장마감 기준 표시, 용어 풀이, 주린이모드·화면별 보기, 새 API 훅.
 import { fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
@@ -8,10 +8,9 @@ import indexHtml from "../index.html?raw";
 import faviconSvg from "../public/favicon.svg?raw";
 import robotsTxt from "../public/robots.txt?raw";
 import { Providers } from "./App";
-import { useDayPlans, useDayPreview, useDayReview, useDayStatus, useMinuteCandles } from "./api/day";
 import { useDailyMove, useDailyMoves, useFundamentals, useTheses } from "./api/longterm";
-import { useDayQuiz, useInvestorProfile } from "./api/profile";
-import { POLL, useAnalyses, useReports } from "./api/queries";
+import { useInvestorProfile } from "./api/profile";
+import { POLL, keys, useAccount, useAnalyses, useOrders, useQuotes, useReports, useStock } from "./api/queries";
 import { useReportQuota } from "./api/reports";
 import { Term } from "./components/Term";
 import { AsOf } from "./components/ui";
@@ -134,18 +133,9 @@ describe("화면 틀", () => {
   it("본문 아래 출처 줄은 MarketStatus.quoteProvider를 쓴다", async () => {
     renderApp("/");
     const footer = await screen.findByLabelText("자료 출처");
-    await waitFor(() => expect(footer.textContent).toContain("시세: 키움증권 REST API 조회 · 장마감 기준"));
+    await waitFor(() => expect(footer.textContent).toContain("시세: 키움증권 REST API 조회 · 실시간 (계좌·랭킹은 장마감 기준)"));
     expect(footer.textContent).toContain("공시·재무: 금융감독원 OpenDART, 금융위원회(공공데이터포털)");
     expect(footer.textContent).toContain("뉴스 제목: Google 뉴스 검색 결과(각 언론사)");
-  });
-
-  it("단타 연습장 주소 셋 (자리 화면)", async () => {
-    renderApp("/day");
-    expect(await screen.findByRole("heading", { name: "단타 연습장" })).toBeTruthy();
-    renderApp("/day/quiz");
-    expect(await screen.findByRole("heading", { name: "단타 연습 퀴즈" })).toBeTruthy();
-    renderApp("/day/review");
-    expect(await screen.findByRole("heading", { name: "단타 복기" })).toBeTruthy();
   });
 
   it("브라우저 제목·아이콘(파비콘·홈 화면 아이콘)과 검색엔진 색인 막기", () => {
@@ -162,12 +152,52 @@ describe("화면 틀", () => {
     expect(robotsTxt.trim()).toBe("User-agent: *\nDisallow: /");
   });
 
-  it("폴링 간격: 시세 60초 · 계좌 10초 · 랭킹 30초 · 주문·계획 5초", () => {
-    expect([POLL.quote, POLL.stock, POLL.account, POLL.ranking, POLL.orders, POLL.plan]).toEqual([60_000, 60_000, 10_000, 30_000, 5000, 5000]);
+  it("폴링 간격: 시세 5초 · 계좌 10초 · 랭킹 30초 · 주문·계획 5초", () => {
+    expect([POLL.quote, POLL.stock, POLL.account, POLL.ranking, POLL.orders, POLL.plan]).toEqual([5000, 5000, 10_000, 30_000, 5000, 5000]);
+  });
+
+  it("시세(useQuotes·useStock)는 5초마다, 탭이 가려져도 계속 받는다 — 계좌도 같고, 주문은 탭이 보일 때만 (docs/API.md 공통 규칙)", async () => {
+    db.setSession("alice");
+    const client = createQueryClient({ retry: false });
+    const wrap = ({ children }: { children: ReactNode }) => (
+      <MemoryRouter>
+        <Providers client={client}>{children}</Providers>
+      </MemoryRouter>
+    );
+    const { result } = renderHook(() => ({ quotes: useQuotes(["005930"]), stock: useStock("005930"), account: useAccount(), orders: useOrders() }), { wrapper: wrap });
+    await waitFor(() => expect(Object.values(result.current).every((q) => q.isSuccess)).toBe(true));
+    const polling = (key: readonly unknown[]) => {
+      const o = client.getQueryCache().find({ queryKey: key })?.observers[0]?.options;
+      return [o?.refetchInterval, o?.refetchIntervalInBackground];
+    };
+    expect(polling(keys.quotes(["005930"]))).toEqual([5000, true]);
+    expect(polling(keys.stock("005930"))).toEqual([5000, true]);
+    expect(polling(keys.account)).toEqual([10_000, true]);
+    expect(polling(keys.orders("active"))).toEqual([5000, false]);
   });
 });
 
 describe("작은 조각", () => {
+  it("<AsOf basis=live>는 받은 시각을 '실시간 · 시:분:초'(한국 시간)로, basis를 안 주면 장마감 기준 그대로", () => {
+    const { container } = render(
+      <>
+        <AsOf at="2026-10-06T15:20:31+09:00" market="KR" basis="live" />
+        <AsOf at="2026-10-06T06:20:31Z" market="US" basis="live" />
+        <AsOf at="2026-10-02T15:30:00+09:00" market="KR" basis="close" />
+        <AsOf at="2026-10-02T15:30:00+09:00" />
+        <AsOf at={null} basis="live" />
+      </>,
+    );
+    const times = container.querySelectorAll("time");
+    expect([...times].map((t) => t.textContent)).toEqual([
+      "실시간 · 15:20:31",
+      "실시간 · 15:20:31",
+      "10월 2일(금) 15:30 장마감 기준",
+      "10월 2일(금) 15:30 장마감 기준",
+    ]);
+    expect(times[0].getAttribute("dateTime")).toBe("2026-10-06T15:20:31+09:00");
+  });
+
   it("<AsOf>는 장마감 기준 시각을 시장별로, 값이 없으면 그리지 않는다", () => {
     const { container } = render(
       <>
@@ -278,7 +308,6 @@ describe("새 API 훅 (가짜 API에 모두 있다)", () => {
     const { result } = renderHook(
       () => ({
         profile: useInvestorProfile(),
-        quiz: useDayQuiz(),
         quota: useReportQuota(),
         mine: useReports({ mine: true }),
         analyses: useAnalyses({ mine: true }),
@@ -286,29 +315,21 @@ describe("새 API 훅 (가짜 API에 모두 있다)", () => {
       { wrapper: wrapper() },
     );
     await waitFor(() => expect(Object.values(result.current).every((q) => q.isSuccess)).toBe(true));
-    expect(result.current.profile.data?.dayTradingUnlocked).toBe(true);
-    expect(result.current.quiz.data?.questions).toHaveLength(5);
+    expect(result.current.profile.data).toMatchObject({ beginnerMode: false, experienceLevel: "intermediate" });
     expect(result.current.quota.data).toMatchObject({ limit: 3, used: 1, remaining: 2 });
     expect(result.current.mine.data?.results.map((r) => r.symbol)).toEqual(["005930"]);
     expect(result.current.analyses.data?.results.length).toBeGreaterThan(0);
     expect(result.current.analyses.data?.results.every((a) => a.requestedBy === "앨리스")).toBe(true); // 닉네임 (로그인 아이디는 내지 않는다)
   });
 
-  it("장기투자·단타 연습", async () => {
-    // 오늘의 단타 계획 목록이 비어 있는 시각으로 고정한다 (평일 15:40 뒤에는 기준일 = 오늘이라 앨리스의 끝난 계획이 오늘 목록에 들어온다)
-    freezeTime("2026-10-06T10:00:00+09:00");
-    const input = { symbol: "005380", entryPrice: 247_000, targetPrice: 262_000, stopPrice: 244_000 };
+  it("장기투자", async () => {
+    freezeTime("2026-10-06T10:00:00+09:00"); // 화요일 장중 (오늘의 내 종목 뉴스는 KR 기준일 10월 5일)
     const { result } = renderHook(
       () => ({
         moves: useDailyMoves(),
         move: useDailyMove("005930"),
         theses: useTheses(),
         fundamentals: useFundamentals("068270"),
-        minute: useMinuteCandles("005930", { minutes: 5 }),
-        status: useDayStatus(),
-        preview: useDayPreview(input),
-        plans: useDayPlans(),
-        review: useDayReview(),
       }),
       { wrapper: wrapper() },
     );
@@ -317,10 +338,5 @@ describe("새 API 훅 (가짜 API에 모두 있다)", () => {
     expect(result.current.move.data?.symbol).toBe("005930");
     expect(result.current.theses.data?.results[0].symbol).toBe("068270");
     expect(result.current.fundamentals.data?.rows).toHaveLength(9);
-    expect(result.current.minute.data?.candles).toHaveLength(78);
-    expect(result.current.status.data?.unlocked).toBe(true);
-    expect(result.current.preview.data?.costsAtTarget.totalKrw).toBeGreaterThan(0);
-    expect(result.current.plans.data?.results).toEqual([]);
-    expect(result.current.review.data?.plans).toHaveLength(1);
   });
 });

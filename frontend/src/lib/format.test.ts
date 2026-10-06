@@ -6,9 +6,11 @@ import {
   formatDateTime,
   formatDayLabel,
   formatKrw,
+  formatLiveAsOf,
   formatPercent,
   formatPrice,
   formatQty,
+  formatQuoteAsOf,
   formatRate,
   formatRelative,
   formatRequester,
@@ -80,6 +82,17 @@ describe("format", () => {
     expect(formatAsOf("2026-12-04T21:00:00Z", "US")).toBe("12월 4일(금) 16:00(뉴욕) 장마감 기준");
     expect(formatAsOf(null)).toBe("-");
     expect(formatAsOf("nope")).toBe("-");
+  });
+
+  it("실시간: 받은 시각을 한국 시간 초까지, basis에 따라 장마감 기준과 갈린다", () => {
+    expect(formatLiveAsOf("2026-10-06T15:20:31+09:00")).toBe("실시간 · 15:20:31");
+    expect(formatLiveAsOf("2026-10-06T06:20:31Z")).toBe("실시간 · 15:20:31"); // 시간대가 달라도 한국 시간
+    expect(formatLiveAsOf("2026-10-06T09:30:05-04:00")).toBe("실시간 · 22:30:05"); // 미국 종목도 받은 시각은 한국 시간
+    expect(formatLiveAsOf(null)).toBe("-");
+    expect(formatLiveAsOf("nope")).toBe("-");
+    expect(formatQuoteAsOf("2026-10-06T15:20:31+09:00", "KR", "live")).toBe("실시간 · 15:20:31");
+    expect(formatQuoteAsOf("2026-10-02T15:30:00+09:00", "KR", "close")).toBe("10월 2일(금) 15:30 장마감 기준");
+    expect(formatQuoteAsOf("2026-10-02T16:00:00-04:00", "US")).toBe("10월 2일(금) 16:00(뉴욕) 장마감 기준"); // basis를 안 주면 장마감 기준
   });
 
   it("날짜 라벨은 요일까지", () => {

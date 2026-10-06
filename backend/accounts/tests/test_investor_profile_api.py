@@ -19,8 +19,7 @@ EXAMPLE = {"q1": "none", "q2": ["deposit"], "q3": "never", "q4": "heard", "q5": 
 EXPERT = {"q1": "over_3y", "q2": ["us_stock", "derivatives", "kr_stock"], "q3": "daily", "q4": "explain",
           "q5": "more", "q6": "intraday", "q7": "short_term"}
 DEFAULTS = {"beginnerMode": True, "answers": None, "experienceScore": None, "experienceLevel": None, "riskScore": None,
-            "riskProfile": None, "recommendedBeginnerMode": None, "assessedAt": None, "dayQuizPassedAt": None,
-            "dayTradingUnlocked": False}
+            "riskProfile": None, "recommendedBeginnerMode": None, "assessedAt": None}
 # 2026-10-04 16:30 UTC = 2026-10-05 01:30 KST (날짜가 바뀌는 시각으로 KST 변환을 확인한다)
 FROZEN = datetime(2026, 10, 4, 16, 30, tzinfo=UTC)
 FROZEN_KST = "2026-10-05T01:30:00+09:00"
@@ -159,7 +158,7 @@ def test_patch_keeps_assessment(client, alice, frozen):
     ({"beginnerMode": 0}, "beginnerMode는 true 또는 false여야 합니다."),
     ({"beginnerMode": None}, "beginnerMode는 true 또는 false여야 합니다."),
     ({"beginnerMode": False, "answers": EXAMPLE}, "알 수 없는 항목입니다: answers"),
-    ({"beginnerMode": False, "dayQuizPassedAt": "2026-10-05T09:00:00+09:00"}, "알 수 없는 항목입니다: dayQuizPassedAt"),
+    ({"beginnerMode": False, "assessedAt": "2026-10-05T09:00:00+09:00"}, "알 수 없는 항목입니다: assessedAt"),
 ])
 def test_patch_bad_input(client, alice, data, detail):
     as_user(client, alice)
@@ -225,4 +224,4 @@ def test_changes_require_csrf(alice, method, data):
 def test_schema_lists_paths(client, alice):
     response = as_user(client, alice).get("/api/schema/")
     assert response.status_code == 200
-    assert b"/api/me/investor-profile" in response.content and b"/api/me/day-trading-quiz" in response.content
+    assert b"/api/me/investor-profile" in response.content

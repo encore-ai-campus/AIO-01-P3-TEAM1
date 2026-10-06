@@ -324,7 +324,7 @@ describe("쉬운 보기 — 리포트 상세", () => {
     fireEvent.click(within(mini).getByRole("button", { name: /자세히/ }));
     expect(document.activeElement).toBe(screen.getByRole("region", { name: "매매 계획" }));
 
-    // 차트: 완성 일봉 + 사는·목표·손절 가격 선(범례에 이름과 값), 장마감 기준 표기
+    // 차트: 일봉(오늘 장중이면 진행 중인 봉까지) + 사는·목표·손절 가격 선(범례에 이름과 값), 실시간 기준 표기
     expect(await screen.findByRole("img", { name: "일봉 차트와 계획 가격 선" })).toBeTruthy();
     const legend = screen.getByRole("list", { name: "차트의 가로선" });
     expect(within(legend).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
@@ -335,7 +335,8 @@ describe("쉬운 보기 — 리포트 상세", () => {
     await waitFor(() => expect(series.createPriceLine).toHaveBeenCalledTimes(3));
     expect(series.createPriceLine.mock.calls.map((c) => (c[0] as { title: string; price: number }).title)).toEqual(["목표 가격", "사는 가격", "손절 가격"]);
     expect(series.createPriceLine).toHaveBeenCalledWith(expect.objectContaining({ title: "손절 가격", price: rec.stopPrice }));
-    expect(screen.getByRole("region", { name: "가격 흐름" }).querySelector("time")?.textContent).toBe(CLOSE_LABEL);
+    // 마지막 봉이 오늘 진행 중이라 기준 표시는 시세를 받은 시각 (KST)
+    expect(screen.getByRole("region", { name: "가격 흐름" }).querySelector("time")?.textContent).toMatch(/^실시간 · 14:0\d:\d{2}$/);
 
     // 조사 자료 요약: 시세 종가는 장마감 기준, 지표는 눌러서 풀이, 뉴스 출처 표기
     const research = screen.getByRole("region", { name: "조사 자료 요약" });
@@ -412,6 +413,16 @@ describe("쉬운 보기 — 리포트 상세", () => {
     const link = screen.getByRole("link", { name: "TradingView" });
     expect(link.getAttribute("href")).toBe("https://www.tradingview.com/");
     expect(img.contains(link)).toBe(false);
+  });
+
+  it("차트 아래 기준 표시: 마지막 봉이 완성 봉(장이 닫힘)이면 '장마감 기준' 시각 (오늘 진행 중이면 '실시간' — 위 테스트)", async () => {
+    freezeTime(NOW, { marketOpen: { KR: false, US: false } });
+    const { hold } = samples();
+    renderApp(`/reports/${hold.id}`, "bob");
+    await screen.findByRole("img", { name: "일봉 차트와 계획 가격 선" });
+    const flow = screen.getByRole("region", { name: "가격 흐름" });
+    await waitFor(() => expect(flow.querySelector("time")?.textContent).toBe(CLOSE_LABEL));
+    expect(within(flow).getByRole("button", { name: CLOSE_LABEL })).toBeTruthy(); // 눌러서 풀이를 보는 용어
   });
 
   it("완성(지켜보기): 시나리오 세 칸이 없고 차트에 계획 가격 선이 없다", async () => {

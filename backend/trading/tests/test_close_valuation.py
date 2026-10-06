@@ -1,4 +1,4 @@
-"""장마감 기준 평가(계좌·랭킹·일별 자산)와 보유 방식(style)·KST 날짜·분봉 API (docs/API.md "장마감 기준"·"보유 방식"·"단타 연습").
+"""장마감 기준 평가(계좌·랭킹·일별 자산)와 보유 방식(style)·KST 날짜 (docs/API.md "장마감 기준"·"보유 방식").
 
 지금 시각을 고정하고(django.utils.timezone.now), 장 달력은 엔진 MarketCalendar(공휴일 키 없음)로 그 시각 기준으로 만든다.
 날짜는 공휴일이 없는 2026-09-18(금)·21(월)·22(화)를 쓴다. 일봉 종가 = 현재가 × 0.97(17일)·0.98(18일)·0.99(21일)·1.0(22일).
@@ -233,7 +233,6 @@ def test_equity_deferred_when_an_exchange_list_is_missing(api, clock, monkeypatc
 # --- 보유 방식 (style) ---
 
 def test_style_is_inferred_and_validated(api, clock):
-    assert order(api, style="day").status_code == 400  # 단타는 단타 연습장에서만
     assert order(api, style="short").status_code == 400
     assert order(api, style=1).status_code == 400
     response = order(api, style="swing")
@@ -280,39 +279,13 @@ def test_long_market_buy_outside_session_reserves_with_style(api, clock):
     assert (swing_.symbol, swing_.style, swing_.expire_date.isoformat()) == ("000660", "swing", "2026-09-25")
 
 
-def test_patch_rules_for_long_and_day_orders(api, user, clock):
+def test_patch_rules_for_long_orders(api, clock):
     long_ = order(api, orderType="LIMIT", limitPrice=60000).json()["order"]
     for body in ({"targetPrice": 80000}, {"stopPrice": 50000}, {"days": 3}):
         response = api.patch(f"/api/orders/{long_['id']}", body, format="json")
         assert response.status_code == 400 and "장기 보유" in response.json()["detail"]
-    day = service.buy(account_for(user), "alice", "000660", 1, service.LIMIT, 190000, 210000, 180000, None,
-                      clock("2026-09-22T10:00:00"), style="day")["order"]
-    assert day["style"] == "day" and day["expireDate"] is None
-    for body in ({"targetPrice": 220000}, {"stopPrice": 170000}, {"targetPrice": 220000, "days": 3}):
-        response = api.patch(f"/api/orders/{day['id']}", body, format="json")
-        assert response.status_code == 400 and response.json() == {"detail": "단타 계획에서 바꿔요"}
-    response = api.patch(f"/api/orders/{day['id']}", {"days": 3}, format="json")
-    assert response.status_code == 400 and "보유 기한" in response.json()["detail"]
-    row = PaperOrder.objects.get(pk=day["id"])
-    assert (row.target_price, row.stop_price, row.expire_date) == (210000, 180000, None)
-
-
-def test_day_orders_only_on_kr_trading_day_before_cutoff(user, clock):
-    account = account_for(user)
-
-    def day_buy(symbol="005930", at="2026-09-22T10:00:00", days=None, limit=69000.0):
-        return service.buy(account, "alice", symbol, 1, service.LIMIT, limit, 72000, 67000, days, clock(at),
-                           style="day")
-
-    for kwargs, reason in (({"at": "2026-09-22T15:15:00"}, "단타 진입 마감"),
-                           ({"at": "2026-09-19T10:00:00"}, "단타 진입 마감"),       # 토요일
-                           ({"symbol": "AAPL", "limit": 190.0}, "국내 종목만"),
-                           ({"days": 3}, "보유 기한")):
-        with pytest.raises(service.Rejected, match=reason):
-            day_buy(**kwargs)
-    assert not PaperOrder.objects.exists()
-    early = day_buy(at="2026-09-22T00:10:00")["order"]  # 장 전 계획 (그날 0시부터)
-    assert early["style"] == "day" and early["status"] == "ENTRY_PENDING"
+    row = PaperOrder.objects.get(pk=long_["id"])
+    assert (row.target_price, row.stop_price, row.expire_date) == (None, None, None)
 
 
 def test_buy_without_style_keeps_positional_signature(user, clock):
@@ -354,95 +327,6 @@ def test_modify_days_uses_kst_date(api, clock):
     assert response.status_code == 200 and response.json()["expireDate"] == "2026-09-27"
 
 
-# --- 분봉 (단타 연습) ---
-
-def bars(day: str, times: list[str], price: float = 70000.0) -> list[dict]:
-    return [{"timestamp": f"{day}T{t}:00+09:00", "openPrice": f"{price:g}", "highPrice": f"{price + 100:g}",
-             "lowPrice": f"{price - 100:g}", "closePrice": f"{price + i:g}", "volume": "10"} for i, t in enumerate(times)]
-
-
-def test_minute_candles_default_to_basis_day_and_filter_session(api, clock):
-    clock.client.minute[("005930", "2026-09-21")] = (
-        bars("2026-09-21", ["08:59", "09:00", "09:01", "15:30", "15:40"]) + bars("2026-09-18", ["10:00"]), True)
-    body = api.get("/api/stocks/005930/minute-candles").json()  # 22일 장중 → 기준일 21일
-    assert set(body) == {"symbol", "date", "minutes", "asOf", "candles", "partial"}
-    assert (body["symbol"], body["date"], body["minutes"], body["partial"]) == ("005930", "2026-09-21", 1, False)
-    assert body["asOf"] == "2026-09-21T15:30:00+09:00"
-    assert [c["time"] for c in body["candles"]] == ["2026-09-21T09:00:00+09:00", "2026-09-21T09:01:00+09:00",
-                                                     "2026-09-21T15:30:00+09:00"]  # 정규장 밖·다른 날 봉은 버린다
-    assert body["candles"][0] == {"time": "2026-09-21T09:00:00+09:00", "open": 70000.0, "high": 70100.0,
-                                  "low": 69900.0, "close": 70001.0, "volume": 10.0}
-
-
-def test_minute_candles_after_settle_show_today(api, clock):
-    clock("2026-09-22T15:40:00")
-    body = api.get("/api/stocks/005930/minute-candles?minutes=5").json()
-    assert body["date"] == "2026-09-22" and body["minutes"] == 5 and body["partial"] is False
-    assert len(body["candles"]) == 78 and body["candles"][-1]["time"] == "2026-09-22T15:25:00+09:00"
-
-
-def test_minute_candles_of_csat_session_wait_for_late_close(api, user, clock):
-    """수능일(2026-11-19) 정규장은 16:30까지라 15:40이 아니라 16:40부터 그날 분봉을 준다."""
-    clock("2026-11-19T16:00:00")
-    api.force_login(user)  # 고정한 시각 기준으로 세션을 새로 만든다 (로그인 세션 만료)
-    assert api.get("/api/stocks/005930/minute-candles?date=2026-11-19").status_code == 400  # 아직 진행 중인 세션
-    assert api.get("/api/stocks/005930/minute-candles").json()["date"] == "2026-11-18"
-    clock("2026-11-19T16:40:00")
-    assert api.get("/api/stocks/005930/minute-candles").json()["date"] == "2026-11-19"
-
-
-def test_minute_candles_validation(api, clock):
-    for path in ("/api/stocks/005930/minute-candles?date=2026-09-22",   # 기준일(21일)보다 뒤: 아직 진행 중인 세션
-                 "/api/stocks/005930/minute-candles?date=20260921",
-                 "/api/stocks/005930/minute-candles?date=2026-02-30",
-                 "/api/stocks/005930/minute-candles?minutes=2",
-                 "/api/stocks/005930/minute-candles?minutes=45",
-                 "/api/stocks/005930/minute-candles?minutes=abc",
-                 "/api/stocks/AAPL/minute-candles"):
-        response = api.get(path)
-        assert response.status_code == 400 and response.json()["detail"], path
-    assert api.get("/api/stocks/999999/minute-candles").status_code == 404
-    assert "minute_candles" not in clock.client.calls
-
-
-def test_minute_candles_partial_and_empty(api, clock):
-    clock.client.minute[("005930", "2026-09-18")] = (bars("2026-09-18", ["14:00"]), False)
-    body = api.get("/api/stocks/005930/minute-candles?date=2026-09-18").json()
-    assert body["partial"] is True and len(body["candles"]) == 1
-    clock.client.minute[("005930", "2026-01-02")] = ([], False)  # 증권사가 주는 과거 범위 밖
-    body = api.get("/api/stocks/005930/minute-candles?date=2026-01-02").json()
-    assert (body["candles"], body["partial"], body["asOf"]) == ([], True, None)
-
-
-def test_minute_candles_are_cached_by_completeness(api, clock, monkeypatch):
-    ttls = {}
-    real = market.cache
-
-    class Spy:
-        def __getattr__(self, name):
-            return getattr(real, name)
-
-        def set(self, key, value, timeout=None):
-            ttls[key] = timeout
-            real.set(key, value, timeout)
-    monkeypatch.setattr(market, "cache", Spy())
-    clock.client.minute[("005930", "2026-09-18")] = (bars("2026-09-18", ["14:00"]), False)
-    api.get("/api/stocks/005930/minute-candles?date=2026-09-18")
-    api.get("/api/stocks/005930/minute-candles?date=2026-09-21&minutes=3")
-    api.get("/api/stocks/005930/minute-candles?date=2026-09-21&minutes=3")
-    assert ttls["trading:minute:005930:2026-09-18:1"] == market.MINUTE_PARTIAL_TTL
-    assert ttls["trading:minute:005930:2026-09-21:3"] == market.DAY_TTL
-    assert clock.client.calls.count("minute_candles") == 2  # 같은 종목·날짜·간격은 다시 받지 않는다
-
-
-def test_minute_candles_broker_failure_is_503(api, clock):
-    def broken(symbol, day, minutes=1):
-        raise OSError("분봉 조회 실패")
-    clock.client.minute_candles = broken
-    response = api.get("/api/stocks/005930/minute-candles?date=2026-09-21")
-    assert response.status_code == 503 and "증권사 조회 실패" in response.json()["detail"]
-
-
 def test_utc_and_kst_now_give_same_basis(clock):
     """timezone.now()는 UTC로 돌려준다 (Django 기본). 기준일은 시장 현지 날짜로 정한다."""
     clock("2026-09-22T00:30:00")  # UTC 21일 15:30
@@ -453,18 +337,19 @@ def test_utc_and_kst_now_give_same_basis(clock):
 
 # --- 응답 형식 ---
 
-def test_payloads_carry_style_and_eod_exit_reason(api, user, clock):
-    """단타 강제 정리(EOD)의 청산 사유와 보유 방식이 주문·체결 응답에 그대로 나온다."""
+def test_payloads_carry_style_and_exit_reason(api, user, clock):
+    """청산 사유와 보유 방식이 주문·체결 응답에 그대로 나온다."""
     created = service.buy(account_for(user), "plan:7", "005930", 2, service.LIMIT, 70000, 72000, 67000, None,
-                          clock("2026-09-22T10:00:00"), style="day")["order"]
-    assert created["status"] == "EXIT_WATCHING" and created["style"] == "day"  # 장중 지정가 70,000 ≥ 확인 가격 → 체결
+                          clock("2026-09-22T10:00:00"), style="swing")["order"]
+    assert created["status"] == "EXIT_WATCHING" and created["style"] == "swing"  # 장중 지정가 70,000 ≥ 확인 가격 → 체결
     store = AccountStore(account_for(user))
     row = store.paper_order(created["id"])
-    store.add_fill(created["id"], "SELL", 70500, 2, 141, 282, 1.0, 141_000 - 423, "EOD", "2026-09-22T15:15:05+09:00",
-                   {"status": "CLOSED", "exit_price": 70500, "exit_reason": "EOD", "closed_at": "2026-09-22T15:15:05+09:00",
-                    "pnl_krw": 500.0})
-    assert row["style"] == "day"
+    at = "2026-09-22T14:00:05+09:00"
+    store.add_fill(created["id"], "SELL", 72000, 2, 144, 288, 1.0, 144_000 - 432, "TARGET", at,
+                   {"status": "CLOSED", "exit_price": 72000, "exit_reason": "TARGET", "closed_at": at,
+                    "pnl_krw": 3500.0})
+    assert row["style"] == "swing"
     orders = api.get("/api/orders?status=all").json()["results"]
-    assert (orders[0]["style"], orders[0]["exitReason"], orders[0]["expireDate"]) == ("day", "EOD", None)
+    assert (orders[0]["style"], orders[0]["exitReason"], orders[0]["expireDate"]) == ("swing", "TARGET", None)
     fills = api.get("/api/fills").json()["results"]
-    assert fills[0]["reason"] == "EOD" and fills[1]["reason"] == "ENTRY"
+    assert fills[0]["reason"] == "TARGET" and fills[1]["reason"] == "ENTRY"

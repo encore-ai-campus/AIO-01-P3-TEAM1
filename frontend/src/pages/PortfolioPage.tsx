@@ -1,9 +1,9 @@
-// /portfolio 모의투자 탭 (docs/컨셉변경계획.md 4-1·4-2): 진행 중 모의 자동매매 → 보유(스윙·장기·단타 배지, 장마감 기준 평가)·대기 주문·체결 내역 →
-// 끝난 계획 → 새 계획 제안(쉬운 보기는 리포트에서 나온 것만, 나머지는 접힌 "다른 계획 ○개") → 단타 연습장 입구(주린이모드 끔) 또는 잠금 안내(켬).
+// /portfolio 모의투자 탭 (docs/컨셉변경계획.md 4-1·4-2): 진행 중 모의 자동매매 → 보유(스윙·장기 배지, 장마감 기준 평가)·대기 주문·체결 내역 →
+// 끝난 계획 → 새 계획 제안(쉬운 보기는 리포트에서 나온 것만, 나머지는 접힌 "다른 계획 ○개").
 // 배치 (문서 4-2 순서 그대로):
-// - 모바일 한 열: 진행 중(가장 자주 보는 '지금 상태', 여정 ③) → 내 계좌 탭 → 끝난 계획(기록) → 새 계획 제안(다음 행동) → 단타(가장 드묾·잠김).
+// - 모바일 한 열: 진행 중(가장 자주 보는 '지금 상태', 여정 ③) → 내 계좌 탭 → 끝난 계획(기록) → 새 계획 제안(다음 행동).
 //   처음 쓰는 사람이 빈 카드를 여러 장 지나지 않게 빈 상태는 한 줄로 줄이고, 비어 있는 진행 중 칸에 '새 계획 제안 보기' 버튼을 둔다 (trade-11).
-// - PC 2단: 왼쪽 = 감시(진행 중 + 계좌 탭, 자주 봄), 오른쪽 340px = 기록·다음 행동(끝난 계획 → 제안 압축 3개 → 단타).
+// - PC 2단: 왼쪽 = 감시(진행 중 + 계좌 탭, 자주 봄), 오른쪽 340px = 기록·다음 행동(끝난 계획 → 제안 압축 3개).
 //   같은 탭의 계획 상세·실행 확인과 같은 [본문 | 오른쪽 열] 문법. DOM 순서가 모바일 순서와 같아 기기를 바꿔도 자리가 같다 (trade-12).
 import { useMutation } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
@@ -20,13 +20,13 @@ import { Collapse } from "../components/motion/Collapse";
 import { Sheet } from "../components/motion/Sheet";
 import { useToast } from "../components/toast";
 import { AsOf, Card, ErrorState, Flash, PageHeader, PillTabs, SkeletonCard, Spinner } from "../components/ui";
-import { useBeginnerMode, useViewMode } from "../hooks/useBeginnerMode";
+import { useViewMode } from "../hooks/useBeginnerMode";
 import { revealList, useChanged, useNewKeys, useRevealAfterLoading } from "../hooks/useMotionState";
 import { exitReasonLabel, otherKinds, plansByOrder, splitProposals } from "../lib/autotrade";
 import { cn } from "../lib/cn";
 import { formatDate, formatDateTime, formatKrw, formatPrice, formatQty, formatRate, formatSignedKrw, trendClass } from "../lib/format";
 import { prefersReducedMotion } from "../lib/motion";
-import { DAY_COST_NOTE, DAY_LOCK_TEXT, errorSentence, exitReasonText } from "../lib/plainText";
+import { errorSentence, exitReasonText } from "../lib/plainText";
 
 type Tab = "holdings" | "orders" | "fills";
 const TABS: { value: Tab; label: string }[] = [
@@ -225,54 +225,6 @@ function Proposals({ easy }: { easy: boolean }) {
   );
 }
 
-/**
- * 단타 연습장 입구 (주린이모드 끔) 또는 잠금 안내 (켬). 서버도 잠금을 막는다 (day_trading_locked).
- * 잠김은 바탕에 묻히지 않게 점선 테두리 + 자물쇠로 '잠긴 기능'을 보인다. 두 테마 모두 일반 카드보다 덜 떠 보인다 (trade-19·theme-18).
- */
-function DayEntry() {
-  const { beginnerMode, profile } = useBeginnerMode();
-  if (beginnerMode) {
-    return (
-      <section aria-labelledby="day-title" className="rounded-2xl border border-dashed border-line p-5">
-        <h2 id="day-title" className="flex items-center gap-1.5 text-[16px] font-bold text-sub">
-          <Icon name="lock" className="size-4 text-mute-weak" />
-          단타 연습장 · 잠김
-        </h2>
-        <p className="mt-1 text-[14px] leading-snug text-sub">
-          단타는 초보에게 가장 위험한 방식이라 잠가 두었어요. {DAY_LOCK_TEXT.beginner_mode}. 그다음 단타 연습 퀴즈 5문항을 모두 맞히면 열려요.
-        </p>
-      </section>
-    );
-  }
-  const unlocked = profile?.dayTradingUnlocked ?? false;
-  const link = "press mt-3 flex h-11 items-center justify-between rounded-xl bg-fill px-3.5 text-[15px] font-semibold hover:bg-line";
-  return (
-    <Card aria-labelledby="day-title">
-      <h2 id="day-title" className="flex items-center gap-1.5 text-[16px] font-bold">
-        <Icon name="bolt" className="size-4 text-warn-ink" />
-        단타 연습장
-      </h2>
-      <p className="mt-1 text-[14px] leading-snug text-sub">
-        분 단위로 계획을 세우고 그날 15:15에 정리하는 연습이에요 (국내 종목만). {DAY_COST_NOTE}.
-      </p>
-      {unlocked ? (
-        <Link to="/day" className={link}>
-          단타 연습장 열기
-          <Icon name="chevron" className="size-4" />
-        </Link>
-      ) : (
-        <>
-          <p className="mt-2 text-[13px] text-mute">{DAY_LOCK_TEXT.quiz_not_passed}.</p>
-          <Link to="/day/quiz" className={cn(link, "mt-2")}>
-            단타 연습 퀴즈 풀기
-            <Icon name="chevron" className="size-4" />
-          </Link>
-        </>
-      )}
-    </Card>
-  );
-}
-
 function Holdings({ easy, byOrder, plansReady }: { easy: boolean; byOrder: Map<number, TradePlan>; plansReady: boolean }) {
   const { data: acc, isPending, isError, error, refetch, isFetching } = useAccount();
   const reveal = useRevealAfterLoading(isPending || !plansReady);
@@ -347,7 +299,7 @@ function Holdings({ easy, byOrder, plansReady }: { easy: boolean; byOrder: Map<n
                 {p.style === "long" ? (
                   <p className="mt-2 text-[12px] text-mute">{easy ? "장기 보유 · 자동으로 팔지 않아요" : "장기 보유 · 자동 매도 없음"}</p>
                 ) : (
-                  (p.targetPrice != null || p.expireDate || p.style === "day") && (
+                  (p.targetPrice != null || p.expireDate) && (
                     <p className="mt-2 text-[12px] text-mute tabular-nums">
                       {p.targetPrice != null && (
                         <span className="whitespace-nowrap">
@@ -355,7 +307,7 @@ function Holdings({ easy, byOrder, plansReady }: { easy: boolean; byOrder: Map<n
                           <span className="text-down">{formatPrice(p.stopPrice, p.currency)}</span>
                         </span>
                       )}
-                      {p.style === "day" ? " · 그날 15:15 정리" : p.expireDate && ` · ${formatDate(p.expireDate)}까지`}
+                      {p.expireDate && ` · ${formatDate(p.expireDate)}까지`}
                     </p>
                   )
                 )}
@@ -869,7 +821,6 @@ export function PortfolioPage() {
         <div className="space-y-5">
           <EndedPlans easy={easy} />
           <Proposals easy={easy} />
-          <DayEntry />
         </div>
       </div>
     </>

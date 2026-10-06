@@ -13,8 +13,6 @@ const LIGHT = {
   entryLine: "#4E5968",
   targetLine: "#F04452",
   stopLine: "#3182F6",
-  entryMark: "#191F28",
-  exitMark: "#9A5B00", // 청산 표시는 글자용 진한 주황 (warn #FF9F00은 흰 바탕 위 약 2:1)
   accentLine: "#FF9F00", // 20일 이동평균 선은 경고 주황 그대로
   volUp: "rgba(240,68,82,0.28)",
   volDown: "rgba(49,130,246,0.28)",
@@ -47,8 +45,6 @@ describe("차트 색", () => {
       entryLine: "#B0B8C1",
       targetLine: "#F25C68",
       stopLine: "#458EF7",
-      entryMark: "#E9ECEF",
-      exitMark: "#FFB547",
       accentLine: "#FF9F00",
       volUp: "rgba(242,92,104,0.32)",
       volDown: "rgba(69,142,247,0.32)",
@@ -57,8 +53,8 @@ describe("차트 색", () => {
 
   it("칠한 테마의 토큰을 읽는다 (짧은 hex·rgb() 모두) — 라이브러리에 var() 문자열을 넘기지 않는다", () => {
     tokens(
-      ':root{--color-up:#fee;--color-down:rgb(1 2 3 / 0.5);--color-fill:#f2f4f6;--color-mute-weak:#8b95a1;--color-warn-ink:#9a5b00}' +
-        ':root[data-theme="dark"]{--color-up:#f25c6847;--color-down:#458ef7;--color-sub:#b0b8c1;--color-ink:#e9ecef;--color-warn-ink:#ffb547}',
+      ':root{--color-up:#fee;--color-down:rgb(1 2 3 / 0.5);--color-fill:#f2f4f6;--color-mute-weak:#8b95a1}' +
+        ':root[data-theme="dark"]{--color-up:#f25c6847;--color-down:#458ef7;--color-sub:#b0b8c1;--color-warn:#ffb547}',
     );
     const light = chartColors("light");
     expect(light.up).toBe("#fee");
@@ -66,16 +62,14 @@ describe("차트 색", () => {
     expect(light.down.replace(/\s/g, "")).toBe("rgb(123/0.5)"); // 공백은 브라우저마다 다르게 정리된다
     expect(light.volDown).toBe("rgba(1,2,3,0.28)");
     expect(light.grid).toBe("#f2f4f6");
-    expect(light.entryMark).toBe("#191F28"); // 토큰이 없는 것은 대체값
-    expect(light.exitMark).toBe("#9a5b00"); // 청산 표시는 경고 글자 토큰(warn-ink)을 읽는다
+    expect(light.accentLine).toBe("#FF9F00"); // 토큰이 없는 것은 대체값
 
     document.documentElement.setAttribute("data-theme", "dark");
     const dark = chartColors("dark");
     expect(dark.up).toBe("#f25c6847");
     expect(dark.volUp).toBe("rgba(242,92,104,0.32)"); // 8자리 hex의 알파는 버리고 거래량 알파를 쓴다
     expect(dark.text).toBe("#b0b8c1");
-    expect(dark.entryMark).toBe("#e9ecef");
-    expect(dark.exitMark).toBe("#ffb547");
+    expect(dark.accentLine).toBe("#ffb547"); // 이동평균 선은 경고 토큰(warn)을 읽는다
     expect(Object.values(dark).some((v) => v.includes("var("))).toBe(false);
   });
 

@@ -49,10 +49,10 @@ function sourceLink(r: Recommendation, easy: boolean): { to: string; label: stri
 }
 
 /** 안전장치(리스크 엔진)가 수량을 정한 이유를 쉬운 말로 (RiskPreview.limitedBy). */
-function limitedByText(limitedBy: string, r: Recommendation): string {
+function limitedByText(limitedBy: string): string {
   switch (limitedBy) {
     case "건당 위험 한도":
-      return `손절에 팔려도 계좌의 약 ${r.horizon === "DAY" ? "0.5" : "1"}%만 잃게 정했어요`;
+      return "손절에 팔려도 계좌의 약 1%만 잃게 정했어요";
     case "매수 가능 금액":
       return "지금 쓸 수 있는 현금 안에서 정했어요";
     case "총 금액 한도":
@@ -68,7 +68,7 @@ function limitedByText(limitedBy: string, r: Recommendation): string {
 
 /** 체크 셋 ③: AI 제안 / 연습용 예시(AI 아님). */
 function thirdCheck(r: Recommendation): string {
-  return r.source === "demo" || r.source === "day"
+  return r.source === "demo"
     ? "AI가 아닌 연습용 예시 계획이며, 실제 돈이 아닌 모의 투자예요."
     : "AI의 제안이며, 실제 돈이 아닌 모의 투자예요.";
 }
@@ -148,7 +148,7 @@ function SummaryCheck({
       <ul className="list-disc space-y-0.5 pl-5 text-[13px] text-sub">
         <li>손절 시 손실 -{formatKrw(pv.maxLossKrw)} (급락하면 더 클 수 있음)</li>
         <li>최대 {r.holdingDays}거래일 보유 후 그날 가격에 매도 (손익 무관)</li>
-        <li>{r.source === "demo" || r.source === "day" ? "연습용 예시 계획(AI 아님)" : "AI의 제안"} · 모의 계좌</li>
+        <li>{r.source === "demo" ? "연습용 예시 계획(AI 아님)" : "AI의 제안"} · 모의 계좌</li>
       </ul>
       <label htmlFor={id} className="mt-1 flex min-h-11 cursor-pointer items-center gap-2 py-2 in-disabled:cursor-not-allowed">
         <input id={id} type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="size-5 accent-brand" />
@@ -299,9 +299,8 @@ function ActivateCard({ r, token, titleRef }: { r: Recommendation; token: string
               <div className="mt-3 space-y-2">
                 {blocked && <p className="text-[13px] font-semibold text-sub">시작할 수 있게 되면 확인할 수 있어요.</p>}
                 <p className={cn("text-[14px] leading-snug text-sub", blocked && "opacity-50")}>
-                  {r.horizon === "DAY"
-                    ? `${formatPrice(r.entryPrice, r.currency)} 이하가 될 때까지 오늘 15:15까지만 기다려요. 그때까지 안 내려오면 사지 않고 끝나요(돈은 그대로).`
-                    : `${formatPrice(r.entryPrice, r.currency)} 이하가 될 때까지 ${formatDayLabel(kstDayOf(r.validUntil))}까지만 기다려요. 그때까지 안 내려오면 사지 않고 끝나요(돈은 그대로).`}
+                  {formatPrice(r.entryPrice, r.currency)} 이하가 될 때까지 {formatDayLabel(kstDayOf(r.validUntil))}까지만 기다려요. 그때까지 안 내려오면
+                  사지 않고 끝나요(돈은 그대로).
                 </p>
                 <Checklist key={ackKey} r={r} pv={pv} onReady={setAcked} onTouch={touch} disabled={blocked} />
               </div>
@@ -417,7 +416,7 @@ function EasyPreview({ r, pv }: { r: Recommendation; pv: RiskPreview }) {
         <Row label="직전 종가">{formatPrice(pv.lastPrice, r.currency)}</Row>
       </dl>
       <AsOf at={pv.lastPriceAsOf} market={r.market} className="block text-right" />
-      <p className="mt-1 text-[13px] text-sub">안전장치: {limitedByText(pv.limitedBy, r)}. 가격이 갑자기 크게 떨어지면 손실이 더 클 수도 있어요.</p>
+      <p className="mt-1 text-[13px] text-sub">안전장치: {limitedByText(pv.limitedBy)}. 가격이 갑자기 크게 떨어지면 손실이 더 클 수도 있어요.</p>
       {reasons.length > 0 && (
         <div role="alert" className="mt-2 rounded-lg bg-up-soft/70 p-3">
           <p className="text-[13px] font-semibold text-up-ink">지금은 시작할 수 없어요</p>
@@ -523,7 +522,7 @@ export function RecommendationPage() {
   const last = quote?.price ?? null;
   const open = r?.status === "open";
   // 머리 칩은 안전장치 결과로 말한다. 실행 확인 카드의 첫 미리 보기(예산 없음)와 같은 쿼리라 요청이 늘지 않는다 (trade-04)
-  const head = useRiskPreview(r?.id ?? Number.NaN, null, Boolean(r && open && r.source !== "day"));
+  const head = useRiskPreview(r?.id ?? Number.NaN, null, Boolean(r && open));
   const titleRef = useRef<HTMLHeadingElement>(null);
 
   if (isPending) {
@@ -552,7 +551,7 @@ export function RecommendationPage() {
   const src = sourceLink(r, easy);
   const live = r.myPlan != null && isPlanLive(r.myPlan.status);
   const chip =
-    !open || r.source === "day" ? (
+    !open ? (
       <RecStatusChip open={open} validUntil={r.validUntil} easy={easy} className="h-7 px-2 text-[13px]" />
     ) : live ? (
       <ReadinessChip state="live" easy={easy} className="h-7 px-2 text-[13px]" />
@@ -582,16 +581,14 @@ export function RecommendationPage() {
           {easy
             ? "내용을 확인하고 “모의 자동매매 시작”을 누르면 내 모의 계좌에서 시작해요 (Discord로 시작한 것으로 기록해요)."
             : "내용을 확인하고 “계획 활성화”를 누르면 내 모의 계좌에 계획이 만들어집니다 (Discord로 활성화한 것으로 기록)."}
-          {r.source !== "day" && (
-            <button
-              type="button"
-              onClick={goActivate}
-              className="press mt-2 flex h-10 items-center gap-1 rounded-lg bg-card px-3 text-[14px] font-semibold text-brand-ink hover:bg-card/70 lg:hidden"
-            >
-              {easy ? "실행 확인으로 이동" : "활성화 카드로 이동"}
-              <Icon name="chevron-down" className="size-4" />
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={goActivate}
+            className="press mt-2 flex h-10 items-center gap-1 rounded-lg bg-card px-3 text-[14px] font-semibold text-brand-ink hover:bg-card/70 lg:hidden"
+          >
+            {easy ? "실행 확인으로 이동" : "활성화 카드로 이동"}
+            <Icon name="chevron-down" className="size-4" />
+          </button>
         </Notice>
       )}
       <div className={cn("grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start lg:gap-6", reveal && "reveal-fade")}>
@@ -621,8 +618,17 @@ export function RecommendationPage() {
               </Notice>
             )}
             <div className="mt-5">
-              <PriceLadder stop={r.stopPrice} entry={r.entryPrice} target={r.targetPrice} last={last} currency={r.currency} easy={easy} reveal={reveal} />
-              <AsOf at={quote?.asOf} market={r.market} className="mt-1 block text-right" />
+              <PriceLadder
+                stop={r.stopPrice}
+                entry={r.entryPrice}
+                target={r.targetPrice}
+                last={last}
+                basis={quote?.basis}
+                currency={r.currency}
+                easy={easy}
+                reveal={reveal}
+              />
+              <AsOf at={quote?.asOf} market={r.market} basis={quote?.basis} className="mt-1 block text-right" />
             </div>
           </Card>
 
@@ -700,22 +706,7 @@ export function RecommendationPage() {
         </div>
 
         <div ref={stickyFit} className="space-y-3 lg:sticky" style={{ top: STICKY_FIT_TOP }}>
-          {r.source === "day" ? (
-            <Card>
-              <Notice>단타 연습 계획은 만들 때 이미 시작됐어요.</Notice>
-              {r.myPlan && (
-                <Link
-                  to={`/plans/${r.myPlan.id}`}
-                  className="press mt-3 flex h-11 items-center justify-between rounded-xl bg-fill px-3.5 text-[15px] font-semibold hover:bg-line"
-                >
-                  내 단타 계획 보기
-                  <Icon name="chevron" className="size-4" />
-                </Link>
-              )}
-            </Card>
-          ) : (
-            <ActivateCard key={r.id} r={r} token={token} titleRef={titleRef} />
-          )}
+          <ActivateCard key={r.id} r={r} token={token} titleRef={titleRef} />
           <p className="px-1 text-[13px] text-mute">
             {easy ? `팀에서 이 계획으로 시작한 모의 자동매매 ${r.planCount}건` : `팀에서 이 추천으로 활성화한 계획 ${r.planCount}건`}
           </p>

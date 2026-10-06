@@ -10,7 +10,7 @@ import { Icon } from "../Icon";
 const chip = "inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[12px] font-bold whitespace-nowrap";
 
 /**
- * 출처 배지: "AI 리포트" / "AI 교차검증 분석" / "연습용 예시 · AI 아님" / "단타 연습 · AI 아님".
+ * 출처 배지: "AI 리포트" / "AI 교차검증 분석" / "연습용 예시 · AI 아님".
  * 줄어들지 않는다 — 'AI 아님'은 잘리면 안 되는 안내다 (docs/DECISIONS.md 13-1 D-4). 좁은 줄에서는 다른 것을 다음 줄로 보낸다.
  */
 export function SourceBadge({ source, className }: { source: RecommendationSource; className?: string }) {
@@ -91,7 +91,7 @@ export function AutoTradeBadge({ planId, easy, stopping = false, className }: { 
   );
 }
 
-/** 보유 방식 배지: 스윙 · 장기 · 단타 (풀이는 title). */
+/** 보유 방식 배지: 스윙 · 장기 (풀이는 title). */
 export function StyleBadge({ style, className }: { style: HoldingStyle; className?: string }) {
   const s = STYLE_BADGE[style] ?? { label: style, chip: "bg-fill text-sub" };
   return (

@@ -315,7 +315,7 @@ def test_prompts_are_swing_only():
         assert "손익비" not in system  # 리스크 엔진의 최소 손익비는 알려주지 않는다
 
 
-@pytest.mark.parametrize("change", [{"stopPrice": 101_000}, {"score": None}, {"horizon": "DAY"}])
+@pytest.mark.parametrize("change", [{"stopPrice": 101_000}, {"score": None}, {"horizon": "WEEKLY"}])
 def test_invalid_scenario_shape_is_rejected(change):
     llm = FakeLlm({"mid-a": [raw_scenario(**change)]}, {}, APPROVE)
     (c,) = run(llm).candidates

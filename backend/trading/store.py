@@ -125,7 +125,7 @@ class AccountStore:
     def paper_today(self, day: str, style: str | None = None) -> tuple[int, float]:
         """(그 날(KST) 낸 모의 주문 수, 그 날 확정 손실 원화). 손실은 양수다.
 
-        style(swing | long | day)을 주면 그 보유 방식의 주문만 센다 (단타 한도는 style day 주문만 — docs/DECISIONS.md 14-4).
+        style(swing | long)을 주면 그 보유 방식의 주문만 센다 (스윙 계획의 한도는 style swing 주문만).
         """
         start = datetime.combine(date.fromisoformat(day), time.min, tzinfo=KST)
         end = start + timedelta(days=1)

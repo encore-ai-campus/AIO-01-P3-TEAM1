@@ -1,6 +1,6 @@
 // /reports: 주린이모드 켬(쉬운 보기)·끔(전문가 보기) 공통으로 [만드는 중인 내 리포트(있을 때만) → 만들기 카드 | 칩 "내 리포트 · 팀 리포트 · 교차검증 분석" 목록].
-// 전문가 보기에서만: 만들기 카드의 장애 주입, 팀 리포트의 전체·자동·장애 주입 거르기, 오늘의 선별 결과, (접힘) 작업 계획(Planner) 미리 보기, (접힘) 교육용 문서
-// (docs/컨셉변경계획.md 4-2 "리포트 목록" — 장애 주입·작업 계획·개념 문서는 전문가 보기·관리자 화면으로).
+// 전문가 보기에서만: 만들기 카드의 장애 주입, 팀 리포트의 전체·자동·장애 주입 거르기, 오늘의 선별 결과, (접힘) 작업 계획(Planner) 미리 보기
+// (docs/컨셉변경계획.md 4-2 "리포트 목록" — 장애 주입·작업 계획·개념 문서는 전문가 보기·관리자 화면으로. 개념 문서는 관리자 화면 /ops에 있다).
 //
 // 위치: ① 만들기가 이 탭의 주 행동이라 첫 화면(엄지 영역 위쪽)에 둔다. 그 위의 '만드는 중인 내 리포트'는 탭의 점을 보고 들어온 사람의 목적지라
 // 있을 때만 맨 위에 얇게. 목록은 그다음. 전문가 섹션은 사용 빈도 순(선별 > 구조 설명)으로 아래 전체 폭.
@@ -13,7 +13,6 @@ import type { ExecutionPlan } from "../api/types";
 import { Icon } from "../components/Icon";
 import { Collapse } from "../components/motion/Collapse";
 import { CreateReportCard } from "../components/reports/CreateReportCard";
-import { EduDocSection } from "../components/reports/EduDocSection";
 import { InProgressStrip } from "../components/reports/InProgressStrip";
 import { PlanGraph } from "../components/reports/PlanGraph";
 import { ReportList } from "../components/reports/ReportList";
@@ -180,7 +179,6 @@ export function ReportsPage() {
           <>
             <ScreeningPanel />
             <PlanPreview plan={plan} error={error} onRetry={() => void refetch()} retrying={isFetching} />
-            <EduDocSection />
           </>
         )}
       </div>

@@ -9,9 +9,6 @@ import { Card, EmptyState, PageHeader } from "./components/ui";
 import { ADMIN_PATH } from "./lib/secretTaps";
 import { AdminPage } from "./pages/AdminPage";
 import { AnalysisPage } from "./pages/AnalysisPage";
-import { DayPage } from "./pages/DayPage";
-import { DayQuizPage } from "./pages/DayQuizPage";
-import { DayReviewPage } from "./pages/DayReviewPage";
 import { HomePage } from "./pages/HomePage";
 import { LoginPage } from "./pages/LoginPage";
 import { MyPage } from "./pages/MyPage";
@@ -83,10 +80,6 @@ export default function App() {
             <Route path="recommendations/:id" element={<RecommendationPage />} />
             <Route path="plans" element={<PlansPage />} />
             <Route path="plans/:id" element={<PlanPage />} />
-            {/* 단타 연습장 (모의투자 탭 안. 주린이모드 끔 + 퀴즈 통과일 때 계획을 만든다) */}
-            <Route path="day" element={<DayPage />} />
-            <Route path="day/quiz" element={<DayQuizPage />} />
-            <Route path="day/review" element={<DayReviewPage />} />
             <Route path="notifications" element={<NotificationsPage />} />
             <Route path="ranking" element={<RankingPage />} />
             <Route path="my" element={<MyPage />} />

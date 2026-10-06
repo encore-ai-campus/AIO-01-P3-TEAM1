@@ -15,8 +15,3 @@ export function freezeTime(iso: string, opts: Partial<MockOptions> = {}) {
   vi.setSystemTime(new Date(iso));
   resetDb({ ...TEST_DB, ...opts });
 }
-
-/** 고정한 시각을 옮긴다 (예: 15:15 진입 마감 뒤로). freezeTime 다음에만 쓴다. */
-export function moveTime(iso: string) {
-  vi.setSystemTime(new Date(iso));
-}

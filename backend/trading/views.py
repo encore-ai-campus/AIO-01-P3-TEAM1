@@ -1,10 +1,8 @@
 """모의 트레이딩 API (docs/API.md "모의 트레이딩"). 로그인은 전역 설정이 확인한다 (안 했으면 401).
 
-가격(시세·종목 상세·계좌 평가·랭킹)은 장마감 기준이다. 분봉(단타 연습)도 완성된 정규장 세션만 낸다.
+시세(Quote·종목 상세)는 실시간이고 (현재가를 받지 못한 종목만 장마감 기준), 계좌 평가·랭킹은 장마감 기준이다.
 """
 import math
-import re
-from datetime import date
 
 from rest_framework import status
 from rest_framework.exceptions import NotFound
@@ -20,8 +18,7 @@ from .service import ACTIVE, LIMIT, MARKET
 from .store import account_for, order_row
 
 MAX_SEARCH, MAX_QUOTES, MAX_EQUITY_DAYS = 50, 50, 365
-WEB_STYLES = (SWING, LONG)  # POST /api/orders가 받는 보유 방식 (day는 단타 계획만 만든다)
-DAY_TEXT = re.compile(r"\d{4}-\d{2}-\d{2}")
+WEB_STYLES = (SWING, LONG)  # POST /api/orders가 받는 보유 방식
 
 
 def _int_param(request, key: str, default: int, low: int, high: int) -> int:
@@ -65,12 +62,12 @@ def _days(data: dict) -> int | None:
 
 
 def _style(data: dict) -> str | None:
-    """POST /api/orders의 style: 없으면 None (서버가 추론), "swing"·"long"만 받는다 ("day"·모르는 값은 400)."""
+    """POST /api/orders의 style: 없으면 None (서버가 추론), "swing"·"long"만 받는다 (모르는 값은 400)."""
     value = data.get("style")
     if value is None:
         return None
     if value not in WEB_STYLES:
-        raise Rejected("style은 swing 또는 long입니다 (단타 주문은 단타 연습장에서 만듭니다).")
+        raise Rejected("style은 swing 또는 long입니다.")
     return value
 
 
@@ -94,39 +91,22 @@ class StockSearchView(APIView):
 
 class StockDetailView(APIView):
     def get(self, request, symbol: str):
-        """StockDetail (장마감 기준): 일봉은 기준일 이하 완성 봉만, asOf는 마지막 봉 날짜의 정규장 종료 시각."""
+        """StockDetail (실시간): 일봉은 오늘 진행 중인 봉까지, asOf는 마지막 봉이 진행 중이면 quote.asOf(받은 시각),
+        완성 봉이면 그 봉 날짜의 정규장 종료 시각. 현재가를 받지 못해 quote가 장마감 기준이면 전체를 장마감 기준으로
+        (일봉은 기준일 이하 완성 봉만)."""
         item = market.stock_item(symbol)
         if item is None:
             raise NotFound("종목을 찾을 수 없습니다.")
-        symbol = item["symbol"]
-        candles = [_candle(c) for c in market.completed_candles(symbol)]
-        as_of = market.session_end(item["market"], candles[-1]["date"]) if candles else None
-        return Response({**item, "currency": market.CURRENCY[item["market"]], "quote": market.quotes([symbol])[0],
-                         "candles": candles, "asOf": as_of, "warnings": market.warnings(symbol)})
-
-
-class MinuteCandlesView(APIView):
-    def get(self, request, symbol: str):
-        """MinuteCandles: 국내 종목의 완성된 정규장 세션 분봉 (date 기본 = KR 기준일, 기준일보다 뒤면 400)."""
-        item = market.stock_item(symbol)
-        if item is None:
-            raise NotFound("종목을 찾을 수 없습니다.")
-        if item["market"] != "KR":
-            raise Rejected("분봉은 국내 종목만 볼 수 있습니다.")
-        text = request.query_params.get("minutes", "1")
-        if text not in {str(m) for m in market.MINUTE_STEPS}:
-            raise Rejected(f"minutes는 {', '.join(map(str, market.MINUTE_STEPS))} 중 하나입니다.")
-        basis = market.basis_day("KR")
-        day = request.query_params.get("date") or basis
-        if not DAY_TEXT.fullmatch(day):
-            raise Rejected("date는 YYYY-MM-DD 형식입니다.")
-        try:
-            date.fromisoformat(day)
-        except ValueError:
-            raise Rejected("date는 YYYY-MM-DD 형식입니다.") from None
-        if day > basis:
-            raise Rejected(f"아직 끝나지 않은 세션입니다. 분봉은 장마감 기준일({basis})까지 볼 수 있습니다.")
-        return Response(market.minute_candles(item["symbol"], day, int(text)))
+        symbol, mkt = item["symbol"], item["market"]
+        quote = market.quotes([symbol])[0]
+        live = quote["basis"] == market.BASIS_LIVE
+        candles = [_candle(c) for c in (market.candles(symbol) if live else market.completed_candles(symbol))]
+        as_of = None
+        if candles:
+            last = candles[-1]["date"]
+            as_of = quote["asOf"] if live and market.in_progress(mkt, last) else market.session_end(mkt, last)
+        return Response({**item, "currency": market.CURRENCY[mkt], "quote": quote, "candles": candles, "asOf": as_of,
+                         "warnings": market.warnings(symbol)})
 
 
 class QuotesView(APIView):

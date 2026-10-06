@@ -1,4 +1,4 @@
-"""관리자 화면의 투자자 프로필: 읽기 전용 (점수·단계·스위치·퀴즈 시각만, 진단 답 원문은 없음)."""
+"""관리자 화면의 투자자 프로필: 읽기 전용 (점수·단계·스위치·진단 시각만, 진단 답 원문은 없음)."""
 from datetime import UTC, datetime
 
 import pytest
@@ -16,8 +16,7 @@ def assessed(django_user_model):
     user = django_user_model.objects.create_user(username="alice", password="x")
     return InvestorProfile.objects.create(
         user=user, beginner_mode=False, answers=ANSWERS, experience_score=9, experience_level="expert", risk_score=4,
-        risk_profile="neutral", recommended_beginner_mode=False, assessed_at=datetime(2026, 10, 5, 1, 0, tzinfo=UTC),
-        day_quiz_passed_at=datetime(2026, 10, 5, 2, 0, tzinfo=UTC))
+        risk_profile="neutral", recommended_beginner_mode=False, assessed_at=datetime(2026, 10, 5, 1, 0, tzinfo=UTC))
 
 
 def test_list_and_view_only_detail(admin_client, assessed):

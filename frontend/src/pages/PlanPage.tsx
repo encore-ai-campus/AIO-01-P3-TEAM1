@@ -43,7 +43,7 @@ import {
   formatSignedPrice,
   trendClass,
 } from "../lib/format";
-import { PLAN_STATUS_TEXT, exitReasonText, planEventSentence } from "../lib/plainText";
+import { PLAN_STATUS_TEXT, exitReasonText, planEventSentence, quotePriceName } from "../lib/plainText";
 
 /**
  * 멈추기(계획 중단) 확인 시트. 문구·버튼은 연 순간의 상태로 고정한다 — 열린 채 5초 폴링으로 상태가 바뀌어도
@@ -179,27 +179,30 @@ function StopSheet({
   );
 }
 
-/** 직전 장마감 종가 (진행 중일 때만 받는다 — 사기 전에는 '사는 가격까지', 보유 중에는 평가와 '목표·손절까지'에 쓴다). */
-function useLastClose(p: TradePlanDetail) {
+/**
+ * 시세의 현재가 (진행 중일 때만 받는다 — 사기 전에는 '사는 가격까지', 보유 중에는 평가와 '목표·손절까지'에 쓴다).
+ * 시세는 실시간(basis "live")이고, 현재가를 받지 못한 종목만 직전 장마감 종가("close")다. 화면은 basis로 이름과 기준 표기를 고른다.
+ */
+function useLastPrice(p: TradePlanDetail) {
   const live = isPlanLive(p.status);
   const { data: quotes } = useQuotes(live ? [p.symbol] : []);
   const quote = live ? quotes?.get(p.symbol) : undefined;
-  return { last: quote?.price ?? null, asOf: quote?.asOf ?? null };
+  return { last: quote?.price ?? null, asOf: quote?.asOf ?? null, basis: quote?.basis };
 }
 
-/** 보유 중이면 직전 장마감 종가로 평가한 손익 (종목 통화, 비용 전). */
+/** 보유 중이면 현재가(못 받으면 직전 종가)로 평가한 손익 (종목 통화, 비용 전). */
 function useHoldingValue(p: TradePlanDetail) {
   const holding = p.status === "holding";
-  const { last: close, asOf } = useLastClose(p);
-  const last = holding ? close : null;
+  const { last: price, asOf, basis } = useLastPrice(p);
+  const last = holding ? price : null;
   const unrealized = last != null && p.fillPrice != null ? (last - p.fillPrice) * p.quantity : null;
   const rate = last != null && p.fillPrice ? last / p.fillPrice - 1 : null;
-  return { holding, last, asOf: holding ? asOf : null, unrealized, rate };
+  return { holding, last, asOf: holding ? asOf : null, basis, unrealized, rate };
 }
 
 /** 진행 중 계획의 가격 사다리 + 남은 거리 한 줄 ("얼마나 남았나" — trade-25). 실행 확인에서 본 그림을 다시 쓴다. */
 function LadderNow({ p, easy }: { p: TradePlanDetail; easy: boolean }) {
-  const { last, asOf } = useLastClose(p);
+  const { last, asOf, basis } = useLastPrice(p);
   const d = ladderDistances(p.status, p, last);
   const name = { entry: easy ? "사는 가격" : "진입가", target: easy ? "목표 가격" : "목표가", stop: easy ? "손절 가격" : "손절가" };
   const line =
@@ -207,24 +210,26 @@ function LadderNow({ p, easy }: { p: TradePlanDetail; easy: boolean }) {
       ? null
       : d[0].key === "entry" && d[0].rate >= 0
         ? easy
-          ? "직전 종가가 이미 사는 가격 이하예요. 장이 열리면 그 가격 이하에서 사요"
-          : "직전 종가가 진입가 이하입니다 (장중 가격으로 체결 판단)"
+          ? `${basis === "live" ? "지금 가격이" : "직전 종가가"} 이미 사는 가격 이하예요. 장이 열리면 그 가격 이하에서 사요`
+          : `${basis === "live" ? "현재가" : "직전 종가"}가 진입가 이하입니다 (장중 가격으로 체결 판단)`
         : d.map((x) => `${name[x.key]}까지 ${formatRate(x.rate, 1)}`).join(" · ");
   // 시세가 화면을 연 뒤에 왔을 때만 짧게 나타난다 (캐시로 바로 그린 화면은 움직이지 않는다)
   const lateLine = useChanged(line !== null);
   return (
     <div className="mt-5 border-t border-line pt-4">
-      <PriceLadder stop={p.stopPrice} entry={p.entryPrice} target={p.targetPrice} last={last} currency={p.currency} easy={easy} />
+      <PriceLadder stop={p.stopPrice} entry={p.entryPrice} target={p.targetPrice} last={last} basis={basis} currency={p.currency} easy={easy} />
       {/* 시세는 따로 받아 늦게 온다: 거리 한 줄과 기준 시각의 자리를 미리 잡아 둔다 (늦게 끼어들어 아래 카드를 밀지 않게) */}
       <div className="min-h-10">
         {line && (
           <p className={cn("mt-2 text-[13px] leading-snug text-sub tabular-nums", lateLine && "reveal-fade")}>
             {line}{" "}
             {/* 기준 표시는 한 덩어리로 (좁은 화면에서 '기준'만 다음 줄로 떨어지지 않게) */}
-            <span className="whitespace-nowrap text-mute">{easy ? "· 직전 종가 기준" : "(직전 종가 기준)"}</span>
+            <span className="whitespace-nowrap text-mute">
+              {basis === "live" ? (easy ? "· 지금 가격 기준" : "(현재가 기준)") : easy ? "· 직전 종가 기준" : "(직전 종가 기준)"}
+            </span>
           </p>
         )}
-        <AsOf at={asOf} market={p.market} className="mt-0.5 block text-right" />
+        <AsOf at={asOf} market={p.market} basis={basis} className="mt-0.5 block text-right" />
       </div>
     </div>
   );
@@ -246,7 +251,7 @@ function Cell({ label, children, sub, subClass }: { label: string; children: Rea
 }
 
 function Numbers({ p, className }: { p: TradePlanDetail; className?: string }) {
-  const { holding, last, asOf, unrealized, rate } = useHoldingValue(p);
+  const { holding, last, asOf, basis, unrealized, rate } = useHoldingValue(p);
   return (
     // 칸 수는 화면이 아니라 카드 폭으로 정한다 (PC 오른쪽 열 360px에서는 2칸, 넓은 한 열에서는 4칸)
     <Card aria-labelledby="numbers-title" className={cn("@container", className)}>
@@ -258,7 +263,7 @@ function Numbers({ p, className }: { p: TradePlanDetail; className?: string }) {
         <Cell label="체결가">{formatPrice(p.fillPrice, p.currency)}</Cell>
         <Cell
           label={holding ? "현재 손익" : "실현 손익"}
-          sub={holding ? `${formatRate(rate)} · 종가 ${formatPrice(last, p.currency)}` : undefined}
+          sub={holding ? `${formatRate(rate)} · ${quotePriceName(basis)} ${formatPrice(last, p.currency)}` : undefined}
           subClass={trendClass(rate)}
         >
           <span className={trendClass(holding ? unrealized : p.pnlKrw)}>
@@ -269,7 +274,7 @@ function Numbers({ p, className }: { p: TradePlanDetail; className?: string }) {
           {formatPrice(p.exitPrice, p.currency)}
         </Cell>
       </dl>
-      {holding && <AsOf at={asOf} market={p.market} className="mt-1 block text-right" />}
+      {holding && <AsOf at={asOf} market={p.market} basis={basis} className="mt-1 block text-right" />}
       <dl className="mt-3">
         <Row label="진입가 (지정가)">{formatPrice(p.entryPrice, p.currency)}</Row>
         <Row label="목표가">
@@ -282,7 +287,7 @@ function Numbers({ p, className }: { p: TradePlanDetail; className?: string }) {
             {formatPrice(p.stopPrice, p.currency)} ({formatRate(p.stopPrice / p.entryPrice - 1, 1)})
           </span>
         </Row>
-        <Row label="보유 기간">{p.horizon === "DAY" ? "당일 (15:15 정리)" : `${p.holdingDays}거래일`}</Row>
+        <Row label="보유 기간">{p.holdingDays}거래일</Row>
         <Row label="진입 기한">{formatDateTime(p.entryDeadline)}</Row>
         {p.budgetKrw != null && <Row label="예산">{formatKrw(p.budgetKrw)}</Row>}
         {p.filledAt && <Row label="체결 시각">{formatDateTime(p.filledAt)}</Row>}
@@ -293,7 +298,7 @@ function Numbers({ p, className }: { p: TradePlanDetail; className?: string }) {
 }
 
 function EasyNumbers({ p, className }: { p: TradePlanDetail; className?: string }) {
-  const { holding, last, asOf, unrealized, rate } = useHoldingValue(p);
+  const { holding, last, asOf, basis, unrealized, rate } = useHoldingValue(p);
   return (
     <Card aria-labelledby="numbers-title" className={className}>
       <h2 id="numbers-title" className="mb-2 text-[17px] font-bold">
@@ -301,13 +306,15 @@ function EasyNumbers({ p, className }: { p: TradePlanDetail; className?: string 
       </h2>
       {holding && (
         <div className="mb-2 rounded-xl bg-fill p-3">
-          <p className="text-[12px] text-mute">직전 종가로 본 평가 (비용 전)</p>
+          <p className="text-[12px] text-mute">{basis === "live" ? "지금 가격으로 본 평가 (비용 전)" : "직전 종가로 본 평가 (비용 전)"}</p>
           {/* 시세로 바뀌는 금액이라 전문가 보기와 같은 Flash로 알린다 (trade-31) */}
           <p className={cn("text-[19px] font-bold tabular-nums", trendClass(unrealized))}>
             <Flash value={unrealized}>{formatSignedPrice(unrealized, p.currency)}</Flash> <span className="text-[13px]">({formatRate(rate)})</span>
           </p>
-          <p className="text-[12px] text-sub tabular-nums">종가 {formatPrice(last, p.currency)}</p>
-          <AsOf at={asOf} market={p.market} className="block" />
+          <p className="text-[12px] text-sub tabular-nums">
+            {quotePriceName(basis, true)} {formatPrice(last, p.currency)}
+          </p>
+          <AsOf at={asOf} market={p.market} basis={basis} className="block" />
         </div>
       )}
       {p.status === "closed" && (
@@ -328,8 +335,8 @@ function EasyNumbers({ p, className }: { p: TradePlanDetail; className?: string 
         <Row label="손절 가격">
           <span className="text-down">{formatPrice(p.stopPrice, p.currency)}</span>
         </Row>
-        <Row label="보유 기간">{p.horizon === "DAY" ? "그날 15:15까지" : `최대 ${p.holdingDays}거래일`}</Row>
-        <Row label="사는 가격을 기다리는 기한">{p.horizon === "DAY" ? "그날 15:15" : `${formatDayLabel(kstDayOf(p.entryDeadline))}까지`}</Row>
+        <Row label="보유 기간">최대 {p.holdingDays}거래일</Row>
+        <Row label="사는 가격을 기다리는 기한">{formatDayLabel(kstDayOf(p.entryDeadline))}까지</Row>
         {p.budgetKrw != null && <Row label="예산">{formatKrw(p.budgetKrw)}</Row>}
       </dl>
     </Card>
@@ -543,13 +550,7 @@ export function PlanPage() {
 
   // 끝난 계획: 다음 순환(② 검토 → ③ 실행)으로 바로 잇는다 — 멈추기 문구가 약속한 길 (trade-v04)
   const next =
-    !live &&
-    (p.source === "day" ? (
-      <Link to="/day" className="press flex h-12 items-center justify-center gap-1.5 rounded-xl bg-brand text-[16px] font-bold text-white hover:bg-brand-dark">
-        <Icon name="bolt" className="size-4" />
-        단타 연습장으로
-      </Link>
-    ) : (
+    !live && (
       <Link
         to="/recommendations"
         className="press flex h-12 items-center justify-center gap-1.5 rounded-xl bg-brand text-[16px] font-bold text-white hover:bg-brand-dark"
@@ -557,7 +558,7 @@ export function PlanPage() {
         <Icon name="sparkle" className="size-4" />
         {easy ? "새 계획 제안 보기" : "AI 추천 보기"}
       </Link>
-    ));
+    );
 
   const links = (
     <Card className="order-5 space-y-2 lg:order-none">
@@ -566,12 +567,10 @@ export function PlanPage() {
         {easy ? "연결된 모의 주문 보기" : `연결된 모의 주문 보기${p.orderId != null ? ` (#${p.orderId})` : ""}`}
         <Icon name="chevron" className="size-4" />
       </Link>
-      {p.source !== "day" && (
-        <Link to={`/recommendations/${p.recommendationId}`} className={linkCls}>
-          {easy ? "계획 제안 보기" : `추천 #${p.recommendationId} 보기`}
-          <Icon name="chevron" className="size-4" />
-        </Link>
-      )}
+      <Link to={`/recommendations/${p.recommendationId}`} className={linkCls}>
+        {easy ? "계획 제안 보기" : `추천 #${p.recommendationId} 보기`}
+        <Icon name="chevron" className="size-4" />
+      </Link>
       {stopArea}
     </Card>
   );
@@ -608,7 +607,6 @@ export function PlanPage() {
                   {p.via === "discord" ? "Discord 링크로 시작" : "웹에서 시작"} · {formatDateTime(p.activatedAt)}
                 </span>
               </div>
-              {p.horizon === "DAY" && <p className="mt-2 text-[13px] text-sub">단타라 그날 15:15가 지나면 정리해요.</p>}
               {waitingNotice && <Notice className="mt-3">{waitingNotice}</Notice>}
               {live && <LiveLine easy />}
             </Card>

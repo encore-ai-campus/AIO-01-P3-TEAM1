@@ -20,17 +20,15 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from .calendar import drop_incomplete
-from .kiwoom import MINUTE_MAX_PAGES, KiwoomApiError, KiwoomClient, _is_kr, bar_time, bucket_minutes, minute_session
+from .kiwoom import KiwoomApiError, KiwoomClient
 
 BASE_URL = "https://openapi.tossinvest.com"
 TOKEN_MARGIN_SEC = 300
 MAX_RETRIES = 3
 TIMEOUT_SEC = 10
-MINUTE_PAGE_SIZE = 200  # /api/v1/candles 한 쪽의 최대 봉 수
 
 
 class TossApiError(KiwoomApiError):
@@ -192,37 +190,6 @@ class TossClient:
         calendar = self.market_calendar(market_country)
         return drop_incomplete(self.daily_candles(symbol, count), calendar, self._now())
 
-    def minute_candles(self, symbol: str, day: str, minutes: int = 1) -> tuple[list[dict], bool]:
-        """(분봉, 세션 시작까지 받았는지). 형식·규칙은 KiwoomClient.minute_candles (국내 종목만, 미국은 TossApiError).
-
-        /api/v1/candles interval=1m을 최신부터 MINUTE_PAGE_SIZE봉씩 before 커서로 넘겨 day 09:00보다 앞선 봉이 나올 때까지
-        받는다 (MINUTE_MAX_PAGES쪽까지 — 대략 최근 5거래일). 시간외(NXT 08:00~08:50·15:40~20:00, KRX 애프터 16:00~20:00)
-        봉도 섞여 오므로 정규장 밖 봉은 버리고, minutes > 1이면 1분봉을 09:00부터 묶는다.
-        봉 timestamp는 봉 시작 시각으로 본다 (가정 — 실측 전).
-        """
-        start, end = minute_session(day, minutes)
-        if not _is_kr(symbol):
-            raise TossApiError(0, {"error": "unsupported", "error_description": f"분봉은 국내 종목만 지원: {symbol}"})
-        bars: dict[str, dict] = {}
-        reached, before = False, None
-        for _ in range(MINUTE_MAX_PAGES):
-            res = self._get("/api/v1/candles", {"symbol": symbol, "interval": "1m", "count": MINUTE_PAGE_SIZE,
-                                                "before": before})
-            rows = res.get("candles") if isinstance(res, dict) else None
-            for row in rows if isinstance(rows, list) else []:
-                bar = _minute_candle(row) if isinstance(row, dict) else None
-                if bar is None:
-                    continue
-                at = datetime.fromisoformat(bar["timestamp"])
-                if at < start:
-                    reached = True
-                elif at <= end:
-                    bars.setdefault(bar["timestamp"], bar)
-            before = (res.get("nextBefore") if isinstance(res, dict) else None) or None
-            if reached or before is None:
-                break
-        return bucket_minutes([bars[t] for t in sorted(bars)], minutes, start), reached
-
     def market_calendar(self, market_country: str) -> dict:
         """장 운영 정보. market_country는 KR | US. data/calendar.py가 이 응답 형식을 따라 만든다."""
         return self._get(f"/api/v1/market-calendar/{_segment(market_country)}")
@@ -252,29 +219,6 @@ class TossClient:
 
     def exchange_rate(self, base: str = "USD", quote: str = "KRW") -> dict:
         return self._get("/api/v1/exchange-rate", {"baseCurrency": base, "quoteCurrency": quote})
-
-
-def _minute_candle(row: dict) -> dict | None:
-    """토스 1분봉 → 내부 분봉 (봉 시각은 KST 분 단위로 맞춘다). 시각·종가를 읽을 수 없으면 None, 없는 시가·고가·저가는 종가."""
-    at = bar_time(row.get("timestamp"))
-    close = _plain(row.get("closePrice"))
-    if at is None or close is None:
-        return None
-    return {"timestamp": at.isoformat(), "openPrice": _plain(row.get("openPrice")) or close,
-            "highPrice": _plain(row.get("highPrice")) or close, "lowPrice": _plain(row.get("lowPrice")) or close,
-            "closePrice": close, "volume": _plain(row.get("volume"), zero=True) or "0"}
-
-
-def _plain(value, zero: bool = False) -> str | None:
-    """숫자 문자열 (그대로 둔다). 숫자가 아니거나 0 이하(zero면 0은 허용)면 None."""
-    text = str(value if value is not None else "").strip()
-    try:
-        number = Decimal(text)
-    except InvalidOperation:
-        return None
-    if not number.is_finite() or number < 0 or (number == 0 and not zero):
-        return None
-    return text
 
 
 def _segment(value: str) -> str:

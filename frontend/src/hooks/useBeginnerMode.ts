@@ -14,7 +14,7 @@ export interface BeginnerMode {
   beginnerMode: boolean;
   /** 스위치 (PATCH). Me·프로필을 먼저 바꾸고 실패하면 되돌린다. */
   setBeginnerMode: (on: boolean) => void;
-  /** 진단 결과·단타 잠금 (아직 받지 않았으면 undefined). */
+  /** 진단 결과 (아직 받지 않았으면 undefined). */
   profile: InvestorProfile | undefined;
   /** 프로필을 받지 못했으면 그 오류 (없으면 null). 화면은 스켈레톤 대신 오류와 다시 시도를 보인다. */
   profileError: unknown;
