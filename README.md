@@ -235,6 +235,8 @@ erDiagram
 클론부터 서버 실행까지 진행한다. 이미 클론했으면 "`SETUP_PROMPT.md`를 읽고 그대로 진행해 줘" ([SETUP_PROMPT.md](SETUP_PROMPT.md)).
 `.env`·`.env.team`에는 비밀 값이 들어가므로 커밋하지 않는다.
 
+**Windows**: 먼저 [WSL2_SETUP.md](WSL2_SETUP.md)로 WSL2 Ubuntu와 VS Code 연결을 준비한다 (WSL이 아닌 Windows에서는 돌지 않는다).
+
 직접 하려면 (macOS·Linux·WSL2):
 
 ```bash
@@ -300,6 +302,7 @@ docs/                  설계·결정·API 계약·담당별 작업(tasks/)·작
 | 문서 | 내용 |
 |---|---|
 | [AGENTS.md](AGENTS.md) | 안전 규칙·명령·작업 방식 (AI 에이전트와 팀원 공통) |
+| [SETUP_PROMPT.md](SETUP_PROMPT.md) · [WSL2_SETUP.md](WSL2_SETUP.md) | 클론 직후 설치·실행 (AI 에이전트용) · Windows의 WSL2·VS Code 준비 |
 | [docs/TEAM_PAPER_TRADING_PLAN.md](docs/TEAM_PAPER_TRADING_PLAN.md) · [docs/결정필요사항.md](docs/결정필요사항.md) | 지금 상태·남은 작업 · 남은 결정과 다음 시작점 |
 | [TEAM_DEV_PLAN.md](TEAM_DEV_PLAN.md) · [docs/tasks/](docs/tasks/) | 팀원이 이어서 할 일과 개발 환경 · 담당별 세부 작업과 담당 간 약속 |
 | [docs/API.md](docs/API.md) · [docs/DECISIONS.md](docs/DECISIONS.md) | 웹 API 계약 · 공통 결정 |

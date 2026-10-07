@@ -555,7 +555,7 @@ postgresql://paper:<비밀번호>@<호스트 IP>:5434/paper
 가장 쉬운 방법: 호스트 PC 담당자에게 DM으로 받은 **팀원용 견본 `.env.team`**을 AI 코딩 에이전트(Claude Code, Codex 등)에게 주고
 "이 `.env.team` 파일로 세팅해 줘"라고 한다. 파일 머리말의 지시대로 클론 → `.env` → 설치 → 검사 → 계정 → 서버 실행까지 묻지 않고 한다
 (Node.js가 없을 때만 묻는다. 절차는 `SETUP_PROMPT.md`의 견본 모드). 이미 클론했으면 그 폴더에서 "`SETUP_PROMPT.md`를 읽고 그대로 진행해 줘"도 된다.
-macOS·Linux·WSL2에서 돈다 (WSL이 아닌 Windows에서는 돌지 않는다).
+macOS·Linux·WSL2에서 돈다 (WSL이 아닌 Windows에서는 돌지 않는다 — Windows는 먼저 `WSL2_SETUP.md`).
 
 손으로 할 때:
 
