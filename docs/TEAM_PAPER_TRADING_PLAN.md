@@ -84,7 +84,7 @@ CI/CD: push ─▶ ci.yml 검사 ─▶ [DEPLOY_ENABLED] GHCR 이미지 3개 ─
 |---|---|---|---|
 | 언어·도구 | Python, uv 작업 공간(engine·backend), pytest·pytest-django·ruff | 3.12, uv 0.8(이미지), 9.1.1·4.14.0·0.16.10 | 잠금 패키지 29개(작업 공간 3개 포함). ruff E·F·W, line-length 120(E501은 끔) |
 | 엔진 | `engine/paper_engine` | 의존성 0 | 표준 라이브러리만. Redis RESP2·LLM HTTP·PDF(Chrome headless)를 직접 구현 |
-| 백엔드 | Django·DRF·drf-spectacular·psycopg[binary]·gunicorn·PyYAML | 5.2.17·3.18.1·0.30.0·3.3.6·26.2.0·6.0.3 | 앱 8개, 세션 인증 + CSRF, OpenAPI `/api/schema/` |
+| 백엔드 | Django·DRF·drf-spectacular·psycopg[binary]·gunicorn·PyYAML | 5.2.17·3.18.1·0.30.0·3.3.6·26.2.0·6.0.3 | 앱 7개, 세션 인증 + CSRF, OpenAPI `/api/schema/` |
 | DB | SQLite / PostgreSQL | 16 | `POSTGRES_HOST`로 고른다. PostgreSQL 전용 기능 금지 |
 | 캐시·실시간 | LocMemCache, TanStack Query 폴링, 리포트만 SSE | – | WebSocket 없음. 폴링 간격은 `frontend/src/api/queries.ts:39-51` |
 | 프론트 | React·react-router·TanStack Query·Tailwind CSS·lightweight-charts·react-markdown·Pretendard | 19.3.0·8.4.0·5.104.0·4.3.3·5.2.1·10.1.0·1.3.9 | Vite SPA. 타입은 `docs/API.md`를 보고 손으로 쓴다 |
@@ -147,8 +147,8 @@ macOS·Linux·WSL2에서만 돈다. 공유 개발 DB는 `.env`에 `POSTGRES_HOST
 |---|---|
 | `AGENTS.md` · `SETUP_PROMPT.md` | 작업 규칙·실행 명령의 원본 · 클론 직후 설치 절차 |
 | `TEAM_DEV_PLAN.md` | 워크플로우·AutoHealing 설계(4~5장), 장애 시험(8장), 산출물(9장), 역할(11장), 개발 환경(12장). 3장은 10/2 기준 |
-| `docs/결정필요사항.md` | 남은 결정·확인(U1~U22)과 다음 세션 시작점 |
-| `docs/DECISIONS.md` · `docs/API.md` | 공통 결정 1~16장 · 웹 API 계약(AI 리포트 469줄~, 추천·자동매매 663줄~, 장기투자 917줄~) |
+| `docs/결정필요사항.md` | 남은 결정·확인(U1~U24)과 다음 세션 시작점 |
+| `docs/DECISIONS.md` · `docs/API.md` | 공통 결정 1~18장 · 웹 API 계약(AI 리포트 469줄~, 추천·자동매매 663줄~, 장기투자 917줄~) |
 | `docs/tasks/00~06` | 00 공통 약속(파일 소유·서명·Trace·출력 계약·사유 코드), 01~05 담당별 할 일, 06 추천·자동매매 |
 | `docs/DESIGN.md` · `docs/KIWOOM.md` · `docs/DEPLOY.md` | 엔진 설계 · 키움 TR · CI/CD·서버 준비 |
 | `docs/컨셉변경계획.md` · `docs/투자서비스확장계획.md` · `docs/화면배치.md` | 컨셉·계약 변경 B(8장)·사용성 시험(12장) · 장기·스윙 확장(단타·선물은 폐기) · 화면 배치 |

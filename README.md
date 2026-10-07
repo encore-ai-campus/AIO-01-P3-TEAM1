@@ -3,7 +3,9 @@
 주식이 처음인 사람도 **AI 리포트를 만들고 · 읽고 검토하고 · 모의 자동매매로 실행해 보는** 팀 모의투자 웹 서비스다.
 시세는 증권사 조회 API로만 받고(운영은 키움 REST, 로컬 개발은 토스 조회), 매매는 팀원별 가상 현금 계좌에서만 체결한다. **실제 주문은 내지 않는다** (실주문 코드 0건).
 
-## 서비스 흐름
+## 서비스 흐름 · AI Agent 워크플로우 · ERD
+
+### 서비스 흐름
 
 ```mermaid
 flowchart LR
@@ -19,6 +21,196 @@ flowchart LR
 
 - **AI는 제안만 한다.** 지표 계산·사실 검증·수량·한도·체결은 결정론적 코드(리스크 엔진, 모의 체결기)가 정한다.
 - **최종 결정은 사람이 한다.** 사용자가 리포트를 읽고 직접 계획을 활성화해야 모의 자동매매가 시작된다.
+
+### AI 리포트 Agent 워크플로우
+
+```mermaid
+flowchart LR
+    classDef code fill:#e8f1ff,stroke:#3b82f6,color:#0b2a5b
+    classDef ai fill:#fff4e5,stroke:#f59e0b,color:#5a3300
+    classDef ok fill:#eafaf0,stroke:#22c55e,color:#0f3d22
+    classDef fail fill:#fdecec,stroke:#ef4444,color:#5b0b0b
+
+    IN["리포트 신청<br/>팀원 · 자동 선별"]:::code
+
+    subgraph RS["① 조사 · 병렬 · 60초"]
+        M["시세·차트<br/>market_agent · 필수"]:::ai
+        F["재무·공시<br/>fundamental_agent · 필수"]:::ai
+        NW["뉴스·심리<br/>news_agent · 선택"]:::ai
+    end
+
+    J{"Join Guard<br/>필수 결과·계약 통과?"}:::code
+    W["② 작성 · 90초<br/>report_agent"]:::ai
+    V{"③ 검토 · 60초<br/>review_agent"}:::ai
+    RK["리스크 점검<br/>risk_agent"]:::ai
+    OK["완료<br/>본문 · A4 PDF<br/>buy면 AI 추천"]:::ok
+    X["실패 종료<br/>사유 코드 · 알림"]:::fail
+
+    IN --> M & F & NW
+    M & F & NW --> J
+    J -- "통과" --> W --> V
+    J -- "join_blocked" --> X
+    V -- "RETRY ≤ 2<br/>수정 지시" --> W
+    V -- "PASS" --> OK
+    V -. "Handoff ≤ 1<br/>투자유의·고위험" .-> RK -.-> OK
+    V -- "FAIL<br/>review_failed" --> X
+```
+
+- 정의는 YAML Registry(`backend/reports/team_definitions.yaml`·`worker_definitions.yaml`), Worker 출력 계약은 `contracts.py`.
+- 모든 AI 호출은 `healing.py`를 거친다: 같은 모델 재시도 → 대체 모델 → Circuit Breaker. 진행은 `state.py`가 Shared State·Trace로 남기고 SSE로 화면에 보낸다.
+- **Worker 구현과 Orchestrator는 팀이 만드는 중이다** (`registry.py`의 `AGENTS_IMPLEMENTED = False` — 지금 화면은 예시 Trace로 흐름을 보인다).
+  종목 선정까지 AI 팀으로 하는 확장 설계(오류 복구·주린이모드 의견 대립 포함)는 [docs/AI_AGENT_WORKFLOW.md](docs/AI_AGENT_WORKFLOW.md).
+
+### ERD
+
+```mermaid
+erDiagram
+    auth_user ||--|| accounts_profile : "닉네임·공개"
+    auth_user ||--o| investor_profiles : "주린이모드·진단"
+    auth_user ||--|| paper_account : "모의 계좌"
+    paper_account ||--o{ paper_orders : "주문"
+    paper_orders ||--o{ paper_fills : "체결"
+    paper_account ||--o{ equity_daily : "일별 자산"
+    paper_account ||--o{ reservations : "장 밖 예약"
+    auth_user ||--o{ jobs : "AI 분석 요청"
+    auth_user |o--o{ reports : "리포트 신청"
+    reports ||--o{ report_trace_events : "Trace"
+    reports |o--o| recommendations : "리포트 출처"
+    analysis_runs |o--o| recommendations : "분석 출처"
+    recommendations ||--o{ trade_plans : "사람이 활성화"
+    auth_user ||--o{ trade_plans : "활성화한 팀원"
+    paper_orders |o--o{ trade_plans : "진입 주문"
+    trade_plans ||--o{ trade_plan_events : "단계 사건"
+    auth_user ||--o{ notifications : "웹 알림"
+    auth_user ||--o| notification_settings : "Discord 설정"
+    auth_user ||--o{ investment_theses : "산 이유"
+    investment_theses ||--o{ thesis_checks : "펀더멘털 점검"
+
+    auth_user {
+        int id PK
+        string username
+    }
+    accounts_profile {
+        int user_id FK
+        string nickname UK
+        bool is_public
+    }
+    investor_profiles {
+        int user_id FK
+        bool beginner_mode
+        string risk_profile
+    }
+    paper_account {
+        int id PK
+        int user_id FK
+        float cash_krw
+    }
+    paper_orders {
+        int id PK
+        int account_id FK
+        string symbol
+        string status
+        string style "swing, long"
+    }
+    paper_fills {
+        int id PK
+        int order_id FK
+        string side
+        float price
+    }
+    equity_daily {
+        int account_id FK
+        date day
+        float equity_krw
+    }
+    reservations {
+        int id PK
+        int account_id FK
+        int order_id FK
+        string kind
+    }
+    jobs {
+        int id PK
+        int user_id FK
+        string status
+    }
+    analysis_runs {
+        int id PK
+        string symbol
+        string verdict
+    }
+    reports {
+        int id PK
+        int user_id FK "자동 리포트면 null"
+        string source "user, auto"
+        string status
+        json results "Worker 결과"
+    }
+    report_trace_events {
+        int id PK
+        int report_id FK
+        int step
+        string action
+    }
+    recommendations {
+        int id PK
+        int report_id FK
+        int analysis_id FK
+        string source "report, analysis, demo"
+        string status "open, expired"
+    }
+    trade_plans {
+        int id PK
+        int recommendation_id FK
+        int user_id FK
+        int order_id FK
+        string status
+    }
+    trade_plan_events {
+        int id PK
+        int plan_id FK
+        string kind
+    }
+    notifications {
+        int id PK
+        int user_id FK
+        string kind
+    }
+    notification_settings {
+        int user_id FK
+        bool discord_enabled
+    }
+    investment_theses {
+        int id PK
+        int user_id FK
+        string symbol
+    }
+    thesis_checks {
+        int id PK
+        int thesis_id FK
+        string overall
+    }
+```
+
+표 이름은 실제 `db_table`이고 열은 핵심만 적었다. 이 밖에 FK 없는 표: `notification_outbox`(Discord 보낼 글), `daily_move_notes`(오늘의 내 종목 뉴스), `analysis_run_files`(분석 파일 색인).
+워크플로우가 쓰는 표의 자세한 열은 [docs/AI_AGENT_WORKFLOW.md](docs/AI_AGENT_WORKFLOW.md) 0장, 엔진 CLI의 기록 저장소(`data/trading.db`)는 `docs/DECISIONS.md` 4장.
+
+## 기술 스택
+
+| 영역 | 기술 | 어디에 쓰나 |
+|---|---|---|
+| 백엔드 | Python 3.12 · Django 5.2 · DRF · drf-spectacular · gunicorn | 웹 API(`backend/` 앱 7개, 세션 인증), OpenAPI `/api/schema/`, 엔진 루프 `run_engine` |
+| 매매 엔진 | Python 표준 라이브러리만 | 선별·AI 교차검증·리스크 엔진·모의 체결(`engine/paper_engine`), 엔진 CLI |
+| DB | SQLite · PostgreSQL 16 (psycopg) | 혼자 개발·테스트 / 공유 개발 DB·운영 — `.env`의 `POSTGRES_HOST`로 고른다 |
+| 캐시·실시간 | Django LocMemCache · Redis 7 · SSE | 웹의 시세·조회 캐시 / 엔진 CLI 상주 루프·예약(`paper:` 키) / 리포트 진행 화면 |
+| 프론트 | React 19 · TypeScript · Vite · Tailwind CSS 4 · TanStack Query · React Router · lightweight-charts · react-markdown | 화면 SPA(`frontend/`), 서버 상태 폴링, 차트, 리포트 본문 |
+| AI | DevPass LLM Gateway (OpenAI 호환) | AI 교차검증 분석, 리포트 Worker 호출(`reports/healing.py`), 장기투자 뉴스 문장 |
+| 외부 데이터 | 키움 REST · 토스(로컬 개발 전용) · DART OpenAPI · Google 뉴스 RSS | 시세·일봉·순위·종목 정보(조회만) · 공시·재무 · 뉴스 제목 |
+| PDF·알림 | Chrome headless · Discord Webhook | 리포트 A4 PDF · 단계별 알림 (웹 알림은 DB) |
+| 배포 | Docker Compose · nginx · GitHub Actions · GHCR · AWS EC2 | 운영 구성(nginx·web·engine·db·redis), 검사 → 이미지 → 서버 배포 → 실패 시 되돌리기 |
+| 검사 도구 | uv · ruff · pytest · ESLint · Vitest · Testing Library · MSW | 파이썬 의존성·린트·테스트, 프론트 린트·테스트·가짜 API(`VITE_MOCK=1`) |
+
+버전·구성의 자세한 내용은 [docs/TEAM_PAPER_TRADING_PLAN.md](docs/TEAM_PAPER_TRADING_PLAN.md) 2장.
 
 ## 지금 상태 (2026-10-07)
 
