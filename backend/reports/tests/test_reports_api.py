@@ -14,7 +14,7 @@ from .conftest import make_report
 pytestmark = pytest.mark.django_db
 
 SUMMARY_KEYS = {"id", "symbol", "name", "market", "status", "currentStep", "requestedBy", "opinion", "oneLiner",
-                "createdAt", "startedAt", "finishedAt"}
+                "createdAt", "startedAt", "finishedAt", "source", "chaosEnabled", "costUsd", "hasPdf"}
 KST = ZoneInfo("Asia/Seoul")
 DRAFT = {"title": "삼성전자 리포트", "verdict": "buy", "oneLiner": "단기 반등 구간, 분할 접근", "markdown": "# x",
          "plainSummary": ["거래가 늘고 있어요", "실적이 나아지고 있어요", "환율이 바뀌면 손실이 날 수 있어요"],
@@ -62,7 +62,7 @@ def test_create_report(api, user, stocks):
     response = post(api, {"symbol": " 005930 "})
     assert response.status_code == 201
     body = response.json()
-    assert set(body) == SUMMARY_KEYS | {"content", "state", "trace", "plan"}
+    assert set(body) == SUMMARY_KEYS | {"content", "state", "trace", "plan", "chaos", "recovery"}
     assert (body["symbol"], body["name"], body["market"], body["status"], body["currentStep"], body["requestedBy"]) == (
         "005930", "삼성전자", "KR", "requested", None, "앨리스")
     assert body["startedAt"] is None and body["finishedAt"] is None and body["createdAt"].endswith("+09:00")
