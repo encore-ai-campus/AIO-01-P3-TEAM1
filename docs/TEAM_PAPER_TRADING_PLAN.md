@@ -1,9 +1,10 @@
-# 종이배 — 팀 모의투자 웹 서비스
+# 모매매 — 팀 모의투자 웹 서비스
 
-작성 2026-10-06(화). 기준 커밋 `main` `d3325f2`(2026-10-05 UI/UX 개선·서비스 이름 "종이배").
+작성 2026-10-06(화). 기준 커밋 `main` `d3325f2`(2026-10-05 UI/UX 개선·서비스 이름 "종이배"). 1장은 2026-10-07에 다시 맞췄다.
+**"지금 상태"는 이 문서 1장이 원본이다** — `README.md`의 요약 표, `TEAM_DEV_PLAN.md` 3장, `docs/결정필요사항.md` 0장은 여기를 가리킨다.
 지금 상태를 확정했고, 앞으로는 3장의 네 가지(핵심 AI Agent 워크플로우·프론트엔드 개선·기능 개선·테스트 후 완성도 다듬기)만 한다. 배포·운영(EC2·키움 키·GitHub 배포 설정·운영 `.env`·Discord 채널)은 팀장(담당 1)이 따로 맡는다(`docs/DEPLOY.md`).
 옛 판(2026-10-01 "토스 → 키움 전환 계획")은 `git show d3325f2:docs/TEAM_PAPER_TRADING_PLAN.md`로 본다. `docs/DECISIONS.md`·`docs/KIWOOM.md`·`docs/DESIGN.md`의 "계획서 n장·단계 n"은 그 판을 가리킨다.
-결정의 역사는 `docs/DECISIONS.md`, 남은 결정·확인(U1~U22)은 `docs/결정필요사항.md`에 있다.
+결정의 역사는 `docs/DECISIONS.md`, 남은 결정·확인(U1~U24)은 `docs/결정필요사항.md`에 있다.
 근거는 파일:줄이나 문서 절로 단다. 실행해서 본 사실은 확인 방법을 붙인다. 코드·로그에서 미루어 본 것은 "추측", 문서에 없는 제안은 "제안"이라고 적는다.
 
 ---
@@ -12,8 +13,8 @@
 
 ### 1-1. 한 문장 소개
 
-**종이배(가칭)**는 주식이 처음인 사람도 AI 리포트를 만들고·검토하고·모의 자동매매로 실행해 보는 팀 모의투자 웹 서비스다. 시세는 증권사 조회 API로만 받고, 매매는 팀원별 가상 현금 계좌에서만 체결한다(**실주문 코드 0건**).
-부제는 "종이 위에서 연습하는 AI 리포트 모의투자"다(`frontend/src/lib/plainText.ts:41-46`). 컨셉은 `docs/DECISIONS.md` 13장, 이름은 15-7.
+**모매매**(2026-10-07 이름 바뀜 — 전 이름 "종이배", `docs/DECISIONS.md` 18장)는 주식이 처음인 사람도 AI 리포트를 만들고·검토하고·모의 자동매매로 실행해 보는 팀 모의투자 웹 서비스다. 시세는 증권사 조회 API로만 받고, 매매는 팀원별 가상 현금 계좌에서만 체결한다(**실주문 코드 0건**).
+부제는 "종이 위에서 연습하는 AI 리포트 모의투자"다(`frontend/src/lib/plainText.ts:41-46`). 컨셉은 `docs/DECISIONS.md` 13장, 이름은 18장(로고는 15-7).
 
 ### 1-2. 기능별 상태
 
@@ -25,7 +26,7 @@
 | 장마감 기준 | 화면 숫자는 직전 정규장 종가(KR은 거래일 15:40에 넘어간다), 체결·청산만 장중 확인 가격 | 동작 | 14-1, `backend/trading/market.py:1-12` |
 | 종목·차트 | 검색, 완성 일봉, 매수 유의, 펀더멘털 신호등(로컬은 `MARKETS=KR`) | 동작 | 14-3 |
 | AI 교차검증 분석 | 웹 요청 → `run_engine`이 엔진 `analyze` 하위 프로세스를 돌린다. 팀원별 하루 5회, 팀 하루 $10 | 실제 LLM 실행은 CLI smoke-test 1건(10/2, $0.30)뿐. 웹 경로는 가짜 테스트로만 확인(분석 작업 0건) | 8-4 |
-| AI 리포트 | 신청·하루 3회 한도, YAML Registry, State·Trace, Snapshot·SSE, 선별 API, A4 PDF, 쉬운 보기, 끝 알림 | **구조만**: Agent·Orchestrator·AutoHealing 0줄(`backend/reports/registry.py:18` `AGENTS_IMPLEMENTED = False`). 신청은 `requested`로 남고, 흐름은 예시 Trace 재생으로만 보인다 | 9-1 |
+| AI 리포트 | 신청·하루 3회 한도, YAML Registry, State·Trace, Snapshot·SSE, 선별 API, A4 PDF, 쉬운 보기, 끝 알림 | **구조만**: 출력 계약·Worker 인터페이스와 Registry(`fallbacks`·`retry`)까지 있고(10/7), Agent 실행·Orchestrator·AutoHealing은 없다(`backend/reports/registry.py:19` `AGENTS_IMPLEMENTED = False`). 신청은 `requested`로 남고, 흐름은 예시 Trace 재생으로만 보인다 | 9-1 |
 | 추천 → 활성화 → 모의 자동매매 → 알림 | 출처 report·analysis·demo, 리스크 엔진(건당 1%·손익비 2.0), 진입 지정가·3일 재주문·목표·손절·기한 청산, 단계별 사건·알림 | 시연판: demo 규칙 추천만 있고 report 출처는 0건. 장중 체결·청산은 가짜 시세 테스트만(U8) | 12장, `docs/tasks/06-추천·자동매매.md:64-73` |
 | 장기투자 | 장기 보유, "왜 샀나요?", 오늘의 내 종목 뉴스(16:30), 펀더멘털 점검(18:00), 웹 알림 | 동작(10/5 격리 환경). 실제 시각 실행은 아직(U15) | 14-3 |
 | ~~단타 연습~~ | – | **폐기 (2026-10-06, 사용자 결정)**. 코드·API·화면에서 모두 지웠다 | 16장 |
@@ -36,17 +37,17 @@
 
 ### 1-3. 비어 있는 것·막힌 것
 
-- **핵심 AI Agent 워크플로우가 0줄이다.** `backend/reports`에 contracts·agents·orchestrator·guards·runner·healing·chaos·stats·budget과 마이그레이션 0002가 없다. 원격 브랜치는 `main`뿐이고 PR은 0건이다(`git branch -r`·`gh pr list`). 10/5 오전 뼈대 PR 5개(`docs/tasks/00-공통.md` 13절)도 없다. 과제 주제(에러 자가 치유)의 핵심이고, 산출물 3종·`docs/개선이력.md`·장애 시험 결과표도 아직 없다.
+- **핵심 AI Agent 워크플로우는 뼈대만 들어왔다 (10/7).** 출력 계약 6종·Worker 인터페이스(`contracts.py`·`agents/base.py`, `acdb038` — 리뷰 지적은 모두 미수정: `docs/works/todo/feat-2-worker_리뷰_Worker계약_2026-10-07.md`)와 Registry의 `fallbacks`·`retry`(T3-1, `78778e9`·`fcf4d5a`)뿐이다. Worker 구현(`agents.WORKERS`는 비어 있다)·orchestrator·guards·runner·healing·chaos·stats·budget과 마이그레이션 0002는 없다. 원격 브랜치는 팀원별로 생겼다(`git branch -r` 10/7: Hwanseok·dy·feat/2-worker·inhye·ju·yubeen). 과제 주제(에러 자가 치유)의 핵심이고, 산출물 3종·`docs/개선이력.md`·장애 시험 결과표도 아직 없다.
 - **공유 개발 DB의 리포트 3건(10/2~10/5 신청)이 모두 `requested`다.** runner를 켜면 이 3건이 먼저 돈다(3-1 Q5).
 - **10/6 개장 시험(U8·U15)은 시작하지 못했다.** 시험 계정이 없다. 호스트 PC(노트북)가 09:48~12:34에 절전과 짧은 깨어남을 되풀이했고, 그사이 토스 조회는 DNS 오류·403으로 실패했다(12:36부터 정상). 시각별 기록은 `docs/결정필요사항.md` U8.
 - **토스 client를 원본 개인 프로젝트(실주문)와 같이 쓴다.** 한쪽이 토큰을 새로 받으면 다른 쪽 토큰이 무효가 된다. 10/6에도 되풀이된다(엔진 로그 13:02 `token-revoked`, `.cache/toss_token.json`을 13시대에 여러 번 다시 씀). `AGENTS.md:26-27`과 어긋난다(U4 → U19).
-- **운영 전제는 팀장 몫으로 남았다.** 키움 키(U9)·`DATA_GOKR_API`(U14)·EC2·배포 설정이 없다. 운영 구성의 PDF는 HTML로 나간다(U22).
+- **운영 전제는 팀장 몫으로 남았다.** EC2는 2026-10-06에 연결해 `main` push마다 자동 배포된다(`docs/DEPLOY.md` 0장). 하지만 보안 그룹 HTTP 80이 닫혀 있어 밖에서는 접속되지 않고, 키움 키(U9)가 없어 서버도 토스 조회를 임시로 쓴다. `DATA_GOKR_API`(U14)·Discord Webhook은 비어 있다. 운영 구성의 PDF는 HTML로 나간다(U22).
 - **알려진 한계(U16, 고칠지 미정)**: ① 가격 상한이 없다 — `/api/orders`는 목표 1e308 같은 값을 201로 저장한다(10/6 테스트 DB에서 재현. 같은 값에 500이 나던 단타 미리 보기는 단타 폐기로 없어졌다) ②·③ 분봉 한계(수능일·토스 15:30 봉)는 분봉 삭제(2026-10-06)로 없어졌다 ④ 장기투자 뉴스가 `DAILY_MOVE_MODEL` 없이 `APPROVER`를 쓴다(종목당 약 $0.02).
 - **약관**: Vite(`0.0.0.0:5173`)로 팀원에게 토스 시세를 보이는 지금 방식은 토스 FAQ의 제3자 배포 금지에 걸린다(U13). 키움 교육용 다중 표시 문의가 남았다(U10·U12).
 
 ### 1-4. 품질
 
-- **테스트**(10/6 로컬): Python 1,629개(engine 754 + backend 875, SQLite 메모리 DB)·backtest 12개·ruff, 프론트 vitest 603개(27파일)·eslint·tsc가 통과한다.
+- **테스트**(10/7 로컬, 이름 변경 뒤): Python 1,480개(engine 720 + backend 760, SQLite 메모리 DB)·backtest 12개·ruff, 프론트 vitest 561개(27파일)·eslint·tsc가 통과한다. (10/6의 1,629개·603개에서 줄어든 것은 단타 삭제 `fae25fe`에서 테스트 212개를 지웠기 때문이다.)
 - **CI**(`d3325f2`, Deploy 실행 37316655698 성공): ruff → 실주문 코드 검사 → pytest → backtest → `makemigrations --check` → PostgreSQL 16 backend 875개 · eslint → tsc → vitest → build · 이미지 3개 → compose → `smoke_test.sh`(엔진 PDF 포함).
 - **안전 검사**: CI가 실주문 문자열과 `orders.py`를 막고(`.github/workflows/ci.yml:55-66`), 루트 `conftest.py`가 증권사·Discord 키를 비운다.
 
@@ -89,7 +90,7 @@ CI/CD: push ─▶ ci.yml 검사 ─▶ [DEPLOY_ENABLED] GHCR 이미지 3개 ─
 | 프론트 | React·react-router·TanStack Query·Tailwind CSS·lightweight-charts·react-markdown·Pretendard | 19.3.0·8.4.0·5.104.0·4.3.3·5.2.1·10.1.0·1.3.9 | Vite SPA. 타입은 `docs/API.md`를 보고 손으로 쓴다 |
 | 프론트 도구 | TypeScript·Vite·Vitest·jsdom·Testing Library·MSW·ESLint | 6.0.3·8.3.2·4.1.11·29.1.1·16.3.3·2.15.0·10.11.0 | Node 22(CI). `VITE_MOCK=1`이면 브라우저 안 가짜 API |
 | 컨테이너 | nginx-unprivileged·python:3.12-slim-bookworm·node:22-alpine(빌드)·postgres·redis·Chromium | nginx 1.27·python 3.12·uv 0.8은 메이저.마이너, node 22·postgres 16·redis 7은 메이저 태그 | 다이제스트 고정 없음. read_only, cap_drop ALL, uid 10001. Chromium은 engine 이미지에만 |
-| CI/CD·서버 | GitHub Actions·GHCR·SSH 배포·되돌리기. 운영은 AWS EC2 Ubuntu `t3.medium`(메모리 4GB: Chrome PDF·PostgreSQL·엔진을 한 서버에서)·디스크 30GB 이상(계획) | Actions 실행기 ubuntu-24.04, EC2 OS 버전 미정 | `DEPLOY_ENABLED` 꺼짐, EC2 없음(`docs/DEPLOY.md` 4장) |
+| CI/CD·서버 | GitHub Actions·GHCR·SSH 배포·되돌리기. 운영은 AWS EC2 Ubuntu `t3.medium`(메모리 4GB: Chrome PDF·PostgreSQL·엔진을 한 서버에서)·디스크 30GB 이상(계획) | Actions 실행기 ubuntu-24.04, EC2 Ubuntu 26.04 LTS | `DEPLOY_ENABLED=true`, EC2 연결됨(2026-10-06 첫 배포 성공, 보안 그룹 80은 남음 — `docs/DEPLOY.md` 0장) |
 | AI | DevPass LLM Gateway(OpenAI 호환, 웹 검색 도구) | – | 분석 모델은 `.env`, 리포트 Worker 모델은 `worker_definitions.yaml`(지금 null) |
 | 외부 데이터 | 키움 REST(운영)·토스(로컬)·DART·data.go.kr·SEC EDGAR·Google 뉴스 RSS | – | 조회만. 계좌·주문 TR 없음 |
 
