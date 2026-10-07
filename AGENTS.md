@@ -112,3 +112,7 @@ uv run python -m paper_engine analyze 005930 --buy --by alice           # AI 교
 - 검사 명령이나 실행에 필요한 설정 키를 바꾸면 `.github/workflows/ci.yml`, `deploy/.env.docker.example`도 같이 고친다.
   새 파일·폴더가 이미지에 들어가야 하면 루트 `.dockerignore`와 `deploy/Dockerfile`의 `COPY`를 확인한다.
 - 계획이 바뀌면 `docs/TEAM_PAPER_TRADING_PLAN.md`, `CLAUDE.md`, 이 파일을 함께 고친다.
+- `docs/works/`의 작업 문서는 파일 이름을 `브랜치명_작업유형_작업내용_날짜.md`로 쓴다.
+  브랜치명은 작업한 브랜치(리뷰는 리뷰한 브랜치)이고 `/`는 `-`로 바꾼다 (`feat/2-worker` → `feat-2-worker`).
+  작업유형은 `리뷰` 또는 `완료보고서`, 작업내용은 공백 없이 짧게, 날짜는 작성일 `YYYY-MM-DD`.
+  예: `yubeen_리뷰_T3-1레지스트리_2026-10-07.md`, `Hwanseok_완료보고서_Worker계약_2026-10-07.md`.
