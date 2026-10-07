@@ -562,22 +562,31 @@ postgresql://paper:<비밀번호>@<호스트 IP>:5434/paper
 
 ### 12-3. 자기 PC에서 개발할 때
 
+가장 쉬운 방법: 호스트 PC 담당자에게 DM으로 받은 **팀원용 견본 `.env.team`**을 AI 코딩 에이전트(Claude Code, Codex 등)에게 주고
+"이 `.env.team` 파일로 세팅해 줘"라고 한다. 파일 머리말의 지시대로 클론 → `.env` → 설치 → 검사 → 계정 → 서버 실행까지 묻지 않고 한다
+(Node.js가 없을 때만 묻는다. 절차는 `SETUP_PROMPT.md`의 견본 모드). 이미 클론했으면 그 폴더에서 "`SETUP_PROMPT.md`를 읽고 그대로 진행해 줘"도 된다.
+macOS·Linux·WSL2에서 돈다 (WSL이 아닌 Windows에서는 돌지 않는다).
+
+손으로 할 때:
+
 ```bash
 git clone https://github.com/SHS5029/paper_trading.git && cd paper_trading
-cp .env.example .env        # 키를 채운다 (팀에서 받은 값). 커밋하지 않는다
+cp .env.team .env           # 받은 팀원용 견본을 저장소 루트에 .env.team으로 둔 뒤. 없으면 cp .env.example .env 후 키를 채운다. 커밋하지 않는다
 uv sync && (cd frontend && npm ci)
 scripts/dev.sh              # Django + 엔진 루프 + 프론트엔드를 한 번에 띄운다. 끝나면 주소가 나온다
 ```
 
-AI 코딩 에이전트(Claude Code, Codex 등)를 쓰면 클론한 폴더에서 "`SETUP_PROMPT.md`를 읽고 그대로 진행해 줘"라고 하면 된다
-(도구 확인 → `.env` → 설치 → 검사 → 계정 → 서버 실행까지 안내한다). macOS·Linux·WSL2에서 돈다 (WSL이 아닌 Windows에서는 돌지 않는다).
+`.env`의 `DJANGO_SECRET_KEY`는 견본에서 비워 두었다. 각자 아무 긴 문자열을 넣는다 (`python3 -c "import secrets; print(secrets.token_urlsafe(50))"`).
+견본에는 호스트 PC의 토스 키와 Discord Webhook을 넣지 않는다 (토스 토큰은 client당 1개만 유효하고, 팀 채널 알림은 호스트 PC만 보낸다).
+키움 키가 없으면 그 PC에서는 가격·차트·종목 검색·선별과 AI 분석·리포트 신청이 503이다 (장마감 종가도 증권사에서 받으므로 대신 나오지 않는다).
+시세가 필요한 화면은 호스트 PC 주소(12-1)에서 본다.
 
 DB는 두 가지 중에 고른다.
 
 | 방식 | `.env` | 언제 |
 |---|---|---|
-| 내 PC의 SQLite (기본) | `POSTGRES_HOST=` (비움) | 혼자 기능을 만들고 테스트할 때. 계정은 `cd backend && uv run python manage.py create_team_accounts`로 만든다 |
-| 호스트 PC의 공유 DB | `POSTGRES_HOST=<호스트 IP>`, `POSTGRES_PORT=5434`, `POSTGRES_PASSWORD=<받은 값>`, `DJANGO_SECRET_KEY=<아무 긴 문자열>` | 팀이 같은 데이터를 보면서 화면을 맞출 때 |
+| 내 PC의 SQLite (기본) | `POSTGRES_HOST=` (비움, 견본 그대로) | 혼자 기능을 만들고 테스트할 때. 계정은 `cd backend && uv run python manage.py create_team_accounts`로 만든다 |
+| 호스트 PC의 공유 DB | 견본 맨 아래 주석 두 줄을 푼다: `POSTGRES_HOST=<호스트 IP>`, `POSTGRES_PASSWORD=<받은 값>` (`POSTGRES_PORT=5434`는 견본에 있다). `DJANGO_SECRET_KEY`가 꼭 있어야 한다 | 팀이 같은 데이터를 보면서 화면을 맞출 때 |
 
 공유 DB에 붙을 때 지킬 것:
 
@@ -599,6 +608,8 @@ scripts/dev.sh logs       # 로그   ·  stop (서버 내리기, DB는 그대로
 ```
 
 호스트 PC의 `.env`에는 `POSTGRES_HOST=127.0.0.1`, `POSTGRES_PORT=5434`, `POSTGRES_BIND=0.0.0.0`, 긴 임의 `POSTGRES_PASSWORD`가 들어 있다.
+이 `.env`를 팀원에게 그대로 주지 않는다 (DB 설정이 호스트 전용이고 토스 키가 들어 있다). 대신 저장소 루트의 팀원용 견본 `.env.team`(git 제외)에서
+`(받은 값)` 칸(DevPass·DART 키, 공유 DB 비밀번호, 나눠 주기로 했으면 키움 키)을 채워 DM으로 보낸다. 호스트 IP가 바뀌면 견본의 IP도 고친다.
 DB 데이터는 Docker 볼륨 `paper-dev_pgdata`에 있다 (컨테이너를 내려도 남는다). 예전 SQLite 파일 `backend/db.sqlite3`는 옮기기 전 사본으로 남아 있다.
 
 ---
