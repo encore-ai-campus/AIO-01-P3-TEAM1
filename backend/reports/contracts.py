@@ -276,21 +276,54 @@ _VALIDATORS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
 
 NAMES = tuple(_VALIDATORS)
 
-_DESCRIPTIONS = {
-    "MarketResult": "trend(up/down/sideways), summary, price·changePct·asOf·rsi·volatilityPct·volumeRank·support·"
-                    "resistance(키 필수, 값 null 가능; volumeRank는 정수), signals(최대 5), evidence(최대 8)",
-    "FundamentalResult": "summary, metrics(null 가능 또는 per/pbr/roe/revenueGrowthPct/opMarginPct; 각 값 null 가능), "
-                         "recentFilings(date/title/impact[positive/negative/neutral]; 최대 5), evidence(최대 8)",
-    "NewsResult": "sentiment(positive/negative/neutral), score(null 또는 -1~1), summary, "
-                  "headlines(date[null 가능]/title/source[null 가능]/impact; 최대 5), evidence(최대 8)",
-    "ReportDraft": "title, verdict(buy/hold/avoid), oneLiner(80자), plainSummary(1~3개, 항목당 100자, 숫자 금지), "
-                   "markdown, reasons(최대 3), risks(최대 3), targets(entry/target/stop[null 가능], "
-                   "holdingDays[null 또는 1~20 정수], probability[null 또는 0~1]), confidence(null 또는 0~100), "
-                   "citations(최대 10)",
-    "ReviewResult": "verdict(PASS/RETRY/FAIL), score(null 또는 0~100), issues(claim/problem/fix; 최대 10), "
-                    "instructions(RETRY이면 필수), handoff(null 또는 risk_agent와 reason)",
-    "RiskResult": "level(low/medium/high), flags(최대 10), warnings(최대 5), summary",
+_CONTRACT_FIELDS = {
+    "MarketResult": (
+        ("trend", "up/down/sideways 중 하나"), ("summary", "문자열"),
+        ("price", "키 필수, 숫자 또는 null"), ("changePct", "키 필수, 숫자 또는 null"),
+        ("asOf", "ISO 문자열 또는 null, 생략하면 null"), ("rsi", "키 필수, 숫자 또는 null"),
+        ("volatilityPct", "키 필수, 숫자 또는 null"), ("volumeRank", "정수 또는 null"),
+        ("support", "키 필수, 숫자 또는 null"), ("resistance", "키 필수, 숫자 또는 null"),
+        ("signals", "문자열 목록, 최대 5개"), ("evidence", "문자열 목록, 최대 8개"),
+    ),
+    "FundamentalResult": (
+        ("summary", "문자열"),
+        ("metrics", "null 또는 per/pbr/roe/revenueGrowthPct/opMarginPct 객체, 각 값은 숫자 또는 null"),
+        ("recentFilings", "date/title/impact 객체 목록, 최대 5개"),
+        ("recentFilings[].impact", "positive/negative/neutral 중 하나"),
+        ("evidence", "문자열 목록, 최대 8개"),
+    ),
+    "NewsResult": (
+        ("sentiment", "positive/negative/neutral 중 하나"), ("score", "null 또는 -1~1"),
+        ("summary", "문자열"),
+        ("headlines", "date/title/source/impact 객체 목록, 최대 5개; date와 source는 null 가능"),
+        ("evidence", "문자열 목록, 최대 8개"),
+    ),
+    "ReportDraft": (
+        ("title", "문자열"), ("verdict", "buy/hold/avoid 중 하나"), ("oneLiner", "최대 80자"),
+        ("plainSummary", "1~3개 문자열, 항목당 100자, 숫자와 권유 표현 금지"), ("markdown", "문자열"),
+        ("reasons", "문자열 목록, 최대 3개"), ("risks", "문자열 목록, 최대 3개"),
+        ("targets.entry/target/stop", "키 필수, 숫자 또는 null"),
+        ("targets.holdingDays", "null 또는 1~20 정수"), ("targets.probability", "null 또는 0~1"),
+        ("confidence", "null 또는 0~100"), ("citations", "문자열 목록, 최대 10개"),
+    ),
+    "ReviewResult": (
+        ("verdict", "PASS/RETRY/FAIL 중 하나"), ("score", "null 또는 0~100"),
+        ("issues", "claim/problem/fix 객체 목록, 최대 10개"),
+        ("instructions", "문자열 또는 null, verdict가 RETRY이면 비어 있지 않은 문자열 필수"),
+        ("handoff", "null 또는 to=risk_agent와 reason 객체"),
+    ),
+    "RiskResult": (
+        ("level", "low/medium/high 중 하나"), ("flags", "문자열 목록, 최대 10개"),
+        ("warnings", "문자열 목록, 최대 5개"), ("summary", "문자열"),
+    ),
 }
+
+
+def _description(fields: tuple[tuple[str, str], ...]) -> str:
+    return "; ".join(f"{field}는 {rule}" for field, rule in fields)
+
+
+_DESCRIPTIONS = {name: _description(_CONTRACT_FIELDS[name]) for name in NAMES}
 
 
 def validate(name: str, data: Any) -> dict[str, Any]:
