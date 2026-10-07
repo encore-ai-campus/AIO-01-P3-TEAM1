@@ -567,27 +567,27 @@ describe("PageHeader", () => {
     ]);
   });
 
-  it("브라우저 탭 제목 '<제목> · 종이배' (글자가 아닌 제목은 docTitle), 화면이 사라지면 서비스 이름", () => {
+  it("브라우저 탭 제목 '<제목> · 모매매' (글자가 아닌 제목은 docTitle), 화면이 사라지면 서비스 이름", () => {
     const first = renderAt(["/reports/5"], <PageHeader title="랭킹" bell={false} />);
-    expect(document.title).toBe("랭킹 · 종이배");
+    expect(document.title).toBe("랭킹 · 모매매");
     first.unmount();
-    expect(document.title).toBe("종이배");
+    expect(document.title).toBe("모매매");
     renderAt(["/reports/5"], <PageHeader title={<span>삼성전자</span>} docTitle="삼성전자 AI 리포트" bell={false} />);
-    expect(document.title).toBe("삼성전자 AI 리포트 · 종이배");
+    expect(document.title).toBe("삼성전자 AI 리포트 · 모매매");
   });
 
   it("brand: 모바일 머리에 로고 + 서비스 이름(링크·제목 아님), h1은 화면 읽기용으로 남는다", () => {
     renderAt(["/reports/5"], <PageHeader title="홈" brand bell={false} />);
     const h1 = screen.getByRole("heading", { level: 1, name: "홈" });
     expect(h1.className).toContain("max-lg:sr-only");
-    const name = screen.getByText("종이배");
+    const name = screen.getByText("모매매");
     expect(name.closest("a, h1, h2")).toBeNull();
     // 잠금: 로고 28px(접힌 선 없는 판, 장식) + 이름 18px, PC에서는 숨는다 (PC는 왼쪽 메뉴에 브랜드가 있다)
     const lockup = name.parentElement!;
     const logo = lockup.querySelector("svg")!;
     expect([logo.getAttribute("width"), logo.getAttribute("aria-hidden"), logo.querySelectorAll("path").length]).toEqual(["28", "true", 1]);
     expect(lockup.className.split(" ")).toEqual(expect.arrayContaining(["text-[18px]", "lg:hidden"]));
-    expect(lockup.textContent).toBe("종이배"); // 옛 'AI' 글자 마크가 남지 않는다
+    expect(lockup.textContent).toBe("모매매"); // 옛 'AI' 글자 마크가 남지 않는다
   });
 
   it("화면을 옮기면(앞으로) 갈 곳을 잃은 포커스를 제목으로 — 첫 화면·화면이 준 포커스(autoFocus)는 건드리지 않는다", () => {
@@ -713,10 +713,10 @@ describe("Layout (앱 뼈대)", () => {
     const scrollTo = vi.spyOn(window, "scrollTo");
     fireEvent.click(profile);
     expect(scrollTo).toHaveBeenLastCalledWith({ top: 0, left: 0, behavior: "smooth" });
-    fireEvent.click(screen.getByRole("link", { name: "종이배" })); // 다른 화면에서는 홈으로 간다
+    fireEvent.click(screen.getByRole("link", { name: "모매매" })); // 다른 화면에서는 홈으로 간다
     expect(await screen.findByRole("heading", { name: "홈" })).toBeTruthy();
     scrollTo.mockClear();
-    fireEvent.click(screen.getByRole("link", { name: "종이배" }));
+    fireEvent.click(screen.getByRole("link", { name: "모매매" }));
     expect(scrollTo).toHaveBeenLastCalledWith({ top: 0, left: 0, behavior: "smooth" });
   });
 
@@ -793,9 +793,9 @@ describe("부팅 · 화면 오류", () => {
     expect(shell.className).toContain("animate-fade-in");
     expect(shell.style.animationDelay).toBe("300ms");
     // 왼쪽 메뉴 자리의 브랜드는 실제 메뉴(Layout)와 같은 로고 32px + 이름 — 뼈대가 화면으로 바뀔 때 움직이지 않게
-    const brand = within(boot).getByText("종이배").parentElement!;
+    const brand = within(boot).getByText("모매매").parentElement!;
     expect(brand.querySelector("svg")?.getAttribute("width")).toBe("32");
-    expect(brand.textContent).toBe("종이배");
+    expect(brand.textContent).toBe("모매매");
     expect(await screen.findByRole("button", { name: "로그인" })).toBeTruthy();
   });
 
@@ -923,7 +923,7 @@ describe("로그인 화면", () => {
         .getAllByRole("listitem")
         .map((li) => li.textContent),
     ).toEqual(["①리포트 만들기", "②검토", "③모의 자동매매"]);
-    expect(document.title).toBe("로그인 · 종이배");
+    expect(document.title).toBe("로그인 · 모매매");
     expect(screen.queryByText(/로그인이 끝났어요/)).toBeNull();
   });
 
@@ -965,7 +965,7 @@ describe("없는 주소", () => {
     expect(screen.getByText("/zzz")).toBeTruthy();
     expect(screen.getByRole("link", { name: "홈으로" }).getAttribute("href")).toBe("/");
     expect(screen.getByRole("link", { name: "리포트 보기" }).getAttribute("href")).toBe("/reports");
-    expect(document.title).toBe("페이지 없음 · 종이배");
+    expect(document.title).toBe("페이지 없음 · 모매매");
   });
 });
 

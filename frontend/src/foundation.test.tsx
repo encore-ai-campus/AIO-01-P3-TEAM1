@@ -53,9 +53,9 @@ describe("화면 틀", () => {
     const side = screen.getByRole("navigation", { name: "주 메뉴" });
     expect(within(side).getAllByRole("link").map((a) => a.textContent?.replace(/\d+$/, ""))).toEqual(["홈", "종목", "리포트", "모의투자", "알림", "마이"]);
     // 브랜드(홈 링크): 로고 32px(장식, 접힌 선 없는 판) + 이름 — 옛 'AI' 글자 마크가 남지 않는다
-    const brand = screen.getByRole("link", { name: "종이배" });
+    const brand = screen.getByRole("link", { name: "모매매" });
     expect(brand.getAttribute("href")).toBe("/");
-    expect(brand.textContent).toBe("종이배");
+    expect(brand.textContent).toBe("모매매");
     const logo = brand.querySelector("svg")!;
     expect([logo.getAttribute("width"), logo.getAttribute("aria-hidden"), logo.querySelectorAll("path").length]).toEqual(["32", "true", 1]);
   });
@@ -139,12 +139,12 @@ describe("화면 틀", () => {
   });
 
   it("브라우저 제목·아이콘(파비콘·홈 화면 아이콘)과 검색엔진 색인 막기", () => {
-    expect(indexHtml).toContain("<title>종이배</title>");
+    expect(indexHtml).toContain("<title>모매매</title>");
     expect(indexHtml).toContain('<link rel="icon" href="/favicon.svg" type="image/svg+xml" />');
     expect(indexHtml).toContain('<link rel="apple-touch-icon" href="/apple-touch-icon.png" />');
-    expect(indexHtml).toContain('<meta name="apple-mobile-web-app-title" content="종이배" />');
+    expect(indexHtml).toContain('<meta name="apple-mobile-web-app-title" content="모매매" />');
     expect(Object.keys(PUBLIC_ICONS).sort()).toEqual(["../public/apple-touch-icon.png", "../public/favicon.svg"]);
-    // 파비콘은 16px 전용 종이배 (돛의 접힌 선 없음 — 한 도형). 옛 'AI' 선 글자가 아니다
+    // 파비콘은 16px 전용 종이배 모양 (돛의 접힌 선 없음 — 한 도형). 옛 'AI' 선 글자가 아니다
     expect(faviconSvg).toContain("종이배");
     expect(faviconSvg.match(/<path/g)).toHaveLength(1);
     expect(faviconSvg).not.toContain("stroke");

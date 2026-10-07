@@ -645,7 +645,7 @@ interface ReportDetail extends ReportSummary {   // Snapshot
 | `GET /api/reports?symbol=&source=&mine=` | 페이지, `symbol`·`source`(`user`\|`auto`)·`mine`(`1`이면 내가 신청한 것만) 선택, 같이 쓸 수 있다 | (추가 `source`) · `mine=1` (2026-10-04 합의, 컨셉 계획 B8 — 구현: 2026-10-05 (Claude): `ReportsView.get` 한 줄. 자동 리포트는 신청자가 없어 빠진다) |
 | `GET /api/reports/{id}` | – | `200 ReportDetail` · `404` (**Snapshot API**: 새로고침·연결 복구에 쓴다) |
 | `GET /api/reports/{id}/events` | 헤더 `Last-Event-ID` 또는 `?after=<step>` | `200 text/event-stream` (**SSE**) · 미로그인 `401` JSON · `404` |
-| `GET /api/reports/{id}/pdf` | – | `200 application/pdf` (A4. 처음 부르면 만들어 `PAPER_ROOT/reports/<id>.v<양식 판>.pdf`(Chrome이 없으면 `.html`)에 저장하고 다음부터 그 파일. `pdf_path` 열이 생기면 그 열로. 2026-10-05 구현: 양식 판 `TEMPLATE_VERSION`(`backend/reports/pdf.py`, 지금 2 — 쉬운 요약·장마감 기준)을 파일 이름에 넣어, 양식이 바뀌면 판 번호 없는 예전 `<id>.pdf`(1판)·이전 판 파일을 쓰지 않고 새로 만든 뒤 지운다) · 완성 전 `409 {"detail"}` · `404` · Chrome이 없으면 `200 text/html`(같은 내용) — 2026-10-04 구현 |
+| `GET /api/reports/{id}/pdf` | – | `200 application/pdf` (A4. 처음 부르면 만들어 `PAPER_ROOT/reports/<id>.v<양식 판>.pdf`(Chrome이 없으면 `.html`)에 저장하고 다음부터 그 파일. `pdf_path` 열이 생기면 그 열로. 2026-10-05 구현: 양식 판 `TEMPLATE_VERSION`(`backend/reports/pdf.py`, 지금 4 — 2: 쉬운 요약·장마감 기준, 3: 이름 종이배·로고 머리, 4: 이름 모매매)을 파일 이름에 넣어, 양식이 바뀌면 판 번호 없는 예전 `<id>.pdf`(1판)·이전 판 파일을 쓰지 않고 새로 만든 뒤 지운다) · 완성 전 `409 {"detail"}` · `404` · Chrome이 없으면 `200 text/html`(같은 내용) — 2026-10-04 구현 |
 | (추가) `GET /api/reports/recovery-stats?days=7` | `days` 1~90, 기본 7 | `200 RecoveryStats` |
 | `GET /api/reports/screening?market=KR&date=` | `date` 기본 오늘(KST) | `200 ScreeningResult` · 그날 선별이 없으면 `404` · 잘못된 `market`·`date` `400` — 2026-10-04 구현 (`reports/auto.py`가 남긴 파일을 읽는다) |
 
@@ -867,10 +867,10 @@ interface NotificationSettings {
 - **알림 문장** (2026-10-04 합의, 컨셉 계획 B6 — 구현: 2026-10-05 (Claude)): 웹 알림의 `title`·`body`는 **받는 사람의 주린이모드**를 따른다.
   켬(진단 전 기본)이면 쉬운 문장("모의 계좌에서 삼성전자를 70,600원에 3주 샀어요. 77,000원이 되면 팔고, 67,700원 아래로 내려가면 손실이 더 커지지 않게 팔아요."),
   끔이면 전문가 문장(2026-10-04 전 문장 — 이미 "모의 주문 #…"이 들어 있다). 문장은 `backend/autotrade/text.py`에 모은다. Discord(팀 공용 채널 하나)는 받는 사람과 무관하게
-  쉬운 문장 + 숫자 한 줄로 하나만 보내고 맨 앞에 **`[종이배 · 모의투자]`**를 붙인다(2026-10-05 서비스 이름을 "종이배"로 바꿈 — 전에는 `[AI 리포트 데스크 · 모의투자]`). `PlanEvent.message`·`failureReason`은 원래 용어 그대로다 (전문가 보기).
+  쉬운 문장 + 숫자 한 줄로 하나만 보내고 맨 앞에 **`[모매매 · 모의투자]`**를 붙인다(2026-10-07 서비스 이름을 "모매매"로 바꿈 — 전에는 `[종이배 · 모의투자]`, 그 전은 `[AI 리포트 데스크 · 모의투자]`). `PlanEvent.message`·`failureReason`은 원래 용어 그대로다 (전문가 보기).
   - **주문·체결·청산·예약·계획 활성화를 말하는 쉬운 문장에는 "모의"를 꼭 넣는다** ("모의 계좌에서 …", "모의 자동매매 …") — 공용 채널·초보 화면에서 실제 매매로 읽히지 않게.
     테스트(`autotrade/tests`): `text.py`의 쉬운 문장 중 그 kind(`plan_activated`·`order_placed`·`order_requeued`·`filled`·`closed`·`cancelled`·`expired`·`failed`)마다 "모의"가 들어 있고,
-    Discord 글이 `[종이배 · 모의투자]`로 시작한다.
+    Discord 글이 `[모매매 · 모의투자]`로 시작한다.
   - 권유 표현은 쓰지 않는다 — 공통 규칙 "금지 표현"의 `PERSUASION` (`forbidden_phrases(text)`가 빈 목록인지 쉬운 문장·전문가 문장 전부 테스트).
 - **Discord로 보내지 않는 알림** (웹 알림만): `daily_move`·`thesis_check`(사용자별 묶음이라 팀 채널 하나에 사람 수만큼 쌓이고, 등락 설명이 공개 채널에서 권유로 읽힐 수 있다). 구현: 2026-10-05 (Claude).
 - 프론트 폴링: 알림 개수 15초, 진행 중 계획 5초, 추천 목록 30초.

@@ -1,4 +1,4 @@
-// 브라우저 탭 제목 = "<화면 이름> · 종이배"(SERVICE_NAME). 탭·방문 기록에서 화면을 구분하고, 화면 읽기 프로그램이 새 화면을 알게 한다.
+// 브라우저 탭 제목 = "<화면 이름> · 모매매"(SERVICE_NAME). 탭·방문 기록에서 화면을 구분하고, 화면 읽기 프로그램이 새 화면을 알게 한다.
 import { useEffect } from "react";
 import { SERVICE_NAME } from "../lib/plainText";
 

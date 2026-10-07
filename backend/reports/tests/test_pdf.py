@@ -1,6 +1,6 @@
 """AI 리포트 A4 PDF: HTML 구성(종목 한 쪽·선별 표지)과 PDF API. 실제 Chrome·증권사는 부르지 않는다 (가짜 render·가짜 완성 일봉).
 
-양식(docs/DECISIONS.md 14-7 "PDF", 15-7): 쪽 머리에 로고 + 이름 "종이배"(2026-10-05 바뀜, 양식 3판), 맨 위 쉬운 요약 상자 + 통일 면책 문장,
+양식(docs/DECISIONS.md 14-7 "PDF", 15-7): 쪽 머리에 로고 + 이름 "모매매"(2026-10-07 바뀜, 양식 4판), 맨 위 쉬운 요약 상자 + 통일 면책 문장,
 완성 일봉 차트 + "YYYY-MM-DD 종가 기준", 시세 지표의 장마감 기준 시각, 꼬리말 통일 면책 문장, 양식 판 번호가 붙은 파일 이름.
 """
 import re
@@ -117,7 +117,7 @@ def test_report_html_has_every_section(user, candles):
     assert f"<span>{pdf.SERVICE_NAME}</span>" in brand and pdf.BRAND_NOTE in brand
     assert "투자 권유" not in brand and "2026-10-04" not in brand
     # ① 머리: 서비스 이름(탭 제목), AI 의견 배지(권유가 아닌 말), 한 줄 요약. 이름은 쪽 머리에 있어 날짜 줄에 다시 쓰지 않는다
-    assert pdf.SERVICE_NAME == "종이배" and "<title>삼성전자 AI 리포트 · 종이배</title>" in html
+    assert pdf.SERVICE_NAME == "모매매" and "<title>삼성전자 AI 리포트 · 모매매</title>" in html
     assert "삼성전자" in html and "005930" in html and "2026-10-04" in html
     assert "2026-10-04 · AI 의견" in html and ">긍정적<" in html and ">매수<" not in html
     assert "단기 반등 구간, 분할 접근" in html
@@ -143,7 +143,7 @@ def test_report_html_has_every_section(user, candles):
     assert "뉴스 Agent — model-b (demo)" in html and "작성 Agent — model-c" in html
     assert "장애 1건 · 자동 복구 1건" in html and "복구 시간 합 3.0초" in html
     assert "뉴스 Agent: timeout 실패 1회 (model-a → model-b) → model-b로 복구" in html
-    assert "비용 $0.0345" in html and "KST · 종이배" in html
+    assert "비용 $0.0345" in html and "KST · 모매매" in html
     assert html.count(pdf.DISCLAIMER) == 2 and "AI는 제안만 합니다" not in html  # 위 상자와 꼬리말, 통일 문장 하나
     assert html.count("투자 권유가 아닙니다") == 2  # 쪽 머리가 면책을 한 번 더 말하지 않는다
     assert html.index(pdf.DISCLAIMER, html.index('<div class="foot">')) > 0
@@ -241,7 +241,7 @@ def test_screening_cover(user):
     running = make_report(user, "AAPL", status=Report.RUNNING,
                           results={"report_agent": {"verdict": "avoid", "oneLiner": "검토 전 초안"}})
     html = pdf.build_screening_html(SCREENING, [done, running])
-    assert "<title>선별 요약 · KR · 종이배</title>" in html and '<header class="brand">' in html
+    assert "<title>선별 요약 · KR · 모매매</title>" in html and '<header class="brand">' in html
     assert "선별 요약 · KR" in html and html.count('<svg class="chart"') == 2 and html.count("<rect") >= 4
     assert "삼성전자" in html and "82.5점" in html and "1위 · 9,500억" in html
     assert "RSI 과열 — 2종목" in html and "종목 유형 ETF — 1종목" in html
@@ -355,4 +355,4 @@ def test_pdf_of_older_template_is_made_again(api, user, files, candles, monkeypa
 
 def test_file_stem():
     assert pdf._file_stem(7, 1) == "7" and pdf._file_stem(7, 2) == "7.v2"
-    assert pdf.TEMPLATE_VERSION == 3 and pdf._file_stem(7, pdf.TEMPLATE_VERSION) == "7.v3"  # 3판: 이름 종이배·로고 머리
+    assert pdf.TEMPLATE_VERSION == 4 and pdf._file_stem(7, pdf.TEMPLATE_VERSION) == "7.v4"  # 4판: 이름 모매매
