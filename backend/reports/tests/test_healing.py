@@ -1,8 +1,11 @@
 """LLM 호출기 뼈대 (docs/tasks/04-autohealing.md T4-3, docs/tasks/00-공통.md 7절): 한 번 부르고 실패면 LlmGaveUp.
 실패 분류, 실패 Trace(agent_failed final:false), 출력 계약 검증, 제한 시간, 가짜 LLM(fake_llm)."""
+from types import SimpleNamespace
+
 import pytest
 
-from paper_engine.llm import LlmError, LlmTimeout
+from config import engine
+from paper_engine.llm import LlmClient, LlmError, LlmTimeout
 from reports import contracts, healing, state
 from reports.healing import ErrorType, LlmGaveUp
 
@@ -103,6 +106,30 @@ def test_contract_violation_is_bad_output(running, fake_llm, clock):
         llm("s", "u", contract="MarketResult")
     assert caught.value.error_type is ErrorType.BAD_OUTPUT
     assert llm.cost_usd == 0.03  # 계약 위반이어도 호출 비용은 들었다
+
+
+def test_bad_output_after_reply_still_costs(running, clock):
+    class Client:
+        def complete_json_once(self, model, system, user, timeout):
+            error = LlmError("JSON 객체가 없는 응답: 'hi'")
+            error.cost = 0.04
+            raise error
+    llm = caller(running, Client())
+    with pytest.raises(LlmGaveUp) as caught:
+        llm("s", "u")
+    assert caught.value.error_type is ErrorType.BAD_OUTPUT and llm.cost_usd == 0.04
+
+
+def test_llm_client_uses_devpass_key(monkeypatch):
+    key = {"value": None}
+    monkeypatch.setattr(engine, "engine_config", lambda: SimpleNamespace(llm_api_key=key["value"]))
+    monkeypatch.setattr(healing, "_client", None)
+    assert healing.llm_client() is None  # 키가 없으면 None
+    key["value"] = "key-1"
+    first = healing.llm_client()
+    assert isinstance(first, LlmClient) and healing.llm_client() is first  # 프로세스에 하나
+    key["value"] = "key-2"
+    assert healing.llm_client() is not first  # 키가 바뀌면 새로
 
 
 def test_timeout_is_clamped_to_deadline(running, fake_llm, clock):

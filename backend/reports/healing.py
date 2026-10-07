@@ -7,16 +7,20 @@ Trace는 `state.record`로만 남긴다 (`add_result`·`add_error`·`finish`는 
 지금(T4-3 뼈대)은 주 모델을 **한 번만** 부르고 실패하면 바로 포기한다.
 재시도·대체 모델(T4-4), Circuit Breaker(T4-5), 장애 주입(T4-6)은 `__call__` 안에 더한다 — 서명은 바꾸지 않는다.
 """
+import threading
 import time
 from dataclasses import dataclass
 from enum import Enum
 
-from paper_engine.llm import TIMEOUT_SEC, LlmError, LlmTimeout
+from config import engine
+from paper_engine.llm import TIMEOUT_SEC, LlmClient, LlmError, LlmTimeout
 
 from . import contracts, state
 from .models import Report
 
 clock = time.monotonic  # 테스트가 가짜 시계로 바꾼다 (deadline도 같은 시계 기준)
+_client_lock = threading.Lock()
+_client: tuple[str, LlmClient] | None = None  # (키, 클라이언트) — llm_client()
 
 
 class ErrorType(str, Enum):
@@ -98,9 +102,15 @@ class LlmCaller:
         if limit <= 0:
             raise LlmGaveUp(ErrorType.TIMEOUT, 0, model, f"{self.worker_id}: 제한 시간이 지나 부르지 않았습니다.")
         self.attempt += 1
+        cost = 0.0
         try:
-            data, cost = self.client.complete_json_once(model, system, user, limit)
-            self.cost_usd += cost
+            try:
+                data, cost = self.client.complete_json_once(model, system, user, limit)
+            except LlmError as e:
+                cost = e.cost  # 응답을 받은 뒤의 실패(빈 응답·JSON 아님)도 비용은 들었다
+                raise
+            finally:
+                self.cost_usd += cost
             if contract is not None:
                 data = contracts.validate(contract, data)
         except Exception as e:  # 분류할 수 없는 예외도 한 번의 실패로 남기고 포기한다
@@ -120,8 +130,24 @@ class LlmCaller:
 
 
 def make_caller(report: Report, worker: dict, chaos: dict | None, client, deadline: float) -> LlmCaller:
-    """Worker 하나(실행 계획의 `workers[]` 항목)의 호출기. client는 `complete_json_once`가 있는 LLM 클라이언트."""
+    """Worker 하나(실행 계획의 `workers[]` 항목)의 호출기. client는 `complete_json_once`가 있는 LLM 클라이언트
+    (실제로는 `llm_client()`, 테스트는 fake_llm)."""
     return LlmCaller(report, worker, chaos, client, deadline)
+
+
+def llm_client() -> LlmClient | None:
+    """리포트 Worker가 쓰는 DevPass LLM Gateway 클라이언트 (.env의 DEVPASS_APIKEY). 키가 없으면 None.
+
+    프로세스에 하나만 두고 키가 바뀌면 새로 만든다. 모든 Worker가 같은 게이트웨이를 쓴다 (YAML provider: devpass).
+    """
+    global _client
+    key = engine.engine_config().llm_api_key
+    if not key:
+        return None
+    with _client_lock:
+        if _client is None or _client[0] != key:
+            _client = (key, LlmClient(key))
+        return _client[1]
 
 
 def _ms(seconds: float) -> int:
