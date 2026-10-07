@@ -15,6 +15,8 @@ import { useReportPlan } from "../api/queries";
 import { useScreening } from "../api/reports";
 import type { ExecutionPlan, ScreeningFiltered, ScreeningResult } from "../api/types";
 import { Icon } from "../components/Icon";
+import { ErrorPanel } from "../components/errors/ErrorPanel";
+import { errorKindOf } from "../components/errors/errorTypes";
 import { Collapse } from "../components/motion/Collapse";
 import { CreateReportCard } from "../components/reports/CreateReportCard";
 import { InProgressStrip } from "../components/reports/InProgressStrip";
@@ -22,7 +24,7 @@ import { PlanGraph } from "../components/reports/PlanGraph";
 import { ReportList } from "../components/reports/ReportList";
 import { ExampleTag } from "../components/reports/StatusChip";
 import { ViewToggle } from "../components/reports/ViewToggle";
-import { Card, ErrorState, LiveDot, Notice, PageHeader, Skeleton } from "../components/ui";
+import { Card, LiveDot, Notice, PageHeader, Skeleton } from "../components/ui";
 import { useViewMode } from "../hooks/useBeginnerMode";
 import { useRevealAfterLoading } from "../hooks/useMotionState";
 import { cn } from "../lib/cn";
@@ -196,7 +198,7 @@ function ScreeningPanel() {
         </div>
       ) : isError ? (
         <div className="mt-2">
-          <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} retrying={isFetching} compact />
+          <ErrorPanel kind={errorKindOf(error)} detail={errorMessage(error)} onRetry={() => void refetch()} retrying={isFetching} secondary={null} compact className="bg-fill" />
         </div>
       ) : !s ? (
         <p className="mt-2 text-[14px] text-mute">오늘 선별이 아직 없습니다.</p>
@@ -255,7 +257,7 @@ function PlanPreview({ plan, error, onRetry, retrying }: { plan: ExecutionPlan |
         {plan ? (
           <PlanGraph plan={plan} trace={[]} currentStep={null} />
         ) : error ? (
-          <ErrorState message={errorMessage(error)} onRetry={onRetry} retrying={retrying} />
+          <ErrorPanel kind={errorKindOf(error)} detail={errorMessage(error)} onRetry={onRetry} retrying={retrying} secondary={null} compact className="bg-fill" />
         ) : (
           <Skeleton className="h-40 w-full" />
         )}

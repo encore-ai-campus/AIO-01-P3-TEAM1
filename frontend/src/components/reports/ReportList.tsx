@@ -15,7 +15,9 @@ import { cn } from "../../lib/cn";
 import { formatDateTime } from "../../lib/format";
 import { PLAN_NOTE, REPORT_CARD_TEXT, formatCost, reportCardStatus } from "../../lib/reports";
 import { Icon } from "../Icon";
-import { Card, EmptyState, ErrorState, Segmented } from "../ui";
+import { ErrorPanel } from "../errors/ErrorPanel";
+import { errorKindOf } from "../errors/errorTypes";
+import { Card, EmptyState, Segmented } from "../ui";
 import { CrossCheckList } from "./CrossCheckList";
 import { ListSkeleton } from "./ListSkeleton";
 import { OpinionBadge } from "./OpinionBadge";
@@ -171,7 +173,7 @@ function Reports({ group, expert }: { group: "mine" | "team"; expert: boolean })
         <ListSkeleton />
       ) : isError ? (
         <div className="px-5 py-3">
-          <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} retrying={isFetching} />
+          <ErrorPanel kind={errorKindOf(error)} detail={errorMessage(error)} onRetry={() => void refetch()} retrying={isFetching} secondary={null} compact className="bg-fill" />
         </div>
       ) : rows.length === 0 ? (
         <EmptyState icon="doc" compact className="px-5">

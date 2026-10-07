@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { Link } from "react-router";
 import { cn } from "../../lib/cn";
 import { Icon, type IconName } from "../Icon";
@@ -79,6 +80,7 @@ export function ErrorPanel({
   onRetry,
   retrying = false,
   secondary = { label: "리포트 목록으로", to: "/reports" },
+  compact = false,
   className,
 }: {
   kind: ErrorKind;
@@ -86,21 +88,27 @@ export function ErrorPanel({
   onRetry?: () => void;
   retrying?: boolean;
   secondary?: StateAction | null;
+  compact?: boolean;
   className?: string;
 }) {
   const copy = COPY[kind];
+  const titleId = useId();
   return (
-    <section role="alert" aria-labelledby={`error-${kind}-title`} className={cn("rounded-2xl bg-card px-5 py-8 text-center sm:px-8", className)}>
-      <span aria-hidden="true" className="mx-auto grid size-12 place-items-center rounded-full bg-up-soft text-up-ink">
-        <Icon name={copy.icon} className="size-6" />
+    <section
+      role="alert"
+      aria-labelledby={titleId}
+      className={cn("rounded-2xl bg-card text-center", compact ? "px-4 py-5" : "px-5 py-8 sm:px-8", className)}
+    >
+      <span aria-hidden="true" className={cn("mx-auto grid place-items-center rounded-full bg-up-soft text-up-ink", compact ? "size-10" : "size-12")}>
+        <Icon name={copy.icon} className={compact ? "size-5" : "size-6"} />
       </span>
-      <h2 id={`error-${kind}-title`} className="mt-4 text-[18px] font-bold text-ink">
+      <h2 id={titleId} className={cn("font-bold text-ink", compact ? "mt-3 text-[16px]" : "mt-4 text-[18px]")}>
         {copy.title}
       </h2>
-      <p className="mt-2 text-[14px] leading-relaxed text-sub">{detail || copy.message}</p>
+      <p className={cn("text-[14px] leading-relaxed text-sub", compact ? "mt-1.5" : "mt-2")}>{detail || copy.message}</p>
       <p className="mt-1 text-[13px] leading-relaxed text-mute">{copy.next}</p>
       {(onRetry || secondary) && (
-        <div className="mx-auto mt-6 flex max-w-[320px] flex-col gap-2 sm:max-w-none sm:flex-row sm:justify-center">
+        <div className={cn("mx-auto flex max-w-[320px] flex-col gap-2 sm:max-w-none sm:flex-row sm:justify-center", compact ? "mt-4" : "mt-6")}>
           {onRetry && (
             <button
               type="button"

@@ -119,9 +119,15 @@ function FailureCard({ r, trace, state }: { r: ReportDetail; trace: TraceEvent[]
         </button>
       )}
       {request.isError && (
-        <Notice tone="error" className="mt-3">
-          {errorMessage(request.error)}
-        </Notice>
+        <ErrorPanel
+          kind={errorKindOf(request.error)}
+          detail={errorMessage(request.error)}
+          onRetry={() => request.mutate({ symbol: r.symbol, chaos: r.chaos }, { onSuccess: (n) => navigate(`/reports/${n.id}`) })}
+          retrying={request.isPending}
+          secondary={null}
+          compact
+          className="mt-3 bg-fill"
+        />
       )}
     </Card>
   );
