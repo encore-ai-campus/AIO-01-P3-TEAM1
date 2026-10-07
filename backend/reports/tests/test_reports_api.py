@@ -1,4 +1,5 @@
-"""AI 리포트 API: 실행 계획, 신청, 목록(?mine=1 — B8), 상세(Snapshot), 목록·상세의 AI 의견·한 줄 요약(B3).
+"""AI 리포트 API: 실행 계획, 신청, 목록(?mine=1 — B8), 상세(Snapshot), 목록·상세의 AI 의견·한 줄 요약(B3),
+팀(team: 종목 리포트 stock_report · 매매 종목 선정 stock_selection) 구분과 ?team=·?source= 필터.
 종목 확인은 가짜 (증권사를 부르지 않는다). 하루 한도(D-7)는 test_quota.py."""
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -14,7 +15,7 @@ from .conftest import make_report
 pytestmark = pytest.mark.django_db
 
 SUMMARY_KEYS = {"id", "symbol", "name", "market", "status", "currentStep", "requestedBy", "opinion", "oneLiner",
-                "createdAt", "startedAt", "finishedAt"}
+                "createdAt", "startedAt", "finishedAt", "source", "team", "chaosEnabled", "costUsd", "hasPdf"}
 KST = ZoneInfo("Asia/Seoul")
 DRAFT = {"title": "삼성전자 리포트", "verdict": "buy", "oneLiner": "단기 반등 구간, 분할 접근", "markdown": "# x",
          "plainSummary": ["거래가 늘고 있어요", "실적이 나아지고 있어요", "환율이 바뀌면 손실이 날 수 있어요"],
@@ -29,6 +30,12 @@ def report_limit(monkeypatch):
 
 def post(client, body):
     return client.post("/api/reports", body, content_type="application/json")
+
+
+def selection_run(user=None, source=Report.AUTO, **fields) -> Report:
+    """매매 종목 선정 실행 (엔진이 만드는 모양: 신청자 없음 · 자동 · symbol은 시장 코드)."""
+    fields = {"symbol": "KR", "name": "오늘의 매매 종목 선정", "market": "KR"} | fields
+    return Report.objects.create(user=user, source=source, team=Report.STOCK_SELECTION, **fields)
 
 
 @pytest.mark.parametrize("path", ["/api/reports/plan", "/api/reports", "/api/reports/1"])
@@ -47,8 +54,22 @@ def test_plan(api):
     assert api.get("/api/reports/plan").json() == registry.execution_plan()
 
 
+@pytest.mark.parametrize("query, team", [("stock_report", "stock_report"), ("stock_selection", "stock_selection"),
+                                         (" Stock_Selection ", "stock_selection"), ("", "stock_report")])
+def test_plan_of_team(api, query, team):
+    body = api.get(f"/api/reports/plan?team={query}").json()
+    assert body == registry.execution_plan(team) and body["team"] == team
+
+
+@pytest.mark.parametrize("query", ["x", "stock", "all"])
+def test_plan_of_unknown_team_is_400(api, query):
+    response = api.get(f"/api/reports/plan?team={query}")
+    assert response.status_code == 400
+    assert response.json() == {"detail": "team은 stock_report 또는 stock_selection입니다."}
+
+
 def test_plan_error_is_json_500(api, monkeypatch):
-    def broken():
+    def broken(team="stock_report"):
         raise registry.PlanError("step id가 겹칩니다: x")
     monkeypatch.setattr(registry, "execution_plan", broken)
     response = api.get("/api/reports/plan")
@@ -62,7 +83,7 @@ def test_create_report(api, user, stocks):
     response = post(api, {"symbol": " 005930 "})
     assert response.status_code == 201
     body = response.json()
-    assert set(body) == SUMMARY_KEYS | {"content", "state", "trace", "plan"}
+    assert set(body) == SUMMARY_KEYS | {"content", "state", "trace", "plan", "chaos", "recovery"}
     assert (body["symbol"], body["name"], body["market"], body["status"], body["currentStep"], body["requestedBy"]) == (
         "005930", "삼성전자", "KR", "requested", None, "앨리스")
     assert body["startedAt"] is None and body["finishedAt"] is None and body["createdAt"].endswith("+09:00")
@@ -70,9 +91,19 @@ def test_create_report(api, user, stocks):
     assert body["content"] is None and body["trace"] == []
     assert body["state"] == {"taskId": f"report-{body['id']}", "status": "requested", "currentStep": None,
                              "results": {}, "errors": {}, "completedAgents": [], "failedAgents": []}
-    assert body["plan"] == registry.execution_plan() and body["plan"]["implemented"] is False
+    assert body["plan"] == registry.execution_plan() and body["plan"]["team"] == "stock_report"
+    assert body["team"] == "stock_report" and body["source"] == "user"
     report = Report.objects.get(pk=body["id"])
     assert (report.user, report.status, report.started_at) == (user, "requested", None)  # 실행은 시작하지 않는다
+    assert report.team == Report.STOCK_REPORT
+
+
+def test_create_ignores_active_selection_run(api, user, stocks):
+    """같은 사람·같은 symbol이라도 선정 실행은 '진행 중인 같은 리포트'가 아니다 (신청은 늘 종목 리포트)."""
+    selection = selection_run(user, source=Report.USER, symbol="005930", status=Report.RUNNING)
+    response = post(api, {"symbol": "005930"})
+    assert response.status_code == 201 and response.json()["id"] != selection.id
+    assert response.json()["team"] == "stock_report"
 
 
 def test_create_returns_active_report_of_same_user(api, user, other, stocks):
@@ -152,6 +183,62 @@ def test_list_mine(api, user, other):
         assert api.get(f"/api/reports?mine={value}").json()["count"] == 3, value
     assert [r["id"] for r in api.get("/api/reports?mine=1&limit=1&offset=1").json()["results"]] == [mine_kr.id]
     assert theirs.id not in [r["id"] for r in api.get("/api/reports?mine=1").json()["results"]]
+
+
+def test_list_default_leaves_out_selection_runs(api, user):
+    """기본 목록은 종목 리포트만 — 선정 실행은 팀 목록·홈 최근 리포트·?symbol=KR에 섞이지 않는다."""
+    now = timezone.now()
+    report = make_report(user, created_at=now - timedelta(hours=1))
+    selection = selection_run(created_at=now)
+    body = api.get("/api/reports").json()
+    assert body["count"] == 1 and [r["id"] for r in body["results"]] == [report.id]
+    assert body["results"][0]["team"] == "stock_report"
+    assert api.get("/api/reports?symbol=KR").json() == {"count": 0, "results": []}
+    assert api.get("/api/reports?team=stock_report").json()["count"] == 1
+
+    picked = api.get("/api/reports?team=stock_selection").json()
+    assert picked["count"] == 1 and [r["id"] for r in picked["results"]] == [selection.id]
+    first = picked["results"][0]
+    assert set(first) == SUMMARY_KEYS
+    assert (first["team"], first["source"], first["requestedBy"], first["symbol"]) == (
+        "stock_selection", "auto", "자동", "KR")
+    assert (first["opinion"], first["oneLiner"]) == (None, None)
+    assert api.get("/api/reports?team=stock_selection&mine=1").json()["count"] == 0  # 신청자가 없다
+
+
+def test_list_source_filter(api, user):
+    """?source=user|auto (예전에는 무시돼 '자동' 필터가 전부를 보였다). team·mine·symbol과 같이 쓴다."""
+    now = timezone.now()
+    mine = make_report(user, created_at=now - timedelta(hours=3))
+    auto_kr = make_report(None, source=Report.AUTO, created_at=now - timedelta(hours=2))
+    auto_us = make_report(None, "AAPL", source=Report.AUTO, created_at=now - timedelta(hours=1))
+    selection = selection_run(created_at=now)
+
+    def ids(query):
+        return [r["id"] for r in api.get(f"/api/reports{query}").json()["results"]]
+    assert ids("") == [auto_us.id, auto_kr.id, mine.id]
+    assert ids("?source=auto") == [auto_us.id, auto_kr.id]
+    assert ids("?source=AUTO") == [auto_us.id, auto_kr.id]
+    assert ids("?source=user") == [mine.id]
+    assert ids("?source=") == [auto_us.id, auto_kr.id, mine.id]  # 비면 전부
+    assert ids("?source=auto&symbol=005930") == [auto_kr.id]
+    assert ids("?source=auto&mine=1") == []
+    assert ids("?source=auto&team=stock_selection") == [selection.id]
+    assert ids("?source=user&team=stock_selection") == []
+    assert api.get("/api/reports?source=auto&limit=1").json() == {
+        "count": 2, "results": [api.get("/api/reports?source=auto").json()["results"][0]]}
+
+
+@pytest.mark.parametrize("query, message", [
+    ("team=x", "team은 stock_report 또는 stock_selection입니다."),
+    ("team=all", "team은 stock_report 또는 stock_selection입니다."),
+    ("source=robot", "source는 user 또는 auto입니다."),
+    ("source=auto&team=selection", "team은 stock_report 또는 stock_selection입니다."),
+])
+def test_list_bad_filter_is_400(api, user, query, message):
+    make_report(user)
+    response = api.get(f"/api/reports?{query}")
+    assert response.status_code == 400 and response.json() == {"detail": message}
 
 
 # --- AI 의견·한 줄 요약 (B3) ---
@@ -239,6 +326,23 @@ def test_detail_snapshot(api, user):
     done = api.get(f"/api/reports/{report.id}").json()
     assert (done["status"], done["currentStep"], done["content"]) == ("completed", None, "# 삼성전자 리포트")
     assert done["finishedAt"] is not None and done["state"]["currentStep"] is None
+
+
+def test_detail_of_selection_run_has_its_own_plan(api, user):
+    """ReportDetail.plan은 그 리포트 팀의 계획 (선정 실행이면 선정 팀 계획)."""
+    selection = selection_run(results={"selector_agent": {"summary": "x", "picks": []}})
+    state.start(selection)
+    state.set_step(selection, "candidate_research")
+    body = api.get(f"/api/reports/{selection.id}").json()
+    assert body["plan"] == registry.execution_plan("stock_selection") and body["plan"]["team"] == "stock_selection"
+    assert (body["team"], body["currentStep"], body["requestedBy"]) == ("stock_selection", "candidate_research", "자동")
+    assert body["plan"]["steps"][0]["id"] == "candidate_research"
+    state.finish(selection, "completed", content="# 오늘의 선정")
+    done = api.get(f"/api/reports/{selection.id}").json()
+    assert (done["opinion"], done["oneLiner"], done["content"]) == (None, None, "# 오늘의 선정")  # report_agent가 없다
+
+    stock = make_report(user)
+    assert api.get(f"/api/reports/{stock.id}").json()["plan"] == registry.execution_plan()
 
 
 def test_detail_not_found(api):

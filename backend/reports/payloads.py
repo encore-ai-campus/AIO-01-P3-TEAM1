@@ -3,15 +3,16 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from accounts.models import Profile
+from config import engine
 from rest_framework import status
 from rest_framework.exceptions import APIException
 
 from . import registry
+from .contracts import ONE_LINER_MAX, OPINIONS
 from .models import Report, TraceEvent
 
 KST = ZoneInfo("Asia/Seoul")
-OPINIONS = ("buy", "hold", "avoid")   # ReportSummary.opinion = ReportDraft.verdict
-ONE_LINER_MAX = 80                    # ReportDraft.oneLiner 길이 상한 (docs/tasks/00-공통.md 10절)
+AUTO_REQUESTER = "자동"               # 자동 리포트(신청자 없음)의 requestedBy
 
 
 class PlanBroken(APIException):
@@ -24,10 +25,10 @@ def iso(value: datetime | None) -> str | None:
     return value.astimezone(KST).isoformat(timespec="seconds") if value else None
 
 
-def plan() -> dict:
-    """ExecutionPlan."""
+def plan(team: str = registry.TEAM) -> dict:
+    """팀의 ExecutionPlan (기본은 종목 리포트). 모르는 팀은 부르기 전에 막는다 (여기서는 설정 오류로 500)."""
     try:
-        return registry.execution_plan()
+        return registry.execution_plan(team)
     except registry.PlanError as e:
         raise PlanBroken(f"실행 계획이 잘못되었습니다: {e}") from None
 
@@ -53,13 +54,39 @@ def conclusion(report: Report) -> dict:
             "oneLiner": (line.strip()[:ONE_LINER_MAX] or None) if isinstance(line, str) else None}
 
 
+def requester(report: Report, names: dict[int, str]) -> str:
+    """신청한 팀원의 닉네임 (없으면 아이디). 자동 리포트이거나 신청자가 없으면 "자동"."""
+    if report.source == Report.AUTO or report.user_id is None:
+        return AUTO_REQUESTER
+    return names.get(report.user_id) or report.user.get_username()
+
+
+def chaos_enabled(report: Report) -> bool:
+    """장애 주입을 켜고 신청했는지."""
+    return isinstance(report.chaos, dict) and report.chaos.get("enabled") is True
+
+
+def has_pdf(report: Report) -> bool:
+    """만든 PDF(Chrome이 없으면 HTML) 파일이 pdf_path에 있는지. pdf_path는 PAPER_ROOT 기준 상대 경로."""
+    return bool(report.pdf_path) and (engine.ROOT / report.pdf_path).is_file()
+
+
+def recovery(report: Report) -> dict:
+    """RecoverySummary. Trace로 계산하기 전(T4-7)까지는 장애 없음으로 채운 고정값."""
+    return {"failures": 0, "recovered": 0, "unrecovered": 0, "injected": 0, "recoveryMs": None, "models": {}}
+
+
 def summary(report: Report, names: dict[int, str] | None = None) -> dict:
-    """ReportSummary. report.user를 쓰므로 목록은 select_related("user")로 읽는다."""
+    """ReportSummary. report.user를 쓰므로 목록은 select_related("user")로 읽는다.
+
+    team은 "stock_report"(종목 리포트) | "stock_selection"(하루 한 번의 매매 종목 선정 실행 — opinion·oneLiner는 늘 None).
+    """
     names = nicknames() if names is None else names
     return {
         "id": report.id, "symbol": report.symbol, "name": report.name, "market": report.market,
         "status": report.status, "currentStep": report.current_step,
-        "requestedBy": names.get(report.user_id) or report.user.get_username(),
+        "source": report.source, "team": report.team, "requestedBy": requester(report, names),
+        "chaosEnabled": chaos_enabled(report), "costUsd": report.cost_usd, "hasPdf": has_pdf(report),
         **conclusion(report),  # B3 opinion·oneLiner (Claude). 담당 4의 새 필드는 이 위에 더한다 (docs/DECISIONS.md 14-2)
         "createdAt": iso(report.created_at), "startedAt": iso(report.started_at), "finishedAt": iso(report.finished_at),
     }
@@ -84,8 +111,9 @@ def trace_event(event: TraceEvent) -> dict:
 
 
 def detail(report: Report) -> dict:
-    """ReportDetail (Snapshot): 요약 + 본문 + Shared State + Trace(step 오름차순) + 실행 계획."""
+    """ReportDetail (Snapshot): 요약 + 본문 + Shared State + Trace(step 오름차순) + 그 리포트 팀의 실행 계획."""
     return summary(report) | {
         "content": report.content, "state": shared_state(report),
-        "trace": [trace_event(event) for event in report.trace_events.order_by("step")], "plan": plan(),
+        "trace": [trace_event(event) for event in report.trace_events.order_by("step")], "plan": plan(report.team),
+        "chaos": report.chaos, "recovery": recovery(report),
     }

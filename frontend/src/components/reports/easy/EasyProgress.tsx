@@ -41,8 +41,6 @@ const EXAMPLES: { id: ScenarioId; label: string }[] = [
   { id: "recovery", label: "예시로 보기: AI가 늦어지는 경우" },
 ];
 
-const TOTAL = 5;
-
 function Btn({ label, onClick, disabled, primary }: { label: string; onClick: () => void; disabled?: boolean; primary?: boolean }) {
   return (
     <button
@@ -99,8 +97,9 @@ export function EasyProgress({ r }: { r: ReportDetail }) {
   const ex = replay.active;
   const now = useNow(!ex);
   const trace = ex ? replay.trace : r.trace;
-  const steps = progressOf(trace);
-  const peak = progressPeak(trace);
+  const steps = progressOf(trace, r.team);
+  const peak = progressPeak(trace, r.team);
+  const total = steps.length; // 종목 리포트는 다섯 단계
   const recovery = recoverySentences(trace);
   const typical = typicalDurationMs(team.data?.results ?? []);
   const waiting = !r.plan.implemented && r.status === "requested";
@@ -108,7 +107,7 @@ export function EasyProgress({ r }: { r: ReportDetail }) {
   // 막대는 끝난 단계 수의 최댓값이라 검토 뒤 다시 쓰기에도 뒤로 가지 않는다. 다만 다 끝나기 전에는 4/5에서 기다린다 —
   // 다시 쓰는 동안 '5/5'(초록 = 끝남)를 보이면 '지금 하는 중'인 단계·"만드는 중이에요" 제목과 반대로 말한다
   const finished = ex && (exStatus === "completed" || exStatus === "failed");
-  const shown = finished ? peak : Math.min(peak, TOTAL - 1);
+  const shown = finished ? peak : Math.min(peak, total - 1);
   const tone = !finished ? "brand" : exStatus === "completed" ? "ok" : "up";
   const title = ex
     ? exStatus === "completed"
@@ -145,9 +144,9 @@ export function EasyProgress({ r }: { r: ReportDetail }) {
         </div>
       )}
       <div className="flex items-center gap-3">
-        <Progress value={shown} max={TOTAL} label="리포트 만들기 진행" tone={tone} className="flex-1" />
+        <Progress value={shown} max={total} label="리포트 만들기 진행" tone={tone} className="flex-1" />
         <span aria-hidden="true" className="shrink-0 text-[13px] font-semibold text-sub tabular-nums">
-          {shown}/{TOTAL}
+          {shown}/{total}
         </span>
       </div>
       <ol aria-label="진행 단계" className="space-y-2">

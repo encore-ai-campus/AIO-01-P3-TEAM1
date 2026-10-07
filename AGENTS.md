@@ -2,11 +2,11 @@
 
 키움 REST API 시세로 돌리는 **팀 모의매매 웹 서비스**다. 원본은 토스증권 실주문까지 내던 개인용 스윙 매매 자동화(`toss_trading`)이고,
 이 저장소는 그것을 복제해 실주문을 없애고 가상 현금 계좌로 체결을 흉내 내도록 바꾼 것이다.
-지금 상태·기술 스택·남은 작업은 `docs/TEAM_PAPER_TRADING_PLAN.md`, 팀원이 이어서 개발할 일과 개발 환경 안내는 `TEAM_DEV_PLAN.md`, 과제 평가 기준은 `docs/프로젝트평가기준.md`, 클론 직후 설치·실행 절차는 `SETUP_PROMPT.md`, 작업자 간 공통 결정은 `docs/DECISIONS.md`, 웹 API 계약은 `docs/API.md`, 담당별 세부 작업과 담당 간 약속은 `docs/tasks/`(서비스 최종 흐름 AI 추천 → 계획 활성화 → 자동매매 → 알림은 `06-추천·자동매매.md`), 배포와 CI/CD는 `docs/DEPLOY.md`, 엔진 설계는 `docs/DESIGN.md`, 키움 API는 `docs/KIWOOM.md`, 화면별 배치와 근거는 `docs/화면배치.md`(모션·다크모드·색 토큰 규칙은 `docs/DECISIONS.md` 15장).
-합의된 계획(2026-10-04, 팀장 결정 — `docs/DECISIONS.md` 13장): 서비스 이름 **"종이배"**(2026-10-05 바뀜, 전 이름 "AI 리포트 데스크" — `docs/DECISIONS.md` 15-7) — 초보자도 리포트를 만들고·검토하고·모의 자동매매로 실행한다(`docs/컨셉변경계획.md`),
+지금 상태·기술 스택·남은 작업은 `docs/TEAM_PAPER_TRADING_PLAN.md`, 팀원이 이어서 개발할 일과 개발 환경 안내는 `TEAM_DEV_PLAN.md`, 과제 평가 기준은 `docs/프로젝트평가기준.md`, 클론 직후 설치·실행 절차는 `SETUP_PROMPT.md`(Windows는 먼저 `WSL2_SETUP.md`), 작업자 간 공통 결정은 `docs/DECISIONS.md`, 웹 API 계약은 `docs/API.md`, 담당별 세부 작업과 담당 간 약속은 `docs/tasks/`(서비스 최종 흐름 AI 추천 → 계획 활성화 → 자동매매 → 알림은 `06-추천·자동매매.md`), 배포와 CI/CD는 `docs/DEPLOY.md`, 엔진 설계는 `docs/DESIGN.md`, 키움 API는 `docs/KIWOOM.md`, 화면별 배치와 근거는 `docs/화면배치.md`(모션·다크모드·색 토큰 규칙은 `docs/DECISIONS.md` 15장).
+합의된 계획(2026-10-04, 팀장 결정 — `docs/DECISIONS.md` 13장): 서비스 이름 **"모매매"**(2026-10-07 바뀜, 전 이름 "종이배"·"AI 리포트 데스크" — `docs/DECISIONS.md` 18장·15-7) — 초보자도 리포트를 만들고·검토하고·모의 자동매매로 실행한다(`docs/컨셉변경계획.md`),
 주린이모드(계정 저장)와 투자 방식 확장 장기·스윙(`docs/투자서비스확장계획.md`, **선물·단타는 폐기** — `docs/DECISIONS.md` 16장), AI 교차검증 분석은 사용자 화면에 남긴다. 조사 근거·약관 검토는 `docs/research/`.
 구현 상태(2026-10-06): 장마감 기준 가격(시세는 2026-10-06부터 실시간 — `docs/DECISIONS.md` 17장)·보유 방식(스윙·장기)·장기투자(오늘의 내 종목 뉴스·펀더멘털 점검)·주린이모드·리포트 끝 알림·하루 리포트 한도는 만들었다
-(`docs/API.md`의 "구현: 2026-10-05 (Claude)", 결정 `docs/DECISIONS.md` 14장). 리포트 Agent 워크플로우·자동 리포트는 팀 몫으로 남았다. (2026-10-05에 만든 단타 연습은 2026-10-06 사용자 결정으로 모두 지웠다 — `docs/DECISIONS.md` 16장.)
+(`docs/API.md`의 "구현: 2026-10-05 (Claude)", 결정 `docs/DECISIONS.md` 14장). 리포트 Agent 워크플로우(Orchestrator·Worker 11개·매매 종목 선정 팀)·자동 리포트는 2026-10-07 사용자 요청으로 Claude가 구현했다 (`docs/DECISIONS.md` 19장 — 장애 주입·복구 지표·비용 예산은 팀 몫). (2026-10-05에 만든 단타 연습은 2026-10-06 사용자 결정으로 모두 지웠다 — `docs/DECISIONS.md` 16장.)
 **남은 결정·확인 목록과 다음 세션 시작점은 `docs/결정필요사항.md`** (결정하면 상태를 고치고 원래 문서에 옮긴다).
 
 ## 안전 규칙 (반드시 준수)
@@ -56,7 +56,7 @@
 engine/paper_engine/   매매 엔진 (선별, AI 교차검증, 리스크 엔진, 모의 체결, 기록, 리포트). engine/tests/
 backend/               Django: config/(설정, engine.py 엔진 접점, api.py 공통), accounts/(로그인·프로필·팀 계정),
                        trading/(팀원별 계좌·주문·시세·랭킹·run_engine), analysis/(AI 분석 색인·작업),
-                       reports/(AI 리포트 구조: YAML Registry·Shared State·Trace·SSE·A4 PDF·선별. Agent·Orchestrator는 미구현),
+                       reports/(AI 리포트: YAML Registry·Shared State·Trace·SSE·A4 PDF, orchestrator·guards·runner, agents/ Worker 11개, 선정 Guard·하루 파이프라인(auto, AUTO_REPORT)),
                        autotrade/(AI 추천·리스크 미리 보기·계획 활성화·자동매매 진행), notifications/(웹 알림·Discord Webhook 보낼 편지함),
                        longterm/(장기투자: 오늘의 내 종목 뉴스·산 이유와 펀더멘털 점검).
                        accounts/에 투자자 프로필·주린이모드, reports/에 리포트 끝 알림(alerts)·하루 한도(quota). 테스트는 backend/<앱>/tests/
@@ -83,7 +83,7 @@ scripts/dev.sh status | stop | logs | db | db-stop | import-sqlite     # 주소�
 cd backend && uv run python manage.py migrate      # DB 표. 아래는 하나씩 직접 띄울 때
 cd backend && uv run python manage.py create_team_accounts   # 팀원 계정 5개 → team_accounts.txt (git 제외)
 cd backend && uv run python manage.py runserver    # Django (.env에 DJANGO_DEBUG=on. PostgreSQL을 쓰면 DJANGO_SECRET_KEY도 필요)
-cd backend && uv run python manage.py run_engine   # 웹 엔진 루프 (체결·청산·예약·일별 자산·AI 분석 작업·추천 수집·리포트 알림·자동 추천·자동매매·장기투자·알림 발송)
+cd backend && uv run python manage.py run_engine   # 웹 엔진 루프 (체결·청산·예약·일별 자산·AI 분석 작업·리포트 실행·자동 리포트·추천 수집·리포트 알림·자동 추천·자동매매·장기투자·알림 발송)
 cd backend && uv run python manage.py demo_recommend --symbol 005930   # 시연용 규칙 추천 (AI 아님). auto_recommend --force는 선별 상위로
 cd frontend && npm ci && npm run dev               # Vite (/api, /admin을 127.0.0.1:8000으로 프록시. 다른 포트면 VITE_API_TARGET=..., VITE_MOCK=1이면 가짜 API)
 cd frontend && npx eslint . && npx tsc --noEmit && npx vitest run && npx vite build
@@ -111,7 +111,7 @@ uv run python -m paper_engine analyze 005930 --buy --by alice           # AI 교
   (루트 `conftest.py`가 키를 비운다. 가짜 클라이언트를 `config.engine`에 끼운다).
 - 검사 명령이나 실행에 필요한 설정 키를 바꾸면 `.github/workflows/ci.yml`, `deploy/.env.docker.example`도 같이 고친다.
   새 파일·폴더가 이미지에 들어가야 하면 루트 `.dockerignore`와 `deploy/Dockerfile`의 `COPY`를 확인한다.
-- 계획이 바뀌면 `docs/TEAM_PAPER_TRADING_PLAN.md`, `CLAUDE.md`, 이 파일을 함께 고친다.
+- 계획이 바뀌면 `docs/TEAM_PAPER_TRADING_PLAN.md`와 이 파일을 함께 고친다.
 - `docs/works/`의 작업 문서는 파일 이름을 `브랜치명_작업유형_작업내용_날짜.md`로 쓴다.
   브랜치명은 작업한 브랜치(리뷰는 리뷰한 브랜치)이고 `/`는 `-`로 바꾼다 (`feat/2-worker` → `feat-2-worker`).
   작업유형은 `리뷰` 또는 `완료보고서`, 작업내용은 공백 없이 짧게, 날짜는 작성일 `YYYY-MM-DD`.

@@ -6,6 +6,8 @@
 - 실패(failed, 엔진 재시작 정리 포함): report_failed (link /reports/{id}). 본문은 Trace의 마지막 workflow_failed.details.reason의
   쉬운 문장 (reports/text.py — 없거나 모르는 코드면 "리포트를 만들지 못했어요. 다시 만들 수 있어요").
 - 자동 리포트(source "auto". 열이 없으면 "user"로 본다)는 건너뛴다 (팀 몫 — 팀 파일 auto.py의 after_finish).
+- 종목 리포트(team "stock_report")만 본다. 매매 종목 선정 실행(stock_selection)은 source와 상관없이 건너뛴다
+  (선정 결과는 auto.tick이 처리한다. 신청자가 없는 행에 보내면 팀 전체에 매 바퀴 다시 갈 수 있다).
 - 중복 방지: 같은 사용자에게 같은 kind·같은 link의 알림이 이미 있으면 보내지 않는다 (두 경로가 겹치거나 엔진이 다시 떠도 한 번).
 
 보내는 자리는 둘이다 — 팀 코드(runner)가 끝낸 뒤 부를 수 있는 notify_finished와, run_engine의 "리포트 알림" 단계(추천 수집 다음)가
@@ -48,7 +50,8 @@ def sweep_finished(now: datetime, log) -> int:
 
     이번에 만든 추천의 알림(recommendation)도 보낸 수에 센다. 한 리포트의 오류가 나머지를 막지 않는다.
     """
-    reports = (Report.objects.filter(status__in=Report.FINISHED, finished_at__gte=now - SWEEP_WINDOW)
+    reports = (Report.objects.filter(team=Report.STOCK_REPORT, status__in=Report.FINISHED,
+                                     finished_at__gte=now - SWEEP_WINDOW)
                .select_related("user").order_by("id"))
     sent = 0
     for report in reports:
@@ -65,6 +68,10 @@ def sweep_finished(now: datetime, log) -> int:
 def _handle(report: Report, now: datetime) -> bool:
     """끝난 리포트 하나 → 알림 (보냈으면 True). 대상이 아니거나 이미 보냈으면 False."""
     if report.status not in Report.FINISHED or getattr(report, "source", "user") == AUTO:
+        return False
+    if report.team != Report.STOCK_REPORT:  # 선정 실행은 종목 리포트가 아니다
+        return False
+    if report.user_id is None:  # 신청자가 없으면 보낼 사람이 없다 (notify(None)은 팀 전체이고, 중복 확인도 맞지 않아 매 바퀴 다시 간다)
         return False
     with _lock:
         if report.status == Report.COMPLETED:

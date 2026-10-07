@@ -4,7 +4,7 @@
 가격 차트·점수 막대는 SVG·CSS를 문자열로 직접 만든다 (외부 라이브러리 없음). PDF 변환은 엔진의 `render_pdf`(Chrome headless).
 Agent가 아직 결과를 다 못 채웠어도(`Report.results`가 비어 있어도) 있는 만큼만 그리고 없는 칸은 "자료 없음"으로 둔다.
 
-서비스 이름은 "종이배"(D-5, 2026-10-05 바뀜 — docs/DECISIONS.md 15-7). 쪽 머리에 로고(8~10mm)와 이름,
+서비스 이름은 "모매매"(2026-10-07 바뀜 — docs/DECISIONS.md 18장, 로고 모양은 15-7). 쪽 머리에 로고(8~10mm)와 이름,
 오른쪽에 작은 글씨 "AI 리포트 · 모의투자 연습용"을 두고 가는 선을 긋는다 (면책 문장·날짜는 본문·꼬리말에 있어 머리에 다시 넣지 않는다).
 맨 위에 쉬운 요약 상자(`results.report_agent.plainSummary`, B1)와 통일 면책 문장을 두고, 꼬리말도 같은 면책 문장이다.
 가격은 장마감 기준이다: 차트는 완성 일봉(`trading.market.completed_candles` — 장중 미완성 봉 없음)으로 그리고
@@ -32,15 +32,16 @@ from config import engine
 
 from .models import Report, TraceEvent
 from .payloads import KST, conclusion
+from .text import selection_fallback_sentence
 
 log = logging.getLogger(__name__)
 
-SERVICE_NAME = "종이배"  # 화면 frontend/src/lib/plainText.ts SERVICE_NAME과 같다
+SERVICE_NAME = "모매매"  # 화면 frontend/src/lib/plainText.ts SERVICE_NAME과 같다
 BRAND_NOTE = "AI 리포트 · 모의투자 연습용"  # 쪽 머리 오른쪽 작은 글씨
 DISCLAIMER = "이 리포트는 AI가 만든 참고 자료이며 투자 권유가 아닙니다. 모든 매매는 모의 계좌에서만 이뤄집니다."  # 통일 면책 문장
 # 양식 판. 양식을 바꾸면 올린다 (예전 판 파일은 다음 요청 때 새로 만든다).
-# 2: 2026-10 쉬운 요약·장마감 기준. 3: 2026-10-05 서비스 이름 종이배·로고 머리
-TEMPLATE_VERSION = 3
+# 2: 2026-10 쉬운 요약·장마감 기준. 3: 2026-10-05 서비스 이름 종이배·로고 머리. 4: 2026-10-07 서비스 이름 모매매
+TEMPLATE_VERSION = 4
 NO_DATA = "자료 없음"
 NO_VALUE = "–"
 CHART_DAYS = 60            # 차트에 그리는 최근 일봉 수
@@ -58,7 +59,7 @@ AGENT_LABEL = {"market_agent": "시세", "fundamental_agent": "재무", "news_ag
                "report_agent": "작성", "review_agent": "검토", "risk_agent": "리스크"}
 RISE, FALL, ACCENT = "#d2342f", "#2a62d2", "#e08a00"   # 상승 빨강·하락 파랑 (국내 관례), 이동평균 주황
 
-# 종이배 로고 (frontend/src/components/BrandMark.tsx와 같은 모양, 48px 이상 판 — 돛의 접힌 선 포함). brand 타일 + 흰 배.
+# 로고: 종이배 모양 (frontend/src/components/BrandMark.tsx와 같은 모양, 48px 이상 판 — 돛의 접힌 선 포함). brand 타일 + 흰 배.
 # 늘이기·그림자·물결·화살표를 더하지 않고, 배를 노란색으로 칠하지 않는다 (docs/DECISIONS.md 15-7).
 LOGO_SVG = ('<svg class="logo" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">'
             '<rect width="32" height="32" rx="8" fill="#3182F6"/>'
@@ -482,6 +483,28 @@ def _reason_summary(items) -> str:
     return "<ul>" + "".join(f"<li>{_e(r)} — {n}종목</li>" for r, n in counts.most_common(MAX_DROP_REASONS)) + "</ul>"
 
 
+# 선별 표지 꼬리말의 선정 방식 (ScreeningResult.selectedBy). 아직 선정 중(null)이거나 없으면 규칙 문장
+SELECTED_BY_AI = "AI 선정 팀이 순위를 매기고 안전장치(규칙 코드)가 거른 결과입니다"
+SELECTED_BY_RULE = "선별은 AI가 아니라 규칙 점수(결정론적 코드)로 한 것입니다"
+NO_CANDIDATES = "규칙 선별을 통과한 종목이 없었어요"   # fallbackReason "no_candidates"
+
+
+def _selection_note(s: dict) -> str:
+    """꼬리말 첫 문장들. ai면 AI 선정 + 안전장치, rule이면 규칙 문장 + Fallback 사유(fallbackReason의 쉬운 문장)."""
+    by = s.get("selectedBy")
+    if by == "ai":
+        return f"{SELECTED_BY_AI}."
+    if by != "rule":
+        return f"{SELECTED_BY_RULE}."
+    reason = s.get("fallbackReason")
+    if reason == "no_candidates":
+        return f"{SELECTED_BY_RULE}. {NO_CANDIDATES}."
+    sentence = selection_fallback_sentence(reason)  # 선정에 맞춘 문장 (모르는 코드는 사유 없이)
+    if sentence:
+        return f"{SELECTED_BY_RULE}. AI 선정 팀을 쓰지 못한 이유: {sentence}."
+    return f"{SELECTED_BY_RULE}."
+
+
 def build_screening_html(screening: dict, reports: list[Report]) -> str:
     """선별 요약 표지 (`ScreeningResult` 형식). 선별 종목 점수, 거래대금 순위, 탈락·제외 사유, 그날 만든 리포트."""
     s = _dict(screening)
@@ -524,7 +547,7 @@ def build_screening_html(screening: dict, reports: list[Report]) -> str:
             f'<div class="cols"><div><h2>탈락 사유</h2>{_reason_summary(dropped)}</div>'
             f"<div><h2>제외 사유</h2>{_reason_summary(excluded)}</div></div>"
             f"<h2>이날의 리포트</h2>{reports_html}"
-            f'<p class="foot small">{SERVICE_NAME} · 선별은 AI가 아니라 규칙 점수(결정론적 코드)로 한 것입니다. {DISCLAIMER}</p>')
+            f'<p class="foot small">{SERVICE_NAME} · {_e(_selection_note(s))} {DISCLAIMER}</p>')
     return _page(title, body)
 
 

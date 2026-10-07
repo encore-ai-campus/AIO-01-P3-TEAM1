@@ -1,5 +1,8 @@
 # 03. Orchestrator (담당 3)
 
+> **2026-10-07 — T3-2~T3-9·T3-12 → Claude가 구현** (사용자 요청, `docs/DECISIONS.md` 19장): `orchestrator.py`, `guards.py`(입력·Join·Handoff Guard), `runner.py`, `run_engine` 연결, `fake_worker`, `state.add_cost`·팀별 확인. 실패 사유 코드에 `agent_failed`·`no_llm`·`expired`를 더했다(00-공통 9절). `AGENTS_IMPLEMENTED = True`.
+> 3에게 남는 것: **T3-10 실제 키로 리포트 한 건 끝까지**, T3-11 설계서 ① 총괄, 화면에서 진행 단계 표시 확인.
+
 > **할 일 (2026-10-05 단순화 — `TEAM_DEV_PLAN.md` 11장)**: ① 추천 워크플로우: Orchestrator·Guard·runner·Handoff·실패 사유 코드 · ② UI/UX: 진행 단계 표시 확인 · ③ 추가 기능 논의: ~~단타 AI 팀(`day_plan`·`day_review`) 설계~~(2026-10-06 단타 폐기로 없어짐) · ④ 테스트: 오케스트레이션 테스트, 장애 시험.
 > 그 밖의 확정된 변경은 Claude가 구현한다(`docs/DECISIONS.md` 14장). 아래 세부 표는 워크플로우 개발의 약속·참고로 남긴다.
 
@@ -41,7 +44,7 @@
 
 ## 2026-10-04 합의 — 실패 사유 코드와 설계서의 "사용자 3단계 ↔ Agent" 표 (`docs/DECISIONS.md` 13장)
 
-서비스 컨셉이 "주식이 처음인 사람도 리포트를 ① 만들고 · ② 검토하고 · ③ 모의 자동매매로 실행하는 **AI 리포트 데스크**"로 바뀌었다 (`docs/컨셉변경계획.md`). (2026-10-05 이름을 **"종이배"**로 바꿨다 — `docs/DECISIONS.md` 15-7)
+서비스 컨셉이 "주식이 처음인 사람도 리포트를 ① 만들고 · ② 검토하고 · ③ 모의 자동매매로 실행하는 **AI 리포트 데스크**"로 바뀌었다 (`docs/컨셉변경계획.md`). (2026-10-05 이름을 "종이배"로, 2026-10-07 **"모매매"**로 바꿨다 — `docs/DECISIONS.md` 15-7·18장)
 **Orchestrator 구조·Trace 규칙·일정은 그대로다.** 담당 3에게 더해진 것은 아래 셋이다 (T3-12, T3-11 고침).
 
 | 바뀐 곳 | 내용 |

@@ -93,6 +93,15 @@ def test_from_report_needs_completed(user):
     assert sources.from_report(report_of(user, status=Report.RUNNING)) is None
 
 
+def test_from_report_ignores_selection_runs(user, sent):
+    """매매 종목 선정 실행(team stock_selection)은 종목 리포트가 아니다 — buy 초안 모양이 있어도 추천을 만들지 않는다."""
+    selection = report_of(user)
+    Report.objects.filter(pk=selection.pk).update(team=Report.STOCK_SELECTION)
+    selection.refresh_from_db()
+    assert sources.from_report(selection) is None
+    assert not Recommendation.objects.exists() and sent.calls == []
+
+
 def test_from_report_defaults(user):
     rec = sources.from_report(report_of(user, {"report_agent": DRAFT | {
         "targets": {"entry": 69000, "target": 80000, "stop": 66000, "holdingDays": None, "probability": None}}}))
@@ -128,6 +137,24 @@ def test_collect_and_expire(user):
     assert old.status == "expired"
     assert Recommendation.objects.filter(status="open").count() == 2
     assert any("만료" in line for line in logs)
+
+
+def test_collect_ignores_selection_runs(user, monkeypatch):
+    """추천 수집은 끝난 종목 리포트만 본다 (선정 실행을 7일 동안 매 바퀴 다시 보지 않는다)."""
+    report = report_of(user)
+    Report.objects.create(team=Report.STOCK_SELECTION, source=Report.AUTO, symbol="KR", name="오늘의 매매 종목 선정",
+                          market="KR", status=Report.COMPLETED, finished_at=timezone.now(),
+                          results={"selector_agent": {"summary": "x", "picks": []}, "report_agent": DRAFT})
+    seen = []
+    real = sources.from_report
+
+    def spy(item, now):
+        seen.append(item.id)
+        return real(item, now)
+    monkeypatch.setattr(sources, "from_report", spy)
+    assert sources.collect(timezone.now(), [].append) == 1
+    assert seen == [report.id]
+    assert list(Recommendation.objects.values_list("report_id", flat=True)) == [report.id]
 
 
 def test_collect_logs_one_error_and_continues(user, monkeypatch):

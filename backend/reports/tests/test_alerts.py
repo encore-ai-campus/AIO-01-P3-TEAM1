@@ -91,6 +91,8 @@ def test_buy_with_bad_prices_is_completed_without_plan(user):
     ("timeout", "시간이 너무 오래 걸려 멈췄어요. 다시 만들 수 있어요."),
     ("engine_restarted", "서버가 다시 시작돼 중단됐어요. 다시 만들 수 있어요."),
     ("exception", "예상하지 못한 오류로 멈췄어요. 다시 만들 수 있어요."),
+    ("agent_failed", "필요한 AI가 끝내 응답하지 않아 멈췄어요. 다시 만들 수 있어요."),
+    ("no_llm", "AI 연결 설정이 없어 리포트를 쓰지 못했어요. 다시 만들 수 있어요."),
     ("모르는_코드", "리포트를 만들지 못했어요. 다시 만들 수 있어요."),
     (None, "리포트를 만들지 못했어요. 다시 만들 수 있어요."),
 ])
@@ -128,6 +130,24 @@ def test_sweep_window_unfinished_and_auto_reports_are_skipped(user):
     assert notes(user) == []
 
 
+@pytest.mark.parametrize("status", [Report.COMPLETED, Report.FAILED])
+def test_selection_runs_are_skipped_even_with_source_user(user, status):
+    """매매 종목 선정 실행(team stock_selection)은 종목 리포트가 아니라 알림 대상이 아니다 (source가 user여도)."""
+    for owner in (user, None):  # 신청자가 없는 행에 보내면 팀 전체에 매 바퀴 다시 갈 수 있다
+        selection = make_report(owner, team=Report.STOCK_SELECTION, source=Report.USER, status=status,
+                                finished_at=NOW - timedelta(hours=1), results={"report_agent": DRAFT})
+        TraceEvent.objects.create(report=selection, step=1, actor="orchestrator", action="workflow_failed",
+                                  status="failed", details={"reason": "agent_failed"})
+        alerts.notify_finished(selection)
+    assert alerts.sweep_finished(NOW, Log()) == 0
+    assert not Notification.objects.exists() and not OutboxMessage.objects.exists()
+    assert not Recommendation.objects.exists()  # buy 초안이 있어도 추천을 만들지 않는다
+
+    report = finished(user, status=status, draft=DRAFT | {"verdict": "hold"}, reason="timeout")
+    assert alerts.sweep_finished(NOW, Log()) == 1  # 같은 사람의 종목 리포트는 그대로 간다
+    assert [n.link for n in notes(user)] == [f"/reports/{report.id}"]
+
+
 def test_each_user_gets_their_own_alert(user, other):
     mine, theirs = finished(user, status=Report.FAILED, reason="timeout"), finished(other, draft=DRAFT | {"verdict": "hold"})
     assert alerts.sweep_finished(NOW, Log()) == 2
@@ -157,3 +177,26 @@ def test_report_sentences_have_no_persuasion():
     for n in notices:
         for sentence in (n.title, n.body, n.expert_title, n.expert_body):
             assert forbidden_phrases(sentence) == [], sentence
+
+
+def test_expired_failure_says_it_can_be_made_again_once():
+    body = text.failed("삼성전자", "005930", "expired").body
+    assert body == "오래 기다린 신청이라 실행하지 않았어요. 다시 만들 수 있어요." and body.count("다시 만들 수 있어요") == 1
+
+
+@pytest.mark.django_db
+def test_report_without_requester_is_not_broadcast(other):
+    """신청자 없는 종목 리포트(관리자 화면에서 만든 행 등)는 알리지 않는다 — notify(None)은 팀 전체이고 매 바퀴 다시 간다."""
+    now = datetime.now(ZoneInfo("Asia/Seoul"))
+    Report.objects.create(user=None, symbol="005930", name="삼성전자", market="KR", status=Report.FAILED, finished_at=now)
+    assert alerts.sweep_finished(now, lambda line: None) == 0
+    assert alerts.sweep_finished(now, lambda line: None) == 0
+    assert Notification.objects.count() == 0
+
+
+def test_selection_fallback_sentences_talk_about_selection():
+    for code in ("join_blocked", "review_failed", "no_llm", "expired", "no_candidates"):
+        sentence = text.selection_fallback_sentence(code)
+        assert sentence and "리포트" not in sentence and not forbidden_phrases(sentence), code
+    assert text.selection_fallback_sentence("timeout") == text.FAILURE_TEXT["timeout"]
+    assert text.selection_fallback_sentence("brand_new") is None and text.selection_fallback_sentence(None) is None

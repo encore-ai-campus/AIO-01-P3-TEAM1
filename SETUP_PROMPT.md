@@ -35,7 +35,7 @@
 
 - **macOS, Linux, Windows의 WSL2**에서 돈다. **WSL이 아닌 Windows(PowerShell·cmd·Git Bash)에서는 돌지 않는다**
   (엔진이 Unix 전용 파일 잠금 `fcntl`을 쓰고, 실행 스크립트가 bash·`lsof`·`pgrep`을 쓴다).
-  Windows라면 설치를 진행하지 말고, WSL2(Ubuntu)를 설치해 그 안에서 다시 클론하도록 안내하고 멈춘다.
+  Windows라면 설치를 진행하지 말고, WSL2(Ubuntu)를 설치해 그 안에서 다시 클론하도록 안내하고 멈춘다 (절차: 저장소 루트의 `WSL2_SETUP.md`).
 - 필요한 도구:
 
 | 도구 | 조건 | 없을 때 |

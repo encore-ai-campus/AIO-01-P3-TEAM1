@@ -35,12 +35,12 @@ export interface Wording {
 // ---------------------------------------------------------------- 고정 문구
 
 /**
- * 서비스 이름 (docs/DECISIONS.md 15-7 — 2026-10-05에 바뀜, 전 이름은 D-5). 붙여 쓰고 꾸밈말을 붙이지 않는다('AI 종이배' 아님).
- * '종이'는 AI가 쓴 리포트(종이 위의 보고서)와 모의투자(paper trading — 실제가 아니라 종이 위에서 연습)를 함께 뜻한다.
- * 문구에 쓰지 않는 말: 배 은어(탑승·승선·선장·출항·순항), 띄우다·접다, 침몰·가라앉다·구조, '배(倍)' 말장난.
+ * 서비스 이름 (docs/DECISIONS.md 18장 — 2026-10-07에 바뀜. 전 이름은 '종이배'(15-7), 그 전은 D-5). 붙여 쓰고 꾸밈말을 붙이지 않는다('AI 모매매' 아님).
+ * 부제의 '종이 위에서'는 모의투자(paper trading — 실제가 아니라 종이 위에서 연습)를 뜻한다.
+ * 문구에 쓰지 않는 말: 배 은어(탑승·승선·선장·출항·순항), 띄우다·접다, 침몰·가라앉다·구조, '배(倍)' 말장난 — 로고가 종이배 모양이라 그대로 지킨다.
  * 로고는 components/BrandMark.tsx. 백엔드에도 같은 이름이 둘 있다 (notifications/service.py HEADER, reports/pdf.py SERVICE_NAME).
  */
-export const SERVICE_NAME = "종이배";
+export const SERVICE_NAME = "모매매";
 
 /** 부제: 이름 바로 아래 (로그인 첫 화면·발표 첫 장). */
 export const SERVICE_TAGLINE = "종이 위에서 연습하는 AI 리포트 모의투자";
@@ -133,6 +133,9 @@ export const REPORT_FAILURE_TEXT: Record<ReportFailureReason, string> = {
   timeout: "시간이 너무 오래 걸려 멈췄어요",
   engine_restarted: "서버가 다시 시작돼 중단됐어요",
   exception: "예상하지 못한 오류로 멈췄어요",
+  agent_failed: "필요한 AI가 끝내 응답하지 않아 멈췄어요",
+  no_llm: "AI 연결 설정이 없어 리포트를 쓰지 못했어요",
+  expired: "오래 기다린 신청이라 실행하지 않았어요",
 };
 
 export const REPORT_FAILURE_FALLBACK = "리포트를 만들지 못했어요. 다시 만들 수 있어요";
@@ -141,6 +144,27 @@ export function reportFailureSentence(reason: unknown): string {
   return typeof reason === "string" && reason in REPORT_FAILURE_TEXT
     ? REPORT_FAILURE_TEXT[reason as ReportFailureReason]
     : REPORT_FAILURE_FALLBACK;
+}
+
+/**
+ * 오늘의 선별을 규칙으로 고른 사유 (ScreeningResult.fallbackReason → 쉬운 문장). 코드는 리포트 실패 사유 + no_candidates.
+ * 리포트 문장 중 "리포트를 쓸 수 없었어요"처럼 리포트를 말하는 것만 선정에 맞게 바꾸고, 나머지는 같은 문장이다.
+ */
+export const SELECTION_FALLBACK_TEXT: Record<ReportFailureReason | "no_candidates", string> = {
+  ...REPORT_FAILURE_TEXT,
+  join_blocked: "후보를 조사하는 AI가 응답하지 않아 AI가 고르지 못했어요",
+  review_failed: "검토 AI가 근거와 맞지 않는 선정을 찾아 AI 선정안을 쓰지 않았어요",
+  no_llm: "AI 연결 설정이 없어 AI가 고르지 못했어요",
+  expired: "선정 실행이 오래 기다리다 실행되지 않아 AI가 고르지 못했어요",
+  no_candidates: "규칙 선별을 통과한 종목이 없었어요",
+};
+
+export const SELECTION_FALLBACK_FALLBACK = "AI 선정을 끝내지 못했어요";
+
+export function selectionFallbackSentence(reason: unknown): string {
+  return typeof reason === "string" && reason in SELECTION_FALLBACK_TEXT
+    ? SELECTION_FALLBACK_TEXT[reason as keyof typeof SELECTION_FALLBACK_TEXT]
+    : SELECTION_FALLBACK_FALLBACK;
 }
 
 /** Trace의 마지막 workflow_failed.details.reason (없으면 null). */
