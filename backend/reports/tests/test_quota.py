@@ -104,16 +104,12 @@ def test_counts_rule():
     assert quota.counts(report(Report.COMPLETED, source="user"))
 
 
-def test_usage_reads_chaos_and_source_columns_when_they_exist(user, monkeypatch):
-    """담당 4의 chaos·source 열이 생긴 뒤를 흉내 낸다: 장애 주입을 켠 failed는 세고, 자동 리포트는 세지 않는다."""
-    monkeypatch.setattr(Report, "chaos", property(lambda self: {"enabled": self.symbol == "AAPL"}), raising=False)
-    monkeypatch.setattr(Report, "source", property(lambda self: "auto" if self.name == "자동" else "user"),
-                        raising=False)
-    make_report(user, "AAPL", status=Report.FAILED, created_at=NOON)     # 장애 주입 켬 → 센다
-    make_report(user, status=Report.FAILED, created_at=NOON)             # 장애 주입 끔 → 빼고
-    make_report(user, status=Report.COMPLETED, created_at=NOON)          # 센다
-    auto = make_report(user, status=Report.COMPLETED, created_at=NOON)
-    Report.objects.filter(pk=auto.pk).update(name="자동")               # 자동 리포트 → 빼고
+def test_usage_reads_chaos_and_source_columns(user):
+    """담당 4의 chaos·source 열(마이그레이션 0002): 장애 주입을 켠 failed는 세고, 자동 리포트는 세지 않는다."""
+    make_report(user, "AAPL", status=Report.FAILED, created_at=NOON, chaos={"enabled": True})   # 장애 주입 켬 → 센다
+    make_report(user, status=Report.FAILED, created_at=NOON, chaos={"enabled": False})          # 장애 주입 끔 → 빼고
+    make_report(user, status=Report.COMPLETED, created_at=NOON)                                 # 센다
+    make_report(user, status=Report.COMPLETED, created_at=NOON, source=Report.AUTO)             # 자동 리포트 → 빼고
     assert quota.usage(user, NOON).used == 2
 
 
