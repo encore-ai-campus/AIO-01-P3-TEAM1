@@ -6,8 +6,10 @@ import { errorMessage } from "../../api/client";
 import { useReportPlan } from "../../api/queries";
 import { useRecoveryStats } from "../../api/reports";
 import type { RecoveryStats } from "../../api/types";
+import { ErrorPanel } from "../errors/ErrorPanel";
+import { errorKindOf } from "../errors/errorTypes";
 import { ExampleTag, InjectedBadge } from "../reports/StatusChip";
-import { Card, EmptyState, ErrorState, Segmented, SkeletonCard, Spinner } from "../ui";
+import { Card, EmptyState, Segmented, SkeletonCard, Spinner } from "../ui";
 import { useRevealAfterLoading } from "../../hooks/useMotionState";
 import { cn } from "../../lib/cn";
 import { formatDateTime, formatLatency } from "../../lib/format";
@@ -183,9 +185,7 @@ export function RecoveryStatsPanel() {
         {current === undefined && isPending ? (
           <SkeletonCard lines={5} />
         ) : isError && !data ? (
-          <Card>
-            <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} retrying={isFetching} />
-          </Card>
+          <ErrorPanel kind={errorKindOf(error)} detail={errorMessage(error)} onRetry={() => void refetch()} retrying={isFetching} />
         ) : !s || s.failures === 0 ? (
           <Card>
             <EmptyState>아직 장애가 없습니다.</EmptyState>
