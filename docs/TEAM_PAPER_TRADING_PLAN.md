@@ -26,7 +26,7 @@
 | 장마감 기준 | 화면 숫자는 직전 정규장 종가(KR은 거래일 15:40에 넘어간다), 체결·청산만 장중 확인 가격 | 동작 | 14-1, `backend/trading/market.py:1-12` |
 | 종목·차트 | 검색, 완성 일봉, 매수 유의, 펀더멘털 신호등(로컬은 `MARKETS=KR`) | 동작 | 14-3 |
 | AI 교차검증 분석 | 웹 요청 → `run_engine`이 엔진 `analyze` 하위 프로세스를 돌린다. 팀원별 하루 5회, 팀 하루 $10 | 실제 LLM 실행은 CLI smoke-test 1건(10/2, $0.30)뿐. 웹 경로는 가짜 테스트로만 확인(분석 작업 0건) | 8-4 |
-| AI 리포트 | 신청·하루 3회 한도, YAML Registry, State·Trace, Snapshot·SSE, 선별 API, A4 PDF, 쉬운 보기, 끝 알림 | **구조만**: 출력 계약·Worker 인터페이스, Registry(`fallbacks`·`retry`), LLM 호출기(재시도·대체 모델·Circuit Breaker — `healing.py`), 리포트 새 열(마이그레이션 0002)까지 있다(10/7). Worker 구현·Orchestrator·장애 주입·복구 지표는 없다(`backend/reports/registry.py:19` `AGENTS_IMPLEMENTED = False`). 신청은 `requested`로 남고, 흐름은 예시 Trace 재생으로만 보인다 | 9-1 |
+| AI 리포트 | 신청·하루 3회 한도, YAML Registry, State·Trace, Snapshot·SSE, 선별 API, A4 PDF, 쉬운 보기, 끝 알림 | **동작 (2026-10-07, Claude — `docs/DECISIONS.md` 19장)**: Orchestrator·Guard·runner·Worker 11개(종목 리포트 6 + 매매 종목 선정 5), 선정 Guard·하루 파이프라인(`AUTO_REPORT`, 기본 off). 가짜 LLM 테스트로 확인했고 실제 모델 실행(T2-10·T3-10)은 아직. 장애 주입(T4-6)·복구 지표(T4-7)·비용 예산은 없다(팀 몫). 하루 넘게 기다린 `requested`는 실행하지 않고 `expired`로 끝낸다 | 9-1 |
 | 추천 → 활성화 → 모의 자동매매 → 알림 | 출처 report·analysis·demo, 리스크 엔진(건당 1%·손익비 2.0), 진입 지정가·3일 재주문·목표·손절·기한 청산, 단계별 사건·알림 | 시연판: demo 규칙 추천만 있고 report 출처는 0건. 장중 체결·청산은 가짜 시세 테스트만(U8) | 12장, `docs/tasks/06-추천·자동매매.md:64-73` |
 | 장기투자 | 장기 보유, "왜 샀나요?", 오늘의 내 종목 뉴스(16:30), 펀더멘털 점검(18:00), 웹 알림 | 동작(10/5 격리 환경). 실제 시각 실행은 아직(U15) | 14-3 |
 | ~~단타 연습~~ | – | **폐기 (2026-10-06, 사용자 결정)**. 코드·API·화면에서 모두 지웠다 | 16장 |
@@ -69,7 +69,7 @@ nginx ─┬─ /, /assets    → React 빌드 파일 (SPA)
        └─ /api, /admin  → web: Django + DRF (gunicorn 워커 1 · 스레드 16)
 web · engine · migrate ─▶ db: PostgreSQL 16 (혼자 개발할 때는 SQLite). migrate가 먼저 성공해야 web·engine이 뜬다
 engine = python manage.py run_engine (5초 루프, 단계마다 오류 격리)
-  체결 확인 → 예약 실행 → 일별 자산 → 분석 작업 → 추천 수집 → 리포트 알림 → 자동 추천 → 자동매매 → 장기투자 → 알림 발송
+  체결 확인 → 예약 실행 → 일별 자산 → 분석 작업 → 리포트 실행 → 자동 리포트 → 추천 수집 → 리포트 알림 → 자동 추천 → 자동매매 → 장기투자 → 알림 발송
 redis 7 = compose가 띄운다. 엔진 CLI(serve·장 밖 예약·info·daily-report·backup)만 쓰고 web·run_engine은 쓰지 않는다
 외부 ─▶ 키움 REST(운영) · 토스(로컬 전용) · DART · data.go.kr · Google 뉴스 RSS · DevPass LLM Gateway
 알림 ─▶ 웹 알림(DB) + Discord Webhook 보낼 편지함 (engine이 보낸다. 지금 꺼짐)
@@ -186,9 +186,9 @@ macOS·Linux·WSL2에서만 돈다. 공유 개발 DB는 `.env`에 `POSTGRES_HOST
 |---|---|---|---|
 | Q1 | timeout 규칙 | `00-공통.md` 7절·T4-4는 "다음 모델로", `TEAM_DEV_PLAN.md` 5-1·DR-LLM-01·예시 재생 ③은 "같은 모델 1회 → 대체 모델"이다. 하나로 정하고 다른 쪽을 고친다 | 4(5와) · T4-4 전 |
 | Q2 | 제한 시간 | 호출 제한 90초(`engine/paper_engine/llm.py:10`)가 단계 `timeout` 60초(`team_definitions.yaml`)보다 길어 시간 초과 뒤 대체 모델로 넘어갈 시간이 없다(추측). 검토 재작성·Handoff에는 제한 시간이 없다. 버린 Worker 스레드가 `finish` 뒤에 기록하면 `StateError`다(`03-orchestrator.md` 주의) | 4·3 · T4-4·T3-5 전 |
-| Q3 | 필수 Worker 시간 초과의 사유 코드 | `join_blocked`인지 `timeout`인지(9절 표) | 3 · T3-5 |
+| Q3 | 필수 Worker 시간 초과의 사유 코드 (**2026-10-07 정함**: 단계 제한 시간 초과면 `timeout`, 00-공통 9절) | `join_blocked`인지 `timeout`인지(9절 표) | 3 · T3-5 |
 | Q4 | 검토 단계 입력 | 문서는 "Join Guard가 초안·조사 결과를 검토에 넘긴다", YAML `review`에는 join이 없다 | 3 · T3-5 전 |
-| Q5 | runner를 켜는 시점 | 묵은 `requested` 3건이 켜는 순간 실제 비용으로 돌고 끝 알림이 간다(같은 사람·종목 신청에는 이 행이 200으로 온다). 처리(끝내기·나이 제한·실행)를 정한다. 통합 전에는 별도 설정 키로 `runner.tick`을 막는다(제안 — `AGENTS_IMPLEMENTED`는 화면 SSE 깃발, `registry.py:17-18`) | 3·1 · ⑤ 전(오늘) |
+| Q5 | runner를 켜는 시점 (**2026-10-07 정함**: 24시간 넘게 기다린 `requested`는 실행하지 않고 실패 사유 `expired`로 끝낸다 — DECISIONS 19장) | 묵은 `requested` 3건이 켜는 순간 실제 비용으로 돌고 끝 알림이 간다(같은 사람·종목 신청에는 이 행이 200으로 온다). 처리(끝내기·나이 제한·실행)를 정한다. 통합 전에는 별도 설정 키로 `runner.tick`을 막는다(제안 — `AGENTS_IMPLEMENTED`는 화면 SSE 깃발, `registry.py:17-18`) | 3·1 · ⑤ 전(오늘) |
 | Q6 | 시험 수단 | `errorTypes` 셋으로는 DR-CRT-01·02·DR-SEC-01을 못 만든다. Circuit Breaker(모델별·프로세스 전역 5분, T4-5)가 시나리오끼리 간섭한다 → 사이에 5분 대기나 재시작(제안). 리포트 한도 3건 → 시험 한도를 올리거나 계정을 나눈다(제안) | 4·1 · T4-6·T4-10 전 |
 | Q7 | 장애 분류·셈법 | `LlmError`에 상태 코드가 없어 server_error·bad_output을 나누기 어렵다 → 구조화된 오류(제안). LLM 실패 없는 실패(Worker 오류·단계 시간 초과)를 장애로 셀지 정한다 | 4 · T4-2·T4-7 전 |
 | Q8 | 그 밖 | `attempt`의 두 뜻, `chaos.parse` 인자, 권유 표현을 계약 검증에 넣을지(넣으면 재요청 = 장애 1건), 0002 새 열의 `db_default`(제안 — 옛 코드가 도는 공유 DB 대비, 본보기 `trading/migrations/0002_order_style.py`), 산출물 위치(`docs/deliverables/` 대 `docs/설계서.md`·`장애복구보고서.md`·`파이프라인보고서.md`) | 2·3·4·1 · 0002 전, 산출물은 10/8 전 |

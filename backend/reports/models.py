@@ -15,11 +15,16 @@ class Report(models.Model):
     MARKETS = [("KR", "KR"), ("US", "US")]
     USER, AUTO = "user", "auto"
     SOURCES = [(USER, USER), (AUTO, AUTO)]
+    # 어느 팀(team_definitions.yaml)이 실행하나: 종목 리포트 / 하루 한 번의 매매 종목 선정 (docs/AI_AGENT_WORKFLOW.md)
+    STOCK_REPORT, STOCK_SELECTION = "stock_report", "stock_selection"
+    TEAMS = [(STOCK_REPORT, STOCK_REPORT), (STOCK_SELECTION, STOCK_SELECTION)]
 
     # 자동 리포트(source "auto")는 신청자가 없어 user가 null이다 (docs/tasks/00-공통.md 3절)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="reports",
                              null=True, blank=True)
     source = models.CharField(max_length=8, choices=SOURCES, default=USER, db_default=USER)  # 누가 만들었나
+    team = models.CharField(max_length=32, choices=TEAMS, default=STOCK_REPORT, db_default=STOCK_REPORT)
+    # 종목 리포트면 종목 코드. 선정 실행(team stock_selection)이면 시장 코드("KR")
     symbol = models.CharField(max_length=20)
     name = models.CharField(max_length=200)
     market = models.CharField(max_length=2, choices=MARKETS)
@@ -40,7 +45,7 @@ class Report(models.Model):
     class Meta:
         db_table = "reports"
         indexes = [models.Index(fields=["created_at"]), models.Index(fields=["symbol", "created_at"]),
-                   models.Index(fields=["status", "created_at"]), models.Index(fields=["source", "created_at"])]
+                   models.Index(fields=["status", "created_at"]), models.Index(fields=["source", "created_at"]), models.Index(fields=["team", "created_at"])]
 
     def __str__(self) -> str:
         return f"#{self.id} {self.name}({self.symbol}) {self.status}"

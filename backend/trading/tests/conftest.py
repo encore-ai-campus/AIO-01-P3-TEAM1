@@ -9,6 +9,8 @@ import pytest
 from analysis import jobs
 from django.core.cache import cache
 from paper_engine.config import Config
+from reports import auto as reports_auto
+from reports import runner
 from rest_framework.test import APIClient
 
 from config import engine
@@ -106,6 +108,8 @@ def engine_setup(monkeypatch, tmp_path):
     monkeypatch.setattr(engine, "broker_client", lambda: None)
     monkeypatch.setattr(engine, "HALT_FILE", tmp_path / "HALT")
     monkeypatch.setattr(jobs, "tick", lambda: None)  # 분석 작업은 analysis 앱 소유. 여기서는 부르는지만 본다
+    monkeypatch.setattr(runner, "tick", lambda: 0)  # 리포트 실행·자동 리포트는 reports 앱 소유 (reports/tests가 본다)
+    monkeypatch.setattr(reports_auto, "tick", lambda now, log: None, raising=False)
     yield
     cache.clear()
 

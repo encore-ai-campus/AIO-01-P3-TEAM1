@@ -1,5 +1,8 @@
 # 02. Worker·출력 계약 (담당 2)
 
+> **2026-10-07 — T2-3~T2-8 → Claude가 구현** (사용자 요청, `docs/DECISIONS.md` 19장): `agents/prompts.py`, 종목 리포트 Worker 6개(`agents/market.py` 등, 등록 `agents/report_team.py`), 매매 종목 선정 Worker 5개(`agents/news_screen.py` 등, 등록 `agents/selection_team.py`), 선정 팀 출력 계약 4개, YAML 모델 값(00-공통 4절 초안 그대로). 2의 계약 보강(dy `ce98783`)을 그 위에 합쳤다.
+> 2에게 남는 것: **T2-10 실제 모델로 프롬프트 다듬기**, T2-9의 비용 예산(`budget.py`), T2-11 설계서 ① 역할 표.
+
 > **할 일 (2026-10-05 단순화 — `TEAM_DEV_PLAN.md` 11장)**: ① 추천 워크플로우: Worker 6개·출력 계약(B1 `plainSummary` 포함)·프롬프트 · ② UI/UX: 리포트 문장 품질 · ③ 추가 기능 논의: 뉴스 출처 대안, 장기투자 AI 문장 · ④ 테스트: 출력 계약 테스트, LLM 장애 시나리오 일부.
 > 그 밖의 확정된 변경은 Claude가 구현한다(`docs/DECISIONS.md` 14장). 아래 세부 표는 워크플로우 개발의 약속·참고로 남긴다.
 
@@ -8,6 +11,22 @@
 
 > **2026-10-05**: `docs/DECISIONS.md` 14-2에 따라 Claude가 맡게 된 줄(일부만이면 그 부분)에 "→ Claude가 구현 (2026-10-05)"을 붙였다 (줄은 지우지 않았다). 표시가 붙은 일은 하지 않는다.
 > T2-4는 표시 없이 내용이 바뀌었다 — `market_agent`는 장마감 기준(`trading.market.close_price`·`completed_candles`, `MarketResult.asOf`)으로 만든다 (`00-공통.md` 10절, 14-2 표).
+
+## 2026-10-07 구현 메모 — Worker가 코드로 정하는 것 (AI는 제안만)
+
+| Worker | 코드가 정하거나 덮어쓰는 것 |
+|---|---|
+| `market_agent` | `price`·`changePct`·`asOf`(`trading.market.closes`, 없으면 마지막 완성 봉), `rsi`(14), `volatilityPct`(최근 20 완성 봉 일간 수익률 표준편차 %, 연환산 아님), `support`·`resistance`(최근 20 완성 봉 최저·최고), `volumeRank`(그날 선별 파일의 거래대금 순위, 없으면 null). 일봉·종가가 없으면 `WorkerError` |
+| `fundamental_agent` | `metrics`(PER = 종가 ÷ EPS(TTM, 양수일 때), PBR = 종가 ÷ BPS, ROE·매출 성장·영업이익률은 % — DART 자료). DART를 30초까지만 기다리고(LLM 시간 100초 남김) 못 받으면 "자료 없음"·`metrics` null. `recentFilings`는 받은 공시 목록에 있는 것만 |
+| `news_agent` | `headlines`는 받은 뉴스 제목에 있는 것만. 뉴스가 하나도 없으면 `sentiment` neutral·`score` null. 제목·매체는 `clean_text` |
+| `report_agent` | 인용(`citations`)은 조사 결과의 evidence에 있는 것만 (없으면 evidence로 채움). 프롬프트에 손익비 기준·"손익비"라는 말이 없다 (테스트) |
+| `review_agent` | `buy` 초안의 진입·목표·손절 순서가 틀리거나 진입가가 종가에서 5% 넘게 떨어지면 PASS를 RETRY로. 투자유의 종목이면 `handoff`(risk_agent)를 붙인다 |
+| `risk_agent` | 투자유의가 있으면 `level`은 최소 medium, 투자경고·투자위험·거래정지·정리매매·관리종목이면 high. 프롬프트에 `user_id`·`task_id`를 넣지 않는다 |
+| `news_screen_agent` | 후보 밖 종목 항목은 버린다. 뉴스가 없는 후보는 중립·재료 없음. 기사 날짜는 KST (뉴스 Worker 둘 다) |
+| 선정 팀 조사 셋 | 단계 제한 시간에서 LLM 몫 70초를 남기고 조회한다. 조회 하나가 그 몫을 넘기면 끊고 그 뒤 후보는 "자료 없음" |
+| `filing_screen_agent` | 30일 공시 전부(프롬프트에는 후보마다 최신 10개) 중 고위험 공시 낱말(관리종목·상장폐지·횡령·배임·감사의견·의견거절·불성실공시·회생·파산·부도·거래정지·자본잠식 등)이 제목에 있으면 `severity` high. 해제·아님·종결·취소·해소 공시는 빼고, 우선주는 보통주 공시를 본다 |
+| `flow_agent` | 외국인·기관 순매수 5일·20일 합계(주 수)를 코드가 계산. AI는 해석만 |
+| `selection_review_agent` | 후보 밖 종목·고위험 공시 종목·권유 표현·가격 표기가 선정안에 있으면 PASS를 RETRY로 (지적의 problem은 "코드 확인:"으로 시작) |
 
 ## 받는 것 · 주는 것
 

@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from paper_engine.config import Config
     from paper_engine.data.broker import BrokerClient
+    from reports.healing import LlmReply
 
 
 class LlmCallerProtocol(Protocol):
+    calls: list[LlmReply]
+    cost_usd: float
+
     def __call__(
         self,
         system: str,
@@ -18,7 +22,7 @@ class LlmCallerProtocol(Protocol):
         *,
         contract: str | None = None,
         timeout: float | None = None,
-    ) -> Any: ...
+    ) -> LlmReply: ...
 
 
 class WorkerError(Exception):
@@ -41,6 +45,9 @@ class WorkerContext:
     deadline: float
     cfg: Config
     client: BrokerClient | None
+    # 팀 실행 전체가 같이 쓰는 입력 (Orchestrator가 실행 시작 때 한 번 만든다).
+    # 선정 팀(stock_selection)은 {"market", "day", "candidates": [규칙 후보 ...]} — reports.selection.team_inputs. 종목 리포트는 None
+    team_inputs: dict | None = None
 
 
 class Worker(Protocol):

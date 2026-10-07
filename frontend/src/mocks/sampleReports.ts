@@ -2,8 +2,9 @@
 // options.sampleReports(브라우저 가짜 API 기본 켬) 또는 테스트의 db.addSampleReports()로만 들어간다 (기본 seed의 리포트 목록은 그대로).
 // 문장은 출력 계약(docs/tasks/00-공통.md 10절)을 따른다: plainSummary는 숫자 없이 세 문장, 권유형 없이.
 import type { ReportDetail, ReportOpinion, TraceEvent } from "../api/types";
+import { sampleScreening } from "../lib/reportSamples";
 import { basisDay, sessionEndIso } from "./clock";
-import { floorTick, type MockStock } from "./seed";
+import { floorTick, selectionPlan, type MockStock } from "./seed";
 
 export type SampleKind = ReportOpinion | "failed";
 
@@ -196,4 +197,113 @@ export function finishSample(r: ReportDetail, stock: MockStock, kind: SampleKind
     completedAgents: [...r.state.completedAgents, "review_agent"],
   };
   r.trace = trace;
+}
+
+const SELECTION_LLM: Record<string, [string, string]> = {
+  news_screen_agent: ["devpass", "gemini-3.8-flash"],
+  filing_screen_agent: ["devpass", "gemini-3.8-flash"],
+  flow_agent: ["devpass", "gemini-3.8-flash"],
+  selector_agent: ["devpass", "gpt-5.6-luna"],
+  selection_review_agent: ["devpass", "claude-opus-5-5"],
+};
+
+/**
+ * 끝난 예시 선정 실행 (team stock_selection, 자동): 후보 조사(뉴스·공시·수급) → Join → 종목 선정 → 선정 검토 PASS.
+ * 결과는 오늘의 선별 예시(lib/reportSamples sampleScreening)와 같은 종목·순위다. 오늘의 선별의 'AI 선정 과정 보기'가 여기로 온다.
+ */
+export function selectionSample(id: number, createdAt: string): ReportDetail {
+  const screening = sampleScreening();
+  const candidates = screening.candidates ?? [];
+  const aiPicks = screening.aiPicks ?? [];
+  const nameOf = (symbol: string) => String(candidates.find((c) => c.symbol === symbol)?.name ?? symbol);
+  const trace: TraceEvent[] = [];
+  const ev = (ms: number, actor: string, action: string, status: TraceEvent["status"], details: Record<string, unknown> = {}, latencyMs: number | null = null) => {
+    const llm = actor in SELECTION_LLM && action === "agent_completed" ? SELECTION_LLM[actor] : null;
+    trace.push({ step: trace.length + 1, actor, action, status, provider: llm?.[0] ?? null, model: llm?.[1] ?? null, latencyMs, details, at: plus(createdAt, ms) });
+  };
+  const theme = (symbol: string) => (["005930", "000660", "042700"].includes(symbol) ? "반도체" : symbol === "005380" ? "자동차" : null);
+  const news = {
+    summary: "반도체 후보에 공급 확대 기사가 몰렸고, 2차전지 후보에는 엇갈린 기사가 있었다.",
+    items: candidates.map((c) => ({
+      symbol: c.symbol,
+      sentiment: c.symbol === "086520" ? "negative" : "neutral",
+      materials: [],
+      concerns: [],
+      theme: theme(String(c.symbol)),
+      evidence: [],
+    })),
+  };
+  const filing = {
+    summary: "에코프로에 투자경고 관련 공시가 있었고 나머지 후보는 위험 신호가 없었다.",
+    items: candidates.map((c) => ({ symbol: c.symbol, severity: c.symbol === "086520" ? "low" : "none", signals: [], evidence: [] })),
+  };
+  const flow = {
+    summary: "외국인은 반도체 후보를, 기관은 자동차 후보를 순매수했다.",
+    items: candidates.map((c) => ({ symbol: c.symbol, signal: c.symbol === "000660" ? "accumulating" : "mixed", note: null })),
+  };
+  const draft = { summary: "공급 확대 뉴스와 수급이 겹친 반도체·자동차 후보를 위에 두었다.", picks: aiPicks };
+  const review = { verdict: "PASS", score: 82, issues: [], instructions: null, handoff: null };
+
+  ev(0, "orchestrator", "workflow_started", "started", { chaos: false, source: "auto", team: "stock_selection" });
+  for (const [i, actor] of ["news_screen_agent", "filing_screen_agent", "flow_agent"].entries()) ev(100 + i * 10, actor, "agent_started", "started", { attempt: 1, step: "candidate_research" });
+  ev(9_200, "flow_agent", "agent_completed", "completed", { attempts: 1, recovered: false, costUsd: 0.004 }, 9_080);
+  ev(14_300, "news_screen_agent", "agent_completed", "completed", { attempts: 1, recovered: false, costUsd: 0.011 }, 14_200);
+  ev(16_900, "filing_screen_agent", "agent_completed", "completed", { attempts: 1, recovered: false, costUsd: 0.009 }, 16_780);
+  ev(17_000, "join_guard", "join_completed", "completed", {
+    step: "select",
+    required: ["news_screen_agent", "filing_screen_agent"],
+    missing: [],
+    inputs: ["news_screen_agent", "filing_screen_agent", "flow_agent"],
+  });
+  ev(17_100, "selector_agent", "agent_started", "started", { attempt: 1, step: "select" });
+  ev(29_400, "selector_agent", "agent_completed", "completed", { attempts: 1, recovered: false, costUsd: 0.031 }, 12_300);
+  ev(29_500, "selection_review_agent", "agent_started", "started", { attempt: 1, step: "select_review" });
+  ev(37_800, "selection_review_agent", "agent_completed", "completed", { attempts: 1, recovered: false, costUsd: 0.027, verdict: "PASS", score: 82 }, 8_300);
+  ev(37_900, "orchestrator", "workflow_completed", "completed", { costUsd: 0.082, durationMs: 37_900 });
+
+  const content = [
+    "# 오늘의 매매 종목 선정",
+    "",
+    draft.summary,
+    "",
+    "| 순위 | 종목 | 고른 이유 |",
+    "|---|---|---|",
+    ...aiPicks.map((p) => `| ${p.rank} | ${nameOf(p.symbol)} (${p.symbol}) | ${p.reason} |`),
+    "",
+    "최종 종목은 안전장치(선정 Guard)를 거쳐 정해진다.",
+  ].join("\n");
+  const results = { news_screen_agent: news, filing_screen_agent: filing, flow_agent: flow, selector_agent: draft, selection_review_agent: review };
+  return {
+    id,
+    team: "stock_selection",
+    symbol: "KR",
+    name: "오늘의 매매 종목 선정",
+    market: "KR",
+    status: "completed",
+    currentStep: null,
+    requestedBy: "자동",
+    source: "auto",
+    chaosEnabled: false,
+    costUsd: 0.082,
+    hasPdf: false,
+    opinion: null,
+    oneLiner: null,
+    createdAt,
+    startedAt: createdAt,
+    finishedAt: plus(createdAt, 37_900),
+    content,
+    chaos: null,
+    recovery: { failures: 0, recovered: 0, unrecovered: 0, injected: 0, recoveryMs: null, models: {} },
+    state: {
+      taskId: `report-${id}`,
+      status: "completed",
+      currentStep: null,
+      results,
+      errors: {},
+      completedAgents: Object.keys(results),
+      failedAgents: [],
+    },
+    trace,
+    plan: selectionPlan(),
+  };
 }

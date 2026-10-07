@@ -32,6 +32,7 @@ from config import engine
 
 from .models import Report, TraceEvent
 from .payloads import KST, conclusion
+from .text import selection_fallback_sentence
 
 log = logging.getLogger(__name__)
 
@@ -482,6 +483,28 @@ def _reason_summary(items) -> str:
     return "<ul>" + "".join(f"<li>{_e(r)} — {n}종목</li>" for r, n in counts.most_common(MAX_DROP_REASONS)) + "</ul>"
 
 
+# 선별 표지 꼬리말의 선정 방식 (ScreeningResult.selectedBy). 아직 선정 중(null)이거나 없으면 규칙 문장
+SELECTED_BY_AI = "AI 선정 팀이 순위를 매기고 안전장치(규칙 코드)가 거른 결과입니다"
+SELECTED_BY_RULE = "선별은 AI가 아니라 규칙 점수(결정론적 코드)로 한 것입니다"
+NO_CANDIDATES = "규칙 선별을 통과한 종목이 없었어요"   # fallbackReason "no_candidates"
+
+
+def _selection_note(s: dict) -> str:
+    """꼬리말 첫 문장들. ai면 AI 선정 + 안전장치, rule이면 규칙 문장 + Fallback 사유(fallbackReason의 쉬운 문장)."""
+    by = s.get("selectedBy")
+    if by == "ai":
+        return f"{SELECTED_BY_AI}."
+    if by != "rule":
+        return f"{SELECTED_BY_RULE}."
+    reason = s.get("fallbackReason")
+    if reason == "no_candidates":
+        return f"{SELECTED_BY_RULE}. {NO_CANDIDATES}."
+    sentence = selection_fallback_sentence(reason)  # 선정에 맞춘 문장 (모르는 코드는 사유 없이)
+    if sentence:
+        return f"{SELECTED_BY_RULE}. AI 선정 팀을 쓰지 못한 이유: {sentence}."
+    return f"{SELECTED_BY_RULE}."
+
+
 def build_screening_html(screening: dict, reports: list[Report]) -> str:
     """선별 요약 표지 (`ScreeningResult` 형식). 선별 종목 점수, 거래대금 순위, 탈락·제외 사유, 그날 만든 리포트."""
     s = _dict(screening)
@@ -524,7 +547,7 @@ def build_screening_html(screening: dict, reports: list[Report]) -> str:
             f'<div class="cols"><div><h2>탈락 사유</h2>{_reason_summary(dropped)}</div>'
             f"<div><h2>제외 사유</h2>{_reason_summary(excluded)}</div></div>"
             f"<h2>이날의 리포트</h2>{reports_html}"
-            f'<p class="foot small">{SERVICE_NAME} · 선별은 AI가 아니라 규칙 점수(결정론적 코드)로 한 것입니다. {DISCLAIMER}</p>')
+            f'<p class="foot small">{SERVICE_NAME} · {_e(_selection_note(s))} {DISCLAIMER}</p>')
     return _page(title, body)
 
 

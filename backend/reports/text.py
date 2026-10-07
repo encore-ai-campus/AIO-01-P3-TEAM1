@@ -1,6 +1,8 @@
 """리포트 끝 알림의 사람이 읽는 문장 (컨셉 계획 B7 — docs/API.md "리포트 끝 알림", docs/DECISIONS.md 14-5). Claude 파일.
 
 - 실패 사유 코드(Trace `workflow_failed.details.reason`, docs/tasks/00-공통.md 9절)마다 쉬운 문장 하나.
+  join_blocked·review_failed·timeout·engine_restarted·exception에 Orchestrator가 내는 agent_failed(Join이 없는 단계의
+  필수 Worker가 끝내 실패)·no_llm(AI 연결 설정 없음), 실행기가 내는 expired(24시간 넘게 기다린 신청)를 더한 8개다. 이 밖의 코드는 FAILURE_FALLBACK.
   화면의 같은 표는 frontend/src/lib/plainText.ts의 REPORT_FAILURE_TEXT다 (문장을 바꾸면 둘 다 고친다).
 - 쉬운 문장(주린이모드 켬·Discord)과 전문가 문장(끔)을 한 벌(notifications.service.Notice)로 만든다.
 - 권유 표현을 쓰지 않는다 (paper_engine.wording.forbidden_phrases — reports/tests/test_alerts.py가 검사한다).
@@ -16,8 +18,22 @@ FAILURE_TEXT = {
     "timeout": "시간이 너무 오래 걸려 멈췄어요",
     "engine_restarted": "서버가 다시 시작돼 중단됐어요",
     "exception": "예상하지 못한 오류로 멈췄어요",
+    "agent_failed": "필요한 AI가 끝내 응답하지 않아 멈췄어요",
+    "no_llm": "AI 연결 설정이 없어 리포트를 쓰지 못했어요",
+    "expired": "오래 기다린 신청이라 실행하지 않았어요",
 }
 FAILURE_FALLBACK = "리포트를 만들지 못했어요. 다시 만들 수 있어요"
+
+# 선정 팀이 실패해 규칙으로 고른 날의 사유 (ScreeningResult.fallbackReason). 리포트를 말하는 문장만 선정에 맞게 바꾼다.
+# 화면의 같은 표는 frontend/src/lib/plainText.ts의 SELECTION_FALLBACK_TEXT다 (문장을 바꾸면 둘 다 고친다).
+SELECTION_FALLBACK_TEXT = {
+    **FAILURE_TEXT,
+    "join_blocked": "후보를 조사하는 AI가 응답하지 않아 AI가 고르지 못했어요",
+    "review_failed": "검토 AI가 근거와 맞지 않는 선정을 찾아 AI 선정안을 쓰지 않았어요",
+    "no_llm": "AI 연결 설정이 없어 AI가 고르지 못했어요",
+    "expired": "선정 실행이 오래 기다리다 실행되지 않아 AI가 고르지 못했어요",
+    "no_candidates": "규칙 선별을 통과한 종목이 없었어요",
+}
 
 # AI 의견 (ReportDraft.verdict). 쉬운 이름은 화면의 배지(OPINION_TEXT)와 같다
 OPINION_LABEL = {"buy": "AI 의견: 긍정적", "hold": "AI 의견: 지켜보기", "avoid": "AI 의견: 부정적"}
@@ -27,6 +43,11 @@ NO_PLAN = {
     "hold": "지켜보기 의견이라 매매 계획은 없어요",
     "avoid": "부정적 의견이라 매매 계획은 없어요",
 }
+
+
+def selection_fallback_sentence(reason) -> str | None:
+    """선정 Fallback 사유 코드 → 쉬운 문장. 모르는 코드면 None (리포트 실패 문장을 대신 쓰지 않는다)."""
+    return SELECTION_FALLBACK_TEXT.get(reason) if isinstance(reason, str) else None
 
 
 def failure_sentence(reason) -> str:

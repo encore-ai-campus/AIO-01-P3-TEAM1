@@ -253,6 +253,35 @@ def test_screening_cover(user):
     assert forbidden_phrases(text_of(html)) == []
 
 
+RULE_NOTE = "선별은 AI가 아니라 규칙 점수(결정론적 코드)로 한 것입니다."
+
+
+@pytest.mark.parametrize("extra, note", [
+    ({}, RULE_NOTE),                                                      # 예전 파일 (선정 키 없음)
+    ({"selectedBy": None, "fallbackReason": None}, RULE_NOTE),           # 아직 선정 중
+    ({"selectedBy": "ai", "fallbackReason": None},
+     "AI 선정 팀이 순위를 매기고 안전장치(규칙 코드)가 거른 결과입니다."),
+    ({"selectedBy": "rule", "fallbackReason": "no_candidates"}, f"{RULE_NOTE} 규칙 선별을 통과한 종목이 없었어요."),
+    ({"selectedBy": "rule", "fallbackReason": "timeout"},
+     f"{RULE_NOTE} AI 선정 팀을 쓰지 못한 이유: 시간이 너무 오래 걸려 멈췄어요."),
+    ({"selectedBy": "rule", "fallbackReason": "no_llm"},
+     f"{RULE_NOTE} AI 선정 팀을 쓰지 못한 이유: AI 연결 설정이 없어 AI가 고르지 못했어요."),
+    ({"selectedBy": "rule", "fallbackReason": "agent_failed"},
+     f"{RULE_NOTE} AI 선정 팀을 쓰지 못한 이유: 필요한 AI가 끝내 응답하지 않아 멈췄어요."),
+    ({"selectedBy": "rule", "fallbackReason": None}, RULE_NOTE),
+    ({"selectedBy": "rule", "fallbackReason": "<b>모르는_코드</b>"}, RULE_NOTE),  # 모르는 코드는 사유 없이
+    ({"selectedBy": "모름"}, RULE_NOTE),
+])
+def test_screening_cover_footer_says_how_picks_were_chosen(extra, note):
+    """꼬리말: ai면 AI 선정 팀 + 안전장치, rule이면 규칙 문장 + Fallback 사유, 선정 키가 없거나 null이면 규칙 문장."""
+    html = pdf.build_screening_html(SCREENING | extra, [])
+    (foot,) = re.findall(r'<p class="foot small">(.*?)</p>', html)
+    assert foot == f"{pdf.SERVICE_NAME} · {note} {pdf.DISCLAIMER}"
+    assert "모르는_코드" not in html and forbidden_phrases(text_of(html)) == []
+    if extra.get("selectedBy") == "ai":
+        assert "AI가 아니라" not in html
+
+
 def test_screening_cover_empty():
     assert "선별 자료 없음" in pdf.build_screening_html({}, [])
     html = pdf.build_screening_html({"market": "US", "picks": [], "dropped": [], "excluded": []}, [])
@@ -286,6 +315,18 @@ def test_pdf_not_ready_is_409(api, user, files, state):
 
 def test_pdf_missing_report_is_404(api, files):
     assert api.get("/api/reports/999/pdf").status_code == 404
+
+
+@pytest.mark.parametrize("state", [Report.COMPLETED, Report.RUNNING])
+def test_pdf_of_selection_run_is_404(api, files, monkeypatch, state):
+    """매매 종목 선정 실행(team stock_selection)은 종목 리포트 양식이 아니라 PDF가 없다 (완성돼도)."""
+    calls = []
+    monkeypatch.setattr(pdf, "render_pdf", fake_render(calls))
+    selection = Report.objects.create(team=Report.STOCK_SELECTION, source=Report.AUTO, symbol="KR",
+                                      name="오늘의 매매 종목 선정", market="KR", status=state)
+    response = api.get(url(selection))
+    assert response.status_code == 404 and response.json() == {"detail": "선정 실행은 PDF가 없습니다."}
+    assert calls == [] and not (files / "reports").exists()
 
 
 def test_pdf_is_made_once_then_reused(api, user, files, candles, monkeypatch):

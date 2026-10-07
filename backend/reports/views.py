@@ -1,6 +1,9 @@
 """AI 리포트 API (docs/API.md "AI 리포트"): 실행 계획, 리포트 목록·신청, 하루 한도, 상세(Snapshot). SSE는 sse.py.
 
-신청은 requested 행만 만든다. 실행(Agent·Orchestrator)은 아직 없다 (docs/DECISIONS.md 9-1).
+신청은 requested 행만 만든다 (실행은 엔진 루프의 reports.runner — docs/DECISIONS.md 9-1).
+팀(Report.team)이 둘이다: 팀원이 신청하는 종목 리포트(stock_report)와 하루 한 번 자동으로 도는 매매 종목 선정
+(stock_selection — 엔진이 만든다, docs/AI_AGENT_WORKFLOW.md). 목록·계획은 기본이 종목 리포트이고 ?team=으로 고른다.
+신청은 늘 종목 리포트이고, 선정 실행에는 PDF가 없다.
 """
 from datetime import date
 from zoneinfo import ZoneInfo
@@ -19,26 +22,45 @@ from trading import market
 
 from config.api import Rejected, page
 
-from . import quota
+from . import quota, registry
 from .models import Report
 from .payloads import detail, iso, nicknames, plan, summary
 from .pdf import ensure_report_file
 
 KST = ZoneInfo("Asia/Seoul")
+TEAM_CHOICE = "team은 stock_report 또는 stock_selection입니다."
+SOURCE_CHOICE = "source는 user 또는 auto입니다."
+
+
+def choice(request, key: str, choices, message: str, default: str | None = None) -> str | None:
+    """쿼리 값 하나 (앞뒤 공백·대소문자 무시). 없거나 비었으면 default, choices 밖이면 400 {"detail": message}."""
+    value = (request.query_params.get(key) or "").strip().lower()
+    if not value:
+        return default
+    if value not in choices:
+        raise Rejected(message)
+    return value
 
 
 class PlanView(APIView):
     @extend_schema(responses=OpenApiTypes.OBJECT)
     def get(self, request):
-        """ExecutionPlan (YAML Registry에서 읽고 검증한 실행 계획)."""
-        return Response(plan())
+        """ExecutionPlan (YAML Registry에서 읽고 검증한 실행 계획). ?team= (기본 stock_report, 모르는 팀이면 400)."""
+        return Response(plan(choice(request, "team", registry.TEAMS, TEAM_CHOICE, registry.TEAM)))
 
 
 class ReportsView(APIView):
     @extend_schema(operation_id="reports_list", responses=OpenApiTypes.OBJECT)
     def get(self, request):
-        """리포트 목록 (팀 전체 공용, 최신순). ?symbol=로 종목을, ?mine=1이면 내가 신청한 것만 (같이 쓸 수 있다)."""
-        reports = Report.objects.select_related("user").order_by("-created_at", "-id")
+        """리포트 목록 (팀 전체 공용, 최신순). ?symbol=로 종목을, ?mine=1이면 내가 신청한 것만 (같이 쓸 수 있다).
+
+        ?team= (기본 stock_report — 선정 실행은 ?team=stock_selection일 때만 나온다), ?source=user|auto. 모르는 값이면 400.
+        """
+        team = choice(request, "team", registry.TEAMS, TEAM_CHOICE, registry.TEAM)
+        source = choice(request, "source", (Report.USER, Report.AUTO), SOURCE_CHOICE)
+        reports = Report.objects.select_related("user").filter(team=team).order_by("-created_at", "-id")
+        if source:
+            reports = reports.filter(source=source)
         symbol = (request.query_params.get("symbol") or "").strip().upper()
         if symbol:
             reports = reports.filter(symbol=symbol)
@@ -67,7 +89,8 @@ class ReportsView(APIView):
             # 같은 사용자의 동시 신청(두 번 누름)을 줄 세운다 — 한도 검사도 이 잠금 안에서 한다
             get_user_model().objects.select_for_update().filter(pk=request.user.pk).first()
             active = Report.objects.select_related("user").filter(
-                user=request.user, symbol=item["symbol"], status__in=Report.ACTIVE).order_by("id").first()
+                user=request.user, team=Report.STOCK_REPORT, symbol=item["symbol"], status__in=Report.ACTIVE,
+            ).order_by("id").first()
             if active is not None:
                 return Response(detail(active), status=status.HTTP_200_OK)
             try:
@@ -75,8 +98,8 @@ class ReportsView(APIView):
             except quota.Exceeded as e:  # 본문에 limit·used가 있어 Response를 직접 (config.api는 detail 외 필드를 버린다)
                 return Response(e.body(), status=e.status_code)
             # ← 2: 비용 예산 budget.check(now) 자리 (횟수 한도 바로 뒤)
-            report = Report.objects.create(user=request.user, symbol=item["symbol"], name=item["name"],
-                                           market=item["market"], created_at=now)
+            report = Report.objects.create(user=request.user, team=Report.STOCK_REPORT, symbol=item["symbol"],
+                                           name=item["name"], market=item["market"], created_at=now)
         return Response(detail(report), status=status.HTTP_201_CREATED)
 
 
@@ -104,13 +127,15 @@ class PdfView(APIView):
     def get(self, request, pk: int):
         """A4 PDF. 처음 부르면 만들어 PAPER_ROOT/reports/<id>.v<양식 판>.pdf에 두고 다음부터 그 파일을 준다
         (양식이 바뀌어 판이 오르면 예전 파일 대신 새로 만든다 — pdf.TEMPLATE_VERSION).
-        Chrome이 없으면 같은 내용의 HTML(text/html). 완성 전(completed가 아님)이면 409.
+        Chrome이 없으면 같은 내용의 HTML(text/html). 완성 전(completed가 아님)이면 409. 선정 실행(stock_selection)이면 404.
 
         (Report.pdf_path 열이 생기면 고정 경로 대신 그 열을 쓴다 — docs/tasks/05-프론트.md T5-14)
         """
         report = Report.objects.filter(pk=pk).first()
         if report is None:
             raise NotFound("리포트를 찾을 수 없습니다.")
+        if report.team == Report.STOCK_SELECTION:  # 종목 리포트 양식이 아니다 (선정 결과는 선별 표지 — auto.after_finish)
+            raise NotFound("선정 실행은 PDF가 없습니다.")
         if report.status != Report.COMPLETED:
             return Response({"detail": "리포트가 아직 완성되지 않았습니다."}, status=status.HTTP_409_CONFLICT)
         path = ensure_report_file(report, list(report.trace_events.order_by("step")))

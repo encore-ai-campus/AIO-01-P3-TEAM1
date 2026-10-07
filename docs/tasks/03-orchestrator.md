@@ -1,5 +1,8 @@
 # 03. Orchestrator (담당 3)
 
+> **2026-10-07 — T3-2~T3-9·T3-12 → Claude가 구현** (사용자 요청, `docs/DECISIONS.md` 19장): `orchestrator.py`, `guards.py`(입력·Join·Handoff Guard), `runner.py`, `run_engine` 연결, `fake_worker`, `state.add_cost`·팀별 확인. 실패 사유 코드에 `agent_failed`·`no_llm`·`expired`를 더했다(00-공통 9절). `AGENTS_IMPLEMENTED = True`.
+> 3에게 남는 것: **T3-10 실제 키로 리포트 한 건 끝까지**, T3-11 설계서 ① 총괄, 화면에서 진행 단계 표시 확인.
+
 > **할 일 (2026-10-05 단순화 — `TEAM_DEV_PLAN.md` 11장)**: ① 추천 워크플로우: Orchestrator·Guard·runner·Handoff·실패 사유 코드 · ② UI/UX: 진행 단계 표시 확인 · ③ 추가 기능 논의: ~~단타 AI 팀(`day_plan`·`day_review`) 설계~~(2026-10-06 단타 폐기로 없어짐) · ④ 테스트: 오케스트레이션 테스트, 장애 시험.
 > 그 밖의 확정된 변경은 Claude가 구현한다(`docs/DECISIONS.md` 14장). 아래 세부 표는 워크플로우 개발의 약속·참고로 남긴다.
 

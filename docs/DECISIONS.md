@@ -490,6 +490,9 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 | `AUTO_RECOMMEND` | `off` | `demo`면 국내 거래일마다 선별(거래대금 상위 → 규칙 점수) 상위 종목으로 시연 추천을 만들어 팀 전체에 알린다. 선별이 증권사 조회를 100번 넘게 하므로 기본은 끔 |
 | `AUTO_RECOMMEND_TOP` | `3` | 매일 자동 추천할 종목 수 |
 | `AUTO_RECOMMEND_AT` | `08:00` | 이 시각(KST) 이후 하루 한 번 (시도 표시 파일 `runs/autotrade/recommend-<날짜>-<시장>.json`으로 하루 한 번을 지킨다. 선별이 실패해도 그날은 다시 하지 않는다) |
+| `AUTO_REPORT` | `off` | (2026-10-07, 19장) `on`이면 국내 거래일마다 규칙 선별 → 선정 팀(AI) → 선정 Guard → 종목 자동 리포트 → Discord. LLM·증권사 조회를 쓰므로 기본은 끔. `AUTO_RECOMMEND=demo`와 같이 켜지 않는다 |
+| `AUTO_REPORT_TOP` | `3` | 하루 자동 리포트 종목 수 (1~5) |
+| `AUTO_REPORT_AT` | `08:00` | 이 시각(KST) 이후 하루 한 번 (선별 파일의 `selection` 키·건너뜀 표시 `runs/screening/<날짜>-<시장>.skip.json`으로 하루 한 번을 지킨다) |
 
 ### 12-6. 파일 소유
 
@@ -929,3 +932,30 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
   부제 "종이 위에서 연습하는 AI 리포트 모의투자"와 풀이 한 줄(`SERVICE_TAGLINE`·`SERVICE_INTRO`). 새 이름에 로고·부제를 맞출지는 `docs/결정필요사항.md` U24.
 - **문서**: 지금 상태를 말하는 곳(`AGENTS.md`, `README.md`, 계획서들, `docs/API.md`, 이 문서의 현재 규칙 줄, 화면 배치)은 새 이름으로 고쳤다.
   지난 결정의 기록(15-7 본문, 작업 문서의 날짜 붙은 줄)은 지우지 않고 바뀐 사실만 덧붙였다.
+
+## 19. 추천 워크플로우 구현: Orchestrator · Worker 11개 · 매매 종목 선정 팀 · 자동 리포트 (2026-10-07, 사용자 결정)
+
+사용자(팀장)가 "추천 워크플로우 구현 — 전부 구현"을 정했다. 2026-10-04 결정(14-2: 핵심 Agent 워크플로우는 담당 2·3·4)을 바꿔, 설계 예시 `docs/AI_AGENT_WORKFLOW.md`를
+Claude가 끝까지 만들었다. 팀원이 이미 만든 것(3의 T3-1 레지스트리 스키마, 4의 T4-1 마이그레이션 0002·T4-2~T4-5 호출기, 2의 계약 6개와 dy 브랜치의 계약 보강 `ce98783`) 위에 올렸다.
+약속(`docs/tasks/00-공통.md` 6~10절)은 그대로 따르고, 바뀐 것은 00-공통에 "2026-10-07"로 적었다.
+
+- **두 팀** (`Report.team`, 마이그레이션 0003): `stock_report`(종목 리포트, 기본)와 `stock_selection`(매매 종목 선정 — 하루 한 번, `symbol`은 시장 코드).
+  `registry.execution_plan(team)`·`step_ids(team)`·`worker_ids(team)`, `state`는 리포트의 팀 계획으로 단계·Worker를 확인한다. 선정 실행은 목록·알림·추천 수집에서 빠진다.
+- **Orchestrator** (`reports/orchestrator.py`): 계획대로 병렬·순차 실행, 단계 제한 시간(180초) → `timeout`, Join Guard, 부분 실패 정책 셋, 검토 반복(RETRY ≤ 2), Handoff Guard(리스크 점검),
+  비용 집계(`state.add_cost`). `state`의 쓰기는 프로세스 잠금으로 한 번에 하나 (병렬 Worker 스레드가 SQLite에서 "table is locked"를 내지 않게).
+- **실패 사유 코드 셋 추가**: `agent_failed`(Join이 없는 단계의 필수 Worker 실패), `no_llm`(AI 키 없음), `expired`(24시간 넘게 기다린 `requested` — 실행기를 처음 켤 때
+  묵은 신청이 실제 비용으로 한꺼번에 돌지 않게. 계획서 Q5). 화면·알림 문장 표에 같이 넣었다. 필수 Worker가 단계 제한 시간을 넘기면 `timeout`(Q3).
+- **실행기** (`reports/runner.py`): 엔진 루프 "리포트 실행" 단계가 `requested`를 오래된 순으로 하나씩(동시에 하나). 엔진이 다시 뜨면 남은 `running`을 `engine_restarted`로 끝낸다.
+- **Worker 11개**: 종목 리포트 6개(시세 — 장마감 기준 값을 코드가 덮어씀, 재무·공시, 뉴스, 작성, 검토 — 투자유의면 코드가 Handoff를 붙임, 리스크 — 투자유의 단계의 하한을 코드가 정함),
+  선정 5개(후보 뉴스, 후보 공시 — 고위험 공시 낱말은 코드가 high로, 수급 — 합계는 코드, 선정 — 가격 없음, 선정 검토 — 후보 밖 종목이면 코드가 RETRY로). 외부 글은 입력 Guard(`guards.clean_text`)를 거친다.
+- **하루 파이프라인** (`reports/auto.py`, `AUTO_REPORT=on`일 때만 — 기본 off): 국내 거래일 `AUTO_REPORT_AT`(08:00) 뒤 규칙 선별(후보 30) → 선정 팀 실행 →
+  선정 Guard(`reports/selection.py`: 후보 밖·투자유의(조회 실패면 제외)·고위험 공시·같은 테마 2개까지, 모자라면 규칙 점수로 채움) → 상위 3종목 자동 리포트 → 끝나면 Discord로 PDF와 표지,
+  매수 의견이면 AI 추천(팀 전체 알림). 선정 팀이 실패하면 규칙 점수 상위로 Fallback하고 `selectedBy: "rule"`·`fallbackReason`을 남긴다. 증권사 조회가 안 되면 그날은 건너뛰고 Discord로 알린다.
+  `AUTO_RECOMMEND=demo`(시연 추천)와 같이 켜지 않는다.
+- **독립 리뷰(2026-10-07, 구현하지 않은 작업자 7명 + 결과마다 반박 3명)**에서 확인된 19건을 고쳤다: Worker 결과 쓰기와 단계 시간 초과의 경합,
+  엔진 종료를 붙잡는 Worker 스레드(데몬으로), 신청자 없는 리포트의 팀 전체 알림 반복, 테스트가 실제 `runs/`를 건드림(`AUTO_REPORT` 고정),
+  조회 하나가 LLM 시간을 먹는 문제, 공시 바닥의 해제 공시·오래된 공시·우선주, 뉴스 날짜(KST), 자정을 넘긴 선정·명령으로 시작한 선정·US 선정이 이어지지 않음,
+  증권사 키 없이 매일 건너뜀 알림, 쉬운 실패 화면의 멈춘 단계, 문장 중복 등. 기록은 `docs/works/done/Hwanseok_리뷰_추천워크플로우_2026-10-07.md`.
+- **사람이 최종 결정**: 바뀌지 않았다. AI 추천은 사용자가 리포트를 읽고 "계획 활성화"를 눌러야 모의 자동매매가 시작된다 (12장).
+- **남은 것(팀원 몫)**: 4의 장애 주입(`chaos.py`, T4-6)과 복구 지표(`stats.py`·`recovery-stats` API, T4-7) — 지금 `recovery`는 고정값, 2의 비용 예산(`budget.py`),
+  실제 모델로 프롬프트 다듬기(T2-10), 설계서·장애 복구 보고서. 주린이모드 "AI 의견 대립" 제안(`docs/AI_AGENT_WORKFLOW.md` 6장)은 만들지 않았다.

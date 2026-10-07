@@ -7,10 +7,12 @@ import yaml
 from reports import registry
 from reports.registry import PlanError, build_plan
 
+CONTRACTS = {"market_agent": "MarketResult", "fundamental_agent": "FundamentalResult", "news_agent": "NewsResult",
+             "report_agent": "ReportDraft", "review_agent": "ReviewResult", "risk_agent": "RiskResult"}
 WORKERS = {"workers": {
     wid: {"title": f"{wid} 제목", "goal": f"{wid} 목표", "provider": None, "model": None,
-          "fallbacks": [], "output_contract": f"{wid}Result"}
-    for wid in ("market_agent", "fundamental_agent", "news_agent", "report_agent", "review_agent", "risk_agent")}}
+          "fallbacks": [], "output_contract": contract}
+    for wid, contract in CONTRACTS.items()}}
 TEAM = {"teams": {"t": {
     "title": "시험 팀", "failure_policy": "required_optional",
     "steps": [
@@ -44,11 +46,11 @@ def test_default_registry_plan_shape():
     plan = registry.execution_plan()
     assert set(plan) == {"team", "title", "failurePolicy", "steps", "workers", "handoffs", "implemented"}
     assert (plan["team"], plan["title"], plan["failurePolicy"], plan["implemented"]) == (
-        "stock_report", "종목 리포트", "required_optional", False)
+        "stock_report", "종목 리포트", "required_optional", registry.AGENTS_IMPLEMENTED)
     assert [(s["id"], s["mode"], s["dependsOn"], s["join"], s["timeoutSec"], s["retry"]) for s in plan["steps"]] == [
-        ("parallel_research", "parallel", [], False, 60, None),
-        ("compose", "sequential", ["parallel_research"], True, 90, None),
-        ("review", "sequential", ["compose"], False, 60, {"target": "report_agent", "maxRounds": 2})]
+        ("parallel_research", "parallel", [], False, 180, None),
+        ("compose", "sequential", ["parallel_research"], True, 180, None),
+        ("review", "sequential", ["compose"], False, 180, {"target": "report_agent", "maxRounds": 2})]
     research = plan["steps"][0]
     assert set(research) == {"id", "title", "mode", "workers", "required", "optional", "dependsOn", "join", "timeoutSec", "retry"}
     assert research["title"] == "조사"
@@ -60,12 +62,32 @@ def test_default_registry_plan_shape():
     market = plan["workers"][0]
     assert set(market) == {"id", "title", "goal", "provider", "model", "fallbacks", "outputContract"}
     assert (market["title"], market["provider"], market["model"], market["fallbacks"], market["outputContract"]) == (
-        "시세·차트 Agent", None, None, [], "MarketResult")
+        "시세·차트 Agent", "devpass", "gemini-3.8-flash", ["gpt-5.6-luna", "deepseek-v4.1-flash"], "MarketResult")
+    assert all(w["provider"] == "devpass" and w["model"] for w in plan["workers"])
     assert all(w["goal"] for w in plan["workers"])
     assert plan["handoffs"] == [{"from": "review_agent", "to": "risk_agent",
                                  "responsibility": "투자 유의 종목이거나 고위험 신호가 있으면 리스크 점검 책임을 넘긴다",
                                  "maxHops": 1}]
     assert registry.step_ids() == ["parallel_research", "compose", "review"]
+
+
+def test_selection_team_plan_shape():
+    plan = registry.execution_plan(registry.SELECTION_TEAM)
+    assert (plan["team"], plan["title"], plan["failurePolicy"], plan["handoffs"]) == (
+        "stock_selection", "매매 종목 선정", "required_optional", [])
+    assert [(s["id"], s["mode"], s["dependsOn"], s["join"], s["timeoutSec"], s["retry"]) for s in plan["steps"]] == [
+        ("candidate_research", "parallel", [], False, 180, None),
+        ("select", "sequential", ["candidate_research"], True, 180, None),
+        ("select_review", "sequential", ["select"], False, 180, {"target": "selector_agent", "maxRounds": 2})]
+    research = plan["steps"][0]
+    assert (research["required"], research["optional"]) == (
+        ["news_screen_agent", "filing_screen_agent"], ["flow_agent"])
+    assert {w["id"]: w["outputContract"] for w in plan["workers"]} == {
+        "news_screen_agent": "CandidateNewsResult", "filing_screen_agent": "FilingCheckResult",
+        "flow_agent": "FlowResult", "selector_agent": "SelectionDraft", "selection_review_agent": "ReviewResult"}
+    assert registry.step_ids("stock_selection") == ["candidate_research", "select", "select_review"]
+    assert "selector_agent" in registry.worker_ids("stock_selection")
+    assert "selector_agent" not in registry.worker_ids()
 
 
 def test_plan_is_cached_and_copied(monkeypatch):
@@ -221,7 +243,7 @@ def test_retry_is_only_allowed_on_sequential_review_stage(tmp_path):
         team["steps"][2].pop("retry")
         team["steps"][1]["retry"] = {"target": "market_agent", "max_rounds": 2}
 
-    with pytest.raises(PlanError, match="review_agent가 있는 순차 review 단계"):
+    with pytest.raises(PlanError, match="검토 Worker\\(ReviewResult\\) 하나만 있는 순차 단계"):
         build_plan("t", *write(tmp_path, teams=team_with(change)))
 
 
@@ -240,3 +262,15 @@ def test_one_retry_target_cannot_be_used_by_multiple_review_steps(tmp_path):
 
     with pytest.raises(PlanError, match="한 단계에서만 재시도"):
         build_plan("t", *write(tmp_path, teams=team_with(change)))
+
+
+def test_output_contract_must_be_known(tmp_path):
+    workers = copy.deepcopy(WORKERS)
+    workers["workers"]["market_agent"]["output_contract"] = "MarketResults"
+    with pytest.raises(PlanError, match="모르는 output_contract: MarketResults"):
+        build_plan("t", *write(tmp_path, workers=workers))
+
+
+def test_unknown_team_is_rejected():
+    with pytest.raises(PlanError, match="모르는 팀"):
+        registry.execution_plan("day_plan")

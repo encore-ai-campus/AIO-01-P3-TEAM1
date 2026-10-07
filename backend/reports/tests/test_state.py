@@ -131,3 +131,25 @@ def test_finished_report_cannot_change(running, final):
             call()
     saved = Report.objects.get(pk=running.pk)
     assert (saved.status, saved.current_step, saved.results, saved.trace_events.count()) == (final, None, {}, 0)
+
+
+def test_state_checks_ids_against_the_reports_team(user):
+    selection = state.start(Report.objects.create(user=None, source=Report.AUTO, team=Report.STOCK_SELECTION,
+                                                  symbol="KR", name="오늘의 매매 종목 선정", market="KR"))
+    state.set_step(selection, "candidate_research")
+    state.add_result(selection, "selector_agent", {"summary": "s", "picks": []})
+    with pytest.raises(StateError, match="실행 계획에 없는 step id"):
+        state.set_step(selection, "parallel_research")
+    with pytest.raises(StateError, match="실행 계획에 없는 Worker"):
+        state.add_result(selection, "report_agent", {})
+
+
+def test_add_cost_accumulates_and_rejects_bad_values(running):
+    state.add_cost(running, 0.25)
+    state.add_cost(running, 0.5)
+    assert running.cost_usd == 0.75
+    running.refresh_from_db()
+    assert running.cost_usd == 0.75
+    for bad in (-1, float("nan"), "1", True):
+        with pytest.raises(StateError, match="비용"):
+            state.add_cost(running, bad)

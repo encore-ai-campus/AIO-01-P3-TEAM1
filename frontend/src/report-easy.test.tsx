@@ -894,6 +894,18 @@ describe("lib/reports 쉬운 보기 함수", () => {
     expect(cut.map((s) => s.state)).toEqual(["active", "waiting", "failed", "waiting", "waiting"]);
     expect(lib.stoppedStepIndex(cut, "engine_restarted")).toBe(0);
     expect(lib.stoppedStepIndex(cut, "join_blocked")).toBe(2);
+    // 선택 담당자(뉴스)가 먼저 포기했어도, 리포트를 쓰는 AI가 끝내 실패해 멈췄으면 그 단계다 (리뷰 C13)
+    const writeFailed = [
+      ev(1, "market_agent", "agent_completed", "completed"),
+      ev(2, "fundamental_agent", "agent_completed", "completed"),
+      ev(3, "news_agent", "agent_failed", "failed", { final: true }),
+      ev(4, "report_agent", "agent_started", "started"),
+      ev(5, "report_agent", "agent_failed", "failed", { final: true, errorType: "bad_output" }),
+      ev(6, "review_agent", "agent_skipped", "skipped", { reason: "agent_failed" }),
+    ];
+    const ws = lib.progressOf(writeFailed);
+    expect(lib.stoppedStepIndex(ws, "agent_failed", writeFailed)).toBe(3);
+    expect(lib.stoppedStepIndex(ws, "timeout", writeFailed)).toBe(3);
     // 기다린 시간
     const at = Date.parse("2026-10-06T14:00:00+09:00");
     expect(lib.elapsedText("2026-10-06T13:59:40+09:00", at)).toBe("방금");

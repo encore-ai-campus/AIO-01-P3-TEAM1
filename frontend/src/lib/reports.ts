@@ -25,6 +25,12 @@ import { attemptHistory, isGiveUp } from "./recovery";
 
 export const NOT_IMPLEMENTED = "Agent 실행은 아직 구현되지 않았습니다. 신청은 기록되고 구조만 볼 수 있습니다.";
 
+/** 매매 종목 선정 팀 (하루 한 번 자동으로 돈다). 종목 리포트가 아니라 의견·PDF·추천·쉬운 보기가 없다. */
+export const SELECTION_TEAM = "stock_selection";
+
+/** 리포트(요약·상세)나 실행 계획이 선정 팀 것인지. team이 없으면(예전 서버) 종목 리포트다. */
+export const isSelection = (x: { team?: string | null } | null | undefined): boolean => x?.team === SELECTION_TEAM;
+
 /** 그래프 노드 상태: Trace에서 그 actor의 마지막 사건 status. 사건이 없으면 대기. */
 export type NodeStatus = "waiting" | TraceStatus;
 
@@ -137,6 +143,9 @@ const KEY_ACTIONS = new Set([
 ]);
 export const isKeyEvent = (e: TraceEvent) => KEY_ACTIONS.has(e.action);
 
+/** 타임라인 문장의 주어: 선정 팀이면 "선정", 아니면 "리포트". */
+const what = (plan: ExecutionPlan | undefined) => (isSelection(plan) ? "선정" : "리포트");
+
 /** 사건 하나를 문장으로. 모르는 action은 null (화면이 action 코드를 그대로 보인다). */
 export function eventText(e: TraceEvent, plan: ExecutionPlan | undefined): EventText | null {
   const d = e.details;
@@ -144,11 +153,11 @@ export function eventText(e: TraceEvent, plan: ExecutionPlan | undefined): Event
   const injected = d.injected === true ? ["주입"] : [];
   switch (e.action) {
     case "workflow_started":
-      return { text: d.chaos === true ? "리포트 실행 시작 · 장애 주입 켜짐" : "리포트 실행 시작", tone: "info", icon: "play", tags: [] };
+      return { text: `${what(plan)} 실행 시작${d.chaos === true ? " · 장애 주입 켜짐" : ""}`, tone: "info", icon: "play", tags: [] };
     case "workflow_completed":
-      return { text: "리포트 완성", tone: "ok", icon: "check", tags: [] };
+      return { text: isSelection(plan) ? "선정 완료" : "리포트 완성", tone: "ok", icon: "check", tags: [] };
     case "workflow_failed":
-      return { text: `리포트 실패${str(d.reason) ? ` — ${str(d.reason)}` : ""}`, tone: "fail", icon: "close", tags: [] };
+      return { text: `${what(plan)} 실패${str(d.reason) ? ` — ${str(d.reason)}` : ""}`, tone: "fail", icon: "close", tags: [] };
     case "agent_started":
       return { text: num(d.attempt) && num(d.attempt)! > 1 ? `다시 실행 (${num(d.attempt)}번째)` : "시작", tone: "info", icon: "play", tags: [] };
     case "agent_completed": {
@@ -206,21 +215,49 @@ export const WORKER_EASY_NAME: Record<string, string> = {
   report_agent: "리포트를 쓰는 AI",
   review_agent: "검토 AI",
   risk_agent: "위험을 점검하는 AI",
+  // 매매 종목 선정 팀 (stock_selection)
+  news_screen_agent: "후보 뉴스를 보는 AI",
+  filing_screen_agent: "후보 공시를 보는 AI",
+  flow_agent: "수급을 보는 AI",
+  selector_agent: "종목을 고르는 AI",
+  selection_review_agent: "선정을 검토하는 AI",
 };
 
 export const workerEasyName = (id: string): string => WORKER_EASY_NAME[id] ?? "AI 담당자";
+
+export interface ProgressStepDef {
+  actor: string;
+  label: string;
+  noun: string;
+}
 
 /**
  * 쉬운 진행 표시 다섯 단계 (docs/컨셉변경계획.md 4-2 "시세를 보는 중 → … → 검토하는 중").
  * noun: 진행형이 어색한 자리(실패 화면의 "어디서 멈췄는지")에 쓰는 명사형 이름.
  */
-export const PROGRESS_STEPS: readonly { actor: string; label: string; noun: string }[] = [
+export const PROGRESS_STEPS: readonly ProgressStepDef[] = [
   { actor: "market_agent", label: "시세를 보는 중", noun: "시세 보기" },
   { actor: "fundamental_agent", label: "재무제표를 읽는 중", noun: "재무제표 읽기" },
   { actor: "news_agent", label: "뉴스를 읽는 중", noun: "뉴스 읽기" },
   { actor: "report_agent", label: "리포트를 쓰는 중", noun: "리포트 쓰기" },
   { actor: "review_agent", label: "검토하는 중", noun: "검토" },
 ];
+
+/** 매매 종목 선정 팀의 단계: 후보 조사(뉴스·공시·수급, 함께 돈다) → 종목 고르기 → 선정 검토. */
+export const SELECTION_PROGRESS_STEPS: readonly ProgressStepDef[] = [
+  { actor: "news_screen_agent", label: "후보 뉴스를 보는 중", noun: "후보 뉴스 보기" },
+  { actor: "filing_screen_agent", label: "후보 공시를 보는 중", noun: "후보 공시 보기" },
+  { actor: "flow_agent", label: "수급을 보는 중", noun: "수급 보기" },
+  { actor: "selector_agent", label: "종목을 고르는 중", noun: "종목 고르기" },
+  { actor: "selection_review_agent", label: "선정을 검토하는 중", noun: "선정 검토" },
+];
+
+/** 팀의 쉬운 진행 단계 (team이 없으면 종목 리포트). */
+export const progressStepsOf = (team?: string | null): readonly ProgressStepDef[] =>
+  team === SELECTION_TEAM ? SELECTION_PROGRESS_STEPS : PROGRESS_STEPS;
+
+/** 검토 단계 담당자 (검토 실패는 그 단계에서 멈췄다). */
+const REVIEW_ACTORS = new Set(["review_agent", "selection_review_agent"]);
 
 export type ProgressState = "waiting" | "active" | "done" | "failed" | "skipped";
 
@@ -239,9 +276,12 @@ export interface ProgressStep {
   recovered: boolean; // 중간에 실패했지만 재시도·다른 AI로 끝냄
 }
 
-/** Trace → 다섯 단계의 상태. 그 담당자의 마지막 사건으로 정한다 (검토 RETRY로 다시 쓰면 "지금 하는 중"으로 돌아간다). */
-export function progressOf(trace: TraceEvent[]): ProgressStep[] {
-  return PROGRESS_STEPS.map(({ actor, label }) => {
+/**
+ * Trace → 팀의 단계별 상태 (종목 리포트는 다섯 단계). 그 담당자의 마지막 사건으로 정한다 (검토 RETRY로 다시 쓰면 "지금 하는 중"으로 돌아간다).
+ * team: 리포트의 팀 (없으면 종목 리포트).
+ */
+export function progressOf(trace: TraceEvent[], team?: string | null): ProgressStep[] {
+  return progressStepsOf(team).map(({ actor, label }) => {
     const mine = trace.filter((e) => e.actor === actor);
     const last = mine[mine.length - 1];
     let state: ProgressState = "waiting";
@@ -262,9 +302,9 @@ export const progressDone = (steps: readonly ProgressStep[]): number => steps.fi
  * 진행 막대 값: 지금까지 끝난 단계 수의 최댓값. 검토 RETRY로 '리포트를 쓰는 중'이 다시 시작돼도 막대가 뒤로 가지 않게
  * (사건 목록은 늘어나기만 하므로 앞에서부터 잘라 세면 된다 — 사건은 많아야 수십 개).
  */
-export function progressPeak(trace: TraceEvent[]): number {
+export function progressPeak(trace: TraceEvent[], team?: string | null): number {
   let peak = 0;
-  for (let i = 1; i <= trace.length; i++) peak = Math.max(peak, progressDone(progressOf(trace.slice(0, i))));
+  for (let i = 1; i <= trace.length; i++) peak = Math.max(peak, progressDone(progressOf(trace.slice(0, i), team)));
   return peak;
 }
 
@@ -275,16 +315,24 @@ export function progressPeak(trace: TraceEvent[]): number {
 export function progressAnnouncement(steps: readonly ProgressStep[], done: number = progressDone(steps)): string {
   const active = steps.find((s) => s.state === "active");
   if (active) return `지금: ${active.label} (${done}/${steps.length})`;
-  return done === steps.length ? `다섯 단계를 모두 끝냈어요 (${done}/${steps.length})` : `진행 ${done}/${steps.length}`;
+  return done === steps.length ? `${countWord(steps.length)} 단계를 모두 끝냈어요 (${done}/${steps.length})` : `진행 ${done}/${steps.length}`;
 }
 
 /**
  * 실패한 리포트가 멈춘 단계 (실패 화면의 "어디서 멈췄는지"). 검토 실패는 검토, Join 차단 등은 처음으로 실패한 단계.
  * 시간 초과·엔진 재시작·예외는 그때 하던 단계에서 멈췄다 — 먼저 포기한 선택 담당자(뉴스 등)가 있어도 하던 단계가 먼저다.
+ * agent_failed·timeout은 trace를 주면 마지막으로 포기한(agent_failed final) 담당자의 단계다.
  * 세 조사 단계는 함께(병렬) 돌므로 순서가 진행 순서가 아니다: 다른 단계의 상태는 화면이 단계마다 따로 보인다(EasyFailure).
  */
-export function stoppedStepIndex(steps: readonly ProgressStep[], reason: string | null): number {
-  if (reason === "review_failed") return steps.findIndex((s) => s.actor === "review_agent");
+export function stoppedStepIndex(steps: readonly ProgressStep[], reason: string | null, trace?: readonly TraceEvent[]): number {
+  if (reason === "review_failed") return steps.findIndex((s) => REVIEW_ACTORS.has(s.actor));
+  // 필수 AI의 포기·시간 초과로 멈췄으면 마지막으로 포기한 담당자가 멈춘 곳이다 (먼저 포기한 선택 담당자 — 뉴스 등 — 가 아니라)
+  if (trace && (reason === "agent_failed" || reason === "timeout")) {
+    for (let i = trace.length - 1; i >= 0; i--) {
+      const k = isGiveUp(trace[i]) ? steps.findIndex((s) => s.actor === trace[i].actor) : -1;
+      if (k >= 0) return k;
+    }
+  }
   const first = (state: ProgressState) => steps.findIndex((s) => s.state === state);
   const cutOff = reason === "timeout" || reason === "engine_restarted" || reason === "exception";
   for (const state of cutOff ? (["active", "failed", "waiting"] as const) : (["failed", "active", "waiting"] as const)) {
@@ -301,6 +349,9 @@ export const FAILURE_NEXT: Record<string, string> = {
   timeout: "일시적인 문제일 수 있어요. 잠시 뒤 다시 만들 수 있어요",
   engine_restarted: "일시적인 문제일 수 있어요. 잠시 뒤 다시 만들 수 있어요",
   exception: "일시적인 문제일 수 있어요. 잠시 뒤 다시 만들 수 있어요",
+  agent_failed: "일시적인 문제일 수 있어요. 잠시 뒤 다시 만들 수 있어요",
+  no_llm: "관리자가 AI 연결을 설정하면 다시 만들 수 있어요",
+  expired: "기다리는 동안 실행되지 않은 신청이에요. 지금 다시 만들 수 있어요",
 };
 export const FAILURE_NEXT_FALLBACK = "다시 만들면 처음부터 새로 조사해요";
 
@@ -311,6 +362,9 @@ export const EXPERT_FAILURE_NOTE: Record<string, string> = {
   timeout: "제한 시간을 넘겨 중단했습니다. 일시적인 문제일 수 있습니다.",
   engine_restarted: "엔진이 다시 시작돼 중단했습니다. 일시적인 문제일 수 있습니다.",
   exception: "예상하지 못한 예외로 중단했습니다. 마지막 사건은 “진행 기록” 탭에서 볼 수 있습니다.",
+  agent_failed: "필수 Agent가 재시도와 대체 모델로도 답하지 못해 중단했습니다. 실패한 Agent는 “진행 기록” 탭에서 볼 수 있습니다.",
+  no_llm: "LLM 연결 설정(DEVPASS_APIKEY)이 없어 Agent를 실행하지 않았습니다.",
+  expired: "24시간 넘게 실행을 기다린 신청이라 실행기가 실행하지 않고 끝냈습니다.",
 };
 export const EXPERT_FAILURE_FALLBACK = "재시도와 대체 모델로도 복구하지 못했습니다. 어느 모델이 실패했는지는 “진행 기록” 탭에서 볼 수 있습니다.";
 

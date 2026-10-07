@@ -166,11 +166,13 @@ export function useRecoveryStats(days: number) {
   });
 }
 
-/** 오늘의 선별 결과 (GET /api/reports/screening). */
+/** 오늘의 선별 결과 (GET /api/reports/screening). AI 선정 팀이 고르는 중이면 목록 간격으로 다시 받는다 (끝나면 종목이 바뀐다). */
 export function useScreening() {
   return useQuery({
     queryKey: ["reports", "screening"],
     queryFn: () => orSample<ScreeningResult>("/api/reports/screening?market=KR", sampleScreening),
+    refetchInterval: (q) => (q.state.data?.data.selection?.status === "running" ? POLL.reports : false),
+    refetchIntervalInBackground: false,
   });
 }
 

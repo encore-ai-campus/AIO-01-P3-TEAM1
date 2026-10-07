@@ -1,12 +1,14 @@
-# 매매 종목 선정 AI Agent 워크플로우 (설계 예시)
+# 매매 종목 선정 AI Agent 워크플로우
 
-> 2026-10-07 작성 · 미구현 · Worker·계약은 담당 2, Orchestrator·Guard는 담당 3, 호출 복구(AutoHealing)는 담당 4 범위.
+> 2026-10-07 작성 · **2026-10-07 구현 (Claude, 사용자 요청 — `docs/DECISIONS.md` 19장)** · 원래 범위: Worker·계약 담당 2, Orchestrator·Guard 담당 3, 호출 복구(AutoHealing) 담당 4.
+> 구현 위치: `backend/reports/orchestrator.py`·`guards.py`·`runner.py`(1·2·4·5장), `agents/`(Worker 11개), `selection.py`(선정 Guard), `auto.py`(하루 파이프라인, `AUTO_REPORT=on`).
+> 6장(주린이모드 의견 대립)은 제안 그대로 남았다 (미구현).
 > 🟧 AI(제안) · 🟦 코드(검증) · 🟩 사람(최종 결정) · 🟪 복구 동작 · 🟥 실패
 
 ## 0. DB 스키마 (ERD)
 
 워크플로우가 읽고 쓰는 표만 그렸다. 표 이름은 실제 `db_table`, 열은 주요 열만이다(전체는 각 앱의 `models.py`).
-열 설명의 **"0002"**는 2026-10-07 들어온 담당 4의 마이그레이션 0002(T4-1)로 생긴 것이고, **"제안"**은 이 문서의 선정 팀을 붙일 때 더할 것이다. 나머지는 그 전부터 있던 것이다.
+열 설명의 **"0002"**는 2026-10-07 들어온 담당 4의 마이그레이션 0002(T4-1)로 생긴 것이고, **"0003"**은 선정 팀을 붙이며 더한 것이다(처음 설계의 "제안"). 나머지는 그 전부터 있던 것이다.
 
 ```mermaid
 erDiagram
@@ -32,8 +34,8 @@ erDiagram
         int id PK
         int user_id FK "0002: null 허용 - 자동 실행"
         string source "0002: user 또는 auto"
-        string team "제안: stock_report 또는 stock_selection"
-        string symbol "선정 실행은 시장 코드 KR (제안)"
+        string team "0003: stock_report 또는 stock_selection"
+        string symbol "선정 실행은 시장 코드 KR"
         string status "requested, running, completed, failed"
         string current_step "실행 계획의 step id"
         json results "Worker id - 계약을 통과한 결과"
@@ -160,8 +162,8 @@ erDiagram
 
 | 단계 | 어디에 | 무엇 |
 |---|---|---|
-| 선정 실행 | `reports` 1행 (`team=stock_selection` — 제안) + `report_trace_events` | 진행 상태, Worker 결과·오류, 복구 사건 (`agent_failover` 등) |
-| 선정 결과 | `runs/screening/<날짜>-<시장>.json` (**파일, DB 아님**) | `picks`·`reportIds`·`recommendationIds` + 제안 `selectedBy`·`fallbackReason` |
+| 선정 실행 | `reports` 1행 (`team=stock_selection`, `source=auto`) + `report_trace_events` | 진행 상태, Worker 결과·오류, 복구 사건 (`agent_failover` 등) |
+| 선정 결과 | `runs/screening/<날짜>-<시장>.json` (**파일, DB 아님**) | `candidates`·`picks`·`reportIds`·`recommendationIds` + `selection`·`selectedBy`·`fallbackReason`·`aiPicks`·`filtered` (`docs/API.md` ScreeningResult) |
 | 종목 리포트 | `reports` 3행 (`team=stock_report`, `source=auto`) + Trace | 리포트 본문·`results.report_agent.targets` |
 | AI 추천 | `recommendations` (`source=report`, 리포트당 1개) | 진입·목표·손절, 손익비, `valid_until` |
 | 계획 활성화 | `trade_plans` + `trade_plan_events` | **사람이 활성화해야 행이 생긴다** — 활성화하지 않으면 추천은 `expired` |
@@ -316,6 +318,7 @@ flowchart LR
 ```
 
 점수·RSI 같은 숫자는 늘 코드 값으로 덮어쓴다. 안전 확인을 못 한 종목은 통과시키지 않고 뺀다.
+선정 Guard는 선정 실행이 끝난 뒤 하루 파이프라인(`auto.tick`)에서 돈다 — Fallback(선정 실패·엔진 재시작)에도 같은 길을 타게. 그래서 뺀 종목은 Trace(`selection_filtered`)가 아니라 선별 결과의 `filtered`에 남는다.
 
 ## 5. 오류 복구
 
@@ -555,7 +558,7 @@ flowchart LR
 | `frontend/src/mocks/sampleReports.ts` | 대립 있는 예시 · 없는 예시 (가짜 API로 화면 확인) | 5 또는 Claude |
 
 <details>
-<summary>YAML Registry · 구현할 때 바꿀 곳</summary>
+<summary>YAML Registry · 구현에서 바꾼 곳 (2026-10-07)</summary>
 
 ```yaml
 # backend/reports/worker_definitions.yaml — fallbacks는 스키마에만 남고 호출기는 쓰지 않는다 (대체 모델은 healing.FALLBACK_POOL — 5-2)
@@ -607,6 +610,7 @@ flowchart LR
 - `contracts.py` — `CandidateNewsResult`·`FilingCheckResult`·`FlowResult`·`SelectionDraft` 추가, 검토는 `ReviewResult` 재사용.
 - `healing.py` — 리포트 팀과 같은 호출기를 그대로 쓴다 (새로 만들 것 없음).
 - `auto.py` `select()` — 선정 팀이 `completed`면 그 결과로 `picks`를 바꾸고, `failed`면 지금 로직(규칙 상위 3) + `selectedBy`·`fallbackReason`.
-- `00-공통.md` 9절 — 새 Trace 사건 `selection_filtered`.
+- ~~`00-공통.md` 9절 — 새 Trace 사건 `selection_filtered`~~ → 선별 결과 파일의 `filtered`로 했다 (4장 끝). 대신 9절에 실패 사유 코드 `agent_failed`·`no_llm`을 더했다.
+- `WorkerContext.team_inputs` — 선정 팀 Worker가 후보 표를 받는 자리 (`selection.team_inputs`가 선별 파일에서 만든다).
 
 </details>

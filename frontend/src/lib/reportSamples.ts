@@ -35,18 +35,29 @@ export function sampleRecoveryStats(days: number): RecoveryStats {
   };
 }
 
-export function sampleScreening(): ScreeningResult {
+/** 규칙 선별 결과 (점수 순 후보 8개). 예시 선별 셋이 같이 쓴다. */
+function ruleCandidates(): Record<string, unknown>[] {
+  return [
+    { symbol: "005930", name: "삼성전자", score: 82, tradingAmountRank: 1 },
+    { symbol: "000660", name: "SK하이닉스", score: 77, tradingAmountRank: 2 },
+    { symbol: "005380", name: "현대차", score: 71, tradingAmountRank: 6 },
+    { symbol: "042700", name: "한미반도체", score: 69, tradingAmountRank: 9 },
+    { symbol: "086520", name: "에코프로", score: 66, tradingAmountRank: 4 },
+    { symbol: "035420", name: "NAVER", score: 63, tradingAmountRank: 11 },
+    { symbol: "373220", name: "LG에너지솔루션", score: 61, tradingAmountRank: 7 },
+    { symbol: "105560", name: "KB금융", score: 58, tradingAmountRank: 14 },
+  ];
+}
+
+/** 선정 키가 없는 부분 (예전 파일 모양 그대로). */
+function screeningBase(): ScreeningResult {
   return {
     market: "KR",
     at: "2026-10-04T08:40:00+09:00",
     rankCount: 50,
     eligibleCount: 31,
     checked: 12,
-    picks: [
-      { symbol: "005930", name: "삼성전자", score: 82, tradingAmountRank: 1 },
-      { symbol: "000660", name: "SK하이닉스", score: 77, tradingAmountRank: 2 },
-      { symbol: "005380", name: "현대차", score: 71, tradingAmountRank: 6 },
-    ],
+    picks: ruleCandidates().slice(0, 3),
     dropped: [
       { symbol: "035720", name: "카카오", reason: "20일선 아래" },
       { symbol: "068270", name: "셀트리온", reason: "거래대금 급감" },
@@ -54,5 +65,74 @@ export function sampleScreening(): ScreeningResult {
     ],
     excluded: [{ symbol: "069500", name: "KODEX 200", reason: "ETF" }],
     reportIds: [],
+  };
+}
+
+/**
+ * AI 선정 팀이 고른 날의 선별 결과: AI 순위 5개 중 같은 테마 셋째·투자유의 종목을 안전장치(선정 Guard)가 빼고 셋을 남겼다.
+ * selection.reportId는 null — 서버가 없을 때(404) 보이는 예시라 다른 리포트로 가는 길을 만들지 않는다 (가짜 API는 자기 선정 실행 번호로 바꾼다).
+ */
+export function sampleScreening(): ScreeningResult {
+  const byCode = new Map(ruleCandidates().map((c) => [c.symbol, c]));
+  const pick = (symbol: string, aiRank: number | null, aiReason: string | null, theme: string | null, filledByRule = false) => ({
+    ...byCode.get(symbol),
+    aiRank,
+    aiReason,
+    theme,
+    filledByRule,
+  });
+  return {
+    ...screeningBase(),
+    candidates: ruleCandidates(),
+    selection: { reportId: null, status: "done" },
+    selectedBy: "ai",
+    fallbackReason: null,
+    aiPicks: [
+      { symbol: "000660", rank: 1, reason: "HBM 공급 확대 뉴스가 이어졌고 외국인 순매수가 사흘째예요", evidence: ["뉴스: HBM 공급 확대 (10월 3일)", "수급: 외국인 3일 순매수"] },
+      { symbol: "005930", rank: 2, reason: "거래대금 1위이고 공시에 위험 신호가 없었어요", evidence: ["공시: 위험 신호 없음"] },
+      { symbol: "042700", rank: 3, reason: "장비 수주 공시가 있었어요", evidence: ["공시: 단일판매·공급계약 체결 (10월 2일)"] },
+      { symbol: "086520", rank: 4, reason: "거래대금이 늘며 20일선 위로 올라왔어요", evidence: ["시세: 20일선 위"] },
+      { symbol: "005380", rank: 5, reason: "신차 판매 뉴스가 있었고 기관 순매수가 이어졌어요", evidence: ["뉴스: 신차 판매 (10월 2일)", "수급: 기관 순매수"] },
+    ],
+    filtered: [
+      { symbol: "042700", name: "한미반도체", reason: "같은 테마(반도체) 종목이 이미 2개예요", stage: "theme" },
+      { symbol: "086520", name: "에코프로", reason: "투자유의: 투자경고 종목", stage: "warnings" },
+    ],
+    picks: [
+      pick("000660", 1, "HBM 공급 확대 뉴스가 이어졌고 외국인 순매수가 사흘째예요", "반도체"),
+      pick("005930", 2, "거래대금 1위이고 공시에 위험 신호가 없었어요", "반도체"),
+      pick("005380", 5, "신차 판매 뉴스가 있었고 기관 순매수가 이어졌어요", "자동차"),
+    ],
+    coverSent: false,
+  };
+}
+
+/** AI 선정 팀이 실패해 규칙 점수 상위로 고른 날 (Fallback). reason: fallbackReason 코드. */
+export function sampleRuleScreening(reason = "join_blocked"): ScreeningResult {
+  const none = reason === "no_candidates";
+  return {
+    ...screeningBase(),
+    candidates: none ? [] : ruleCandidates(),
+    picks: none ? [] : ruleCandidates().slice(0, 3).map((p) => ({ ...p, aiRank: null, aiReason: null, theme: null, filledByRule: true })),
+    selection: { reportId: none ? null : 41, status: "done" },
+    selectedBy: "rule",
+    fallbackReason: reason,
+    aiPicks: [],
+    filtered: [],
+    coverSent: false,
+  };
+}
+
+/** AI 선정 팀이 고르는 중 (picks는 그때까지 규칙 상위 셋 — 시연 추천과 호환). */
+export function sampleRunningScreening(reportId = 41): ScreeningResult {
+  return {
+    ...screeningBase(),
+    candidates: ruleCandidates(),
+    selection: { reportId, status: "running" },
+    selectedBy: null,
+    fallbackReason: null,
+    aiPicks: [],
+    filtered: [],
+    coverSent: false,
   };
 }

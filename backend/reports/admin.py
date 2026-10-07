@@ -21,9 +21,9 @@ class TraceEventInline(admin.TabularInline):
 
 @admin.register(Report)
 class ReportAdmin(admin.ModelAdmin):
-    list_display = ("id", "created_at", "symbol", "name", "market", "status", "current_step", "user", "started_at",
-                    "finished_at")
-    list_filter = ("status", "market")
+    list_display = ("id", "created_at", "team", "symbol", "name", "market", "status", "current_step", "source", "user",
+                    "started_at", "finished_at")
+    list_filter = ("team", "status", "source", "market")
     search_fields = ("symbol", "name", "user__username")
     ordering = ("-created_at",)
     readonly_fields = STATE_FIELDS
