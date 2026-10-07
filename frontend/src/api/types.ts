@@ -374,7 +374,7 @@ export interface Worker {
   goal: string;
   provider: string | null; // 아직 정하지 않았으면 null
   model: string | null;
-  fallbacks?: string[]; // 주 모델이 실패하면 차례로 쓰는 대체 모델 (서버가 아직 안 낼 수 있다)
+  fallbacks: string[]; // 주 모델이 실패하면 차례로 쓰는 대체 모델
   outputContract: string; // 역할별 출력 계약 이름
 }
 
@@ -388,7 +388,7 @@ export interface PlanStep {
   dependsOn: string[]; // 먼저 끝나야 하는 step id
   join: boolean; // 앞 단계 결과를 Join Guard로 확인한 뒤 실행하는지
   timeoutSec: number | null;
-  retry?: { target: string; maxRounds: number } | null; // 검토 단계: RETRY 판정이면 target Worker를 다시 실행
+  retry: { target: string; maxRounds: number } | null; // 검토 단계: RETRY 판정이면 target Worker를 다시 실행
 }
 
 /** 장애 주입 설정 (docs/tasks/00-공통.md 5절). 리포트 워크플로우에만 적용된다. */

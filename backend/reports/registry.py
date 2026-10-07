@@ -1,7 +1,8 @@
 """YAML Registry → 실행 계획 (docs/API.md "AI 리포트"의 ExecutionPlan, docs/DECISIONS.md 9-2·9-3).
 
-worker_definitions.yaml(Worker 이름·목표·Provider·출력 계약)과 team_definitions.yaml(단계·병렬·필수/선택·Timeout·Handoff)을
-읽어 계획을 검증하고 API 형식(camelCase) dict로 만든다. 실행 정책(병렬 실행, Join, 부분 실패, Handoff 판단)은 여기서 하지 않는다.
+worker_definitions.yaml(Worker 이름·목표·Provider·주·대체 모델·출력 계약)과
+team_definitions.yaml(단계·병렬·필수/선택·Timeout·Retry·Handoff)을 읽어 계획을 검증하고 API 형식(camelCase) dict로 만든다.
+정의하지 않은 키도 오타로 보고 거부한다. 실행 정책(병렬 실행, Join, 부분 실패, Retry·Handoff 판단)은 여기서 하지 않는다.
 검증은 서버 시작이 아니라 처음 읽을 때 하고 결과를 캐시한다 (YAML을 고치면 서버를 다시 띄운다).
 """
 import copy
@@ -24,6 +25,7 @@ STEP_KEYS = {"id", "title", "mode", "workers", "required", "optional", "depends_
 TEAM_KEYS = {"title", "failure_policy", "steps", "handoffs"}
 HANDOFF_KEYS = {"from", "to", "responsibility", "max_hops"}
 RETRY_KEYS = {"target", "max_rounds"}
+MAX_RETRY_ROUNDS = 3
 
 
 class PlanError(ValueError):
@@ -77,6 +79,11 @@ def build_plan(team: str = TEAM, workers_file: Path = WORKERS_FILE, teams_file: 
         if missing:
             raise PlanError(f"step '{step['id']}': 없는 앞 단계: {', '.join(missing)}")
     steps_by_id = {step["id"]: step for step in steps}
+    worker_steps: dict[str, list[str]] = {}
+    for step in steps:
+        for worker in step["workers"]:
+            worker_steps.setdefault(worker, []).append(step["id"])
+    retry_targets: set[str] = set()
     for step in steps:
         retry = step["retry"]
         if retry is None:
@@ -90,6 +97,15 @@ def build_plan(team: str = TEAM, workers_file: Path = WORKERS_FILE, teams_file: 
             raise PlanError(
                 f"step '{step['id']}': retry target은 depends_on 단계의 Worker여야 합니다: {retry['target']}"
             )
+        target_steps = worker_steps.get(retry["target"], [])
+        if len(target_steps) != 1:
+            raise PlanError(
+                f"step '{step['id']}': retry target Worker는 계획의 한 단계에만 있어야 합니다: "
+                f"{retry['target']} ({', '.join(target_steps)})"
+            )
+        if retry["target"] in retry_targets:
+            raise PlanError(f"retry target은 한 단계에서만 재시도할 수 있습니다: {retry['target']}")
+        retry_targets.add(retry["target"])
     steps = _ordered(steps)
 
     raw_handoffs = spec.get("handoffs") or []
@@ -126,6 +142,8 @@ def _worker(wid, spec) -> dict:
     _known_keys(spec, WORKER_KEYS, where)
     model = _optional_text(spec.get("model"), f"{where}의 model")
     fallbacks = _names(spec.get("fallbacks", []), f"{where}의 fallbacks")
+    if fallbacks and model is None:
+        raise PlanError(f"{where}: fallbacks가 있으면 주 모델 model도 필요합니다.")
     if model is not None and model in fallbacks:
         raise PlanError(f"{where}: fallbacks에 주 모델이 들어갈 수 없습니다: {model}")
     return {
@@ -170,24 +188,22 @@ def _step(raw, definitions: dict) -> dict:
     timeout = raw.get("timeout")
     if timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, Real) or timeout <= 0):
         raise PlanError(f"{where}: timeout은 0보다 큰 초 단위 숫자여야 합니다.")
-    retry = _retry(raw.get("retry"), definitions, where)
+    retry = _retry(raw.get("retry"), where)
+    if retry is not None and (mode != "sequential" or "review_agent" not in workers):
+        raise PlanError(f"{where}: retry는 review_agent가 있는 순차 review 단계에서만 허용됩니다.")
     return {"id": sid, "title": _text(raw.get("title"), f"{where}의 title"), "mode": mode, "workers": workers,
             "required": required, "optional": optional, "dependsOn": depends_on, "join": join, "timeoutSec": timeout,
             "retry": retry}
 
 
-def _retry(raw, definitions: dict, where: str) -> dict | None:
+def _retry(raw, where: str) -> dict | None:
     if raw is None:
         return None
     if not isinstance(raw, dict):
         raise PlanError(f"{where}: retry는 객체여야 합니다.")
     _known_keys(raw, RETRY_KEYS, f"{where}의 retry")
     target = _text(raw.get("target"), f"{where}의 retry target")
-    if target not in definitions:
-        raise PlanError(f"{where}: retry target에 정의되지 않은 Worker가 있습니다: {target}")
-    max_rounds = raw.get("max_rounds")
-    if isinstance(max_rounds, bool) or not isinstance(max_rounds, int) or max_rounds < 1:
-        raise PlanError(f"{where}: retry max_rounds는 1 이상의 정수여야 합니다.")
+    max_rounds = _positive_int(raw.get("max_rounds"), f"{where}: retry max_rounds", MAX_RETRY_ROUNDS)
     return {"target": target, "maxRounds": max_rounds}
 
 
@@ -215,9 +231,7 @@ def _handoff(raw, definitions: dict) -> dict:
         raise PlanError(f"{where}: 정의에 없는 Worker: {', '.join(unknown)}")
     if source == target:
         raise PlanError(f"{where}: 자기 자신에게 넘길 수 없습니다.")
-    max_hops = raw.get("max_hops", 1)
-    if isinstance(max_hops, bool) or not isinstance(max_hops, int) or max_hops < 1:
-        raise PlanError(f"{where}: max_hops는 1 이상의 정수여야 합니다.")
+    max_hops = _positive_int(raw.get("max_hops", 1), f"{where}: max_hops")
     return {"from": source, "to": target, "responsibility": _text(raw.get("responsibility"), f"{where}의 responsibility"),
             "maxHops": max_hops}
 
@@ -239,9 +253,22 @@ def _optional_text(value, label: str) -> str | None:
     return None if value is None else _text(value, label)
 
 
+def _positive_int(value, label: str, maximum: int | None = None) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise PlanError(f"{label}는 1 이상의 정수여야 합니다.")
+    if maximum is not None and value > maximum:
+        raise PlanError(f"{label}는 {maximum} 이하여야 합니다.")
+    return value
+
+
 def _names(value, label: str) -> list[str]:
-    if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
+    if not isinstance(value, list):
         raise PlanError(f"{label}: 이름 목록이어야 합니다.")
-    if len(set(value)) != len(value):
+    names = []
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise PlanError(f"{label}: 이름 목록이어야 합니다.")
+        names.append(item.strip())
+    if len(set(names)) != len(names):
         raise PlanError(f"{label}: 겹치는 이름이 있습니다.")
-    return list(value)
+    return names

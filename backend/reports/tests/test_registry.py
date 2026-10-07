@@ -8,17 +8,21 @@ from reports import registry
 from reports.registry import PlanError, build_plan
 
 WORKERS = {"workers": {
-    wid: {"title": f"{wid} 제목", "goal": f"{wid} 목표", "provider": None, "model": None, "output_contract": f"{wid}Result"}
-    for wid in ("a", "b", "c", "d", "e")}}
+    wid: {"title": f"{wid} 제목", "goal": f"{wid} 목표", "provider": None, "model": None,
+          "fallbacks": [], "output_contract": f"{wid}Result"}
+    for wid in ("market_agent", "fundamental_agent", "news_agent", "report_agent", "review_agent", "risk_agent")}}
 TEAM = {"teams": {"t": {
     "title": "시험 팀", "failure_policy": "required_optional",
     "steps": [
-        {"id": "s1", "title": "조사", "mode": "parallel", "workers": ["a", "b", "c"], "required": ["a", "b"],
-         "optional": ["c"], "timeout": 60},
-        {"id": "s2", "title": "작성", "mode": "sequential", "workers": ["d"], "depends_on": ["s1"], "join": True,
-         "retry": {"target": "a", "max_rounds": 2}},
+        {"id": "research", "title": "조사", "mode": "parallel",
+         "workers": ["market_agent", "fundamental_agent", "news_agent"],
+         "required": ["market_agent", "fundamental_agent"], "optional": ["news_agent"], "timeout": 60},
+        {"id": "compose", "title": "작성", "mode": "sequential", "workers": ["report_agent"],
+         "depends_on": ["research"], "join": True},
+        {"id": "review", "title": "검토", "mode": "sequential", "workers": ["review_agent"],
+         "depends_on": ["compose"], "retry": {"target": "report_agent", "max_rounds": 2}},
     ],
-    "handoffs": [{"from": "d", "to": "e", "responsibility": "넘긴다", "max_hops": 2}],
+    "handoffs": [{"from": "review_agent", "to": "risk_agent", "responsibility": "넘긴다", "max_hops": 2}],
 }}}
 
 
@@ -79,36 +83,40 @@ def test_plan_is_cached_and_copied(monkeypatch):
 def test_tmp_plan_orders_steps_and_lists_used_workers(tmp_path):
     teams = team_with(lambda t: t["steps"].reverse())  # 뒤 단계를 먼저 적어도 실행 순서로 낸다
     plan = build_plan("t", *write(tmp_path, teams=teams))
-    assert [s["id"] for s in plan["steps"]] == ["s1", "s2"]
-    assert [w["id"] for w in plan["workers"]] == ["a", "b", "c", "d", "e"]
+    assert [s["id"] for s in plan["steps"]] == ["research", "compose", "review"]
+    assert [w["id"] for w in plan["workers"]] == [
+        "market_agent", "fundamental_agent", "news_agent", "report_agent", "review_agent", "risk_agent"]
     assert plan["steps"][1]["timeoutSec"] is None
-    assert plan["steps"][1]["retry"] == {"target": "a", "maxRounds": 2}
+    assert plan["steps"][2]["retry"] == {"target": "report_agent", "maxRounds": 2}
     assert plan["handoffs"][0]["maxHops"] == 2
 
 
 def dup_step(t):
-    t["steps"].append({**t["steps"][1], "id": "s1"})
+    t["steps"].append({**t["steps"][1], "id": "research"})
 
 
 def self_cycle(t):
-    t["steps"][0]["depends_on"] = ["s1"]
+    t["steps"][0]["depends_on"] = ["research"]
 
 
 def two_cycle(t):
-    t["steps"][0]["depends_on"] = ["s2"]
+    t["steps"][0]["depends_on"] = ["compose"]
 
 
 @pytest.mark.parametrize("change, message", [
-    (dup_step, "step id가 겹칩니다: s1"),
-    (lambda t: t["steps"][1].update(depends_on=["nope"]), "step 's2': 없는 앞 단계: nope"),
+    (dup_step, "step id가 겹칩니다: research"),
+    (lambda t: t["steps"][1].update(depends_on=["nope"]), "step 'compose': 없는 앞 단계: nope"),
     (self_cycle, "순환"),
     (two_cycle, "순환"),
-    (lambda t: t["steps"][1].update(workers=["d", "zz"]), "step 's2': 정의에 없는 Worker: zz"),
-    (lambda t: t["steps"][0].update(required=["a", "d"]), "required에 workers에 없는 Worker: d"),
-    (lambda t: t["steps"][0].update(optional=["c", "e"]), "optional에 workers에 없는 Worker: e"),
-    (lambda t: t["steps"][0].update(required=["a", "c"]), "required와 optional에 함께 있는 Worker: c"),
+    (lambda t: t["steps"][1].update(workers=["report_agent", "zz"]), "step 'compose': 정의에 없는 Worker: zz"),
+    (lambda t: t["steps"][0].update(required=["market_agent", "report_agent"]),
+     "required에 workers에 없는 Worker: report_agent"),
+    (lambda t: t["steps"][0].update(optional=["news_agent", "risk_agent"]),
+     "optional에 workers에 없는 Worker: risk_agent"),
+    (lambda t: t["steps"][0].update(required=["market_agent", "news_agent"]),
+     "required와 optional에 함께 있는 Worker: news_agent"),
     (lambda t: t.update(failure_policy="retry_forever"), "모르는 failure_policy: retry_forever"),
-    (lambda t: t["steps"][0].update(mode="random"), "step 's1': 모르는 mode: random"),
+    (lambda t: t["steps"][0].update(mode="random"), "step 'research': 모르는 mode: random"),
     (lambda t: t["handoffs"][0].update(to="ghost"), "정의에 없는 Worker: ghost"),
     (lambda t: t["handoffs"][0].update({"from": "ghost"}), "정의에 없는 Worker: ghost"),
     (lambda t: t["handoffs"][0].update(max_hops=0), "max_hops는 1 이상의 정수"),
@@ -116,11 +124,15 @@ def two_cycle(t):
     (lambda t: t["steps"][0].update(workers=[]), "workers가 비어 있습니다"),
     (lambda t: t["steps"][0].update(timeout=-1), "timeout"),
     (lambda t: t["steps"][0].update(join=True), "join은 앞 단계"),
-    (lambda t: t["steps"][1].update(retry="again"), "retry는 객체"),
-    (lambda t: t["steps"][1].update(retry={"target": "a", "max_round": 2}), "모르는 항목: max_round"),
-    (lambda t: t["steps"][1].update(retry={"target": "ghost", "max_rounds": 2}), "정의되지 않은 Worker"),
-    (lambda t: t["steps"][1].update(retry={"target": "d", "max_rounds": 2}), "depends_on 단계의 Worker"),
-    (lambda t: t["steps"][1].update(retry={"target": "a", "max_rounds": 0}), "1 이상의 정수"),
+    (lambda t: t["steps"][2].update(retry="again"), "retry는 객체"),
+    (lambda t: t["steps"][2].update(retry={"target": "report_agent", "max_round": 2}),
+     "모르는 항목: max_round"),
+    (lambda t: t["steps"][2].update(retry={"target": "ghost", "max_rounds": 2}),
+     "depends_on 단계의 Worker"),
+    (lambda t: t["steps"][2].update(retry={"target": "market_agent", "max_rounds": 2}),
+     "depends_on 단계의 Worker"),
+    (lambda t: t["steps"][2].update(retry={"target": "report_agent", "max_rounds": 0}), "1 이상의 정수"),
+    (lambda t: t["steps"][2].update(retry={"target": "report_agent", "max_rounds": 4}), "3 이하여야"),
     (lambda t: t.update(steps=[]), "steps가 비어 있습니다"),
 ])
 def test_invalid_plans(tmp_path, change, message):
@@ -138,8 +150,8 @@ def test_invalid_files(tmp_path):
     with pytest.raises(PlanError, match="YAML 형식 오류"):
         build_plan("t", wf, tf)
     broken = copy.deepcopy(WORKERS)
-    del broken["workers"]["a"]["output_contract"]
-    with pytest.raises(PlanError, match="Worker 'a'의 output_contract 값이 없습니다"):
+    del broken["workers"]["market_agent"]["output_contract"]
+    with pytest.raises(PlanError, match="Worker 'market_agent'의 output_contract 값이 없습니다"):
         build_plan("t", *write(tmp_path, workers=broken))
 
 
@@ -150,13 +162,81 @@ def test_invalid_files(tmp_path):
 ])
 def test_invalid_worker_fallbacks(tmp_path, change, message):
     workers = copy.deepcopy(WORKERS)
-    change(workers["workers"]["a"])
+    change(workers["workers"]["market_agent"])
     with pytest.raises(PlanError, match=message):
         build_plan("t", *write(tmp_path, workers=workers))
 
 
 def test_worker_fallbacks_are_exposed_in_order(tmp_path):
     workers = copy.deepcopy(WORKERS)
-    workers["workers"]["a"].update(model="primary", fallbacks=["backup-1", "backup-2"])
+    workers["workers"]["market_agent"].update(model="primary", fallbacks=["backup-1", "backup-2"])
     plan = build_plan("t", *write(tmp_path, workers=workers))
     assert plan["workers"][0]["fallbacks"] == ["backup-1", "backup-2"]
+
+
+@pytest.mark.parametrize("fallbacks, message", [
+    (None, "이름 목록"),
+    (["backup"], "주 모델 model도 필요"),
+    (["   "], "이름 목록"),
+])
+def test_worker_fallbacks_reject_null_missing_primary_and_blank_name(tmp_path, fallbacks, message):
+    workers = copy.deepcopy(WORKERS)
+    workers["workers"]["market_agent"]["fallbacks"] = fallbacks
+    with pytest.raises(PlanError, match=message):
+        build_plan("t", *write(tmp_path, workers=workers))
+
+
+def test_worker_fallbacks_are_trimmed_before_duplicate_and_primary_checks(tmp_path):
+    workers = copy.deepcopy(WORKERS)
+    workers["workers"]["market_agent"].update(model="primary", fallbacks=[" backup ", "backup"])
+    with pytest.raises(PlanError, match="겹치는 이름"):
+        build_plan("t", *write(tmp_path, workers=workers))
+
+    workers["workers"]["market_agent"]["fallbacks"] = [" primary "]
+    with pytest.raises(PlanError, match="주 모델이 들어갈 수 없습니다"):
+        build_plan("t", *write(tmp_path, workers=workers))
+
+
+@pytest.mark.parametrize("max_rounds", [True, "2", 2.0, None])
+def test_retry_max_rounds_must_be_an_integer(tmp_path, max_rounds):
+    teams = team_with(lambda t: t["steps"][2].update(
+        retry={"target": "report_agent", "max_rounds": max_rounds}))
+    with pytest.raises(PlanError, match="1 이상의 정수"):
+        build_plan("t", *write(tmp_path, teams=teams))
+
+
+def test_retry_null_is_exposed_as_null(tmp_path):
+    teams = team_with(lambda t: t["steps"][2].update(retry=None))
+    assert build_plan("t", *write(tmp_path, teams=teams))["steps"][2]["retry"] is None
+
+
+def test_retry_max_rounds_accepts_agreed_upper_bound(tmp_path):
+    teams = team_with(lambda t: t["steps"][2].update(
+        retry={"target": "report_agent", "max_rounds": 3}))
+    assert build_plan("t", *write(tmp_path, teams=teams))["steps"][2]["retry"]["maxRounds"] == 3
+
+
+def test_retry_is_only_allowed_on_sequential_review_stage(tmp_path):
+    def change(team):
+        team["steps"][2].pop("retry")
+        team["steps"][1]["retry"] = {"target": "market_agent", "max_rounds": 2}
+
+    with pytest.raises(PlanError, match="review_agent가 있는 순차 review 단계"):
+        build_plan("t", *write(tmp_path, teams=team_with(change)))
+
+
+def test_retry_target_must_be_in_exactly_one_step(tmp_path):
+    teams = team_with(lambda t: t["steps"][0]["workers"].append("report_agent"))
+    with pytest.raises(PlanError, match="계획의 한 단계에만"):
+        build_plan("t", *write(tmp_path, teams=teams))
+
+
+def test_one_retry_target_cannot_be_used_by_multiple_review_steps(tmp_path):
+    def change(team):
+        team["steps"].append({
+            "id": "second_review", "title": "재검토", "mode": "sequential", "workers": ["review_agent"],
+            "depends_on": ["compose"], "retry": {"target": "report_agent", "max_rounds": 2},
+        })
+
+    with pytest.raises(PlanError, match="한 단계에서만 재시도"):
+        build_plan("t", *write(tmp_path, teams=team_with(change)))
