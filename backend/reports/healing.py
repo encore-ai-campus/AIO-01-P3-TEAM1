@@ -10,7 +10,8 @@ Trace는 `state.record`로만 남긴다 (`add_result`·`add_error`·`finish`는 
   YAML의 `fallbacks`는 쓰지 않는다. 대체 모델도 같은 규칙으로 한 번 더 할 수 있다.
 - 시도는 모델마다 MAX_ATTEMPTS_PER_MODEL, 전체 MAX_ATTEMPTS(첫 시도 + 재시도 3번), Worker `deadline` 안에서만. 넘으면 `LlmGaveUp`.
 - Circuit Breaker: 모델별 연속 실패 BREAKER_FAILURES번이면 BREAKER_OPEN_SEC 동안 그 모델을 건너뛴다 (이 프로세스 메모리).
-장애 주입(T4-6)은 실제 호출 직전 한 곳에 더한다. 복구 경로에는 "주입이면"이라는 분기를 두지 않는다.
+장애 주입(T4-6, `chaos.py`)은 `_once`의 실제 호출 직전 한 곳에서만 한다. 복구 경로에는 "주입이면"이라는 분기를 두지 않는다
+(주입된 실패도 Circuit Breaker가 센다). 주입 여부는 Trace `agent_failed.details.injected`에만 남는다.
 """
 import threading
 import time
@@ -20,6 +21,7 @@ from enum import Enum
 from config import engine
 from paper_engine.llm import LlmClient, LlmError, LlmTimeout
 
+from . import chaos as injection
 from . import contracts, state
 from .models import Report
 
@@ -176,7 +178,7 @@ class LlmCaller:
                 first_failure = clock() if first_failure is None else first_failure  # 복구 시간은 첫 agent_failed부터 (9절)
                 breaker.failed(model, clock())
                 self._record("agent_failed", "failed", model, begun,
-                             {"errorType": error_type.value, "attempt": self.attempt, "injected": False,
+                             {"errorType": error_type.value, "attempt": self.attempt, "injected": failure.injected,
                               "final": False})
                 if attempts >= MAX_ATTEMPTS:
                     break
@@ -205,7 +207,15 @@ class LlmCaller:
         raise LlmGaveUp(error_type, attempts, model, f"{self.worker_id}: {last_error}")
 
     def _once(self, model: str, system: str, user: str, limit: float, contract: str | None) -> tuple[dict, float]:
-        """실제 호출 한 번 (+ 출력 계약 검증). 실패는 _Failed로 바꿔 올린다. 비용은 실패해도 self.cost_usd에 더한다."""
+        """실제 호출 한 번 (+ 출력 계약 검증). 실패는 _Failed로 바꿔 올린다. 비용은 실패해도 self.cost_usd에 더한다.
+
+        장애 주입은 여기, 실제 호출 직전 한 곳에서만 한다 (T4-6): 주입된 실패는 부르지 않고(비용 0) 진짜와 같은 예외로 만든다.
+        """
+        injected = injection.should_fail(self.chaos, self.worker_id, model, model == self.worker.get("model"),
+                                         self.attempt)
+        if injected is not None:
+            error_type = ErrorType(injected)
+            raise _Failed(error_type, _injected_error(error_type, limit), 0.0, injected=True)
         cost = 0.0
         try:
             try:
@@ -245,9 +255,19 @@ class LlmCaller:
 
 
 class _Failed(Exception):
-    def __init__(self, error_type: ErrorType, error: Exception, cost: float):
+    def __init__(self, error_type: ErrorType, error: Exception, cost: float, injected: bool = False):
         super().__init__(str(error))
-        self.error_type, self.error, self.cost = error_type, error, cost
+        self.error_type, self.error, self.cost, self.injected = error_type, error, cost, injected
+
+
+def _injected_error(error_type: ErrorType, limit: float) -> Exception:
+    """주입한 실패의 예외. 진짜 LlmClient가 내는 것과 같은 모양이라 classify가 같은 종류로 나눈다.
+    timeout은 실제로 기다리지 않는다 (시험·시연 시간을 줄인다)."""
+    if error_type is ErrorType.TIMEOUT:
+        return LlmTimeout(f"{limit:g}초 안에 응답 없음 (주입)")
+    if error_type is ErrorType.SERVER_ERROR:
+        return LlmError("HTTP 503: 주입된 서버 오류")
+    return LlmError("JSON 객체가 없는 응답: (주입된 깨진 응답)")
 
 
 def make_caller(report: Report, worker: dict, chaos: dict | None, client, deadline: float) -> LlmCaller:

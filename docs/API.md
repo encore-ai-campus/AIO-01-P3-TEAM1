@@ -497,6 +497,8 @@ interface AnalysisQuota {
 2026-10-07(담당 4, T4-1): `ReportSummary`의 `source`·`chaosEnabled`·`costUsd`·`hasPdf`, 자동 리포트의 `requestedBy` "자동", `ReportDetail`의 `chaos`·`recovery`를
 서버가 내기 시작했다 ("(구현)" 표시). `recovery`는 Trace 계산(T4-7) 전까지 장애 없음 고정값, `hasPdf`는 `pdf_path` 파일이 있을 때만 true(그 열을 채우는 것은 PDF 쪽 일),
 `chaos`는 장애 주입 신청(T4-6) 전까지 늘 null이다.
+2026-10-07(담당 4, T4-6): `POST /api/reports`의 `chaos`를 받는다 (`reports/chaos.py`). `enabled: false`면 저장하지 않아 `chaos`는 null,
+켜면 기본값·seed를 채워 저장한다. 주입한 timeout은 실제로 기다리지 않고 바로 실패로 처리한다 (시험 시간을 줄인다).
 담당별 할 일은 `docs/tasks/`, 셈법과 모듈 경계는 `docs/tasks/00-공통.md`. 아래에서 "(추가)"로 표시한 것은 아직 서버가 내지 않는다.
 
 ## 타입
@@ -561,7 +563,7 @@ interface PlanStep {
   retry: { target: string; maxRounds: number } | null;   // (추가) 검토 단계: RETRY 판정이면 target Worker를 다시 실행 (maxRounds는 1~3)
 }
 
-interface ChaosConfig {           // (추가) 장애 주입 설정 (docs/tasks/00-공통.md 5절). 리포트 워크플로우에만 적용된다
+interface ChaosConfig {           // (구현) 장애 주입 설정 (docs/tasks/00-공통.md 5절). 리포트 워크플로우에만 적용된다
   enabled: boolean;
   probability: number;          // 0~1. 호출 하나가 실패할 확률
   errorTypes: ErrorType[];      // 일으킬 실패 종류 (unknown 제외)
