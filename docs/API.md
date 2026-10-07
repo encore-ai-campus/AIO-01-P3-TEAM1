@@ -547,7 +547,7 @@ interface PlanStep {
   dependsOn: string[];          // 먼저 끝나야 하는 step id
   join: boolean;                // 앞 단계 결과를 Join Guard로 확인한 뒤 실행하는지
   timeoutSec: number | null;
-  retry: { target: string; maxRounds: number } | null;   // (추가) 검토 단계: RETRY 판정이면 target Worker를 다시 실행 (최대 maxRounds번)
+  retry: { target: string; maxRounds: number } | null;   // (추가) 검토 단계: RETRY 판정이면 target Worker를 다시 실행 (maxRounds는 1~3)
 }
 
 interface ChaosConfig {           // (추가) 장애 주입 설정 (docs/tasks/00-공통.md 5절). 리포트 워크플로우에만 적용된다

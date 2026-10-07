@@ -24,7 +24,8 @@ const ROLE: Record<Role, { label: string; cls: string }> = {
 
 function workerOf(plan: ExecutionPlan, id: string): Worker {
   return (
-    plan.workers.find((w) => w.id === id) ?? { id, title: id, goal: "", provider: null, model: null, outputContract: "-" }
+    plan.workers.find((w) => w.id === id) ??
+    { id, title: id, goal: "", provider: null, model: null, fallbacks: [], outputContract: "-" }
   );
 }
 

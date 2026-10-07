@@ -350,14 +350,14 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 
 | 문서의 개념 | 이 저장소에서 |
 |---|---|
-| Execution Plan, 계획 검증 | `backend/reports/team_definitions.yaml`의 steps(`depends_on`, `join`) + `registry.py`의 검증 (없는 앞 단계·중복 step id·순환·없는 Worker) |
+| Execution Plan, 계획 검증 | `backend/reports/team_definitions.yaml`의 steps(`depends_on`, `join`, `retry`) + `registry.py`의 검증 (없는 앞 단계·중복 step id·순환·없는 Worker·대체 모델·검토 재시도) |
 | Sequential / Parallel | step의 `mode`. 조사(`parallel_research`)는 병렬, 리포트 작성·검토는 순차 |
 | Join Guard | step의 `join: true`. Trace의 `join_guard` 사건(`join_completed`·`join_blocked`). 판단 코드는 미구현 |
 | Partial Failure 정책 | team의 `failure_policy`(fail_fast·best_effort·required_optional)와 step의 `required`·`optional`. 판단 코드는 미구현 |
 | Handoff | team의 `handoffs`(from·to·responsibility·max_hops). 계약 필드와 Guard는 화면에 안내만, 코드는 미구현 |
 | Shared State | `reports.Report` 행 (status, current_step, results, errors, completed_agents, failed_agents) |
 | 구조화된 Trace | `reports.TraceEvent` 행 (step, actor, action, status, provider, model, latency_ms, details) |
-| YAML Registry | `worker_definitions.yaml`(Worker 이름·목표·Provider·출력 계약 이름), `team_definitions.yaml`(병렬·필수·선택 구성과 Timeout) |
+| YAML Registry | `worker_definitions.yaml`(Worker 이름·목표·Provider·주 모델·순서형 대체 모델·출력 계약 이름), `team_definitions.yaml`(병렬·필수·선택 구성과 Timeout·Retry). 정의하지 않은 키는 오타로 보고 거부한다 |
 | SSE + Snapshot | `GET /api/reports/{id}/events`(SSE)와 `GET /api/reports/{id}`(Snapshot). 저장소는 DB (Redis Stream은 쓰지 않는다) |
 
 ### 9-3. 종목 리포트 팀 (Registry 초안)
@@ -369,7 +369,10 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 ```
 
 - 실패 정책은 Required/Optional: 시세·재무는 필수, 뉴스는 선택. Provider·Model은 아직 정하지 않았다 (null).
-- step id: `parallel_research`(병렬, timeout 60초) → `compose`(순차, join, 90초) → `review`(순차, 60초).
+  각 Worker의 `fallbacks`는 주 모델 실패 시 순서대로 시도할 모델 목록이며, 아직 배정하지 않았으면 빈 목록이다.
+- step id: `parallel_research`(병렬, timeout 60초) → `compose`(순차, join, 90초) →
+  `review`(순차, 60초, RETRY면 `report_agent`를 최대 2회 다시 실행).
+  Registry는 설정 실수를 막기 위해 `retry.max_rounds`를 1~3으로 제한한다.
 
 ### 9-4. Orchestrator를 붙일 자리 (구현할 때)
 

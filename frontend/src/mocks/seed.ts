@@ -242,6 +242,7 @@ export function reportPlan(): ExecutionPlan {
     goal,
     provider: null,
     model: null,
+    fallbacks: [],
     outputContract,
   });
   return {
@@ -259,6 +260,7 @@ export function reportPlan(): ExecutionPlan {
         dependsOn: [],
         join: false,
         timeoutSec: 60,
+        retry: null,
       },
       {
         id: "compose",
@@ -270,6 +272,7 @@ export function reportPlan(): ExecutionPlan {
         dependsOn: ["parallel_research"],
         join: true,
         timeoutSec: 90,
+        retry: null,
       },
       {
         id: "review",
@@ -281,6 +284,7 @@ export function reportPlan(): ExecutionPlan {
         dependsOn: ["compose"],
         join: false,
         timeoutSec: 60,
+        retry: { target: "report_agent", maxRounds: 2 },
       },
     ],
     workers: [
