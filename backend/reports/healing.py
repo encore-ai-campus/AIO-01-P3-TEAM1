@@ -1,11 +1,16 @@
 """리포트 Worker의 LLM 호출기 (docs/tasks/00-공통.md 7절, 04-autohealing.md T4-3~T4-6).
 
 Orchestrator가 Worker마다 `make_caller`로 호출기를 만들어 `ctx.llm`에 넣고, Worker는 `ctx.llm(system, user, contract=...)`로 부른다.
-호출기는 실패를 분류(ErrorType)하고 Trace에 `agent_failed(final: false)`를 남긴다. 모든 모델이 실패하면 `LlmGaveUp`.
 Trace는 `state.record`로만 남긴다 (`add_result`·`add_error`·`finish`는 Orchestrator 몫).
 
-지금(T4-3 뼈대)은 주 모델을 **한 번만** 부르고 실패하면 바로 포기한다.
-재시도·대체 모델(T4-4), Circuit Breaker(T4-5), 장애 주입(T4-6)은 `__call__` 안에 더한다 — 서명은 바꾸지 않는다.
+한 번의 `ctx.llm(...)` 안에서 (2026-10-07 결정 — 00-공통.md 7절):
+- 주 모델(YAML `model`)을 부르고, 실패하면 종류를 나눈다(ErrorType). unknown이 아니면 **같은 모델로 한 번** 더 한다
+  (timeout도. server_error는 RETRY_BACKOFF_SEC 쉬고, bad_output은 문제를 user 끝에 붙여서).
+- 그래도 실패하면 **대체 모델 하나**로 넘어간다: FALLBACK_POOL 순서에서 주 모델이 아니고 Circuit Breaker로 막히지 않은 첫 모델.
+  YAML의 `fallbacks`는 쓰지 않는다. 대체 모델도 같은 규칙으로 한 번 더 할 수 있다.
+- 시도는 모델마다 MAX_ATTEMPTS_PER_MODEL, 전체 MAX_ATTEMPTS(첫 시도 + 재시도 3번), Worker `deadline` 안에서만. 넘으면 `LlmGaveUp`.
+- Circuit Breaker: 모델별 연속 실패 BREAKER_FAILURES번이면 BREAKER_OPEN_SEC 동안 그 모델을 건너뛴다 (이 프로세스 메모리).
+장애 주입(T4-6)은 실제 호출 직전 한 곳에 더한다. 복구 경로에는 "주입이면"이라는 분기를 두지 않는다.
 """
 import threading
 import time
@@ -13,21 +18,32 @@ from dataclasses import dataclass
 from enum import Enum
 
 from config import engine
-from paper_engine.llm import TIMEOUT_SEC, LlmClient, LlmError, LlmTimeout
+from paper_engine.llm import LlmClient, LlmError, LlmTimeout
 
 from . import contracts, state
 from .models import Report
 
-clock = time.monotonic  # 테스트가 가짜 시계로 바꾼다 (deadline도 같은 시계 기준)
+FALLBACK_POOL = ("gpt-5.6-luna", "gemini-3.8-flash", "deepseek-v4.1-flash")  # 대체 모델 후보 (이 순서로 고른다)
+CALL_TIMEOUT_SEC = 60       # 호출 한 번의 제한 시간 (Worker deadline이 더 가까우면 그때까지)
+MAX_ATTEMPTS = 4            # 한 번의 ctx.llm(...)에서 전체 시도 수 (첫 시도 + 재시도 3번)
+MAX_ATTEMPTS_PER_MODEL = 2  # 모델마다 (첫 시도 + 같은 모델 재시도 1번)
+RETRY_BACKOFF_SEC = 2       # server_error 뒤 같은 모델로 다시 부르기 전에 쉬는 시간
+BREAKER_FAILURES = 3        # 모델별 연속 실패가 이만큼이면 차단
+BREAKER_OPEN_SEC = 300      # 차단을 유지하는 시간
+
+clock, sleep = time.monotonic, time.sleep  # 테스트가 가짜 시계로 바꾼다 (deadline도 같은 시계 기준)
 _client_lock = threading.Lock()
 _client: tuple[str, LlmClient] | None = None  # (키, 클라이언트) — llm_client()
 
 
 class ErrorType(str, Enum):
-    TIMEOUT = "timeout"            # 제한 시간 안에 응답 없음 → (T4-4) 같은 모델로 다시 하지 않고 다음 모델로
-    SERVER_ERROR = "server_error"  # HTTP 429·5xx·연결 실패 → (T4-4) 잠깐 쉬고 같은 모델 재시도
-    BAD_OUTPUT = "bad_output"      # JSON 아님·빈 응답·출력 계약 위반 → (T4-4) 오류를 알려 주고 같은 모델 재요청
-    UNKNOWN = "unknown"            # 그 밖 (HTTP 400·401 등)
+    TIMEOUT = "timeout"            # 제한 시간 안에 응답 없음
+    SERVER_ERROR = "server_error"  # HTTP 429·5xx·연결 실패
+    BAD_OUTPUT = "bad_output"      # JSON 아님·빈 응답·출력 계약 위반
+    UNKNOWN = "unknown"            # 그 밖 (HTTP 400·401 등) → 같은 모델로 다시 하지 않는다
+
+
+RETRY_SAME_MODEL = (ErrorType.TIMEOUT, ErrorType.SERVER_ERROR, ErrorType.BAD_OUTPUT)
 
 
 @dataclass
@@ -39,11 +55,11 @@ class LlmReply:
     recovered: bool            # attempts > 1
     latency_ms: int            # 첫 시도 시작부터 성공까지
     recovery_ms: int | None    # 첫 실패부터 성공까지 (실패가 없었으면 None). agent_completed.details.recoveryMs가 된다
-    cost_usd: float
+    cost_usd: float            # 이 호출의 비용 (실패한 시도 포함)
 
 
 class LlmGaveUp(Exception):
-    """모든 모델이 실패함. Orchestrator가 잡아 `agent_failed(final: true)`와 `add_error`를 남긴다."""
+    """모든 시도가 실패함. Orchestrator가 잡아 `agent_failed(final: true)`와 `add_error`를 남긴다."""
 
     def __init__(self, error_type: ErrorType, attempts: int, last_model: str | None, message: str):
         super().__init__(message)
@@ -68,6 +84,51 @@ def classify(error: Exception) -> ErrorType:
     return ErrorType.UNKNOWN
 
 
+class CircuitBreaker:
+    """모델별 연속 실패 수와 차단 시각. 엔진 프로세스 하나에 하나 (Worker 스레드들이 같이 쓴다).
+
+    차단 시간이 지나면 다시 부를 수 있고, 그 호출이 또 실패하면 바로 다시 차단한다 (연속 실패 수가 남아 있으므로).
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._failures: dict[str, int] = {}
+        self._opened: dict[str, float] = {}
+
+    def is_open(self, model: str, now: float) -> bool:
+        with self._lock:
+            opened = self._opened.get(model)
+            return opened is not None and now - opened < BREAKER_OPEN_SEC
+
+    def failed(self, model: str, now: float) -> None:
+        with self._lock:
+            self._failures[model] = self._failures.get(model, 0) + 1
+            if self._failures[model] >= BREAKER_FAILURES:
+                self._opened[model] = now
+
+    def succeeded(self, model: str) -> None:
+        with self._lock:
+            self._failures.pop(model, None)
+            self._opened.pop(model, None)
+
+    def reset(self) -> None:
+        """테스트용."""
+        with self._lock:
+            self._failures.clear()
+            self._opened.clear()
+
+
+breaker = CircuitBreaker()
+
+
+def fallback_for(primary: str | None, now: float, tried: set[str] = frozenset()) -> str | None:
+    """대체 모델: FALLBACK_POOL 순서에서 주 모델·이미 쓴 모델이 아니고 차단되지 않은 첫 모델. 없으면 None."""
+    for model in FALLBACK_POOL:
+        if model != primary and model not in tried and not breaker.is_open(model, now):
+            return model
+    return None
+
+
 class LlmCaller:
     """리포트 하나의 Worker 하나에 묶인 호출기. Orchestrator가 만들어 ctx.llm에 넣는다."""
 
@@ -85,23 +146,66 @@ class LlmCaller:
     def provider(self) -> str | None:
         return self.worker.get("provider")
 
-    @property
-    def models(self) -> list[str]:
-        """부를 순서: [주 모델] + 대체 모델 (비었거나 겹치는 이름은 뺀다)."""
-        names = [self.worker.get("model"), *(self.worker.get("fallbacks") or [])]
-        return list(dict.fromkeys(name for name in names if name))
-
     def __call__(self, system: str, user: str, *, contract: str | None = None,
                  timeout: float | None = None) -> LlmReply:
-        models = self.models
-        if not models:
+        primary = self.worker.get("model")
+        if not primary:
             raise LlmGaveUp(ErrorType.UNKNOWN, 0, None, f"{self.worker_id}: 모델이 정해지지 않았습니다.")
-        model = models[0]
         started = clock()
-        limit = min(timeout or TIMEOUT_SEC, self.deadline - started)
-        if limit <= 0:
-            raise LlmGaveUp(ErrorType.TIMEOUT, 0, model, f"{self.worker_id}: 제한 시간이 지나 부르지 않았습니다.")
-        self.attempt += 1
+        model, tried = primary, {primary}
+        if breaker.is_open(primary, started):
+            model = self._failover(primary, "circuit_open", tried)
+            if model is None:
+                raise LlmGaveUp(ErrorType.UNKNOWN, 0, primary,
+                                f"{self.worker_id}: {primary}이(가) 차단됐고 넘어갈 대체 모델이 없습니다.")
+        prompt, attempts, on_model, cost = user, 0, 0, 0.0
+        first_failure: float | None = None
+        error_type, last_error = ErrorType.TIMEOUT, "제한 시간이 지나 부르지 않았습니다."
+        while attempts < MAX_ATTEMPTS:
+            limit = min(timeout or CALL_TIMEOUT_SEC, self.deadline - clock())
+            if limit <= 0:
+                break
+            attempts, on_model = attempts + 1, on_model + 1
+            self.attempt += 1
+            begun = clock()
+            try:
+                data, spent = self._once(model, system, prompt, limit, contract)
+            except _Failed as failure:
+                cost += failure.cost
+                error_type, last_error = failure.error_type, f"{model}: {failure.error}"
+                first_failure = clock() if first_failure is None else first_failure  # 복구 시간은 첫 agent_failed부터 (9절)
+                breaker.failed(model, clock())
+                self._record("agent_failed", "failed", model, begun,
+                             {"errorType": error_type.value, "attempt": self.attempt, "injected": False,
+                              "final": False})
+                if attempts >= MAX_ATTEMPTS:
+                    break
+                if error_type in RETRY_SAME_MODEL and on_model < MAX_ATTEMPTS_PER_MODEL \
+                        and not breaker.is_open(model, clock()):
+                    if not self._wait_before_retry(error_type):
+                        break
+                    self._record("agent_retry", "started", model, None,
+                                 {"attempt": self.attempt + 1, "reason": error_type.value})
+                    if error_type is ErrorType.BAD_OUTPUT:
+                        prompt = f"{user}\n\n이전 응답의 문제: {failure.error}\nJSON 객체만 출력하세요."
+                    continue
+                next_model = self._failover(model, error_type.value, tried)
+                if next_model is None:
+                    break
+                model, prompt, on_model = next_model, user, 0
+                continue
+            cost += spent
+            breaker.succeeded(model)
+            now = clock()
+            reply = LlmReply(data=data, provider=self.provider, model=model, attempts=attempts,
+                             recovered=attempts > 1, latency_ms=_ms(now - started),
+                             recovery_ms=None if first_failure is None else _ms(now - first_failure), cost_usd=cost)
+            self.calls.append(reply)
+            return reply
+        raise LlmGaveUp(error_type, attempts, model, f"{self.worker_id}: {last_error}")
+
+    def _once(self, model: str, system: str, user: str, limit: float, contract: str | None) -> tuple[dict, float]:
+        """실제 호출 한 번 (+ 출력 계약 검증). 실패는 _Failed로 바꿔 올린다. 비용은 실패해도 self.cost_usd에 더한다."""
         cost = 0.0
         try:
             try:
@@ -113,20 +217,37 @@ class LlmCaller:
                 self.cost_usd += cost
             if contract is not None:
                 data = contracts.validate(contract, data)
-        except Exception as e:  # 분류할 수 없는 예외도 한 번의 실패로 남기고 포기한다
-            error_type = classify(e)
-            self._failed(model, error_type, started)
-            raise LlmGaveUp(error_type, 1, model, f"{model}: {e}") from e
-        reply = LlmReply(data=data, provider=self.provider, model=model, attempts=1, recovered=False,
-                         latency_ms=_ms(clock() - started), recovery_ms=None, cost_usd=cost)
-        self.calls.append(reply)
-        return reply
+        except Exception as e:  # 분류할 수 없는 예외도 한 번의 실패로 센다
+            raise _Failed(classify(e), e, cost) from e
+        return data, cost
 
-    def _failed(self, model: str, error_type: ErrorType, started: float, injected: bool = False) -> None:
-        state.record(self.report, self.worker_id, "agent_failed", "failed", provider=self.provider, model=model,
-                     latency_ms=_ms(clock() - started),
-                     details={"errorType": error_type.value, "attempt": self.attempt, "injected": injected,
-                              "final": False})
+    def _wait_before_retry(self, error_type: ErrorType) -> bool:
+        """server_error면 잠깐 쉰다. 쉬고 나면 deadline이 지나는 경우는 False (더 부르지 않는다)."""
+        if error_type is not ErrorType.SERVER_ERROR:
+            return True
+        if self.deadline - clock() <= RETRY_BACKOFF_SEC:
+            return False
+        sleep(RETRY_BACKOFF_SEC)
+        return True
+
+    def _failover(self, frm: str, reason: str, tried: set[str]) -> str | None:
+        """대체 모델로 넘어간다 (agent_failover). 대체 모델은 하나뿐이라 이미 넘어갔거나 고를 모델이 없으면 None."""
+        to = fallback_for(self.worker.get("model"), clock(), tried) if len(tried) == 1 else None
+        if to is None:
+            return None
+        tried.add(to)
+        self._record("agent_failover", "started", to, None, {"from": frm, "to": to, "reason": reason})
+        return to
+
+    def _record(self, action: str, status: str, model: str, begun: float | None, details: dict) -> None:
+        state.record(self.report, self.worker_id, action, status, provider=self.provider, model=model,
+                     latency_ms=None if begun is None else _ms(clock() - begun), details=details)
+
+
+class _Failed(Exception):
+    def __init__(self, error_type: ErrorType, error: Exception, cost: float):
+        super().__init__(str(error))
+        self.error_type, self.error, self.cost = error_type, error, cost
 
 
 def make_caller(report: Report, worker: dict, chaos: dict | None, client, deadline: float) -> LlmCaller:

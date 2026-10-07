@@ -7,6 +7,7 @@ from paper_engine.llm import LlmError, LlmTimeout
 from trading import market
 
 from config.api import Unavailable
+from reports import healing
 from reports.models import Report
 
 STOCKS = {
@@ -92,6 +93,14 @@ class FakeLlm:
         items = self.script.get(model)
         assert items, f"FakeLlm: {model}의 대본이 없거나 다 썼습니다"
         return items.pop(0)
+
+
+@pytest.fixture(autouse=True)
+def _reset_circuit_breaker():
+    """Circuit Breaker는 프로세스 전역이라 테스트끼리 섞이지 않게 비운다."""
+    healing.breaker.reset()
+    yield
+    healing.breaker.reset()
 
 
 @pytest.fixture
