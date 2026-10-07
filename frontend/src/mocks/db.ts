@@ -1180,12 +1180,12 @@ export function requestReport(user: MockUser, symbol: string, chaos?: ChaosReque
 }
 
 // ---------------------------------------------------------------- AI 추천 · 매매 계획 · 자동매매 · 알림
-// 리스크 엔진(judge/risk.py)의 계산을 단순하게 흉내 낸다: 건당 위험 1%, 최소 손익비 2.0, 매수 가능 금액, 총 금액 한도, 예산.
+// 리스크 엔진(judge/risk.py)의 계산을 단순하게 흉내 낸다: 건당 위험 1%, 최소 손익비 1.5(스윙), 매수 가능 금액, 총 금액 한도, 예산.
 // 가격은 장마감 기준(종가), 활성화는 정규장이면 장중 확인 가격으로 한 번 더 본다.
 // 계획은 시연용으로 시간이 지나면 저절로 진행한다 (주문 접수 → planStepMs 뒤 진입가 체결 → planStepMs 뒤 목표가 청산).
 
 const RISK_PER_TRADE = 0.01;
-const MIN_REWARD_RISK = 2.0;
+const MIN_REWARD_RISK = 1.5;
 const STOP_SLIPPAGE = 0.01;
 const DEMO_PER_USER = 5;
 const DEMO_SYMBOLS = ["035420", "005380", "068270", "105560", "035720"];

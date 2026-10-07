@@ -19,14 +19,16 @@
   설명은 `docs/DECISIONS.md` 3-1장.
 - **AI는 제안만 한다.** 지표 계산, 사실 검증, 수량·한도·체결 가능 여부는 결정론적 코드(리스크 엔진, 모의 체결기)가 판단한다.
   AI 추천을 활성화한 매매 계획(`backend/autotrade`)도 같다: 수량·활성화 여부는 리스크 엔진, 주문·체결은 `trading.service`와 모의 체결기.
-  최소 손익비 2.0은 AI 프롬프트에 노출하지 않는다.
+  최소 손익비(스윙 1.5)는 AI 프롬프트에 노출하지 않는다. 손절가는 AI가 아니라 코드가 정한다 (`engine/paper_engine/judge/stops.py`).
 - **엔진 내부 데이터 형식은 토스 형식을 유지한다.** 키움 응답 → 내부 형식 변환은 `engine/paper_engine/data/kiwoom.py` 안에서만 한다.
   조회 클라이언트는 `data/broker.make_client`로만 만들고, `KiwoomClient`와 `TossClient`의 공개 메서드 이름·인자·반환 형식은 같게 둔다.
 - **엔진(`engine/`)은 표준 라이브러리만 쓴다.** Django·DRF·psycopg·gunicorn 등 외부 의존성은 `backend/`에만 추가한다.
 - **운영 중인 원본 `toss_trading`에 영향을 주지 않는다.** Redis 키 접두사는 `paper:`만 쓴다 (`toss:*` 금지).
   토스 토큰은 client당 1개만 유효하다. 원본과 같은 `CLIENT_ID`로 토큰을 받으면 원본의 토큰이 무효가 되므로 개발용 client를 따로 쓴다.
   `personal_project_files/`는 원본 복사본(참고용, git 제외)이다. 고치지 않고, 그 안의 데이터를 가져오지 않는다.
-- 커밋은 사용자가 요청할 때만 한다. `main`에 직접 push해도 된다 (PR·리뷰 필수 아님). push 전에 테스트를 돌린다.
+- **구현 작업이 끝나면 따로 묻지 않고 자기 변경만 커밋해 `main`에 push한다** (2026-10-07 사용자 결정, 모든 세션). PR·리뷰는 필수가 아니다.
+  push 전에 테스트를 돌리고, 최신 `main`을 받아 합친다. 여러 세션이 같은 작업 트리를 쓰므로 다른 세션의 파일·hunk는 스테이지하지 않는다
+  (같은 파일을 고쳤으면 자기 hunk만 고르고, 커밋 순서를 메시지로 맞춘다). 계획서·문서만 고친 작업은 사용자가 요청할 때만 커밋한다.
   push하면 GitHub Actions가 같은 검사를 돌리고(`ci.yml`), `main`은 검사를 통과해야 배포된다 (`deploy.yml`, `docs/DEPLOY.md`).
 
 ## DB

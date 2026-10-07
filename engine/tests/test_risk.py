@@ -96,16 +96,23 @@ def test_size_capped_by_buying_power_and_liquidity():
 
 
 def test_rejects_low_reward_risk():
-    r = assess(scenario(target_price=109_000), account())  # 손익비 약 1.4
+    r = assess(scenario(target_price=107_000), account())  # 손익비 약 1.1 (매도 거래세·손절 주문가 반영)
     assert not r.approved
-    assert any("손익비" in x for x in r.reasons)
+    assert any("손익비" in x and "1.5" in x for x in r.reasons)
+
+
+def test_swing_minimum_reward_risk_is_1_5():
+    assert LIMITS["SWING"].min_reward_risk == 1.5
+    # 손실 = 100,000 − 95,000 × 0.99 × (1 − 0.002) = 6,138.1. 이익 = 목표가 × (1 − 0.002) − 100,000
+    assert assess(scenario(target_price=109_500), account()).approved  # 9,281 ÷ 6,138.1 ≈ 1.51
+    assert not assess(scenario(target_price=109_300), account()).approved  # 9,081.4 ÷ 6,138.1 ≈ 1.48
 
 
 def test_loss_uses_stop_order_price():
     # 손절 주문가는 감시가보다 1% 낮다. 손실은 주문가 기준: 100 − 90 × 0.99 = 10.9
-    s = scenario(symbol="AAPL", currency="USD", entry_price=100, target_price=120, stop_price=90)
+    s = scenario(symbol="AAPL", currency="USD", entry_price=100, target_price=115, stop_price=90)
     r = assess(s, account(fx_rate=1_400))
-    assert r.reward_risk == pytest.approx(20 / 10.9)
+    assert r.reward_risk == pytest.approx(15 / 10.9)
     assert not r.approved and any("손익비" in x for x in r.reasons)
 
 
@@ -186,7 +193,7 @@ def test_daily_trades_and_loss_limits(monkeypatch):
 
 
 def test_codes_align_with_reasons():
-    r = assess(scenario(target_price=109_000, probability=0.2),
+    r = assess(scenario(target_price=107_000, probability=0.2),
                account(warnings=["투자경고"], daily_loss_krw=300_000, buying_power=50_000))
     assert r.codes == ["reward_risk_low", "ev_negative", "warning_stock", "daily_loss_limit", "size_too_small"]
     assert len(r.codes) == len(r.reasons)

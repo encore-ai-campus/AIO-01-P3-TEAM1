@@ -1,6 +1,8 @@
 """한 종목의 분석 파이프라인.
 
 웹 조사 → 시나리오 제안 → 사실 검증(코드) → 검증 → 판정(코드) → 최종 컨펌
+손절가는 코드가 정한다 (judge/stops.py): 제안 전에 종목 데이터의 stopRule에 넣어 모든 에이전트가 같이 보고,
+제안된 시나리오의 stopPrice는 그 값으로 덮어쓴다.
 """
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -14,6 +16,8 @@ from .judge.fact_check import fact_check
 from .judge.reach import Reach, check_reach, unavailable
 from .judge.risk import AccountContext
 from .judge.scenario import Scenario
+from .judge.stops import RULE as STOP_RULE
+from .judge.stops import swing_stop
 from .judge.verdict import Approval, Candidate, Critique, judge
 from .llm import LlmError, LlmTimeout
 
@@ -49,6 +53,32 @@ def _reach(s: Scenario, snapshot: dict) -> Reach:
                            None if atr is None else float(atr))
     except Exception as e:
         return unavailable(str(e))
+
+
+def stop_rule(snapshot: dict) -> dict:
+    """종목 데이터 → stopRule (코드가 정한 손절가와 정하는 법). 자료가 모자라면 price는 None."""
+    try:
+        atr = (snapshot.get("indicators") or {}).get("atr14")
+        lows = [float(c["low"]) for c in snapshot.get("recentCandles") or []]
+        price = swing_stop(float(snapshot["lastPrice"]), lows, None if atr is None else float(atr),
+                           snapshot["currency"])
+    except (KeyError, TypeError, ValueError):
+        price = None
+    return {"price": price, "basis": "lastPrice", "rule": STOP_RULE}
+
+
+def apply_stop(raw: dict, stop: float | None) -> list[str]:
+    """제안된 시나리오의 stopPrice를 코드가 정한 손절가로 바꾼다. 쓸 수 없으면 사유를 돌려준다."""
+    if stop is None:
+        return ["손절가를 정할 자료(완성 일봉·ATR14)가 모자람"]
+    raw["stopPrice"] = stop
+    try:
+        entry = float(raw["entryPrice"])
+    except (KeyError, TypeError, ValueError):
+        return []  # 형식 오류는 시나리오를 만들 때 잡는다
+    if entry <= stop:
+        return [f"진입가 {entry:g}가 코드가 정한 손절가 {stop:g} 이하"]
+    return []
 
 
 def analyze(llm, cfg: Config, snapshot: dict, account: AccountContext, today: date,
@@ -87,6 +117,7 @@ def analyze(llm, cfg: Config, snapshot: dict, account: AccountContext, today: da
             for name in result.research_log["timedOut"]:
                 timed_out(name, "웹 조사")
             stage("웹 조사", len(cfg.researchers))
+        snapshot["stopRule"] = stop_rule(snapshot)
         context = build_context(snapshot)
 
         # 2. 시나리오 제안 (독립)
@@ -104,9 +135,9 @@ def analyze(llm, cfg: Config, snapshot: dict, account: AccountContext, today: da
 
         stage("시나리오 제안", len(proposers))
 
-        # 3. 사실 검증 (코드)
+        # 3. 사실 검증 (코드). 손절가는 여기서 코드 값으로 바꾼다 (검증 AI도 바뀐 값을 본다)
         for c in result.candidates:
-            c.fact_errors = fact_check(snapshot, c.raw)
+            c.fact_errors = fact_check(snapshot, c.raw) + apply_stop(c.raw, snapshot["stopRule"]["price"])
             if c.fact_errors:
                 continue
             try:
