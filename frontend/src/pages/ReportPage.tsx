@@ -14,6 +14,8 @@ import { useRecommendations } from "../api/queries";
 import { type Delivery, isFinished, useReportLive, useRequestReport } from "../api/reports";
 import type { ReportDetail, SharedState, TraceEvent } from "../api/types";
 import { SourceRecommendations } from "../components/autotrade/SourceRecommendations";
+import { ErrorPanel } from "../components/errors/ErrorPanel";
+import { errorKindOf } from "../components/errors/errorTypes";
 import { Icon } from "../components/Icon";
 import { EduDocSection } from "../components/reports/EduDocSection";
 import { PlanGraph } from "../components/reports/PlanGraph";
@@ -25,7 +27,7 @@ import { AutoBadge, DeliveryBadge, ExampleTag, InjectedBadge, ReportStatusBadge 
 import { TraceTimeline } from "../components/reports/TraceTimeline";
 import { ViewToggle } from "../components/reports/ViewToggle";
 import { EasyReport } from "../components/reports/easy/EasyReport";
-import { Card, EmptyState, ErrorState, Notice, PageHeader, PillTabs, Skeleton, SkeletonCard, Spinner } from "../components/ui";
+import { Card, EmptyState, Notice, PageHeader, PillTabs, Skeleton, SkeletonCard, Spinner } from "../components/ui";
 import { type ViewModeState, useViewMode } from "../hooks/useBeginnerMode";
 import { useChanged, useRevealAfterLoading } from "../hooks/useMotionState";
 import { cn } from "../lib/cn";
@@ -151,9 +153,7 @@ export function ReportPage() {
     return (
       <>
         <PageHeader title="AI 리포트" back />
-        <Card>
-          <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} retrying={isFetching} />
-        </Card>
+        <ErrorPanel kind={errorKindOf(error)} onRetry={() => void refetch()} retrying={isFetching} />
       </>
     );
   }

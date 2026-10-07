@@ -9,6 +9,7 @@ import { Card, EmptyState, PageHeader } from "./components/ui";
 import { ADMIN_PATH } from "./lib/secretTaps";
 import { AdminPage } from "./pages/AdminPage";
 import { AnalysisPage } from "./pages/AnalysisPage";
+import { ErrorPreviewPage } from "./pages/ErrorPreviewPage";
 import { HomePage } from "./pages/HomePage";
 import { LoginPage } from "./pages/LoginPage";
 import { MyPage } from "./pages/MyPage";
@@ -83,6 +84,7 @@ export default function App() {
             <Route path="notifications" element={<NotificationsPage />} />
             <Route path="ranking" element={<RankingPage />} />
             <Route path="my" element={<MyPage />} />
+            {import.meta.env.VITE_MOCK === "1" && <Route path="ui/errors" element={<ErrorPreviewPage />} />}
             <Route path="*" element={<NotFound />} />
           </Route>
         </Route>
