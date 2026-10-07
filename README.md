@@ -27,7 +27,7 @@ flowchart LR
 | 모의 계좌·주문 — 팀원별 계좌, 시장가·지정가, 장 밖 예약, 목표·손절 청산, 보유 방식 스윙·장기 | 동작 (장중 지정가 체결·자동 청산 실측은 아직) |
 | 종목·차트 — 시세는 실시간, 계좌 평가·랭킹은 장마감 기준 | 동작 |
 | AI 교차검증 분석 — 팀원별·팀 하루 한도 | 구현됨 (실제 AI 실행은 CLI 1건만 확인) |
-| AI 리포트 — 신청·하루 한도, YAML Registry, State·Trace, SSE, A4 PDF, 쉬운 보기, 끝 알림 | **구조만**. Worker 출력 계약·인터페이스·Registry(`fallbacks`·`retry`)까지 들어왔고, Agent·Orchestrator·AutoHealing은 팀이 구현 중 (`backend/reports/registry.py`의 `AGENTS_IMPLEMENTED = False`) |
+| AI 리포트 — 신청·하루 한도, YAML Registry, State·Trace, SSE, A4 PDF, 쉬운 보기, 끝 알림 | **구조만**. Worker 출력 계약·인터페이스, Registry(`fallbacks`·`retry`), LLM 호출 복구(`healing.py` — 재시도·대체 모델·Circuit Breaker)까지 들어왔고, Worker 구현·Orchestrator·장애 주입은 팀이 구현 중 (`backend/reports/registry.py`의 `AGENTS_IMPLEMENTED = False`) |
 | 추천 → 활성화 → 모의 자동매매 → 알림 | 시연판 (규칙 추천 `demo_recommend`로 끝까지 돈다. AI 리포트가 붙으면 리포트 출처 추천이 생긴다) |
 | 장기투자 — "왜 샀나요?", 오늘의 내 종목 뉴스, 펀더멘털 점검 | 동작 (정해진 시각의 실제 실행 확인은 아직) |
 | 주린이모드·화면 — 쉬운 보기, 하단 탭(홈·종목·리포트·모의투자·마이), 다크 모드 | 동작 |

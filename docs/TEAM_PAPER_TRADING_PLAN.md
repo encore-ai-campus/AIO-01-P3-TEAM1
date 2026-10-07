@@ -26,7 +26,7 @@
 | 장마감 기준 | 화면 숫자는 직전 정규장 종가(KR은 거래일 15:40에 넘어간다), 체결·청산만 장중 확인 가격 | 동작 | 14-1, `backend/trading/market.py:1-12` |
 | 종목·차트 | 검색, 완성 일봉, 매수 유의, 펀더멘털 신호등(로컬은 `MARKETS=KR`) | 동작 | 14-3 |
 | AI 교차검증 분석 | 웹 요청 → `run_engine`이 엔진 `analyze` 하위 프로세스를 돌린다. 팀원별 하루 5회, 팀 하루 $10 | 실제 LLM 실행은 CLI smoke-test 1건(10/2, $0.30)뿐. 웹 경로는 가짜 테스트로만 확인(분석 작업 0건) | 8-4 |
-| AI 리포트 | 신청·하루 3회 한도, YAML Registry, State·Trace, Snapshot·SSE, 선별 API, A4 PDF, 쉬운 보기, 끝 알림 | **구조만**: 출력 계약·Worker 인터페이스와 Registry(`fallbacks`·`retry`)까지 있고(10/7), Agent 실행·Orchestrator·AutoHealing은 없다(`backend/reports/registry.py:19` `AGENTS_IMPLEMENTED = False`). 신청은 `requested`로 남고, 흐름은 예시 Trace 재생으로만 보인다 | 9-1 |
+| AI 리포트 | 신청·하루 3회 한도, YAML Registry, State·Trace, Snapshot·SSE, 선별 API, A4 PDF, 쉬운 보기, 끝 알림 | **구조만**: 출력 계약·Worker 인터페이스, Registry(`fallbacks`·`retry`), LLM 호출기(재시도·대체 모델·Circuit Breaker — `healing.py`), 리포트 새 열(마이그레이션 0002)까지 있다(10/7). Worker 구현·Orchestrator·장애 주입·복구 지표는 없다(`backend/reports/registry.py:19` `AGENTS_IMPLEMENTED = False`). 신청은 `requested`로 남고, 흐름은 예시 Trace 재생으로만 보인다 | 9-1 |
 | 추천 → 활성화 → 모의 자동매매 → 알림 | 출처 report·analysis·demo, 리스크 엔진(건당 1%·손익비 2.0), 진입 지정가·3일 재주문·목표·손절·기한 청산, 단계별 사건·알림 | 시연판: demo 규칙 추천만 있고 report 출처는 0건. 장중 체결·청산은 가짜 시세 테스트만(U8) | 12장, `docs/tasks/06-추천·자동매매.md:64-73` |
 | 장기투자 | 장기 보유, "왜 샀나요?", 오늘의 내 종목 뉴스(16:30), 펀더멘털 점검(18:00), 웹 알림 | 동작(10/5 격리 환경). 실제 시각 실행은 아직(U15) | 14-3 |
 | ~~단타 연습~~ | – | **폐기 (2026-10-06, 사용자 결정)**. 코드·API·화면에서 모두 지웠다 | 16장 |
@@ -37,7 +37,7 @@
 
 ### 1-3. 비어 있는 것·막힌 것
 
-- **핵심 AI Agent 워크플로우는 뼈대만 들어왔다 (10/7).** 출력 계약 6종·Worker 인터페이스(`contracts.py`·`agents/base.py`, `acdb038` — 리뷰 지적은 모두 미수정: `docs/works/todo/feat-2-worker_리뷰_Worker계약_2026-10-07.md`)와 Registry의 `fallbacks`·`retry`(T3-1, `78778e9`·`fcf4d5a`)뿐이다. Worker 구현(`agents.WORKERS`는 비어 있다)·orchestrator·guards·runner·healing·chaos·stats·budget과 마이그레이션 0002는 없다. 원격 브랜치는 팀원별로 생겼다(`git branch -r` 10/7: Hwanseok·dy·feat/2-worker·inhye·ju·yubeen). 과제 주제(에러 자가 치유)의 핵심이고, 산출물 3종·`docs/개선이력.md`·장애 시험 결과표도 아직 없다.
+- **핵심 AI Agent 워크플로우는 뼈대만 들어왔다 (10/7).** 출력 계약 6종·Worker 인터페이스(`contracts.py`·`agents/base.py`, `acdb038` — 리뷰 지적은 모두 미수정: `docs/works/todo/feat-2-worker_리뷰_Worker계약_2026-10-07.md`)와 Registry의 `fallbacks`·`retry`(T3-1, `78778e9`·`fcf4d5a`), 담당 4의 T4-1~T4-5(마이그레이션 0002, LLM 호출기 `healing.py` — 재시도·대체 모델·Circuit Breaker, PR #1·#2)가 들어왔다. Worker 구현(`agents.WORKERS`는 비어 있다)·orchestrator·guards·runner·chaos·stats·budget은 없다. 원격 브랜치는 팀원별로 생겼다(`git branch -r` 10/7: Hwanseok·dy·feat/2-worker·feat/4-healing·inhye·ju·yubeen). 과제 주제(에러 자가 치유)의 핵심이고, 산출물 3종·`docs/개선이력.md`·장애 시험 결과표도 아직 없다.
 - **공유 개발 DB의 리포트 3건(10/2~10/5 신청)이 모두 `requested`다.** runner를 켜면 이 3건이 먼저 돈다(3-1 Q5).
 - **10/6 개장 시험(U8·U15)은 시작하지 못했다.** 시험 계정이 없다. 호스트 PC(노트북)가 09:48~12:34에 절전과 짧은 깨어남을 되풀이했고, 그사이 토스 조회는 DNS 오류·403으로 실패했다(12:36부터 정상). 시각별 기록은 `docs/결정필요사항.md` U8.
 - **토스 client를 원본 개인 프로젝트(실주문)와 같이 쓴다.** 한쪽이 토큰을 새로 받으면 다른 쪽 토큰이 무효가 된다. 10/6에도 되풀이된다(엔진 로그 13:02 `token-revoked`, `.cache/toss_token.json`을 13시대에 여러 번 다시 씀). `AGENTS.md:26-27`과 어긋난다(U4 → U19).
@@ -47,7 +47,7 @@
 
 ### 1-4. 품질
 
-- **테스트**(10/7 로컬, 이름 변경 뒤): Python 1,480개(engine 720 + backend 760, SQLite 메모리 DB)·backtest 12개·ruff, 프론트 vitest 561개(27파일)·eslint·tsc가 통과한다. (10/6의 1,629개·603개에서 줄어든 것은 단타 삭제 `fae25fe`에서 테스트 212개를 지웠기 때문이다.)
+- **테스트**(10/7 로컬, `main`의 healing을 합친 뒤): Python 1,555개(engine 733 + backend 822, SQLite 메모리 DB)·backtest 12개·ruff·`makemigrations --check`, 프론트 vitest 561개(27파일)·eslint·tsc·build가 통과한다. (10/6의 1,629개·603개와 다른 것은 단타 삭제 `fae25fe`에서 테스트 212개를 지우고, 그 뒤 계약·Registry·healing 테스트가 더해졌기 때문이다.)
 - **CI**(`d3325f2`, Deploy 실행 37316655698 성공): ruff → 실주문 코드 검사 → pytest → backtest → `makemigrations --check` → PostgreSQL 16 backend 875개 · eslint → tsc → vitest → build · 이미지 3개 → compose → `smoke_test.sh`(엔진 PDF 포함).
 - **안전 검사**: CI가 실주문 문자열과 `orders.py`를 막고(`.github/workflows/ci.yml:55-66`), 루트 `conftest.py`가 증권사·Discord 키를 비운다.
 

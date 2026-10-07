@@ -6,7 +6,7 @@
 ## 0. DB 스키마 (ERD)
 
 워크플로우가 읽고 쓰는 표만 그렸다. 표 이름은 실제 `db_table`, 열은 주요 열만이다(전체는 각 앱의 `models.py`).
-열 설명의 **"예정(0002)"**은 담당 4의 마이그레이션 0002로 생길 것이고, **"제안"**은 이 문서의 선정 팀을 붙일 때 더할 것이다. 나머지는 지금 있는 것이다.
+열 설명의 **"0002"**는 2026-10-07 들어온 담당 4의 마이그레이션 0002(T4-1)로 생긴 것이고, **"제안"**은 이 문서의 선정 팀을 붙일 때 더할 것이다. 나머지는 그 전부터 있던 것이다.
 
 ```mermaid
 erDiagram
@@ -30,8 +30,8 @@ erDiagram
     }
     reports {
         int id PK
-        int user_id FK "예정(0002): null 허용 - 자동 실행"
-        string source "예정(0002): user 또는 auto"
+        int user_id FK "0002: null 허용 - 자동 실행"
+        string source "0002: user 또는 auto"
         string team "제안: stock_report 또는 stock_selection"
         string symbol "선정 실행은 시장 코드 KR (제안)"
         string status "requested, running, completed, failed"
@@ -41,7 +41,9 @@ erDiagram
         json completed_agents
         json failed_agents
         text content "본문 Markdown"
-        float cost_usd "예정(0002)"
+        float cost_usd "0002: LLM 비용 합"
+        json chaos "0002: 장애 주입 설정"
+        string pdf_path "0002"
         datetime finished_at
     }
     report_trace_events {
@@ -225,7 +227,7 @@ flowchart LR
     classDef heal fill:#f3e8ff,stroke:#a855f7,color:#3b0764
     classDef fail fill:#fdecec,stroke:#ef4444,color:#5b0b0b
 
-    subgraph R["조사 · 병렬 · 90초"]
+    subgraph R["조사 · 병렬 · 180초"]
         N["뉴스"]:::ai
         P["공시"]:::ai
         W["수급<br/>선택"]:::opt
@@ -343,7 +345,7 @@ flowchart TD
     L4 --> OK4
 ```
 
-### 5-2. LLM 호출 복구 (AutoHealing)
+### 5-2. LLM 호출 복구 (AutoHealing — `backend/reports/healing.py`)
 
 ```mermaid
 flowchart TD
@@ -353,33 +355,37 @@ flowchart TD
     classDef ok fill:#eafaf0,stroke:#22c55e,color:#0f3d22
     classDef fail fill:#fdecec,stroke:#ef4444,color:#5b0b0b
 
-    C["모델 호출<br/>주 모델 → fallbacks 순서"]:::ai
-    CB{"Circuit<br/>열림?"}:::code
+    C["모델 호출 · 한 번 60초<br/>처음엔 주 모델 (YAML model)"]:::ai
+    CB{"이 모델<br/>차단 중?"}:::code
     K{"결과 분류"}:::code
     V{"출력 계약<br/>통과?"}:::code
     OK["LlmReply<br/>agent_completed"]:::ok
-    NEXT["다음 모델로<br/>agent_failover"]:::heal
-    SAME["2초 뒤 같은 모델<br/>agent_retry"]:::heal
-    ASK["오류 내용 붙여 재요청<br/>agent_retry"]:::heal
-    LIM{"남은 시도<br/>모델당 2 · 전체 4<br/>deadline 안?"}:::code
+    AGAIN{"이 모델로<br/>이미 다시 했나?"}:::code
+    SAME["같은 모델로 1번 더<br/>agent_retry<br/>server_error는 2초 뒤<br/>bad_output은 오류를 붙여"]:::heal
+    NEXT["대체 모델 하나로<br/>agent_failover<br/>FALLBACK_POOL에서 차단 안 된 첫 모델"]:::heal
+    LIM{"남은 시도·모델<br/>모델당 2 · 전체 4<br/>deadline 안?"}:::code
     GU["LlmGaveUp<br/>Worker 실패"]:::fail
 
     C --> CB
-    CB -- "닫힘" --> K
-    CB -- "열림<br/>3연속 실패 → 300초" --> NEXT
+    CB -- "아니오" --> K
+    CB -- "예<br/>3연속 실패 → 300초" --> NEXT
     K -- "응답" --> V
     V -- "예" --> OK
-    V -- "아니오 → bad_output" --> ASK
-    K -- "timeout" --> NEXT
-    K -- "server_error<br/>429 · 5xx" --> SAME
-    NEXT --> LIM
+    V -- "아니오 · bad_output" --> AGAIN
+    K -- "timeout<br/>server_error 429 · 5xx" --> AGAIN
+    K -- "unknown<br/>400 · 401 등" --> NEXT
+    AGAIN -- "아니오" --> SAME
+    AGAIN -- "예" --> NEXT
     SAME --> LIM
-    ASK --> LIM
+    NEXT --> LIM
     LIM -- "예" --> C
     LIM -- "아니오" --> GU
 ```
 
-무한 재시도는 없다: 시도 수와 `deadline` 둘 다로 막는다. 실패마다 `agent_failed(final: false)`를 남겨 복구율을 센다.
+- 2026-10-07 담당 4 결정(`docs/tasks/00-공통.md` 7절): 주 모델 → **대체 모델 하나**. 대체 모델은 YAML `fallbacks`가 아니라
+  `healing.FALLBACK_POOL` 순서에서 주 모델이 아니고 차단되지 않은 첫 모델이다. 대체 모델도 같은 규칙으로 한 번 더 할 수 있다.
+- 무한 재시도는 없다: 시도 수와 `deadline` 둘 다로 막는다. 실패마다 `agent_failed(final: false)`를 남겨 복구율을 센다.
+- 호출 한 번이 60초(`CALL_TIMEOUT_SEC`)라 시간 초과 → 재시도 → 대체 모델까지 가려면 단계 제한이 180초는 되어야 한다 (2장·부록 YAML).
 
 ### 5-3. 복구 예시: 뉴스 Worker의 주 모델이 늦을 때
 
@@ -394,12 +400,15 @@ sequenceDiagram
     O->>N: run(ctx)
     N->>H: ctx.llm(…, contract)
     H->>M1: 호출
+    M1--xH: 시간 초과 (60초)
+    Note over H: agent_failed (final: false)<br/>agent_retry → 같은 모델
+    H->>M1: 다시 호출
     M1--xH: 시간 초과
     Note over H: agent_failed (final: false)<br/>agent_failover → 대체 모델
     H->>M2: 같은 요청
     M2-->>H: JSON
     Note over H: 계약 통과
-    H-->>N: LlmReply (attempts 2, recovered)
+    H-->>N: LlmReply (attempts 3, recovered)
     N-->>O: 결과
     Note over O: agent_completed (recoveryMs)
 ```
@@ -410,9 +419,10 @@ sequenceDiagram
 
 | 실패 | 복구 | 그래도 안 되면 |
 |---|---|---|
-| 모델 시간 초과 | 대체 모델 | Worker 실패 |
-| 모델 429·5xx | 2초 뒤 같은 모델 | 대체 모델 → Worker 실패 |
-| 계약 위반 응답 | 오류를 붙여 같은 모델에 재요청 | 대체 모델 → Worker 실패 |
+| 모델 시간 초과 (한 번 60초) | 같은 모델 1번 더 → 대체 모델 | Worker 실패 |
+| 모델 429·5xx | 2초 뒤 같은 모델 → 대체 모델 | Worker 실패 |
+| 계약 위반 응답 | 오류를 붙여 같은 모델에 재요청 → 대체 모델 | Worker 실패 |
+| 모델 400·401 등 (unknown) | 재시도 없이 대체 모델 | Worker 실패 |
 | 같은 모델 3연속 실패 | 5분 차단, 대체 모델 | Worker 실패 |
 | 뉴스·공시 조회 실패 | "자료 없음"으로 AI에 전달 | – |
 | 수급 Worker 실패 | 빼고 진행 | – |
@@ -548,7 +558,7 @@ flowchart LR
 <summary>YAML Registry · 구현할 때 바꿀 곳</summary>
 
 ```yaml
-# backend/reports/worker_definitions.yaml — fallbacks가 5-2의 대체 모델 순서다 (모델 값은 팀이 정한다)
+# backend/reports/worker_definitions.yaml — fallbacks는 스키마에만 남고 호출기는 쓰지 않는다 (대체 모델은 healing.FALLBACK_POOL — 5-2)
   news_screen_agent:
     title: 후보 뉴스 점검 Agent
     goal: 후보 종목마다 최근 뉴스에서 재료와 악재를 찾아 출처와 함께 정리하고 테마 이름을 붙인다
@@ -571,20 +581,20 @@ flowchart LR
         workers: [news_screen_agent, filing_screen_agent, flow_agent]
         required: [news_screen_agent, filing_screen_agent]
         optional: [flow_agent]
-        timeout: 90
+        timeout: 180
       - id: select
         title: 종목 선정
         mode: sequential
         workers: [selector_agent]
         depends_on: [candidate_research]
         join: true
-        timeout: 90
+        timeout: 180
       - id: select_review
         title: 선정 검토
         mode: sequential
         workers: [selection_review_agent]
         depends_on: [select]
-        timeout: 60
+        timeout: 180
         retry:
           target: selector_agent
           max_rounds: 2
@@ -593,7 +603,7 @@ flowchart LR
 
 - `registry.py` — 팀 하나(`stock_report`)만 캐시한다 → 팀 이름을 인자로.
 - `state.py` — `set_step`·`_check_agent`가 리포트의 팀 기준으로 확인.
-- `models.py` — `Report`는 종목 단위 → `team` 열 추가 (마이그레이션 0002와 같이).
+- `models.py` — `Report`는 종목 단위 → `team` 열 추가 (0002 다음 마이그레이션으로).
 - `contracts.py` — `CandidateNewsResult`·`FilingCheckResult`·`FlowResult`·`SelectionDraft` 추가, 검토는 `ReviewResult` 재사용.
 - `healing.py` — 리포트 팀과 같은 호출기를 그대로 쓴다 (새로 만들 것 없음).
 - `auto.py` `select()` — 선정 팀이 `completed`면 그 결과로 `picks`를 바꾸고, `failed`면 지금 로직(규칙 상위 3) + `selectedBy`·`fallbackReason`.
