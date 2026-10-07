@@ -306,7 +306,8 @@ def after_finish(report) -> None:
     """runner가 끝난 리포트마다 부른다. 자동 종목 리포트만 팀 채널(Discord)로 보낸다. 예외를 밖으로 내지 않는다.
 
     - 팀원 리포트(source user)·선정 팀 실행(stock_selection — tick이 처리)은 아무것도 하지 않는다.
-    - completed: A4 PDF(Chrome이 없으면 HTML)를 만들어 pdf_path에 남기고 send_file(한 줄 요약). 추천이 생기면(from_report) 그 id를
+    - completed: 쉬운 판 A4 PDF(Chrome이 없으면 HTML — docs/DECISIONS.md 20장)를 만들어 pdf_path에 남기고 send_file(한 줄 요약),
+      자세한 판 PDF도 만들어 둔다. 추천이 생기면(from_report) 그 id를
       그날 파일 recommendationIds에 더한다 (추천 알림은 from_report가 팀 전체에 보낸다).
     - failed: "자동 리포트 실패: 이름(코드) — 사유 문장" 한 번.
     - 그날 reportIds가 모두 끝났으면 선별 요약 표지(HTML)를 한 번 보낸다 (coverSent).
@@ -329,20 +330,29 @@ def after_finish(report) -> None:
 
 
 def _send_report(report: Report, notifier) -> None:
+    """완성된 자동 리포트를 팀 채널로: 쉬운 판 PDF(Discord는 쉬운 문장 규칙 — docs/DECISIONS.md 14-7 B6·20장)와 한 줄 요약.
+
+    보낸 뒤 자세한 판 PDF도 만들어 둔다: Chrome은 엔진 컨테이너에만 있어(docs/DECISIONS.md 11장) 웹 컨테이너가 처음 만들면 HTML로 남는다.
+    자세한 판을 못 만들어도 로그만 남긴다 (Discord 발송은 이미 끝났다).
+    """
     trace = list(report.trace_events.order_by("step"))
     caption = _caption(report, trace)
     try:
-        path = pdf.ensure_report_file(report, trace)
+        path = pdf.ensure_report_file(report, trace, easy=True)
     except Exception:  # 파일을 못 만들어도 결과는 글로 알린다
         logger.exception("자동 리포트 #%s 파일 만들기 실패", report.id)
         _safely(notifier.send, f"{caption} (파일을 만들지 못했습니다)")
-        return
+    else:
+        try:
+            stored = str(path.relative_to(engine.ROOT))
+        except ValueError:
+            stored = str(path)
+        _safely(Report.objects.filter(pk=report.pk).update, pdf_path=stored)   # 화면의 hasPdf (payloads.has_pdf)
+        _safely(notifier.send_file, path, caption=caption)
     try:
-        stored = str(path.relative_to(engine.ROOT))
-    except ValueError:
-        stored = str(path)
-    _safely(Report.objects.filter(pk=report.pk).update, pdf_path=stored)   # 화면의 hasPdf (payloads.has_pdf)
-    _safely(notifier.send_file, path, caption=caption)
+        pdf.ensure_report_file(report, trace)
+    except Exception:
+        logger.exception("자동 리포트 #%s 자세한 판 파일 만들기 실패", report.id)
 
 
 def _send_failure(report: Report, notifier) -> None:

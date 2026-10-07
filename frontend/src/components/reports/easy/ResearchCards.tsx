@@ -1,5 +1,6 @@
 // 조사 자료 요약 (시세 · 재무·공시 · 뉴스): 조사 AI 세 곳의 결과를 쉬운 말로. 지표는 눌러서 풀이(용어 사전).
 // 시세 가격은 장마감 기준(MarketResult.asOf)일 때만 보인다 (asOf가 없거나 읽을 수 없으면 가격 없이 "자료 없음" — PDF와 같다). 뉴스는 제목·매체·날짜만 (링크 없음, docs/DECISIONS.md 13-3 약관 대응).
+// 쉬운 PDF(backend/reports/pdf.py 쉬운 판)도 같은 칸·문장을 쓴다 — 바꾸면 둘 다 고친다
 import type { ReactNode } from "react";
 import type { Currency, Market } from "../../../api/types";
 import { formatNumber, formatPrice } from "../../../lib/format";

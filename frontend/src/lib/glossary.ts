@@ -1,5 +1,6 @@
 // 용어 사전 (화면에 고정된 사전, LLM 아님). docs/컨셉변경계획.md 5장 — P0 15개 + P1 13개.
 // <Term k="손익비" />로 눌러서 풀이를 본다 (components/Term.tsx). 권유·예측 표현을 쓰지 않는다 (docs/API.md "금지 표현").
+// 쉬운 PDF(backend/reports/easy_text.py GLOSSARY — PDF에 나오는 용어만)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
 
 export interface GlossaryEntry {
   /** 화면에 보이는 용어. */

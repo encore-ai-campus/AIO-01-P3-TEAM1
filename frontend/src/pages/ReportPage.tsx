@@ -412,9 +412,10 @@ function ExpertReport({ r, delivery, view }: { r: ReportDetail; delivery: Delive
                 <CardTitle id="content-title" title={selection ? "선정 결과" : "리포트 본문"} />
                 {/* 선정 실행은 PDF가 없다 (서버도 404) */}
                 {!selection && (r.hasPdf || r.status === "completed") && (
-                  // 서버가 PDF를 새 창에 바로 보여 준다(inline) — 쉬운 보기와 같은 이름·아이콘
+                  // 서버가 PDF를 새 창에 바로 보여 준다(inline) — 쉬운 보기와 같은 이름·아이콘.
+                  // 전문가 판(?view=expert): 주린이모드여도 '이 화면만 자세히 보기'로 이 화면을 보면 전문가 판을 연다
                   <a
-                    href={`/api/reports/${r.id}/pdf`}
+                    href={`/api/reports/${r.id}/pdf?view=expert`}
                     target="_blank"
                     rel="noreferrer"
                     className="press flex h-10 items-center gap-1 rounded-xl bg-fill px-3 text-[14px] font-semibold text-ink hover:bg-line"

@@ -1,13 +1,16 @@
 """자동 리포트의 선별 (reports/auto.py): 그날 파일, 점수 순 상위 N개, 증권사 키가 없으면 503. screen_market은 가짜다."""
 import json
 from datetime import date, datetime, timedelta
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
 
 from config import engine
 from config.api import Unavailable
-from reports import auto
+from reports import auto, pdf
+
+REAL_REPORT_FILE = pdf.ensure_report_file   # day 픽스처가 가짜로 바꾸기 전의 진짜 (두 판 파일을 실제로 만드는 테스트)
 
 KST = ZoneInfo("Asia/Seoul")
 NOW = datetime(2026, 10, 5, 7, 50, tzinfo=KST)
@@ -150,12 +153,13 @@ class Log(list):
 
 @pytest.fixture
 def day(monkeypatch, tmp_path, db):
-    """AUTO_REPORT=on · 가짜 선별·장 달력·투자유의·notifier·리포트 파일. state["picks"]가 선별 결과, holiday면 그날 정규장 없음."""
+    """AUTO_REPORT=on · 가짜 선별·장 달력·투자유의·notifier·리포트 파일. state["picks"]가 선별 결과, holiday면 그날 정규장 없음.
+    state["report_files"]: 리포트 파일을 만들 때 받은 키워드 인자 (쉬운 판 easy=True인지 본다)."""
     from reports import conf, pdf
     from trading import market
 
     state = {"calls": [], "holiday": False, "picks": [dict(c) for c in CANDIDATES], "notifier": Notifier(),
-             "warnings": {"000660": ["투자경고"]}}
+             "warnings": {"000660": ["투자경고"]}, "report_files": []}
 
     def screen_market(config, market_, candidates, **kw):
         state["calls"].append(market_)
@@ -174,7 +178,8 @@ def day(monkeypatch, tmp_path, db):
             raise found
         return found
 
-    def report_file(report, trace):
+    def report_file(report, trace, **kw):
+        state["report_files"].append(kw)
         path = tmp_path / "reports" / f"{report.id}.html"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("리포트", encoding="utf-8")
@@ -434,9 +439,59 @@ def test_after_finish_sends_completed_report_file_and_records_recommendation(day
     assert caption.startswith(f"자동 리포트 {report.name}({report.symbol})") and "AI 의견: 긍정적" in caption
     assert "실적 개선 흐름" in caption
     assert Report.objects.get(pk=report.id).pdf_path == f"reports/{report.id}.html"
+    assert day["report_files"] == [{"easy": True}, {}]   # Discord는 쉬운 판 (docs/DECISIONS.md 20장), 그 뒤 자세한 판도 만든다
     assert recommend == [report.id]
     saved = day_file(tmp_path)
     assert saved["recommendationIds"] == [900 + report.id] and saved["coverSent"] is False   # 나머지 2개가 아직
+
+
+@pytest.fixture
+def real_files(day, monkeypatch):
+    """진짜 ensure_report_file + 가짜 render(Chrome 없이 PDF 바이트) + 가짜 완성 일봉. 만든 HTML 목록을 돌려준다."""
+    from trading import market
+
+    from .test_pdf import candle_rows, fake_render
+
+    calls = []
+    monkeypatch.setattr(pdf, "ensure_report_file", REAL_REPORT_FILE)
+    monkeypatch.setattr(pdf, "render_pdf", fake_render(calls))
+    monkeypatch.setattr(engine, "engine_config", lambda: SimpleNamespace(chrome_bin=None))
+    monkeypatch.setattr(market, "completed_candles", lambda symbol: candle_rows())
+    return calls
+
+
+def test_after_finish_makes_both_variants_and_sends_the_easy_one(day, tmp_path, recommend, real_files):
+    """엔진 컨테이너(Chrome이 있는 곳)에서 두 판을 모두 PDF로 만든다 — 웹 컨테이너가 자세한 판을 처음 만들어 HTML로 굳지 않게.
+    Discord에는 쉬운 판, pdf_path도 쉬운 판."""
+    from reports.models import Report
+
+    reports = requested_day(day)
+    report = finish(reports[0], {"report_agent": DRAFT})
+    auto.after_finish(report)
+    folder = tmp_path / "reports"
+    easy, expert = f"{report.id}.v{pdf.TEMPLATE_VERSION}.easy.pdf", f"{report.id}.v{pdf.TEMPLATE_VERSION}.pdf"
+    assert sorted(p.name for p in folder.iterdir()) == sorted([easy, expert])
+    (path, _caption), = day["notifier"].files
+    assert path.name == easy and Report.objects.get(pk=report.id).pdf_path == f"reports/{easy}"
+    made = [html for html, _path, _chrome in real_files]
+    assert len(made) == 2 and "어떻게 만들었나요" in made[0] and "만든 Agent · 자동 복구" in made[1]
+
+
+def test_after_finish_expert_failure_does_not_block_discord(day, tmp_path, recommend, real_files, monkeypatch, caplog):
+    """자세한 판을 못 만들어도 Discord에는 쉬운 판이 간다 (로그만 남긴다)."""
+    good = pdf.render_pdf
+
+    def render(html, pdf_path, chrome_bin=None, **kw):
+        if "만든 Agent · 자동 복구" in html:
+            raise OSError("Chrome 고장")
+        return good(html, pdf_path, chrome_bin)
+    monkeypatch.setattr(pdf, "render_pdf", render)
+    reports = requested_day(day)
+    report = finish(reports[0], {"report_agent": DRAFT})
+    auto.after_finish(report)
+    (path, _caption), = day["notifier"].files
+    assert path.name == f"{report.id}.v{pdf.TEMPLATE_VERSION}.easy.pdf" and day["notifier"].texts == []
+    assert f"자동 리포트 #{report.id} 자세한 판 파일 만들기 실패" in caplog.text
 
 
 def test_after_finish_failed_report_sends_text_once(day, recommend):
@@ -479,7 +534,7 @@ def test_after_finish_never_raises(day, monkeypatch, recommend):
 
     reports = requested_day(day)
 
-    def broken(report, trace):
+    def broken(report, trace, **kw):
         raise OSError("Chrome 없음")
     monkeypatch.setattr(pdf, "ensure_report_file", broken)
     auto.after_finish(finish(reports[0], {"report_agent": DRAFT}))

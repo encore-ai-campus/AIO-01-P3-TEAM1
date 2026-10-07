@@ -88,6 +88,7 @@ export const NOT_SUITABILITY = "법정 적합성 진단이 아니에요";
  * 알림 종은 모바일은 화면 머리·PC는 왼쪽 메뉴에 있다 (Layout).
  */
 export const REPORT_KEEPS_RUNNING = "이 화면을 닫아도 계속 만들어요. 만드는 동안 '리포트' 메뉴에 표시가 붙고, 완성되면 알림으로 알려 드려요";
+// 쉬운 PDF(backend/reports/easy_text.py)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
 export const AI_REVIEW_NOTE = "AI 검토는 사실을 보증하지 않아요";
 
 /** 화면 아래 공통 출처 줄 (docs/DECISIONS.md 14-1·17장). quoteProvider는 MarketStatus.quoteProvider. */
@@ -117,6 +118,7 @@ export interface OpinionText {
   tone: "positive" | "neutral" | "negative";
 }
 
+// 쉬운 PDF(backend/reports/easy_text.py OPINION_LINE, 배지는 text.py OPINION_LABEL)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
 export const OPINION_TEXT: Record<ReportOpinion, OpinionText> = {
   buy: { badge: "긍정적", label: "AI 의견: 긍정적", line: "오를 근거가 더 많다고 봤어요", expert: "매수", tone: "positive" },
   hold: { badge: "지켜보기", label: "AI 의견: 지켜보기", line: "아직 판단하기 이르다고 봤어요", expert: "보유", tone: "neutral" },

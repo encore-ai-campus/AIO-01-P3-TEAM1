@@ -2,6 +2,7 @@
 
 양식(docs/DECISIONS.md 14-7 "PDF", 15-7): 쪽 머리에 로고 + 이름 "모매매"(2026-10-07 바뀜, 양식 4판), 맨 위 쉬운 요약 상자 + 통일 면책 문장,
 완성 일봉 차트 + "YYYY-MM-DD 종가 기준", 시세 지표의 장마감 기준 시각, 꼬리말 통일 면책 문장, 양식 판 번호가 붙은 파일 이름.
+여기는 자세한 판이다 (API는 ?view=expert). 주린이모드 쉬운 판과 판 고르기는 test_pdf_easy.py.
 """
 import re
 import subprocess
@@ -290,8 +291,9 @@ def test_screening_cover_empty():
 
 # --- API ---
 
-def url(report):
-    return f"/api/reports/{report.id}/pdf"
+def url(report, view="expert"):
+    """PDF 주소. 이 파일은 자세한 판을 본다 — view가 없으면 신청자(alice, 프로필 없음 = 주린이모드 켬)의 쉬운 판이 된다."""
+    return f"/api/reports/{report.id}/pdf?view={view}"
 
 
 def fake_render(calls):
