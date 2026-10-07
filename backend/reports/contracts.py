@@ -2,26 +2,25 @@
 
 from __future__ import annotations
 
-import re
+import math
 from collections.abc import Callable
 from typing import Any
+
+from paper_engine.wording import forbidden_phrases
 
 
 class ContractError(ValueError):
     """LLM 출력이 선언된 계약을 지키지 않았을 때 발생한다."""
 
 
-NAMES = (
-    "MarketResult",
-    "FundamentalResult",
-    "NewsResult",
-    "ReportDraft",
-    "ReviewResult",
-    "RiskResult",
-)
-
 SUMMARY_MAX = 600
 LIST_ITEM_MAX = 200
+ONE_LINER_MAX = 80
+MAX_ITEMS = 3
+MIN_HOLDING_DAYS = 1
+MAX_HOLDING_DAYS = 20
+OPINIONS = ("buy", "hold", "avoid")
+RISK_LEVELS = ("low", "medium", "high")
 
 
 def _error(path: str, message: str) -> ContractError:
@@ -49,6 +48,15 @@ def _string(value: Any, path: str, *, limit: int = LIST_ITEM_MAX, nullable: bool
     return value[:limit]
 
 
+def _required_string(value: Any, path: str, *, limit: int | None = LIST_ITEM_MAX) -> str:
+    if not isinstance(value, str):
+        raise _error(path, "는 문자열이어야 합니다.")
+    value = value.strip()
+    if not value:
+        raise _error(path, "는 비어 있을 수 없습니다.")
+    return value if limit is None else value[:limit]
+
+
 def _number(
     value: Any,
     path: str,
@@ -61,6 +69,8 @@ def _number(
         return None
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise _error(path, "는 숫자여야 합니다.")
+    if not math.isfinite(value):
+        raise _error(path, "는 유한한 숫자여야 합니다.")
     if minimum is not None and value < minimum:
         raise _error(path, f"는 {minimum} 이상이어야 합니다: {value!r}")
     if maximum is not None and value > maximum:
@@ -90,7 +100,8 @@ def _integer(
 def _enum(value: Any, path: str, choices: tuple[str, ...]) -> str:
     if not isinstance(value, str) or value not in choices:
         joined = "/".join(choices)
-        raise _error(path, f"는 {joined} 중 하나여야 합니다: {value!r}")
+        shown = repr(value)[:80]
+        raise _error(path, f"는 {joined} 중 하나여야 합니다: {shown}")
     return value
 
 
@@ -99,7 +110,8 @@ def _strings(value: Any, path: str, *, maximum: int, minimum: int = 0, item_limi
         raise _error(path, "는 문자열 목록이어야 합니다.")
     if len(value) < minimum:
         raise _error(path, f"는 항목이 {minimum}개 이상이어야 합니다.")
-    return [_string(item, f"{path}[{index}]", limit=item_limit) for index, item in enumerate(value[:maximum])]
+    return [_required_string(item, f"{path}[{index}]", limit=item_limit)
+            for index, item in enumerate(value[:maximum])]
 
 
 def _records(
@@ -118,9 +130,9 @@ def _records(
 def _market(data: dict[str, Any]) -> dict[str, Any]:
     return {
         "trend": _enum(_required(data, "trend"), "trend", ("up", "down", "sideways")),
-        "summary": _string(_required(data, "summary"), "summary", limit=SUMMARY_MAX),
-        "price": _number(_required(data, "price"), "price"),
-        "changePct": _number(_required(data, "changePct"), "changePct"),
+        "summary": _required_string(_required(data, "summary"), "summary", limit=SUMMARY_MAX),
+        "price": _number(_required(data, "price"), "price", nullable=True),
+        "changePct": _number(_required(data, "changePct"), "changePct", nullable=True),
         "asOf": _string(data.get("asOf"), "asOf", nullable=True),
         "rsi": _number(_required(data, "rsi"), "rsi", nullable=True),
         "volatilityPct": _number(_required(data, "volatilityPct"), "volatilityPct", nullable=True),
@@ -132,38 +144,45 @@ def _market(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _metrics(data: dict[str, Any], path: str) -> dict[str, Any]:
+def _metrics(value: Any, path: str) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    data = _object(value, path)
     return {key: _number(_required(data, key, path), f"{path}.{key}", nullable=True)
             for key in ("per", "pbr", "roe", "revenueGrowthPct", "opMarginPct")}
 
 
 def _filing(data: dict[str, Any], path: str) -> dict[str, Any]:
     return {
-        "date": _string(_required(data, "date", path), f"{path}.date"),
-        "title": _string(_required(data, "title", path), f"{path}.title"),
+        "date": _required_string(_required(data, "date", path), f"{path}.date"),
+        "title": _required_string(_required(data, "title", path), f"{path}.title"),
         "impact": _enum(_required(data, "impact", path), f"{path}.impact", ("positive", "negative", "neutral")),
     }
 
 
 def _fundamental(data: dict[str, Any]) -> dict[str, Any]:
     return {
-        "summary": _string(_required(data, "summary"), "summary", limit=SUMMARY_MAX),
-        "metrics": _metrics(_object(_required(data, "metrics"), "metrics"), "metrics"),
+        "summary": _required_string(_required(data, "summary"), "summary", limit=SUMMARY_MAX),
+        "metrics": _metrics(_required(data, "metrics"), "metrics"),
         "recentFilings": _records(_required(data, "recentFilings"), "recentFilings", maximum=5, validator=_filing),
         "evidence": _strings(_required(data, "evidence"), "evidence", maximum=8),
     }
 
 
 def _headline(data: dict[str, Any], path: str) -> dict[str, Any]:
-    return {key: _string(_required(data, key, path), f"{path}.{key}")
-            for key in ("date", "title", "source", "impact")}
+    return {
+        "date": _string(_required(data, "date", path), f"{path}.date", nullable=True),
+        "title": _required_string(_required(data, "title", path), f"{path}.title"),
+        "source": _string(_required(data, "source", path), f"{path}.source", nullable=True),
+        "impact": _required_string(_required(data, "impact", path), f"{path}.impact"),
+    }
 
 
 def _news(data: dict[str, Any]) -> dict[str, Any]:
     return {
         "sentiment": _enum(_required(data, "sentiment"), "sentiment", ("positive", "negative", "neutral")),
-        "score": _number(_required(data, "score"), "score", minimum=-1, maximum=1),
-        "summary": _string(_required(data, "summary"), "summary", limit=SUMMARY_MAX),
+        "score": _number(_required(data, "score"), "score", nullable=True, minimum=-1, maximum=1),
+        "summary": _required_string(_required(data, "summary"), "summary", limit=SUMMARY_MAX),
         "headlines": _records(_required(data, "headlines"), "headlines", maximum=5, validator=_headline),
         "evidence": _strings(_required(data, "evidence"), "evidence", maximum=8),
     }
@@ -175,7 +194,7 @@ def _targets(data: dict[str, Any], path: str) -> dict[str, Any]:
         "target": _number(_required(data, "target", path), f"{path}.target", nullable=True),
         "stop": _number(_required(data, "stop", path), f"{path}.stop", nullable=True),
         "holdingDays": _integer(_required(data, "holdingDays", path), f"{path}.holdingDays",
-                                nullable=True, minimum=1, maximum=20),
+                                nullable=True, minimum=MIN_HOLDING_DAYS, maximum=MAX_HOLDING_DAYS),
         "probability": _number(_required(data, "probability", path), f"{path}.probability",
                                nullable=True, minimum=0, maximum=1),
     }
@@ -184,24 +203,33 @@ def _targets(data: dict[str, Any], path: str) -> dict[str, Any]:
 def _report(data: dict[str, Any]) -> dict[str, Any]:
     plain = _strings(_required(data, "plainSummary"), "plainSummary", maximum=3, minimum=1, item_limit=100)
     for index, item in enumerate(plain):
-        if re.search(r"[0-9]", item):
-            raise _error(f"plainSummary[{index}]", "에는 숫자(0-9)를 넣을 수 없습니다.")
+        if any(character.isdigit() for character in item):
+            raise _error(f"plainSummary[{index}]", "에는 숫자를 넣을 수 없습니다.")
+        prohibited = forbidden_phrases(item)
+        if prohibited:
+            raise _error(f"plainSummary[{index}]", f"에는 권유 표현을 넣을 수 없습니다: {prohibited[0]}")
+    title = _required_string(_required(data, "title"), "title")
+    one_liner = _required_string(_required(data, "oneLiner"), "oneLiner", limit=ONE_LINER_MAX)
+    prohibited = forbidden_phrases(one_liner)
+    if prohibited:
+        raise _error("oneLiner", f"에는 권유 표현을 넣을 수 없습니다: {prohibited[0]}")
     return {
-        "title": _string(_required(data, "title"), "title"),
-        "verdict": _enum(_required(data, "verdict"), "verdict", ("buy", "hold", "avoid")),
-        "oneLiner": _string(_required(data, "oneLiner"), "oneLiner", limit=80),
+        "title": title,
+        "verdict": _enum(_required(data, "verdict"), "verdict", OPINIONS),
+        "oneLiner": one_liner,
         "plainSummary": plain,
-        "markdown": _string(_required(data, "markdown"), "markdown", limit=20_000),
-        "reasons": _strings(_required(data, "reasons"), "reasons", maximum=3),
-        "risks": _strings(_required(data, "risks"), "risks", maximum=3),
+        "markdown": _required_string(_required(data, "markdown"), "markdown", limit=None),
+        "reasons": _strings(_required(data, "reasons"), "reasons", maximum=MAX_ITEMS),
+        "risks": _strings(_required(data, "risks"), "risks", maximum=MAX_ITEMS),
         "targets": _targets(_object(_required(data, "targets"), "targets"), "targets"),
-        "confidence": _number(_required(data, "confidence"), "confidence", minimum=0, maximum=100),
+        "confidence": _number(_required(data, "confidence"), "confidence", nullable=True, minimum=0, maximum=100),
         "citations": _strings(_required(data, "citations"), "citations", maximum=10),
     }
 
 
 def _issue(data: dict[str, Any], path: str) -> dict[str, Any]:
-    return {key: _string(_required(data, key, path), f"{path}.{key}") for key in ("claim", "problem", "fix")}
+    return {key: _required_string(_required(data, key, path), f"{path}.{key}")
+            for key in ("claim", "problem", "fix")}
 
 
 def _handoff(value: Any) -> dict[str, Any] | None:
@@ -210,18 +238,18 @@ def _handoff(value: Any) -> dict[str, Any] | None:
     data = _object(value, "handoff")
     return {
         "to": _enum(_required(data, "to", "handoff"), "handoff.to", ("risk_agent",)),
-        "reason": _string(_required(data, "reason", "handoff"), "handoff.reason"),
+        "reason": _required_string(_required(data, "reason", "handoff"), "handoff.reason"),
     }
 
 
 def _review(data: dict[str, Any]) -> dict[str, Any]:
     verdict = _enum(_required(data, "verdict"), "verdict", ("PASS", "RETRY", "FAIL"))
-    instructions = _string(_required(data, "instructions"), "instructions", nullable=True, limit=SUMMARY_MAX)
-    if verdict == "RETRY" and not instructions:
+    instructions = _string(_required(data, "instructions"), "instructions", nullable=True, limit=None)
+    if verdict == "RETRY" and not (instructions or "").strip():
         raise _error("instructions", "는 verdict가 RETRY일 때 비어 있을 수 없습니다.")
     return {
         "verdict": verdict,
-        "score": _number(_required(data, "score"), "score", minimum=0, maximum=100),
+        "score": _number(_required(data, "score"), "score", nullable=True, minimum=0, maximum=100),
         "issues": _records(_required(data, "issues"), "issues", maximum=10, validator=_issue),
         "instructions": instructions,
         "handoff": _handoff(_required(data, "handoff")),
@@ -230,10 +258,10 @@ def _review(data: dict[str, Any]) -> dict[str, Any]:
 
 def _risk(data: dict[str, Any]) -> dict[str, Any]:
     return {
-        "level": _enum(_required(data, "level"), "level", ("low", "medium", "high")),
+        "level": _enum(_required(data, "level"), "level", RISK_LEVELS),
         "flags": _strings(_required(data, "flags"), "flags", maximum=10),
         "warnings": _strings(_required(data, "warnings"), "warnings", maximum=5),
-        "summary": _string(_required(data, "summary"), "summary", limit=SUMMARY_MAX),
+        "summary": _required_string(_required(data, "summary"), "summary", limit=SUMMARY_MAX),
     }
 
 
@@ -246,17 +274,20 @@ _VALIDATORS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "RiskResult": _risk,
 }
 
+NAMES = tuple(_VALIDATORS)
+
 _DESCRIPTIONS = {
-    "MarketResult": "trend(up/down/sideways), summary, price, changePct, asOf(null 가능), rsi, volatilityPct, "
-                    "volumeRank, support, resistance, signals(최대 5), evidence(최대 8)",
-    "FundamentalResult": "summary, metrics(per/pbr/roe/revenueGrowthPct/opMarginPct; null 가능), "
-                         "recentFilings(date/title/impact; 최대 5), evidence(최대 8)",
-    "NewsResult": "sentiment(positive/negative/neutral), score(-1~1), summary, "
-                  "headlines(date/title/source/impact; 최대 5), evidence(최대 8)",
+    "MarketResult": "trend(up/down/sideways), summary, price·changePct·asOf·rsi·volatilityPct·volumeRank·support·"
+                    "resistance(키 필수, 값 null 가능; volumeRank는 정수), signals(최대 5), evidence(최대 8)",
+    "FundamentalResult": "summary, metrics(null 가능 또는 per/pbr/roe/revenueGrowthPct/opMarginPct; 각 값 null 가능), "
+                         "recentFilings(date/title/impact[positive/negative/neutral]; 최대 5), evidence(최대 8)",
+    "NewsResult": "sentiment(positive/negative/neutral), score(null 또는 -1~1), summary, "
+                  "headlines(date[null 가능]/title/source[null 가능]/impact; 최대 5), evidence(최대 8)",
     "ReportDraft": "title, verdict(buy/hold/avoid), oneLiner(80자), plainSummary(1~3개, 항목당 100자, 숫자 금지), "
-                   "markdown, reasons(최대 3), risks(최대 3), targets(entry/target/stop/holdingDays/probability), "
-                   "confidence(0~100), citations(최대 10)",
-    "ReviewResult": "verdict(PASS/RETRY/FAIL), score(0~100), issues(claim/problem/fix; 최대 10), "
+                   "markdown, reasons(최대 3), risks(최대 3), targets(entry/target/stop[null 가능], "
+                   "holdingDays[null 또는 1~20 정수], probability[null 또는 0~1]), confidence(null 또는 0~100), "
+                   "citations(최대 10)",
+    "ReviewResult": "verdict(PASS/RETRY/FAIL), score(null 또는 0~100), issues(claim/problem/fix; 최대 10), "
                     "instructions(RETRY이면 필수), handoff(null 또는 risk_agent와 reason)",
     "RiskResult": "level(low/medium/high), flags(최대 10), warnings(최대 5), summary",
 }
@@ -266,8 +297,8 @@ def validate(name: str, data: Any) -> dict[str, Any]:
     """계약 이름에 맞게 출력값을 검증하고 허용된 키만 반환한다."""
     try:
         validator = _VALIDATORS[name]
-    except KeyError as exc:
-        raise ContractError(f"모르는 출력 계약입니다: {name!r}") from exc
+    except KeyError:
+        raise KeyError(f"모르는 출력 계약입니다: {name!r}") from None
     return validator(_object(data, name))
 
 
@@ -275,5 +306,5 @@ def describe(name: str) -> str:
     """프롬프트에 넣을 수 있는 간결한 계약 설명을 반환한다."""
     try:
         return _DESCRIPTIONS[name]
-    except KeyError as exc:
-        raise ContractError(f"모르는 출력 계약입니다: {name!r}") from exc
+    except KeyError:
+        raise KeyError(f"모르는 출력 계약입니다: {name!r}") from None

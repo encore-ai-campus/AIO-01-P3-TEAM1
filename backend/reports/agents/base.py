@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from paper_engine.config import Config
     from paper_engine.data.broker import BrokerClient
+    from reports.healing import LlmReply
 
 
 class LlmCallerProtocol(Protocol):
+    calls: list[LlmReply]
+    cost_usd: float
+
     def __call__(
         self,
         system: str,
@@ -18,7 +22,7 @@ class LlmCallerProtocol(Protocol):
         *,
         contract: str | None = None,
         timeout: float | None = None,
-    ) -> Any: ...
+    ) -> LlmReply: ...
 
 
 class WorkerError(Exception):

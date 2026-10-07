@@ -7,11 +7,10 @@ from rest_framework import status
 from rest_framework.exceptions import APIException
 
 from . import registry
+from .contracts import ONE_LINER_MAX, OPINIONS
 from .models import Report, TraceEvent
 
 KST = ZoneInfo("Asia/Seoul")
-OPINIONS = ("buy", "hold", "avoid")   # ReportSummary.opinion = ReportDraft.verdict
-ONE_LINER_MAX = 80                    # ReportDraft.oneLiner 길이 상한 (docs/tasks/00-공통.md 10절)
 
 
 class PlanBroken(APIException):
