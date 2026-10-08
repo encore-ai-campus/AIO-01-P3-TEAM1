@@ -7,7 +7,7 @@ from config import engine
 from rest_framework import status
 from rest_framework.exceptions import APIException
 
-from . import registry
+from . import registry, stats
 from .contracts import ONE_LINER_MAX, OPINIONS
 from .models import Report, TraceEvent
 
@@ -71,11 +71,6 @@ def has_pdf(report: Report) -> bool:
     return bool(report.pdf_path) and (engine.ROOT / report.pdf_path).is_file()
 
 
-def recovery(report: Report) -> dict:
-    """RecoverySummary. Trace로 계산하기 전(T4-7)까지는 장애 없음으로 채운 고정값."""
-    return {"failures": 0, "recovered": 0, "unrecovered": 0, "injected": 0, "recoveryMs": None, "models": {}}
-
-
 def summary(report: Report, names: dict[int, str] | None = None) -> dict:
     """ReportSummary. report.user를 쓰므로 목록은 select_related("user")로 읽는다.
 
@@ -112,8 +107,9 @@ def trace_event(event: TraceEvent) -> dict:
 
 def detail(report: Report) -> dict:
     """ReportDetail (Snapshot): 요약 + 본문 + Shared State + Trace(step 오름차순) + 그 리포트 팀의 실행 계획."""
+    events = list(report.trace_events.order_by("step"))
     return summary(report) | {
         "content": report.content, "state": shared_state(report),
-        "trace": [trace_event(event) for event in report.trace_events.order_by("step")], "plan": plan(report.team),
-        "chaos": report.chaos, "recovery": recovery(report),
+        "trace": [trace_event(event) for event in events], "plan": plan(report.team),
+        "chaos": report.chaos, "recovery": stats.report_recovery(events),
     }
