@@ -52,12 +52,12 @@ describe("화면 틀", () => {
     // 왼쪽 메뉴: 같은 순서 + 알림, 서비스 이름
     const side = screen.getByRole("navigation", { name: "주 메뉴" });
     expect(within(side).getAllByRole("link").map((a) => a.textContent?.replace(/\d+$/, ""))).toEqual(["홈", "종목", "리포트", "모의투자", "알림", "마이"]);
-    // 브랜드(홈 링크): 로고 32px(장식, 접힌 선 없는 판) + 이름 — 옛 'AI' 글자 마크가 남지 않는다
+    // 브랜드(홈 링크): 로고 32px(장식, 속이 빈 ㅁ 블록 셋) + 워드마크 — 옛 종이배·'AI' 글자 마크가 남지 않는다. 이름은 숨김 글자가 읽는다
     const brand = screen.getByRole("link", { name: "모매매" });
     expect(brand.getAttribute("href")).toBe("/");
     expect(brand.textContent).toBe("모매매");
     const logo = brand.querySelector("svg")!;
-    expect([logo.getAttribute("width"), logo.getAttribute("aria-hidden"), logo.querySelectorAll("path").length]).toEqual(["32", "true", 1]);
+    expect([logo.getAttribute("width"), logo.getAttribute("aria-hidden"), logo.querySelectorAll("path").length]).toEqual(["32", "true", 3]);
   });
 
   it("만드는 중인 내 리포트가 있으면 '리포트' 탭(하단·왼쪽)에 점이 붙고, 링크 설명으로도 알린다", async () => {
@@ -144,9 +144,10 @@ describe("화면 틀", () => {
     expect(indexHtml).toContain('<link rel="apple-touch-icon" href="/apple-touch-icon.png" />');
     expect(indexHtml).toContain('<meta name="apple-mobile-web-app-title" content="모매매" />');
     expect(Object.keys(PUBLIC_ICONS).sort()).toEqual(["../public/apple-touch-icon.png", "../public/favicon.svg"]);
-    // 파비콘은 16px 전용 종이배 모양 (돛의 접힌 선 없음 — 한 도형). 옛 'AI' 선 글자가 아니다
-    expect(faviconSvg).toContain("종이배");
-    expect(faviconSvg.match(/<path/g)).toHaveLength(1);
+    // 파비콘은 16px 전용 모양: 타일 + 속이 찬 사각형 셋(ㅁ 블록의 계단). 속이 빈 ㅁ(path)이나 선이 아니다 — 1배율에서 뭉개지므로
+    expect(faviconSvg).toContain("ㅁ 블록 셋");
+    expect(faviconSvg.match(/<rect/g)).toHaveLength(4);
+    expect(faviconSvg).not.toContain("<path");
     expect(faviconSvg).not.toContain("stroke");
     expect(indexHtml).toContain('<meta name="robots" content="noindex,nofollow" />');
     expect(robotsTxt.trim()).toBe("User-agent: *\nDisallow: /");
