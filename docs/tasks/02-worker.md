@@ -11,6 +11,7 @@
 
 > **2026-10-05**: `docs/DECISIONS.md` 14-2에 따라 Claude가 맡게 된 줄(일부만이면 그 부분)에 "→ Claude가 구현 (2026-10-05)"을 붙였다 (줄은 지우지 않았다). 표시가 붙은 일은 하지 않는다.
 > T2-4는 표시 없이 내용이 바뀌었다 — `market_agent`는 장마감 기준(`trading.market.close_price`·`completed_candles`, `MarketResult.asOf`)으로 만든다 (`00-공통.md` 10절, 14-2 표).
+> (2026-10-08, Claude) 장 중에 만들면 가격만 현재가다 — `MarketResult.priceBasis: "live"` (`docs/DECISIONS.md` 26장, `docs/API.md` "리포트 시세").
 
 ## 2026-10-07 구현 메모 — Worker가 코드로 정하는 것 (AI는 제안만)
 

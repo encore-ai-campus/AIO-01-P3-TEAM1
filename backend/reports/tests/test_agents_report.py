@@ -68,7 +68,8 @@ def checked(name, result) -> dict:
 @pytest.fixture(autouse=True)
 def outside(monkeypatch, tmp_path):
     """바깥 자료를 모두 가짜로: 시세·매수 유의(trading.market), DART 없음, 뉴스 없음, 선별 파일 폴더는 임시."""
-    fake = SimpleNamespace(candles=candles(CLOSES), close=dict(CLOSE), warnings=[], fail=False, calls=[])
+    fake = SimpleNamespace(candles=candles(CLOSES), close=dict(CLOSE), warnings=[], fail=False, calls=[],
+                           traded=False, live=None)
 
     def broker(name, value):
         fake.calls.append(name)
@@ -82,6 +83,10 @@ def outside(monkeypatch, tmp_path):
     monkeypatch.setattr(quotes_module, "close_price", lambda symbol: broker("close_price", lambda: fake.close["price"]))
     monkeypatch.setattr(quotes_module, "warnings", lambda symbol: broker("warnings", lambda: list(fake.warnings)))
     monkeypatch.setattr(quotes_module, "session_end", lambda market_code, day: f"{day}T15:30:00+09:00")
+    # 기본은 장 밖 (장마감 기준). 장 중은 traded = True, 현재가는 live = (가격, 받은 시각)
+    monkeypatch.setattr(quotes_module, "traded_since_basis", lambda market_code, now=None: fake.traded)
+    monkeypatch.setattr(quotes_module, "live_prices", lambda symbols: broker(
+        "live_prices", lambda: {s: fake.live for s in symbols if fake.live}))
     monkeypatch.setattr(sources, "dart_client", lambda: None)
     monkeypatch.setattr(news, "fetch_news", lambda *args, **kwargs: [])
     monkeypatch.setattr(engine, "RUNS_DIR", tmp_path / "runs")
@@ -109,25 +114,68 @@ MARKET_ANSWER = {
 }
 
 
-def test_market_overwrites_numbers_with_data():
+def test_market_overwrites_numbers_with_data(outside):
     llm = FakeCaller(MARKET_ANSWER)
     result = checked("MarketResult", market.MarketAgent().run(context("market_agent", llm)))
 
     window = candles(CLOSES)[-20:]
     assert result["price"] == CLOSES[-1]
     assert result["changePct"] == round((CLOSES[-1] / CLOSES[-2] - 1) * 100, 2)
-    assert result["asOf"] == CLOSE["asOf"]
+    assert result["asOf"] == CLOSE["asOf"] and result["priceBasis"] == "close"
     assert result["rsi"] == round(indicators.rsi(CLOSES, 14), 2)
     assert result["volatilityPct"] == market.volatility_pct(CLOSES)
     assert result["support"] == min(float(c["lowPrice"]) for c in window)
     assert result["resistance"] == max(float(c["highPrice"]) for c in window)
     assert result["volumeRank"] is None  # 선별 파일이 없다
     assert result["trend"] == "up" and result["signals"] == ["종가가 20일 이동평균 위"]
-    assert result["evidence"][0].startswith(f"일봉 {END - timedelta(days=29)}~{END} 완성 봉 30개")
+    assert result["evidence"][0] == (f"일봉 {END - timedelta(days=29)}~{END} 완성 봉 30개 · "
+                                     f"{END} 종가 {CLOSES[-1]:,.0f} (장마감 기준)")
     assert result["evidence"][1] == "RSI14 (완성 봉 기준)"
     [(system, user, contract)] = llm.prompts
     assert contract == "MarketResult" and "MarketResult" in system
-    assert "장마감 기준 가격" in user and f"{CLOSES[-1]}" in user
+    assert "기준 가격 (코드가 계산한 값)" in user and f"{CLOSES[-1]}" in user and '"priceBasis":"close"' in user
+    assert "live_prices" not in outside.calls  # 장 밖이면 현재가를 부르지 않는다
+
+
+def test_market_uses_live_price_during_session(outside):
+    """장 중(기준일 뒤 정규장이 시작됨)이면 가격은 현재가, 등락은 직전 종가 대비, 손절 기준가도 현재가. 지표는 완성 봉 그대로."""
+    outside.traded, outside.live = True, (71234.0, "2026-10-07T11:20:05+09:00")
+    llm = FakeCaller(MARKET_ANSWER)
+    result = checked("MarketResult", market.MarketAgent().run(context("market_agent", llm)))
+
+    assert (result["price"], result["priceBasis"], result["asOf"]) == (71234.0, "live", "2026-10-07T11:20:05+09:00")
+    assert result["changePct"] == round((71234.0 / CLOSES[-1] - 1) * 100, 2)
+    assert result["rsi"] == round(indicators.rsi(CLOSES, 14), 2)  # 완성 봉만
+    rows = candles(CLOSES)
+    highs, lows = [float(c["highPrice"]) for c in rows], [float(c["lowPrice"]) for c in rows]
+    atr = round(indicators.atr(highs, lows, CLOSES, 14), 2)
+    assert result["stop"] == stops.swing_stop(71234.0, lows, atr, "KRW")
+    today = timezone.now().astimezone(market.KST).date()
+    assert result["evidence"][0] == f"일봉 {END - timedelta(days=29)}~{END} 완성 봉 30개 · {today} 11:20 장중 가격 71,234"
+    [(_, user, _)] = llm.prompts
+    assert '"priceBasis":"live"' in user and f'"prevClose":{CLOSES[-1]}' in user
+
+
+def test_market_live_evidence_uses_market_local_time(outside):
+    """미국 종목의 장중 가격 출처 줄은 date(뉴욕 날짜)와 같은 시간대의 시각이다."""
+    outside.traded, outside.live = True, (180.5, "2026-10-08T00:20:05+09:00")  # 뉴욕 10-07 11:20
+    result = market.MarketAgent().run(context("market_agent", FakeCaller(MARKET_ANSWER), symbol="AAPL", name="애플",
+                                              market_code="US"))
+    today = timezone.now().astimezone(quotes_module.MARKET_TZ["US"]).date()
+    assert result["evidence"][0].endswith(f"{today} 11:20(뉴욕) 장중 가격 180.50")
+
+
+def test_market_falls_back_to_close_without_live_price(outside, monkeypatch):
+    """장 중이어도 현재가를 받지 못하면(없음·조회 실패) 직전 종가로 정리한다."""
+    outside.traded = True
+    result = checked("MarketResult", market.MarketAgent().run(context("market_agent", FakeCaller(MARKET_ANSWER))))
+    assert (result["price"], result["priceBasis"]) == (CLOSES[-1], "close")
+
+    def broken(symbols):
+        raise Unavailable("증권사 조회 실패")
+    monkeypatch.setattr(quotes_module, "live_prices", broken)
+    result = checked("MarketResult", market.MarketAgent().run(context("market_agent", FakeCaller(MARKET_ANSWER))))
+    assert (result["price"], result["asOf"], result["priceBasis"]) == (CLOSES[-1], CLOSE["asOf"], "close")
 
 
 def test_market_stop_is_code_value_and_not_shown_to_market_llm():

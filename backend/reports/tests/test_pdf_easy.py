@@ -650,6 +650,19 @@ def test_easy_chart_basis_and_glossary_follow_the_page(user, candles):
     assert glossary_terms(markup) == ["장마감 기준", "종가"]
 
 
+def test_easy_live_price_card_and_chart(user, candles):
+    """장 중에 만든 리포트(priceBasis live): 시세 칸은 "장중 가격 … · … 기준"(화면 ResearchCards와 같다), 차트 범례는 asOf가 마지막 봉과
+    같은 날이어도 장마감 기준이 아니라 마지막 봉의 "… 종가 기준" (그 봉은 PDF를 만들 때 받은 봉이다). 용어 풀이는 차트의 '종가'만."""
+    live = {"market_agent": {"price": 71500, "asOf": "2026-09-18T11:20:05+09:00", "priceBasis": "live", "rsi": 55.15}}
+    markup = build(user, live)
+    assert section(markup, "조사 자료 요약") == "조사 자료 요약 시세 장중 가격 71,500원 9월 18일(금) 11:20 기준 RSI 55.2 하루 변동성 -"
+    assert section(markup, "가격 흐름").endswith("일봉 · 최근 60일 · 9월 18일(금) 종가 기준")
+    assert "장마감 기준" not in plain(markup.split("<h2>용어 풀이</h2>")[0]) and glossary_terms(markup) == ["종가", "RSI"]
+    # priceBasis가 없거나 모르는 값이면(예전 결과) 종가로 읽는다
+    old = build(user, {"market_agent": {"price": 72000, "asOf": "2026-09-17T15:30:00+09:00", "priceBasis": "?"}})
+    assert "종가 72,000원 9월 17일(목) 15:30 장마감 기준" in section(old, "조사 자료 요약")
+
+
 def test_easy_scenario_uses_recommendation_holding_days(user, candles):
     """리포트에 보유 기간이 없으면(계약상 null 가능) 추천이 쓰는 기본 10거래일 (화면은 그 추천의 holdingDays를 보인다)."""
     results = copy.deepcopy(EASY_RESULTS)

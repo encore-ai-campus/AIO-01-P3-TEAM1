@@ -1447,7 +1447,11 @@ function assessRisk(x: RiskInput): RiskResult {
     if (engineQty < 1) add("size_too_small", `${limitedBy === "예산" ? "건당 위험 한도" : limitedBy} 때문에 살 수 있는 수량이 0주입니다.`);
     else add("budget_too_small", "예산 때문에 살 수 있는 수량이 0주입니다.");
   }
-  if (s.close >= x.targetPrice) add("price_passed", `직전 종가 ${priceText(s.close, s.currency)}가 이미 목표가 이상`);
+  // 장 중이면 직전 종가는 지난 가격이다 — 장중 가격으로 본다 (숫자 없는 문장, docs/API.md "리포트 시세"). 장 밖이면 직전 종가
+  if (isOpen(s.market)) {
+    if (s.price >= x.targetPrice) add("price_passed", "장중 가격이 이미 목표가 이상이에요");
+    else if (s.price <= x.stopPrice) add("price_passed", "장중 가격이 이미 손절가 이하예요");
+  } else if (s.close >= x.targetPrice) add("price_passed", `직전 종가 ${priceText(s.close, s.currency)}가 이미 목표가 이상`);
   else if (s.close <= x.stopPrice) add("price_passed", `직전 종가 ${priceText(s.close, s.currency)}가 이미 손절가 이하`);
   return { approved: reasons.length === 0, reasons, codes, quantity: Math.max(0, quantity), limitedBy, gain, loss };
 }
@@ -1524,13 +1528,6 @@ function parseBudgetParam(raw: unknown): number | null {
 
 export function riskPreview(userId: number, id: number, budget: string | null): RiskPreview {
   return computePreview(userId, recOf(id), parseBudgetParam(budget));
-}
-
-/** 정규장이면 장중 확인 가격으로 한 번 더 본다 (문장에 장중 가격 숫자를 넣지 않는다). */
-function sessionPriceCheck(s: MockStock, target: number, stop: number) {
-  if (!isOpen(s.market)) return;
-  if (s.price >= target) throw blocked(["장중 가격이 이미 목표가 이상이에요"], ["price_passed"]);
-  if (s.price <= stop) throw blocked(["장중 가격이 이미 손절가 이하예요"], ["price_passed"]);
 }
 
 /** 가짜 Discord 활성화 링크의 token. 실제 서버는 추천 id + 만료를 서명한다. */
@@ -1643,8 +1640,7 @@ export function activate(user: MockUser, id: number, body: { budgetKrw?: unknown
   if (body.acknowledged !== undefined && typeof body.acknowledged !== "boolean") throw new MockError(400, "acknowledged는 true 또는 false여야 합니다.");
   const budgetKrw = parseBudgetParam(body.budgetKrw);
   const pv = computePreview(user.id, r, budgetKrw);
-  if (!pv.activatable) throw blocked(pv.reasons, pv.reasonCodes);
-  sessionPriceCheck(stockOf(r.symbol), r.targetPrice, r.stopPrice);
+  if (!pv.activatable) throw blocked(pv.reasons, pv.reasonCodes); // 장 중이면 가격 점검이 이미 장중 가격이다 (assess)
   const p = startPlan(user, r, pv, budgetKrw, token ? "discord" : "web", body.acknowledged === true);
   return toPlanDetail(p);
 }
