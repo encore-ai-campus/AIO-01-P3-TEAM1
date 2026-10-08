@@ -169,3 +169,16 @@ class ScreeningView(APIView):
         if result is None:
             raise NotFound(f"{day} {market_} 선별 결과가 없습니다.")
         return Response(result)
+
+
+class RecoveryStatsView(APIView):
+    @extend_schema(operation_id="reports_recovery_stats", responses=OpenApiTypes.OBJECT)
+    def get(self, request):
+        """RecoveryStats: 최근 days일(기본 7, 1~90, 오늘 포함) 리포트의 호출 장애 자동 복구 지표 (담당 4, T4-7)."""
+        from . import stats  # 셈법은 stats.py (docs/tasks/00-공통.md 9절)
+
+        text = (request.query_params.get("days") or "7").strip()
+        days = int(text) if text.isdigit() else 0
+        if not 1 <= days <= stats.MAX_DAYS:
+            raise Rejected(f"days는 1~{stats.MAX_DAYS} 사이의 정수입니다.")
+        return Response(stats.recovery_stats(days))
