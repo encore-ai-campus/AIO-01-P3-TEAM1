@@ -24,6 +24,7 @@ import { ReportPage } from "./pages/ReportPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { SearchPage } from "./pages/SearchPage";
 import { StockPage } from "./pages/StockPage";
+import { WorkflowPreviewPage } from "./pages/WorkflowPreviewPage";
 
 /** 서버 상태(TanStack Query) + 토스트 + 401 처리. 라우터 안에서 쓴다. */
 export function Providers({ client, children }: { client: QueryClient; children: ReactNode }) {
@@ -65,6 +66,9 @@ export default function App() {
       <ScrollManager />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        {/* 디자인 검수 화면은 실제 API·로그인 없이 열려야 한다. VITE_MOCK=1 개발 서버에만 존재한다. */}
+        {import.meta.env.VITE_MOCK === "1" && <Route path="/ui/errors" element={<ErrorPreviewPage />} />}
+        {import.meta.env.VITE_MOCK === "1" && <Route path="/ui/workflows" element={<WorkflowPreviewPage />} />}
         <Route element={<RequireAuth />}>
           <Route element={<Layout />}>
             <Route index element={<HomePage />} />
@@ -84,7 +88,6 @@ export default function App() {
             <Route path="notifications" element={<NotificationsPage />} />
             <Route path="ranking" element={<RankingPage />} />
             <Route path="my" element={<MyPage />} />
-            {import.meta.env.VITE_MOCK === "1" && <Route path="ui/errors" element={<ErrorPreviewPage />} />}
             <Route path="*" element={<NotFound />} />
           </Route>
         </Route>

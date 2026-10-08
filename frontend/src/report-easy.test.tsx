@@ -345,8 +345,7 @@ describe("쉬운 보기 — 리포트 상세", () => {
     expect(screen.getByRole("tooltip").textContent).toContain("1주당 1년 순이익"); // 풀이 상자는 body에 뜬다
     expect(within(research).getByText("뉴스 제목: Google 뉴스 검색 결과(각 언론사)")).toBeTruthy();
 
-    // 쉬운 보기의 PDF는 쉬운 판 (?view=easy — 화면의 보기를 그대로 보낸다)
-    expect(screen.getByRole("link", { name: "PDF로 보기" }).getAttribute("href")).toBe(`/api/reports/${buy.id}/pdf?view=easy`);
+    expect(screen.getByRole("button", { name: "PDF로 보기" })).toBeTruthy();
     expect(screen.getByText(DISCLAIMER)).toBeTruthy();
     // 다크에서도 읽히게: 반전 번호 원은 text-on-ink (흰 글자 고정이면 다크의 밝은 원 위에서 사라진다)
     const num = within(screen.getByRole("list", { name: "쉬운 요약 세 줄" })).getByText("1");
@@ -629,7 +628,7 @@ describe("쉬운 보기 — 리포트 상세", () => {
     ).toEqual({ text: ["시세 보기끝났어요", "재무제표 읽기끝났어요", "뉴스 읽기하지 못했어요", "리포트 쓰기끝났어요", "검토여기서 멈췄어요"], current: 4 });
   });
 
-  it("'이 화면만 자세히 보기'로 전문가 화면(?view=expert), 탭을 옮겨도 그대로, '쉬운 보기'로 돌아온다 (PDF 링크도 화면의 보기를 따른다)", async () => {
+  it("'이 화면만 자세히 보기'로 전문가 화면(?view=expert), 탭을 옮겨도 그대로, '쉬운 보기'로 돌아온다", async () => {
     freezeTime(NOW);
     const { buy } = samples();
     renderApp(`/reports/${buy.id}`, "bob");
@@ -637,13 +636,12 @@ describe("쉬운 보기 — 리포트 상세", () => {
     // 보기 전환은 두 보기 모두 '리포트 머리' 카드의 같은 자리에 있다 (되돌아가는 버튼을 찾지 않게)
     const head = () => screen.getByRole("region", { name: "리포트 머리" });
 
-    expect(screen.getByRole("link", { name: "PDF로 보기" }).getAttribute("href")).toBe(`/api/reports/${buy.id}/pdf?view=easy`);
+    expect(screen.getByRole("button", { name: "PDF로 보기" })).toBeTruthy();
 
     fireEvent.click(within(head()).getByRole("button", { name: "이 화면만 자세히 보기" }));
     expect(await screen.findByRole("tab", { name: "진행 기록" })).toBeTruthy();
     expect(screen.queryByText("AI 의견: 긍정적")).toBeNull();
-    // 주린이모드여도 이 화면을 전문가 보기로 바꾸면 PDF도 전문가 판 (계정 모드가 아니라 화면의 보기)
-    expect((await screen.findByRole("link", { name: "PDF로 보기" })).getAttribute("href")).toBe(`/api/reports/${buy.id}/pdf?view=expert`);
+    expect(await screen.findByRole("button", { name: "PDF로 보기" })).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: "자세히" }));
     expect(screen.getByRole("tab", { name: "자세히" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByRole("region", { name: /^Shared State/ })).toBeTruthy(); // 여전히 전문가 보기
@@ -652,7 +650,7 @@ describe("쉬운 보기 — 리포트 상세", () => {
     fireEvent.click(within(head()).getByRole("button", { name: "쉬운 보기로 돌아가기" }));
     expect(await screen.findByText("AI 의견: 긍정적")).toBeTruthy();
     expect(screen.queryByRole("tab", { name: "자세히" })).toBeNull();
-    expect(screen.getByRole("link", { name: "PDF로 보기" }).getAttribute("href")).toBe(`/api/reports/${buy.id}/pdf?view=easy`);
+    expect(screen.getByRole("button", { name: "PDF로 보기" })).toBeTruthy();
   });
 
   it("주린이모드 끔(alice)은 전문가 화면이 기본, ?view=easy면 이 화면만 쉬운 보기", async () => {

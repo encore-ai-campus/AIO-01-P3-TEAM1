@@ -20,6 +20,8 @@ import { ErrorPanel } from "../components/errors/ErrorPanel";
 import { errorKindOf } from "../components/errors/errorTypes";
 import { Icon } from "../components/Icon";
 import { EduDocSection } from "../components/reports/EduDocSection";
+import { FeedbackLoopPanel } from "../components/reports/FeedbackLoopPanel";
+import { PdfOpenButton } from "../components/reports/PdfOpenButton";
 import { PlanGraph } from "../components/reports/PlanGraph";
 import { PolicyGuide } from "../components/reports/PolicyGuide";
 import { ReplayBar, ReplayMini, ScenarioPicker } from "../components/reports/ReplayControls";
@@ -417,19 +419,8 @@ function ExpertReport({ r, delivery, view }: { r: ReportDetail; delivery: Delive
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <CardTitle id="content-title" title={selection ? "선정 결과" : "리포트 본문"} />
                 {/* 선정 실행은 PDF가 없다 (서버도 404) */}
-                {!selection && (r.hasPdf || r.status === "completed") && (
-                  // 서버가 PDF를 새 창에 바로 보여 준다(inline) — 쉬운 보기와 같은 이름·아이콘.
-                  // 전문가 판(?view=expert): 주린이모드여도 '이 화면만 자세히 보기'로 이 화면을 보면 전문가 판을 연다
-                  <a
-                    href={`/api/reports/${r.id}/pdf?view=expert`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="press flex h-10 items-center gap-1 rounded-xl bg-fill px-3 text-[14px] font-semibold text-ink hover:bg-line"
-                  >
-                    <Icon name="doc" className="size-4" />
-                    PDF로 보기
-                  </a>
-                )}
+                {/* 전문가 판 PDF (?view=expert) — 준비 중·실패·재시도도 이 화면에서 보여 준다. */}
+                {!selection && (r.hasPdf || r.status === "completed") && <PdfOpenButton reportId={r.id} view="expert" />}
               </div>
               {r.content ? (
                 <Suspense fallback={<SkeletonCard lines={4} className="px-0" />}>
@@ -481,6 +472,7 @@ function ExpertReport({ r, delivery, view }: { r: ReportDetail; delivery: Delive
                 </Card>
               )
             )}
+            <FeedbackLoopPanel trace={trace} plan={r.plan} example={Boolean(ex)} />
             <Card aria-labelledby="plan-title">
               <CardTitle id="plan-title" title="작업 계획(Planner)" sub={`${r.plan.title} · 실패 정책 ${policyName(r.plan.failurePolicy)} · 노드를 누르면 자세히`} example={ex} />
               <PlanGraph plan={r.plan} trace={trace} currentStep={state.currentStep} />

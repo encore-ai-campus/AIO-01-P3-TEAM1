@@ -23,7 +23,7 @@ from trading import market
 from accounts.modes import beginner_mode_of
 from config.api import Rejected, page
 
-from . import budget, quota, registry
+from . import budget, chaos, quota, registry
 from .models import Report
 from .payloads import detail, iso, nicknames, plan, summary
 from .pdf import ensure_report_file
@@ -87,7 +87,7 @@ class ReportsView(APIView):
         item = market.stock_item(symbol)  # 증권사 조회 불가면 Unavailable(503)
         if item is None:
             raise Rejected("종목을 찾을 수 없습니다.")
-        # ← 4: 장애 주입 설정 검사 chaos.parse(request.data) 자리 (잘못되면 400)
+        chaos_config = chaos.parse(request.data.get("chaos"))  # 4: 장애 주입 설정 (잘못되면 400, 없거나 꺼져 있으면 None)
         with transaction.atomic():
             # 같은 사용자의 동시 신청(두 번 누름)을 줄 세운다 — 한도 검사도 이 잠금 안에서 한다
             get_user_model().objects.select_for_update().filter(pk=request.user.pk).first()
@@ -102,7 +102,8 @@ class ReportsView(APIView):
                 return Response(e.body(), status=e.status_code)
             budget.check(now)  # 팀 전체 AI 비용 예산
             report = Report.objects.create(user=request.user, team=Report.STOCK_REPORT, symbol=item["symbol"],
-                                           name=item["name"], market=item["market"], created_at=now)
+                                           name=item["name"], market=item["market"], chaos=chaos_config,
+                                           created_at=now)
         return Response(detail(report), status=status.HTTP_201_CREATED)
 
 

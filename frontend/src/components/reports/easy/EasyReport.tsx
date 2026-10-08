@@ -40,6 +40,7 @@ import { Term } from "../../Term";
 import { useToast } from "../../toast";
 import { AsOf, Card, ErrorState, Skeleton } from "../../ui";
 import { OpinionBadge } from "../OpinionBadge";
+import { PdfOpenButton } from "../PdfOpenButton";
 import { ViewToggle } from "../ViewToggle";
 import { EasyFailure } from "./EasyFailure";
 import { EasyProgress } from "./EasyProgress";
@@ -268,18 +269,8 @@ export function EasyReport({ r, view }: { r: ReportDetail; view: ViewModeState }
       )}
 
       <Card as="div" className="space-y-2">
-        {completed && (
-          // 쉬운 판 PDF (?view=easy — 이 화면의 보기, 계정의 주린이모드가 아니다. 전문가 보기 링크는 ?view=expert, docs/API.md)
-          <a
-            href={`/api/reports/${r.id}/pdf?view=easy`}
-            target="_blank"
-            rel="noreferrer"
-            className="press flex h-11 items-center justify-center gap-1.5 rounded-xl bg-fill text-[15px] font-semibold text-ink hover:bg-line"
-          >
-            <Icon name="doc" className="size-4" />
-            PDF로 보기
-          </a>
-        )}
+        {/* 쉬운 판 PDF (?view=easy) — 준비 중·실패·재시도도 이 화면에서 보여 준다. */}
+        {completed && <PdfOpenButton reportId={r.id} view="easy" />}
         {/* 면책 문장은 꼭 읽어야 하는 문장이라 보조 글자색 (흐린 글자보다 진하게) */}
         <p className="text-[12px] leading-snug text-sub">{DISCLAIMER}</p>
       </Card>

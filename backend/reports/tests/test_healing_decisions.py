@@ -4,6 +4,9 @@ from paper_engine.llm import LlmError, LlmTimeout
 
 from reports import healing
 
+PRIMARY = "gemini-3.8-flash"
+FALLBACK = "gpt-5.6-luna"
+
 
 class ScriptedClient:
     def __init__(self, script):
@@ -26,8 +29,8 @@ def caller(client, *, deadline=100, worker_id="news_agent"):
         worker={
             "id": worker_id,
             "provider": "devpass",
-            "model": "primary",
-            "fallbacks": ["fallback"],
+            "model": PRIMARY,
+            "fallbacks": [FALLBACK],
         },
         chaos=None,
         client=client,
@@ -39,12 +42,12 @@ def test_timeout_goes_directly_to_fallback(monkeypatch):
     events = []
     monkeypatch.setattr(healing, "clock", lambda: 10.0)
     monkeypatch.setattr(healing.state, "record", lambda *args, **kwargs: events.append((args, kwargs)))
-    client = ScriptedClient({"primary": ["timeout"], "fallback": [{"ok": True}]})
+    client = ScriptedClient({PRIMARY: ["timeout"], FALLBACK: [{"ok": True}]})
 
     reply = caller(client)("system", "user")
 
-    assert [model for model, _ in client.calls] == ["primary", "fallback"]
-    assert reply.model == "fallback" and reply.attempts == 2 and reply.recovered is True
+    assert [model for model, _ in client.calls] == [PRIMARY, FALLBACK]
+    assert reply.model == FALLBACK and reply.attempts == 2 and reply.recovered is True
     assert [args[2] for args, _ in events] == ["agent_failed", "agent_failover"]
     assert events[0][1]["details"]["attempt"] == 1
 
@@ -52,12 +55,12 @@ def test_timeout_goes_directly_to_fallback(monkeypatch):
 def test_each_call_is_limited_by_remaining_stage_time(monkeypatch):
     monkeypatch.setattr(healing, "clock", lambda: 100.0)
     monkeypatch.setattr(healing.state, "record", lambda *args, **kwargs: None)
-    client = ScriptedClient({"primary": [{"ok": True}]})
+    client = ScriptedClient({PRIMARY: [{"ok": True}]})
     llm = caller(client, deadline=107.5)
 
     llm("system", "user", timeout=90)
 
-    assert client.calls == [("primary", 7.5)]
+    assert client.calls == [(PRIMARY, 7.5)]
 
 
 def test_server_error_retry_attempt_is_scoped_to_worker_run(monkeypatch):
@@ -65,10 +68,10 @@ def test_server_error_retry_attempt_is_scoped_to_worker_run(monkeypatch):
     monkeypatch.setattr(healing, "clock", lambda: 10.0)
     monkeypatch.setattr(healing, "sleep", lambda seconds: None)
     monkeypatch.setattr(healing.state, "record", lambda *args, **kwargs: events.append((args, kwargs)))
-    first_client = ScriptedClient({"primary": ["server_error", {"ok": True}]})
+    first_client = ScriptedClient({PRIMARY: ["server_error", {"ok": True}]})
 
     first = caller(first_client)("system", "user")
-    second = caller(ScriptedClient({"primary": [{"ok": True}]}))("system", "user")
+    second = caller(ScriptedClient({PRIMARY: [{"ok": True}]}))("system", "user")
 
     assert first.attempts == 2
     assert second.attempts == 1
