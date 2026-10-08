@@ -181,7 +181,7 @@ export function failureReasonOf(trace: TraceEvent[]): string | null {
 // ---------------------------------------------------------------- 실행 불가 사유 (RiskPreview.reasonCodes, 400 {detail, reasonCodes})
 
 export const REASON_TEXT: Record<ReasonCode, string> = {
-  reward_risk_low: "버는 돈에 비해 잃을 수 있는 돈이 커서 안전장치가 막았어요(손익비 기준 2.0 미만)",
+  reward_risk_low: "버는 돈에 비해 잃을 수 있는 돈이 커서 안전장치가 막았어요(손익비 기준 1.5 미만)",
   ev_negative: "비용까지 따지면 기대되는 결과가 0 이하라 안전장치가 막았어요",
   daily_loss_limit: "오늘은 손실 한도에 닿아 새로 시작할 수 없어요. 내일 다시 할 수 있어요",
   daily_trades_limit: "오늘 할 수 있는 주문 수를 다 썼어요. 내일 다시 할 수 있어요",
