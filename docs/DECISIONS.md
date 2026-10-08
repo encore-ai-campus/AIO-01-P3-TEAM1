@@ -370,6 +370,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 
 - 실패 정책은 Required/Optional: 시세·재무는 필수, 뉴스는 선택. Provider·Model은 아직 정하지 않았다 (null).
   각 Worker의 `fallbacks`는 주 모델 실패 시 순서대로 시도할 모델 목록이며, 아직 배정하지 않았으면 빈 목록이다.
+  (2026-10-07부터 호출기는 `fallbacks`를 쓰지 않고 `healing.FALLBACK_POOL`에서 대체 모델 하나를 고른다. 2026-10-08부터 `fallbacks`는 그 모델 하나로 맞춘 화면 표시값이다 — `docs/tasks/00-공통.md` 4·7절)
 - step id: `parallel_research`(병렬, timeout 60초) → `compose`(순차, join, 90초) →
   `review`(순차, 60초, RETRY면 `report_agent`를 최대 2회 다시 실행).
   Registry는 설정 실수를 막기 위해 `retry.max_rounds`를 1~3으로 제한한다.

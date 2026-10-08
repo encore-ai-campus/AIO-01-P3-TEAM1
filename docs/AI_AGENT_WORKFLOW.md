@@ -567,15 +567,17 @@ flowchart LR
 <summary>YAML Registry · 구현에서 바꾼 곳 (2026-10-07)</summary>
 
 ```yaml
-# backend/reports/worker_definitions.yaml — fallbacks는 스키마에만 남고 호출기는 쓰지 않는다 (대체 모델은 healing.FALLBACK_POOL — 5-2)
+# backend/reports/worker_definitions.yaml — fallbacks는 화면에 보이는 대체 모델이다. 호출기는 healing.FALLBACK_POOL에서 고르므로(5-2)
+# 그 모델 하나를 적는다 (tests/test_registry.py가 확인)
   news_screen_agent:
     title: 후보 뉴스 점검 Agent
     goal: 후보 종목마다 최근 뉴스에서 재료와 악재를 찾아 출처와 함께 정리하고 테마 이름을 붙인다
-    provider: null
-    model: null
-    fallbacks: []
+    provider: devpass
+    model: gemini-3.8-flash
+    fallbacks: [gpt-5.6-luna]
     output_contract: CandidateNewsResult
-  # filing_screen_agent · flow_agent · selector_agent · selection_review_agent 도 같은 모양
+  # filing_screen_agent · flow_agent: 같은 모델 · selector_agent: gpt-5.6-luna → [gemini-3.8-flash]
+  # selection_review_agent: claude-opus-5-5 → [gpt-5.6-luna] (배정은 docs/tasks/00-공통.md 4절)
 ```
 
 ```yaml

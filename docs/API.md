@@ -546,7 +546,7 @@ interface SharedState {           // Orchestrator만 갱신한다
 interface Worker {
   id: string; title: string; goal: string;
   provider: string | null; model: string | null;   // 아직 정하지 않았으면 null
-  fallbacks: string[];          // (추가) 주 모델이 실패하면 차례로 쓰는 대체 모델
+  fallbacks: string[];          // (추가) 주 모델이 실패하면 쓰는 대체 모델 (지금은 하나 — healing.FALLBACK_POOL에서 차단이 없을 때 고르는 모델. 2026-10-08)
   outputContract: string;       // 역할별 출력 계약 이름
 }
 
