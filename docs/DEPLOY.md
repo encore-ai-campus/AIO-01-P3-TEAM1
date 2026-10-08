@@ -15,6 +15,7 @@ Docker 기반 파이프라인이다. **2026-10-06에 EC2를 연결했다** — �
 | `.env.docker` | 0600. `DJANGO_SECRET_KEY`·`POSTGRES_PASSWORD`는 서버용 새 값, AI(DevPass)·DART 키는 팀 값. **비어 있음: `KIWOOM_APPKEY`·`KIWOOM_SECRETKEY`, `DATA_GOKR_API`, `DISCORD_WEBHOOK_URL`** |
 | 시세 (임시) | **2026-10-06 사용자 결정으로 키움 키를 받기 전까지 토스 조회를 쓴다**: 로컬 `.env`의 `BROKER=toss`·`CLIENT_ID`·`CLIENT_SECRET`과 `DJANGO_DEBUG=on`(토스는 이때만 켜진다)을 넣었다. 토스 개발자 화면에 서버 IP를 등록했다. 이전 파일은 서버의 `.env.docker.bak-20261006-061018`. 안전 규칙(AGENTS.md, `docs/DECISIONS.md` 3-1 — 운영은 키움만, 토스 키는 EC2에 두지 않음)과 어긋나는 임시 상태라 **키움 키를 받으면 `BROKER`·`CLIENT_*`를 지우고 `DJANGO_DEBUG=off`로 되돌린다**. 토스 토큰은 클라이언트당 하나만 유효해서 같은 `CLIENT_ID`를 쓰는 다른 곳(이 PC의 `scripts/dev.sh` 등)과 서로 토큰을 무효로 만든다 (`token-revoked`) |
 | 첫 배포 | 2026-10-06 Actions `Deploy` #37420279822 (수동 실행, 커밋 `d3325f2`): 검사 → 이미지 → 서버 배포 → 상태 확인 성공 |
+| 자동 리포트 | **2026-10-07 18:44 KST 켬**: `.env.docker`에 `AUTO_REPORT=on`·`AUTO_REPORT_TOP=3`·`AUTO_REPORT_AT=08:00` (`AUTO_RECOMMEND=off` 그대로). 국내 거래일 08:00 이후 하루 한 번 선정 팀 → 종목 리포트. 이전 파일은 서버의 `.env.docker.bak-20261007-094439` (서버 시각 UTC). 켠 직후 그날 치 선정(#8)이 바로 돌았다 |
 | 계정 | 개발 DB의 팀원 5개·관리자 1개(`team_accounts.txt`·`admin_account.txt`와 같은 아이디·비밀번호)를 2026-10-06에 운영 DB로 복사했다 (비밀번호 해시째, 닉네임·공개 설정 포함) |
 | 남은 일 | 보안 그룹(`launch-wizard-1`)에 HTTP 80 열기 (그 전에는 밖에서 접속되지 않는다), 키움 키 + 키움에 서버 IP 등록 → 토스 임시 설정 되돌리기 |
 
