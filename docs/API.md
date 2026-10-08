@@ -624,6 +624,7 @@ interface ScreeningResult {       // 자동 리포트의 그날 선별 결과 (�
   market: Market; at: string; rankCount: number; eligibleCount: number; checked: number;
   picks: Record<string, unknown>[];     // 최종 종목 (선정 전에는 규칙 점수 상위). symbol · name · score · rsi · tradingAmountRank 등은 늘 코드 값
                                         // (구현: 2026-10-07) 선정 뒤에는 + aiRank(number|null) · aiReason(string|null) · theme(string|null) · filledByRule(boolean)
+                                        // (구현: 2026-10-08) 다시 시도로 더한 종목은 + retryRound(1|2). picks는 그날 리포트한 종목 전부다 (아래 retries)
   dropped: Record<string, unknown>[];   // 규칙에서 떨어진 종목과 사유
   excluded: Record<string, unknown>[];  // ETF 등 제외 종목과 사유
   reportIds: number[];                  // 그날 만든 자동 리포트 (선정 뒤 auto.request가 채운다)
@@ -636,6 +637,8 @@ interface ScreeningResult {       // 자동 리포트의 그날 선별 결과 (�
   aiPicks?: { symbol: string; rank: number; reason: string; evidence: string[] }[];   // 선정 팀 원안 (Guard 전)
   filtered?: { symbol: string; name: string | null; reason: string; stage: "candidates" | "warnings" | "filing" | "theme" }[];  // 선정 Guard가 뺀 종목 (후보 밖이면 name null)
   coverSent?: boolean;                      // 그날 표지(선별 요약)를 Discord로 보냈는지
+  retries?: number;                         // (구현: 2026-10-08) 다시 시도한 횟수 0~2: 그날 리포트가 모두 끝났는데 손익비가 스윙 기준(1.5) 이상인
+                                            // 추천이 없으면 아직 리포트하지 않은 다음 종목 top개를 선정 Guard로 골라 다시 낸다 (docs/DECISIONS.md 22장)
 }
 // 같은 폴더의 곁 파일: <날짜>-<시장>.skip.json (증권사 조회 불가로 그날 건너뜀 — 다시 하지 않는다), <날짜>-<시장>.cover.html (표지)
 

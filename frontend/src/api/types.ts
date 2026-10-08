@@ -468,6 +468,7 @@ export interface ScreeningResult {
   /**
    * 최종 종목 (최대 3). symbol · name · score · tradingAmountRank 등 점수·RSI는 늘 코드 값.
    * 선정 팀이 끝나면 aiRank · aiReason · theme · filledByRule(규칙 점수로 채운 종목)이 붙는다.
+   * 다시 시도로 더한 종목은 retryRound(1|2)가 붙는다 (picks = 그날 리포트한 종목 전부).
    */
   picks: Record<string, unknown>[];
   dropped: Record<string, unknown>[];
@@ -481,6 +482,7 @@ export interface ScreeningResult {
   aiPicks?: ScreeningAiPick[]; // AI 선정안 원문 (Guard 전). 없으면 []
   filtered?: ScreeningFiltered[]; // 선정 Guard가 뺀 종목
   coverSent?: boolean; // 하루 묶음 표지를 보냈는지
+  retries?: number; // 다시 시도한 횟수 0~2 (손익비 기준을 넘는 추천이 없어 다음 종목으로 다시 냄)
 }
 
 export interface Handoff {

@@ -1,7 +1,7 @@
 """자동 리포트의 하루 파이프라인 (docs/AI_AGENT_WORKFLOW.md 1·4·5장, docs/tasks/01-인프라.md T1-3~T1-6).
 
     규칙 선별(select) → AI 선정 팀(Report team=stock_selection) → 선정 Guard(selection.py)
-    → 종목 리포트(request) → 발송(after_finish)
+    → 종목 리포트(request) → 발송(after_finish) → (손익비 기준을 넘는 추천이 없으면) 다음 종목으로 다시 시도(최대 2번) → 표지
 
 그날 결과는 파일 하나에 쌓인다 (DB 아님):
 
@@ -13,6 +13,9 @@
 - picks: 선정 중에는 규칙 상위 top개(시연 추천과 호환), 선정이 끝나면 선정 Guard를 거친 최종 종목.
 - reportIds는 자동 리포트 신청(request)이, recommendationIds는 끝난 리포트의 추천(after_finish)과 시연 자동 추천(autotrade.auto)이,
   coverSent는 그날 리포트가 모두 끝나 표지를 보냈는지.
+- retries: 다시 시도한 횟수(0~RETRY_ROUNDS). 그날 리포트가 모두 끝났는데 손익비가 스윙 기준(리스크 엔진 LIMITS) 이상인 추천이 없으면
+  이미 리포트한 종목·선정 Guard가 뺀 종목을 빼고 같은 선정 Guard로 다음 top개를 골라(retryRound 표시) picks에 더해 다시 신청한다
+  (같은 종목은 다시 내도 목표가가 거의 같다 — docs/DECISIONS.md 22장). 마지막 회차가 끝나면 표지를 보낸다.
 
 screen_market은 증권사 조회를 100번 넘게 한다 (거래대금 순위·종목 정보·후보마다 일봉). 하루 한 번만, 장 시작 전에 부른다.
 엔진 루프의 "자동 리포트" 단계가 tick을, runner가 리포트가 끝날 때마다 after_finish를 부른다. 둘 다 예외를 밖으로 내지 않는다.
@@ -26,6 +29,7 @@ from zoneinfo import ZoneInfo
 from django.utils import timezone
 from paper_engine.__main__ import screen_market
 from paper_engine.agents.executor import OrderLock
+from paper_engine.judge.risk import LIMITS
 from trading import market
 
 from config import engine
@@ -50,6 +54,7 @@ FALLBACK_REASONS = ("join_blocked", "review_failed", "timeout", "engine_restarte
                     "no_llm", "expired", NO_CANDIDATES)
 SELECTOR = "selector_agent"
 RESEARCH = (selection.NEWS, selection.FILING)
+RETRY_ROUNDS = 2   # 손익비 기준을 넘는 추천이 없을 때 다음 종목으로 다시 낼 수 있는 횟수 (docs/DECISIONS.md 22장)
 
 
 def _dir():
@@ -219,8 +224,7 @@ def advance(market_: str, day: date, log, top: int | None = None, now: datetime 
         top = conf.clamp_top(top or _positive_int(current.get("top")) or conf.auto_report_top())
         results = report.results if report is not None and isinstance(report.results, dict) else {}
         ai_picks, reason = _ai_picks(report, results)
-        research = {wid: results[wid] for wid in RESEARCH if isinstance(results.get(wid), dict)}
-        guarded = selection.guard(selection.candidates_of(result), ai_picks, research, market.warnings, top)
+        guarded = selection.guard(selection.candidates_of(result), ai_picks, _research_of(results), market.warnings, top)
         result |= {"selectedBy": RULE if ai_picks is None else AI, "fallbackReason": reason, "aiPicks": ai_picks or [],
                    "picks": guarded["picks"], "filtered": guarded["filtered"]}
         made = request(result, now=now)
@@ -276,6 +280,11 @@ def _selection_report(market_: str, day: date, now: datetime) -> Report:
                                           symbol=market_, name=SELECTION_NAME, market=market_, created_at=now)
 
 
+def _research_of(results: dict) -> dict:
+    """선정 팀 실행 결과 중 선정 Guard가 읽는 조사 결과(뉴스·공시). 실패한 실행이어도 남은 것은 쓴다."""
+    return {wid: results[wid] for wid in RESEARCH if isinstance(results.get(wid), dict)}
+
+
 def _ai_picks(report: Report | None, results: dict) -> tuple[list[dict] | None, str | None]:
     """(AI 선정안 picks 또는 None, Fallback 사유 코드 또는 None). completed인데 선정안이 계약에 맞지 않으면 exception."""
     if report is not None and report.status == Report.COMPLETED:
@@ -310,7 +319,8 @@ def after_finish(report) -> None:
       자세한 판 PDF도 만들어 둔다. 추천이 생기면(from_report) 그 id를
       그날 파일 recommendationIds에 더한다 (추천 알림은 from_report가 팀 전체에 보낸다).
     - failed: "자동 리포트 실패: 이름(코드) — 사유 문장" 한 번.
-    - 그날 reportIds가 모두 끝났으면 선별 요약 표지(HTML)를 한 번 보낸다 (coverSent).
+    - 그날 reportIds가 모두 끝났으면: 손익비 기준을 넘는 추천이 없으면 다음 종목으로 다시 시도하고(_retry, 최대 RETRY_ROUNDS번),
+      아니면 선별 요약 표지(HTML)를 한 번 보낸다 (coverSent).
     """
     try:
         report = Report.objects.filter(pk=getattr(report, "pk", None)).first()
@@ -384,7 +394,7 @@ def _recommend(report: Report) -> int | None:
 
 
 def _finish_day(report: Report, recommendation: int | None) -> None:
-    """그날 파일에 추천 id를 더하고, 그날 리포트가 모두 끝났으면 표지를 보낸다."""
+    """그날 파일에 추천 id를 더하고, 그날 리포트가 모두 끝났으면 다시 시도하거나 표지를 보낸다."""
     day = report.created_at.astimezone(KST).date()
     with locked():
         result = load(report.market, day)
@@ -394,16 +404,75 @@ def _finish_day(report: Report, recommendation: int | None) -> None:
         if recommendation is not None and recommendation not in ids:
             result["recommendationIds"] = [*ids, recommendation]
             save(result)
-        _send_cover(result)
+        if not result.get("coverSent") and _all_finished(result) and not _safely(_retry, result, day):
+            _send_cover(result)   # 다시 시도가 실패해도 표지는 보낸다 (그 뒤로 이 자리를 부를 리포트가 없다)
+
+
+def _retry(result: dict, day: date) -> bool:
+    """그날 리포트가 모두 끝났을 때: 손익비가 스윙 기준 이상인 추천이 없고 아직 RETRY_ROUNDS번 다 하지 않았으면
+    다음 종목 top개로 자동 리포트를 다시 신청한다. 새로 신청했으면 True (표지는 그 회차가 끝난 뒤). 잠금 안에서 부른다.
+
+    그날(KST)이 지났거나, 다음 종목이 없거나, 새로 만든 리포트가 없으면 False.
+    """
+    retries = _positive_int(result.get("retries")) or 0
+    if retries >= RETRY_ROUNDS or timezone.now().astimezone(KST).date() != day or _passing(result):
+        return False
+    picks = _next_picks(result)
+    if not picks:
+        return False
+    round_ = retries + 1
+    result |= {"retries": round_, "picks": [*(result.get("picks") or []), *({**p, "retryRound": round_} for p in picks)]}
+    made = request(result)   # 이미 리포트한 종목은 그날 리포트를 그대로 쓰고, 새 종목만 만든다 (파일도 저장한다)
+    names = ", ".join(f"{r.name}({r.symbol})" for r in made)
+    logger.info("자동 리포트 %s %s 다시 시도 %s/%s → %s", day, result["market"], round_, RETRY_ROUNDS, names or "없음")
+    if made:
+        _safely(lambda: engine.notifier().send(
+            f"자동 리포트 다시 시도 {round_}/{RETRY_ROUNDS}: 손익비 {LIMITS['SWING'].min_reward_risk:g} 이상인 추천이 없어 "
+            f"다음 종목으로 다시 만들어요 — {names}"))
+    return bool(made)
+
+
+def _passing(result: dict) -> bool:
+    """그날 자동 리포트의 추천 중 손익비(비용 반영)가 스윙 최소 손익비(리스크 엔진 LIMITS) 이상인 것이 있나."""
+    from autotrade.models import Recommendation
+
+    ids = [i for i in result.get("reportIds") or [] if isinstance(i, int)]
+    return Recommendation.objects.filter(report_id__in=ids,
+                                         reward_risk__gte=LIMITS["SWING"].min_reward_risk).exists()
+
+
+def _next_picks(result: dict) -> list[dict]:
+    """다시 시도할 종목: 이미 고른 종목·선정 Guard가 뺀 종목을 빼고 같은 선정 Guard로 top개 (AI 선정안의 남은 순위 → 규칙 점수 순).
+    새로 뺀 종목은 filtered에 더한다."""
+    used = {p.get("symbol") for p in result.get("picks") or [] if isinstance(p, dict)}
+    used |= {f.get("symbol") for f in result.get("filtered") or [] if isinstance(f, dict)}
+    candidates = [c for c in selection.candidates_of(result) if c["symbol"] not in used]
+    ai_picks = [p for p in result.get("aiPicks") or [] if isinstance(p, dict) and p.get("symbol") not in used]
+    current = result.get("selection") if isinstance(result.get("selection"), dict) else {}
+    report = Report.objects.filter(pk=current.get("reportId")).first() if current.get("reportId") else None
+    results = report.results if report is not None and isinstance(report.results, dict) else {}
+    top = conf.clamp_top(_positive_int(current.get("top")) or conf.auto_report_top())
+    guarded = selection.guard(candidates, ai_picks, _research_of(results), market.warnings, top)
+    result["filtered"] = [*(result.get("filtered") or []), *guarded["filtered"]]
+    return guarded["picks"]
+
+
+def _day_reports(result: dict) -> list[Report]:
+    """그날 자동 종목 리포트 (reportIds 순서)."""
+    ids = [i for i in result.get("reportIds") or [] if isinstance(i, int)]
+    found = {r.id: r for r in Report.objects.filter(pk__in=ids, team=Report.STOCK_REPORT)}
+    return [found[i] for i in ids if i in found]
+
+
+def _all_finished(result: dict) -> bool:
+    return all(r.status in Report.FINISHED for r in _day_reports(result))
 
 
 def _send_cover(result: dict) -> None:
     """그날 리포트(reportIds)가 모두 끝났고 아직 보내지 않았으면 선별 요약 표지(HTML)를 파일로 남겨 한 번 보낸다. 잠금 안에서 부른다."""
     if result.get("coverSent"):
         return
-    ids = [i for i in result.get("reportIds") or [] if isinstance(i, int)]
-    found = {r.id: r for r in Report.objects.filter(pk__in=ids, team=Report.STOCK_REPORT)}
-    reports = [found[i] for i in ids if i in found]
+    reports = _day_reports(result)
     if any(r.status not in Report.FINISHED for r in reports):
         return
     day = datetime.fromisoformat(result["at"]).astimezone(KST).date()
@@ -413,8 +482,9 @@ def _send_cover(result: dict) -> None:
     result["coverSent"] = True  # 보내다 실패해도 다시 보내지 않는다 (리포트가 끝날 때마다 같은 표지를 보내지 않게)
     save(result)
     how = "AI 선정" if result.get("selectedBy") == AI else "규칙 선정"
+    retried = f" (다시 시도 {result['retries']}번)" if _positive_int(result.get("retries")) else ""
     _safely(engine.notifier().send_file, path,
-            caption=f"오늘의 자동 리포트 {day} {result['market']} · {how} · 리포트 {len(reports)}개")
+            caption=f"오늘의 자동 리포트 {day} {result['market']} · {how} · 리포트 {len(reports)}개{retried}")
 
 
 def _safely(func, *args, **kwargs):
