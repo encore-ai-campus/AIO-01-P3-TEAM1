@@ -372,6 +372,8 @@ def test_report_prompt_uses_research_and_keeps_citations_from_evidence():
     assert contract == "ReportDraft"
     assert "목표 가격 ○○원의 근거" in system and "이 의견이 틀리는 경우" in system
     assert "## 시세·차트 조사 (market_agent)" in user and "## 뉴스·심리 조사 (news_agent)" in user
+    assert "## citations에 그대로 복사할 근거 후보" in user
+    assert inputs["news_agent"]["evidence"][0] in user
     assert "이전 초안" not in user
     assert "손익비" not in system + user and "2.0" not in system  # 손익비 기준은 프롬프트에 넣지 않는다
 
@@ -381,6 +383,22 @@ def test_report_without_matching_citations_uses_research_evidence():
     result = report.ReportAgent().run(context("report_agent", FakeCaller(DRAFT), inputs=inputs))
     evidence = [e for wid in ("market_agent", "fundamental_agent", "news_agent") for e in inputs[wid]["evidence"]]
     assert result["citations"] == list(dict.fromkeys(evidence))[:report.MAX_CITATIONS]
+
+
+def test_report_formats_won_prose_without_changing_citations():
+    inputs = research()
+    cited = inputs["market_agent"]["evidence"][0]
+    answer = DRAFT | {
+        "reasons": ["목표 가격 74500원의 근거: 최근 고점"],
+        "risks": ["이 의견이 틀리는 경우: 69300원 아래로 내려가면 다시 봐야 해요"],
+        "markdown": "## 위험 요인\\n69300원 아래로 내려가면 다시 봐야 해요",
+        "citations": [cited],
+    }
+    result = checked("ReportDraft", report.ReportAgent().run(
+        context("report_agent", FakeCaller(answer), inputs=inputs)))
+    assert "74,500원" in result["reasons"][0]
+    assert "69,300원" in result["risks"][0] and "69,300원" in result["markdown"]
+    assert result["citations"] == [cited]
 
 
 def test_report_stop_is_replaced_with_market_stop():
@@ -416,7 +434,10 @@ def test_report_retry_prompt_has_instructions_and_previous_draft():
     report.ReportAgent().run(context("report_agent", llm, inputs=inputs, instructions=instructions, attempt=2))
     [(_, user, _)] = llm.prompts
     assert "## 이전 초안 (검토에서 고치라고 한 것)" in user and "이전 초안 제목" in user
-    assert f"## 검토의 수정 지시 (이것을 반영해 다시 쓴다)\n{instructions}" in user
+    assert "## 검토의 수정 지시 (이것을 반영해 다시 쓴다)" in user
+    assert "지시받지 않은 사실·가격·근거는 유지하세요" in user
+    assert "해당 evidence 문구를 citations에 그대로 복사하세요" in user
+    assert instructions in user
 
 
 def test_report_without_market_research_is_worker_error():
