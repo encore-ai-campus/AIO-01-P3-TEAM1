@@ -9,7 +9,8 @@ describe("ErrorPanel", () => {
   it("API 상태를 사용자용 오류 종류로 바꾼다", () => {
     expect(errorKindOf(new ApiError(0, "network"))).toBe("network");
     expect(errorKindOf(new ApiError(400, "bad"))).toBe("validation");
-    expect(errorKindOf(new ApiError(429, "limit"))).toBe("rate_limit");
+    expect(errorKindOf(new ApiError(429, "limit", { detail: "limit", limit: 3, used: 3 }))).toBe("rate_limit");
+    expect(errorKindOf(new ApiError(429, "budget", { detail: "budget" }))).toBe("budget"); // 팀 비용 예산 (본문에 limit 없음)
     expect(errorKindOf(new ApiError(503, "down"))).toBe("unavailable");
     expect(errorKindOf(new ApiError(500, "server"))).toBe("unknown");
   });

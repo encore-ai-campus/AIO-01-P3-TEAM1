@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 from accounts.models import Profile
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
@@ -14,6 +15,7 @@ from rest_framework.views import APIView
 
 from config import engine
 from config.api import LimitExceeded, Rejected, Unavailable, page
+from reports import budget
 
 from . import index, quota
 from .jobs import SYMBOL
@@ -91,11 +93,11 @@ class AnalysesView(APIView):
             same = next((job for job in active.order_by("id") if job.payload.get("symbol") == symbol), None)
             if same is not None:
                 return Response({"jobId": same.id}, status=status.HTTP_202_ACCEPTED)
-            usage = quota.usage(request.user)
+            usage = quota.usage(request.user, budget.used_usd(timezone.now()))
             if usage.used >= usage.limit:
                 raise LimitExceeded(f"오늘 분석 요청 한도({usage.limit}회)를 다 썼습니다.")
-            if usage.used_total >= usage.limit_total:
-                raise LimitExceeded(f"오늘 팀 전체 AI 분석 한도({usage.limit_total}회)를 다 썼습니다.")
+            if usage.team_left <= 0:  # 팀 전체 예산은 리포트와 같이 쓴다 (분석 예상 비용 + 리포트 실제 비용)
+                raise LimitExceeded(f"오늘 팀 전체 AI 비용 예산(${quota.budget_usd()}, 분석·리포트 합)을 다 썼습니다.")
             job = Job.objects.create(user=request.user, type=Job.ANALYZE, payload={"symbol": symbol})
         return Response({"jobId": job.id}, status=status.HTTP_202_ACCEPTED)
 
@@ -119,7 +121,7 @@ class QuotaView(APIView):
     @extend_schema(responses=OpenApiTypes.OBJECT)
     def get(self, request):
         """AnalysisQuota."""
-        usage = quota.usage(request.user)
+        usage = quota.usage(request.user, budget.used_usd(timezone.now()))
         return Response({
             "usedToday": usage.used, "limitPerUser": usage.limit, "remaining": usage.remaining,
             "estimatedCostUsd": float(quota.COST_PER_ANALYSIS_USD),

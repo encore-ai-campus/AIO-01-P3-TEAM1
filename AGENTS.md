@@ -1,6 +1,6 @@
 # AGENTS.md
 
-키움 REST API 시세로 돌리는 **팀 모의매매 웹 서비스**다. 원본은 토스증권 실주문까지 내던 개인용 스윙 매매 자동화(`toss_trading`)이고,
+**토스증권 API 시세(조회 전용)**로 돌리는 **팀 모의매매 웹 서비스**다. 처음 계획한 키움 REST API 대신 토스 API를 쓴다 (키움 클라이언트는 코드에 남아 있어 `BROKER=kiwoom`으로 바꿀 수 있다). 원본은 토스증권 실주문까지 내던 개인용 스윙 매매 자동화(`toss_trading`)이고,
 이 저장소는 그것을 복제해 실주문을 없애고 가상 현금 계좌로 체결을 흉내 내도록 바꾼 것이다.
 지금 상태·기술 스택·남은 작업은 `docs/TEAM_PAPER_TRADING_PLAN.md`, 팀원이 이어서 개발할 일과 개발 환경 안내는 `TEAM_DEV_PLAN.md`, 과제 평가 기준은 `docs/프로젝트평가기준.md`, 클론 직후 설치·실행 절차는 `SETUP_PROMPT.md`(Windows는 먼저 `WSL2_SETUP.md`), 작업자 간 공통 결정은 `docs/DECISIONS.md`, 웹 API 계약은 `docs/API.md`, 담당별 세부 작업과 담당 간 약속은 `docs/tasks/`(서비스 최종 흐름 AI 추천 → 계획 활성화 → 자동매매 → 알림은 `06-추천·자동매매.md`), 배포와 CI/CD는 `docs/DEPLOY.md`, 엔진 설계는 `docs/DESIGN.md`, 키움 API는 `docs/KIWOOM.md`, 화면별 배치와 근거는 `docs/화면배치.md`(모션·다크모드·색 토큰 규칙은 `docs/DECISIONS.md` 15장).
 합의된 계획(2026-10-04, 팀장 결정 — `docs/DECISIONS.md` 13장): 서비스 이름 **"모매매"**(2026-10-07 바뀜, 전 이름 "종이배"·"AI 리포트 데스크" — `docs/DECISIONS.md` 18장·15-7) — 초보자도 리포트를 만들고·검토하고·모의 자동매매로 실행한다(`docs/컨셉변경계획.md`),
@@ -11,11 +11,11 @@
 
 ## 안전 규칙 (반드시 준수)
 
-- **실주문 코드 0건.** 증권사 주문·계좌 API를 부르는 코드를 만들지 않는다. 키움은 시세·일봉·순위·종목 정보 조회 TR만 쓴다.
+- **실주문 코드 0건.** 증권사 주문·계좌 API를 부르는 코드를 만들지 않는다. 토스 API는 시세·일봉·순위·종목 정보 조회만 쓴다 (키움도 조회 TR만).
   `orders.py`, `create_order`, `LIVE_TRADING`, `--live`, `--bypass`가 코드 검색에서 나오면 안 된다.
-  `tossinvest`는 로컬 개발용 조회 클라이언트 `engine/paper_engine/data/toss.py`의 주소 한 곳에만 있어야 한다.
-- **토스 조회는 로컬 개발 환경 전용이다.** `.env`의 `BROKER=toss`(+ `CLIENT_ID`, `CLIENT_SECRET`)로 켜고, 운영(EC2)은 키움만 쓴다
-  (`DJANGO_DEBUG=on`일 때만 `BROKER=toss`를 받는다. 예외: 키움 키를 받기 전 운영 임시 `ALLOW_TOSS_BROKER=on` — `docs/DECISIONS.md` 3-1·23장). `data/toss.py`에 계좌·주문 메서드를 넣지 않는다 (토큰 발급 말고는 GET만).
+  `tossinvest`는 토스 조회 클라이언트 `engine/paper_engine/data/toss.py`의 주소 한 곳에만 있어야 한다.
+- **시세 조회는 키움 API 대신 토스 API를 쓴다.** 로컬 개발과 운영(EC2) 모두 `.env`(운영은 `.env.docker`)의 `BROKER=toss`(+ `CLIENT_ID`, `CLIENT_SECRET`)로 켠다.
+  `DJANGO_DEBUG=off`인 운영은 `ALLOW_TOSS_BROKER=on`이 있어야 `BROKER=toss`를 받는다 (`docs/DECISIONS.md` 3-1·23장). `data/toss.py`에 계좌·주문 메서드를 넣지 않는다 (토큰 발급 말고는 GET만).
   설명은 `docs/DECISIONS.md` 3-1장.
 - **AI는 제안만 한다.** 지표 계산, 사실 검증, 수량·한도·체결 가능 여부는 결정론적 코드(리스크 엔진, 모의 체결기)가 판단한다.
   AI 추천을 활성화한 매매 계획(`backend/autotrade`)도 같다: 수량·활성화 여부는 리스크 엔진, 주문·체결은 `trading.service`와 모의 체결기.
@@ -48,7 +48,7 @@
 ## 비밀 정보
 
 - 키움 앱키·시크릿, DevPass, DART, data.go.kr, Django 비밀키, DB 비밀번호, 봇 토큰은 `.env`에만 둔다 (운영 값은 EC2의 `.env`).
-  토스 키(`CLIENT_ID`, `CLIENT_SECRET`)는 개발자 로컬 `.env`에만 둔다 (EC2에 넣지 않는다).
+  토스 키(`CLIENT_ID`, `CLIENT_SECRET`)도 `.env`에만 둔다 (운영 값은 EC2의 `.env.docker`).
   저장소에는 `.env.example`(개발용 기본값)만 둔다. 항목 설명은 `docs/DECISIONS.md` 2장.
 - 토큰·시크릿을 로그·출력·커밋에 남기지 않는다.
 

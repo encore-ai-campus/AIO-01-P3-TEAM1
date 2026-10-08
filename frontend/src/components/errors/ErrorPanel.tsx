@@ -31,6 +31,12 @@ const COPY: Record<ErrorKind, ErrorCopy> = {
     next: "다음 이용 가능 시간에 다시 신청해 주세요.",
     icon: "clock",
   },
+  budget: {
+    title: "오늘 팀 AI 비용 예산을 다 썼어요",
+    message: "팀 전체가 오늘 쓸 수 있는 AI 비용을 모두 썼어요.",
+    next: "내일 0시에 다시 신청할 수 있어요.",
+    icon: "clock",
+  },
   unavailable: {
     title: "지금은 분석 서비스를 사용할 수 없어요",
     message: "시세 또는 AI 분석 서비스가 잠시 응답하지 않고 있어요.",
