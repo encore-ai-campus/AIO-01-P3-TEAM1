@@ -46,6 +46,8 @@ prune_images() { # 지금 버전과 직전 버전(되돌릴 때 쓴다)만 남�
 }
 
 record() { echo "$(date '+%Y-%m-%d %H:%M:%S') $IMAGE_TAG $1" >> deploy_history.log; }  # 배포 기록 (보고서 근거)
+# deploy.yml이 이 줄을 읽어 관리 서버의 배포 기록으로 보낸다 (admin/API.md 5-2의 result)
+result() { echo "DEPLOY_RESULT=$1 PREVIOUS=${previous:--}"; }
 
 echo "배포: $IMAGE_PREFIX-*:$IMAGE_TAG (직전: ${previous:-없음})"
 # 이미지를 받지 못하면 아무것도 바꾸지 않고 끝난다 (돌고 있는 버전은 그대로)
@@ -54,8 +56,9 @@ compose "$IMAGE_TAG" pull --quiet nginx web engine
 # up은 마이그레이션이 실패하거나 web이 상태 확인을 통과하지 못하면 실패로 끝난다
 if compose "$IMAGE_TAG" up -d --no-build --remove-orphans && healthy; then
   echo "$IMAGE_TAG" > .deployed_tag
-  prune_images
-  record "성공"
+  result success   # 새 버전이 떴다. 아래 정리·기록이 실패해도 결과는 성공이다
+  prune_images || echo "경고: 이전 이미지 정리 실패 (배포는 성공)" >&2
+  record "성공" || true
   echo "배포 성공: $IMAGE_TAG"
   exit 0
 fi
@@ -67,12 +70,15 @@ if [ -n "$previous" ] && [ "$previous" != "$IMAGE_TAG" ]; then
   echo "직전 버전($previous)으로 되돌립니다" >&2
   if compose "$previous" up -d --no-build --remove-orphans && healthy; then
     record "실패 → $previous(으)로 되돌림"
+    result rolled_back
     echo "되돌리기 성공: $previous" >&2
   else
     record "실패 → 되돌리기도 실패"
+    result rollback_failed
     echo "되돌리기도 실패했습니다. 직접 확인이 필요합니다" >&2
   fi
 else
   record "실패 (되돌릴 직전 버전 없음)"
+  result failed
 fi
 exit 1

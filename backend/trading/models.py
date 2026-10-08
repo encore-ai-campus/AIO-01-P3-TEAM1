@@ -129,3 +129,27 @@ class Reservation(models.Model):
 
     def __str__(self) -> str:
         return f"#{self.id} {self.kind} {self.name} ({self.symbol})"
+
+
+class EngineStatus(models.Model):
+    """엔진 루프의 생존 신호 (admin/API.md 5-1). run_engine이 30초마다 자기 행을 고치고, 관리 서버가 읽기 전용 계정으로 읽는다.
+
+    웹 API는 이 표를 쓰지 않는다. 비밀 값은 넣지 않는다 (한도 숫자와 오류 이름·짧은 문장만).
+    """
+    name = models.CharField(max_length=32, unique=True)  # 루프 이름 ("run_engine")
+    version = models.CharField(max_length=64)  # APP_VERSION (운영은 이미지 태그 = 커밋 해시, 없으면 "dev")
+    host = models.CharField(max_length=128)
+    pid = models.IntegerField()
+    started_at = models.DateTimeField()
+    beat_at = models.DateTimeField()  # 마지막으로 동작한 시각
+    halted = models.BooleanField(default=False)  # 새 모의 매수 중단 스위치 (PAPER_ROOT/data/HALT)
+    broker_ready = models.BooleanField(default=False)  # 증권사 조회 키가 있는지
+    last_tick_ms = models.IntegerField(null=True, blank=True)  # 마지막 한 바퀴에 걸린 시간
+    step_errors = models.JSONField(default=list, blank=True)  # [{"at", "step", "error"}] 최신순 최대 20
+    limits = models.JSONField(default=dict, blank=True)  # 하루 한도 (aiDailyBudgetUsd 등)
+
+    class Meta:
+        db_table = "engine_status"
+
+    def __str__(self) -> str:
+        return f"{self.name} {self.version} {self.beat_at:%Y-%m-%d %H:%M:%S}"

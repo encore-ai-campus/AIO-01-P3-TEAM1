@@ -9,6 +9,7 @@
 #                              └─ /api, /admin  web(Django + gunicorn) ─┬─ db (PostgreSQL)
 #                engine(run_engine: 체결·청산·예약·일별 자산·AI 작업) ──┴─ redis
 # DB와 Redis 포트는 밖으로 열지 않는다. 밖에서 들어오는 길은 nginx 하나뿐이다.
+# DB만 서버 안(127.0.0.1:DB_LOCAL_PORT)에 열어 두고, 관리 서버가 SSH 터널과 읽기 전용 계정으로 읽는다 (admin/deploy/README.md).
 name: paper-trading
 
 x-app: &app
@@ -21,6 +22,7 @@ x-app: &app
     REDIS_URL: redis://redis:6379/0
     PAPER_ROOT: /data
     TZ: Asia/Seoul
+    APP_VERSION: ${IMAGE_TAG:-local}   # 엔진이 상태 기록(engine_status)에 남기는 실행 버전 = 이미지 태그(커밋 해시)
   restart: unless-stopped
   read_only: true
   security_opt:
@@ -104,6 +106,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-paper}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?.env.docker에 POSTGRES_PASSWORD가 필요합니다}
       TZ: Asia/Seoul
+    ports:   # 서버 안에서만 (127.0.0.1). 관리 서버의 SSH 터널이 이 포트로 온다. 보안 그룹에 열지 않는다
+      - "127.0.0.1:${DB_LOCAL_PORT:-15432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

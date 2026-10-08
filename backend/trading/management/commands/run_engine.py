@@ -10,6 +10,8 @@
 --once는 그 리포트가 끝날 때까지 기다렸다 끝낸다. 상주 루프는 시작할 때 이전 실행이 남긴 리포트를 정리하고, 끝낼 때 도는 리포트를 기다린다.
 리포트 알림(끝난 리포트 → 신청자 알림, reports.alerts)은 추천 수집 다음이라 같은 바퀴에서 만든 추천을 보고 판단한다.
 알림 발송은 늘 마지막이라 같은 바퀴에서 생긴 알림을 바로 보낸다.
+바퀴 시작과 끝에 엔진 상태(생존 신호·버전·중단 스위치·최근 단계 오류)를 30초마다 engine_status에 남긴다 (trading.heartbeat — 관리 서버가 읽는다.
+바퀴 시작에도 남겨 단계 하나가 오래 걸리는 바퀴를 "멈춤"으로 보지 않게 한다).
 """
 import time
 
@@ -17,7 +19,7 @@ from django.core.management.base import BaseCommand
 from django.db import close_old_connections
 
 from config import engine
-from trading import service
+from trading import heartbeat, service
 
 
 class Command(BaseCommand):
@@ -32,6 +34,7 @@ class Command(BaseCommand):
         from analysis import jobs  # analysis 앱 소유 (분석 작업 실행)
         from reports import runner  # reports 앱 소유 (AI 리포트 실행)
 
+        self.heartbeat = heartbeat.Heartbeat(service.now())
         if engine.broker_client() is None:
             self.log("증권사 조회 키가 없어 체결·예약·자산 기록·장기투자·자동 추천·자동매매를 건너뛰고 "
                      "분석 작업·추천 수집·알림 발송만 돈다 (리포트 실행·자동 리포트·리포트 알림 포함)")
@@ -59,8 +62,10 @@ class Command(BaseCommand):
                 runner.shutdown()  # 돌고 있는 리포트를 잠깐 기다린다 (못 끝나면 다음 시작의 recover가 정리)
 
     def tick(self) -> None:
+        self.heartbeat.tick_start()
         now = service.now()
         broker = engine.broker_client() is not None
+        self.step("엔진 상태 기록", lambda: self.heartbeat.beat(now, broker))
         if broker:
             self.step("체결 확인", lambda: service.sync_accounts(now, self.log))
             self.step("예약 실행", lambda: service.run_reservations(now, self.log))
@@ -75,6 +80,8 @@ class Command(BaseCommand):
             self.step("자동매매", lambda: _autotrade_tick(now, self.log))
             self.step("장기투자", lambda: _longterm_tick(now, self.log))  # 일봉·수급 조회가 필요하다
         self.step("알림 발송", lambda: _dispatch_notifications(now, self.log))
+        self.heartbeat.tick_end()
+        self.step("엔진 상태 기록", lambda: self.heartbeat.beat(service.now(), broker))
 
     def step(self, label: str, run) -> None:
         try:
@@ -82,7 +89,9 @@ class Command(BaseCommand):
         except KeyboardInterrupt:
             raise
         except Exception as e:  # 한 단계의 오류가 루프를 죽이지 않게
-            self.stderr.write(f"{service.now():%H:%M:%S} {label} 실패: {type(e).__name__}: {e}")
+            at = service.now()
+            self.stderr.write(f"{at:%H:%M:%S} {label} 실패: {type(e).__name__}: {e}")
+            self.heartbeat.error(at, label, e)
 
     def log(self, text: str) -> None:
         self.stdout.write(f"{service.now():%H:%M:%S} {text}")
