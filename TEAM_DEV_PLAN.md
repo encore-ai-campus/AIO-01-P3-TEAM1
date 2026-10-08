@@ -235,10 +235,10 @@ Trace에 남길 사건 (`docs/API.md`와 `docs/tasks/00-공통.md` 9절에 확�
 
 | action | status | 남기는 쪽 | details |
 |---|---|---|---|
-| `agent_failed` | `failed` | 호출기(4) — LLM 호출 **한 번**의 실패마다 | `{"errorType": "timeout"\|"server_error"\|"bad_output"\|"unknown", "attempt": 전체 시도 번호, "injected": true\|false, "final": false}` + 그때의 `provider`·`model`·`latency_ms` |
-| `agent_retry` | `started` | 호출기(4) | `{"attempt": 2, "reason": ...}` (같은 모델로 다시) |
+| `agent_failed` | `failed` | 호출기(4) — LLM 호출 **한 번**의 실패마다 | `{"errorType": "timeout"\|"server_error"\|"bad_output"\|"unknown", "attempt": 해당 Worker 실행 안의 LLM 호출 순번, "injected": true\|false, "final": false}` + 그때의 `provider`·`model`·`latency_ms` |
+| `agent_retry` | `started` | 호출기(4) | `{"attempt": 해당 Worker 실행 안의 다음 LLM 호출 순번, "reason": ...}` (같은 모델로 다시) |
 | `agent_failover` | `started` | 호출기(4) | `{"from": "모델 A", "to": "모델 B", "reason": errorType 또는 "circuit_open"}` |
-| `agent_completed` | `completed` | Orchestrator(3) | `{"attempts": 3, "recovered": true, "recoveryMs": 4200, "costUsd": ...}` + 실제로 답한 `provider`·`model` |
+| `agent_completed` | `completed` | Orchestrator(3) | `{"attempts": 3, "recovered": true, "recoveryMs": 4200, "costUsd": ...}` (`attempts`는 그 Worker 실행의 전체 LLM 호출 수) + 실제로 답한 `provider`·`model` |
 | `agent_failed` | `failed` | Orchestrator(3) — 그 Worker를 **포기**할 때 | `{"errorType": 마지막 실패, "attempts": n, "final": true, "message": ...}` |
 
 `final: false`(호출 한 번의 실패)와 `final: true`(포기)를 구분한다. **장애 1건** = Worker 실행(`agent_started`부터)의 첫 `agent_failed(final: false)`,

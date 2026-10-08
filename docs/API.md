@@ -493,6 +493,8 @@ interface AnalysisQuota {
 그중 PDF(`GET /api/reports/{id}/pdf`)와 선별 결과(`GET /api/reports/screening`)는 2026-10-04에 서버가 내기 시작했다 (표의 "구현" 표시).
 담당별 할 일은 `docs/tasks/`, 셈법과 모듈 경계는 `docs/tasks/00-공통.md`. 아래에서 "(추가)"로 표시한 것은 아직 서버가 내지 않는다.
 
+**2026-10-08 워크플로우 결정**: 단계 `timeoutSec`가 전체 시간 상한이며 각 LLM 호출은 단계의 남은 시간까지만 기다린다. LLM timeout은 같은 모델을 재호출하지 않고 즉시 fallback으로 전환한다. 필수 Worker가 timeout되면 최종 `workflow_failed.details.reason`은 `"timeout"`, 시간 초과 외 결과 누락·계약 오류로 Join이 막히면 `"join_blocked"`다. 검토 Agent에는 최신 `report_agent` 초안과 성공한 조사 결과 전체를 전달한다.
+
 ## 타입
 
 ```ts
@@ -504,6 +506,9 @@ type TraceStatus = "started" | "completed" | "failed" | "blocked" | "skipped";
 //   review_retry                  (추가: 검토 RETRY → 다시 작성)                   actor "orchestrator"
 //   join_completed · join_blocked                                                actor "join_guard", details.step
 //   handoff_started · handoff_completed · handoff_blocked                        actor "handoff_guard", details.to
+// agent_started.details.attempt는 검토 재작성까지 포함한 Worker 실행 횟수다.
+// agent_failed/agent_retry.details.attempt는 그 Worker 실행 안의 LLM 호출 순번이고,
+// agent_completed.details.attempts는 그 Worker 실행에서 사용한 전체 LLM 호출 수다.
 // agent_failed는 두 가지다: details.final = false 는 LLM 호출 한 번의 실패(재시도·전환으로 이어진다),
 // details.final = true 는 그 Worker를 포기한 것. details.injected = true 는 장애 주입으로 일으킨 실패.
 type ErrorType = "timeout" | "server_error" | "bad_output" | "unknown";

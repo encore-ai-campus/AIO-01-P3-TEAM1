@@ -183,14 +183,14 @@ macOS·Linux·WSL2에서만 돈다. 공유 개발 DB는 `.env`에 `POSTGRES_HOST
 
 | # | 쟁점 | 지금 | 정할 사람 · 막는 작업 |
 |---|---|---|---|
-| Q1 | timeout 규칙 | `00-공통.md` 7절·T4-4는 "다음 모델로", `TEAM_DEV_PLAN.md` 5-1·DR-LLM-01·예시 재생 ③은 "같은 모델 1회 → 대체 모델"이다. 하나로 정하고 다른 쪽을 고친다 | 4(5와) · T4-4 전 |
-| Q2 | 제한 시간 | 호출 제한 90초(`engine/paper_engine/llm.py:10`)가 단계 `timeout` 60초(`team_definitions.yaml`)보다 길어 시간 초과 뒤 대체 모델로 넘어갈 시간이 없다(추측). 검토 재작성·Handoff에는 제한 시간이 없다. 버린 Worker 스레드가 `finish` 뒤에 기록하면 `StateError`다(`03-orchestrator.md` 주의) | 4·3 · T4-4·T3-5 전 |
-| Q3 | 필수 Worker 시간 초과의 사유 코드 | `join_blocked`인지 `timeout`인지(9절 표) | 3 · T3-5 |
-| Q4 | 검토 단계 입력 | 문서는 "Join Guard가 초안·조사 결과를 검토에 넘긴다", YAML `review`에는 join이 없다 | 3 · T3-5 전 |
+| Q1 | timeout 규칙 | **결정(2026-10-08): 같은 모델을 재호출하지 않고 바로 다음 fallback 모델로 전환** | 4(5와) · T4-4에 반영 |
+| Q2 | 제한 시간 | **결정(2026-10-08): 단계 `timeout`이 전체 상한. 각 LLM 호출은 단계의 남은 시간까지만 실행** | 4·3 · T4-4·T3-5에 반영 |
+| Q3 | 필수 Worker 시간 초과의 사유 코드 | **결정(2026-10-08): 직접 원인이 시간 초과이면 `timeout`; 그 밖의 필수 결과 누락·계약 오류는 `join_blocked`** | 3 · T3-5에 반영 |
+| Q4 | 검토 단계 입력 | **결정(2026-10-08): 최신 `report_agent` 초안과 성공한 조사 결과 전체. 선택 뉴스 실패 시 있는 조사 결과만 전달** | 3 · T3-5에 반영 |
 | Q5 | runner를 켜는 시점 | 묵은 `requested` 3건이 켜는 순간 실제 비용으로 돌고 끝 알림이 간다(같은 사람·종목 신청에는 이 행이 200으로 온다). 처리(끝내기·나이 제한·실행)를 정한다. 통합 전에는 별도 설정 키로 `runner.tick`을 막는다(제안 — `AGENTS_IMPLEMENTED`는 화면 SSE 깃발, `registry.py:17-18`) | 3·1 · ⑤ 전(오늘) |
 | Q6 | 시험 수단 | `errorTypes` 셋으로는 DR-CRT-01·02·DR-SEC-01을 못 만든다. Circuit Breaker(모델별·프로세스 전역 5분, T4-5)가 시나리오끼리 간섭한다 → 사이에 5분 대기나 재시작(제안). 리포트 한도 3건 → 시험 한도를 올리거나 계정을 나눈다(제안) | 4·1 · T4-6·T4-10 전 |
 | Q7 | 장애 분류·셈법 | `LlmError`에 상태 코드가 없어 server_error·bad_output을 나누기 어렵다 → 구조화된 오류(제안). LLM 실패 없는 실패(Worker 오류·단계 시간 초과)를 장애로 셀지 정한다 | 4 · T4-2·T4-7 전 |
-| Q8 | 그 밖 | `attempt`의 두 뜻, `chaos.parse` 인자, 권유 표현을 계약 검증에 넣을지(넣으면 재요청 = 장애 1건), 0002 새 열의 `db_default`(제안 — 옛 코드가 도는 공유 DB 대비, 본보기 `trading/migrations/0002_order_style.py`), 산출물 위치(`docs/deliverables/` 대 `docs/설계서.md`·`장애복구보고서.md`·`파이프라인보고서.md`) | 2·3·4·1 · 0002 전, 산출물은 10/8 전 |
+| Q8 | 그 밖 | **attempt 일부 결정(2026-10-08):** `agent_started.details.attempt`는 Worker 실행 횟수, 호출기의 `agent_failed`·`agent_retry.details.attempt`는 해당 Worker 실행 안의 LLM 호출 순번, `agent_completed.details.attempts`는 해당 실행의 전체 LLM 호출 수. `chaos.parse` 인자·권유 표현 검증·0002 `db_default`·산출물 위치는 미정 | 2·3·4·1 · 0002 전, 산출물은 10/8 전 |
 
 **담당별 구현** (따로 적지 않은 파일은 `backend/reports/` 아래)
 

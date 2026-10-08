@@ -1,4 +1,6 @@
-"""reports 테스트 공용: 로그인한 클라이언트, 가짜 종목 확인(증권사를 부르지 않는다), 리포트 만들기."""
+"""reports 테스트 공용: 로그인한 클라이언트, 가짜 종목·Worker, 리포트 만들기."""
+import time
+
 import pytest
 from accounts.models import profile_of
 from trading import market
@@ -10,6 +12,38 @@ STOCKS = {
     "005930": {"symbol": "005930", "name": "삼성전자", "exchange": "KOSPI", "market": "KR"},
     "AAPL": {"symbol": "AAPL", "name": "Apple", "exchange": "NASDAQ", "market": "US"},
 }
+
+
+class FakeWorker:
+    """Orchestrator가 WorkerContext를 올바르게 만드는지 확인하는 가짜 Worker."""
+
+    def __init__(self, worker_id, result=None, error=None, delay=0, calls=None, output_contract=None):
+        self.id = worker_id
+        self.output_contract = output_contract or {
+            "market_agent": "MarketResult",
+            "fundamental_agent": "FundamentalResult",
+            "news_agent": "NewsResult",
+            "report_agent": "ReportDraft",
+            "review_agent": "ReviewResult",
+            "risk_agent": "RiskResult",
+        }.get(worker_id, "FakeResult")
+        self.result = {} if result is None else result
+        self.error = error
+        self.delay = delay
+        self.calls = [] if calls is None else calls
+
+    def run(self, ctx):
+        self.calls.append(ctx)
+        if self.delay:
+            time.sleep(self.delay)
+        if self.error is not None:
+            raise self.error
+        return self.result
+
+
+@pytest.fixture
+def fake_worker():
+    return FakeWorker
 
 
 @pytest.fixture

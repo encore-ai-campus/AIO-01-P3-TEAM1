@@ -12,7 +12,7 @@ WEB_SEARCH_MAX_USES = 5
 
 
 class LlmError(Exception):
-    pass
+    cost = 0.0  # 응답을 받은 뒤 실패했으면 그 호출에서 이미 든 비용(USD)
 
 
 class LlmTimeout(LlmError):
@@ -44,6 +44,16 @@ class LlmClient:
                       timeout: int = TIMEOUT_SEC) -> dict:
         return self._request_json(model, system, user, timeout=timeout)[0]
 
+    def complete_json_once(self, model: str, system: str, user: str,
+                           timeout: float = TIMEOUT_SEC) -> tuple[dict, float]:
+        """재시도 없이 한 번 부르고 (JSON 응답, 이번 호출 비용)을 반환한다."""
+        message, cost = self._post(self._payload(model, system, user), timeout)
+        try:
+            return extract_json(message["content"]), cost
+        except LlmError as error:
+            error.cost = cost
+            raise
+
     def research_json(self, model: str, system: str, user: str,
                       timeout: int = TIMEOUT_SEC) -> tuple[dict, list[dict]]:
         """웹 검색을 켜고 호출한다. (응답 JSON, 검색 인용 목록)을 반환한다.
@@ -53,8 +63,8 @@ class LlmClient:
         return self._request_json(model, system, user, timeout=timeout,
                                   tools=[{"type": "web_search", "max_uses": WEB_SEARCH_MAX_USES}])
 
-    def _request_json(self, model: str, system: str, user: str, tools: list | None = None,
-                      timeout: int = TIMEOUT_SEC) -> tuple[dict, list[dict]]:
+    @staticmethod
+    def _payload(model: str, system: str, user: str, tools: list | None = None) -> bytes:
         # JSON 모드(response_format)는 모델마다 지원 여부가 달라 쓰지 않는다.
         body = {"model": model, "messages": [
             {"role": "system", "content": system},
@@ -62,11 +72,15 @@ class LlmClient:
         ]}
         if tools:
             body["tools"] = tools
-        payload = json.dumps(body).encode()
+        return json.dumps(body).encode()
+
+    def _request_json(self, model: str, system: str, user: str, tools: list | None = None,
+                      timeout: int = TIMEOUT_SEC) -> tuple[dict, list[dict]]:
+        payload = self._payload(model, system, user, tools)
         last_error = None
         for attempt in range(MAX_ATTEMPTS):
             try:
-                message = self._post(payload, timeout)
+                message = self._post(payload, timeout)[0]
                 return extract_json(message["content"]), message.get("annotations") or []
             except LlmTimeout as e:
                 raise LlmTimeout(f"{model}: {e}") from None
@@ -75,7 +89,7 @@ class LlmClient:
                 time.sleep(2 * attempt)
         raise LlmError(f"{model}: {last_error}")
 
-    def _post(self, payload: bytes, timeout: int) -> dict:
+    def _post(self, payload: bytes, timeout: float) -> tuple[dict, float]:
         req = urllib.request.Request(
             self._base_url + "/chat/completions", data=payload, method="POST",
             headers={"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"})
@@ -92,9 +106,12 @@ class LlmClient:
             raise LlmError(f"요청 실패: {e}") from None
         except ValueError as e:
             raise LlmError(f"요청 실패: {e}") from None
+        cost = (body.get("usage") or {}).get("cost") or 0.0
         with self._lock:
-            self.cost += (body.get("usage") or {}).get("cost") or 0.0
+            self.cost += cost
         message = body["choices"][0]["message"]
         if not message.get("content"):
-            raise LlmError("빈 응답")
-        return message
+            error = LlmError("빈 응답")
+            error.cost = cost
+            raise error
+        return message, cost
