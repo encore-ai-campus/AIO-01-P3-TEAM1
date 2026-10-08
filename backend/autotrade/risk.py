@@ -2,9 +2,11 @@
 
 수치(손익비·기대수익률)는 assess와 같은 비용 계산(수수료·거래세·손절 미끄러짐)으로 만든다. 상수는 엔진에서 가져온다.
 
-evaluate(RiskPreview)는 **장마감 기준**이다 (docs/API.md 공통 규칙 "장마감 기준"): lastPrice·price_passed는 직전 정규장 종가,
+evaluate(RiskPreview)는 **장마감 기준**이다 (docs/API.md 공통 규칙 "장마감 기준"): lastPrice는 직전 정규장 종가,
 자산은 trading.service.summary(장마감 기준 평가). 화면에 보인 수량이 그대로 활성화 수량이 된다.
-- live_check(활성화): 그 시장이 정규장 중이면 장중 확인 가격으로 목표가·손절가를 한 번 더 본다 (문장에 장중 가격 숫자를 넣지 않는다).
+- price_passed(목표가·손절가를 이미 지났는지): 기준일 뒤 정규장이 시작됐으면(장 중 — market.traded_since_basis) 종가는 지난 가격이라
+  장중 가격으로 본다 — 미리 보기는 현재가(실시간 시세와 같은 값), live_check(활성화)는 장중 확인 가격. 문장에 장중 가격 숫자를 넣지 않는다.
+  받지 못하거나 장 중이 아니면 직전 종가로 본다 (docs/API.md "리포트 시세", DECISIONS 26 — 리포트의 손절·목표가가 장중 가격 기준이다).
 - plan(재주문 점검): 엔진 내부 경로라 지금처럼 장중이다 (docs/API.md "AI 추천" 재주문, docs/DECISIONS.md 14-1) — 수량을 정하는 자산은
   보유를 장중 가격으로 평가한 값, 가격 점검은 장중 확인 가격으로만 한다 (문장은 활성화와 같다. 화면·문장에 장중 숫자를 내지 않는다).
 사유(reasons)마다 같은 자리에 사유 코드(reasonCodes)를 둔다 — 엔진 RiskAssessment.codes + 여기 코드 (docs/API.md "실행 불가 사유 코드").
@@ -143,11 +145,12 @@ def _intraday_summary(store: AccountStore) -> dict:
     return paper_account.summary(store, prices, service.fx_if_needed(store), engine.engine_config().commission)
 
 
-def _is_open(market_: str, now: datetime) -> bool:
+def _current_price(symbol: str) -> float | None:
+    """현재가 (미리 보기의 가격 점검 — 실시간 시세와 같은 1초 캐시라 요청마다 증권사를 부르지 않는다). 받지 못하면 None."""
     try:
-        return market_data.is_open(market_, now)
+        return market_data.current_prices([symbol]).get(symbol)
     except Unavailable:
-        return False
+        return None
 
 
 def _close_passed(close: float, target: float, stop: float, currency: str) -> str | None:
@@ -179,7 +182,7 @@ def evaluate(user, *, symbol: str, name: str, market: str, currency: str, entry:
     엔진 LIMITS는 SWING이고, 하루 주문 수·손실은 스윙(style swing) 주문만 센다.
     plan: 그 계획의 재주문 점검이다 — 추천이 open인지·진행 중 계획은 보지 않고, 그 계획의 주문은 빼고 보며, 수량을 정하는 자산은
       보유를 장중 가격으로 평가하고(_intraday_summary) 가격 점검은 장중 확인 가격으로 한다 (재주문은 지금처럼 장중).
-    live_check: 활성화 점검 — 종가 점검에 더해 정규장 중이면 장중 확인 가격으로 목표가·손절가를 한 번 더 본다.
+    live_check: 활성화 점검 — 장 중(기준일 뒤 정규장이 시작됨)이면 가격 점검을 현재가가 아니라 장중 확인 가격으로 한다.
     probability: 손익비 외 기대값 계산의 확률 (추천 값. 없으면 0.5 가정). rec_open: 추천이 아직 open인지 (아니면 expired).
     반환: approved · activatable · reasons · reasonCodes(같은 길이·순서, (코드, 문장) 짝 중복 없음) · quantity · amountKrw ·
       expectedProfitKrw · maxLossKrw · limitedBy · budgetKrw · lastPrice(종가) · lastPriceAsOf · priceBasis("close").
@@ -233,9 +236,14 @@ def evaluate(user, *, symbol: str, name: str, market: str, currency: str, entry:
     if plan is not None:  # 재주문: 장중 확인 가격으로만
         passed = _live_passed(_live_price(symbol), target, stop)
     else:
-        passed = _close_passed(close["price"], target, stop, currency) if close else None
-        if passed is None and live_check and _is_open(market, now):
-            passed = _live_passed(_live_price(symbol), target, stop)
+        # 장 중이면 직전 종가는 지난 가격이다 — 장중 가격으로 본다 (활성화는 장중 확인 가격). 받지 못하면 종가로
+        live = None
+        if market_data.traded_since_basis(market, now):
+            live = _live_price(symbol) if live_check else _current_price(symbol)
+        if live is not None:
+            passed = _live_passed(live, target, stop)
+        else:
+            passed = _close_passed(close["price"], target, stop, currency) if close else None
     if passed:
         pairs.append(("price_passed", passed))
 

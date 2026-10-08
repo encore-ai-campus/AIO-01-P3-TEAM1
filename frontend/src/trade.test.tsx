@@ -864,9 +864,10 @@ describe("새 계획 제안 · 실행 확인 (쉬운 보기)", () => {
   });
 
   it("활성화 400(장중 확인 price_passed)은 쉬운 문장으로", async () => {
-    db.setPrice("000660", 210_000); // 장중 가격이 목표가(203,000원) 이상 — 종가 미리 보기는 통과한다
     renderApp("/recommendations/91", "bob");
     await within(await screen.findByRole("region", { name: "안전장치가 정한 수량" })).findByText(/^이 계좌로는/);
+    // 미리 보기를 본 뒤 장중 가격이 목표가(203,000원)를 넘었다 — 활성화의 장중 확인이 막는다
+    db.setPrice("000660", 210_000);
     for (const c of screen.getAllByRole("checkbox")) fireEvent.click(c);
     const start = screen.getByRole("button", { name: "모의 자동매매 시작" }) as HTMLButtonElement;
     await waitFor(() => expect(start.disabled).toBe(false));

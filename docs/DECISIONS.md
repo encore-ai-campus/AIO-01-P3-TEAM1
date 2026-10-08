@@ -575,7 +575,8 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 - **코드 접점**: 엔진 `data/calendar.py`의 `close_basis_day`·`session_end_iso`·`close_of`(표준 라이브러리), 백엔드 `trading/market.py`의 `basis`·`closes`·`close_price`·`completed_candles`
   (종목·기준일별 캐시, 한 호출이 새로 받는 종목은 10개까지). `current_prices`·`confirmed_prices`·`last_price`는 **내부 경로 전용**으로 남긴다.
 - **장마감 기준인 것**: 시세(`Quote`)·종목 상세(완성 봉만)·계좌 평가·수익률·랭킹·일별 자산 기록(`record_equity`)·리스크 미리 보기와 활성화 수량·`priceAtCreation`·시연 추천 진입가·리포트 PDF 차트·(분봉은 2026-10-06 삭제 — 16장)·
-  **리포트 시세 Worker 결과**(`MarketResult.price`·`changePct`·지표 — 팀의 `market_agent`도 `market.close_price`·`completed_candles`를 쓰고 `asOf`를 낸다, `docs/tasks/00-공통.md` 10절. 리포트 상세·PDF는 팀 전체가 본다).
+  **리포트 시세 Worker 결과**(`MarketResult.price`·`changePct`·지표 — 팀의 `market_agent`도 `market.close_price`·`completed_candles`를 쓰고 `asOf`를 낸다, `docs/tasks/00-공통.md` 10절. 리포트 상세·PDF는 팀 전체가 본다.
+  2026-10-08부터 장 중에 만들면 `price`·`changePct`는 현재가 기준 — 26장).
   분석의 `priceAtAnalysis`는 분석 시각 가격 그대로 두는 **일부러 둔 예외**다 (화면 "분석 시각 가격", 장중이었으면 "장중 가격"이라고 밝힌다). 지표 기준일(`dataAsOf`)을 따로 낸다.
 - **일별 자산 기록(`record_equity`)** (2026-10-05 확정): 그날 기록은 **KR 기준일이 오늘이 된 뒤**(국내 거래일 15:40 KST = 정규장 종료 + `CLOSE_SETTLE_MIN`) 하루 한 번 남긴다.
   국내 보유는 그날 종가, **미국 보유는 그때의 최신 미국 종가**(장마감 기준 — `AccountSummary.pricesAsOf.US`와 같은 값, 15:40 KST에는 그날 새벽 끝난 뉴욕 정규장 종가)로 평가한다.
@@ -617,7 +618,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
   | 01 T1-5 | 팀원 리포트 알림(user 부분)은 Claude `alerts.py`. 남는 것은 **자동 리포트 부분**: 팀 파일 `auto.py`의 `auto.after_finish(report)` — `source == "auto"`만 PDF·Discord, 그 밖은 아무것도 안 한다 (runner가 끝난 리포트마다 부른다) |
   | 01 T1-7 | `?mine=1`(B8)은 Claude. `?source=`는 그대로 1 (`source` 열이 생긴 뒤 `ReportsView.get`에 한 줄) |
   | 01 T1-19·T1-20·T1-21·T1-22·T1-23 | B4·B5·B10·B6·쉬운 보기 뼈대 → Claude |
-  | 02 T2-4 | `market_agent`는 `trading.market.close_price`·`completed_candles`(장마감 기준)로 자료를 만들고 `MarketResult.asOf`를 채운다 (`00-공통.md` 10절). `current_prices`·`last_price`·미완성 봉을 쓰지 않는다 |
+  | 02 T2-4 | `market_agent`는 `trading.market.close_price`·`completed_candles`(장마감 기준)로 자료를 만들고 `MarketResult.asOf`를 채운다 (`00-공통.md` 10절). `current_prices`·`last_price`·미완성 봉을 쓰지 않는다 (2026-10-08: 장 중에는 가격만 현재가 `live_prices` — 26장) |
   | 02 T2-9 | 팀원별 횟수 한도(`quota.py`, `AI_DAILY_REPORTS_PER_USER`, `429`, `GET /api/reports/quota`)는 Claude. 2에게 남는 것은 **비용 예산**: 새 팀 파일 `backend/reports/budget.py`의 `check(now) -> None`(넘으면 `LimitExceeded`)과 `tests/test_budget.py`, `ReportsView.post`에 한 줄 (`cost_usd` 열이 생긴 뒤) |
   | 03 (B7 줄) · T3-4 · T3-12 | runner는 끝난 리포트마다 팀의 `auto.after_finish(report)`를 부른다 (자동 리포트용). 사용자 알림은 Claude `alerts`가 보내므로 runner가 따로 부를 것은 없다 (`alerts.notify_finished`를 불러도 된다). T3-12의 `healing.notify_failure` 호출과 완료 기준 "실패 1건에 `notify_failure` 호출 1번"은 빠진다. 실패할 때 `workflow_failed.details.reason`을 9절 코드로 남기는 것은 그대로 |
   | 04 T4-1 | **B3(`opinion`·`oneLiner`)는 Claude** (2026-10-05 바뀜 — Claude가 지금 `payloads.summary`에 넣는다). 4에게 남는 것: 모델 열·마이그레이션 0002, 같은 `summary`·`detail`의 `source`·`chaosEnabled`·`costUsd`·`hasPdf`·`requestedBy`("자동")·`chaos`·`recovery` — Claude가 넣은 B3 두 필드 위에 더한다 (지우지 않는다) |
@@ -917,7 +918,8 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 - **실시간으로 바꾼 것**: `Quote`(`/api/quotes`, `StockDetail.quote`) — 증권사 현재가, `basis: "live"`, `asOf` = 받은 시각. `StockDetail.candles`는 오늘 진행 중인 봉까지.
   직접 주문의 시장가 매수 가능 점검 가격도 현재가로 (화면의 예상 금액 = 시세 × 수량과 같게). 화면 시세 폴링 60초 → 5초.
 - **`prevClose`**: 그 가격이 속한 거래일(오늘 정규장이 있으면 오늘, 없으면 마지막 일봉 날짜)의 전 거래일 종가. 장 달력을 못 받으면 평일을 거래일로 본다.
-- **그대로 장마감 기준인 것**: 계좌 평가·수익률·`Position`, 랭킹, 일별 자산 기록, 리스크 미리 보기와 활성화 수량, `priceAtCreation`, 시연 추천 진입가, 리포트(시세 Worker·PDF), 분석. 이유: 미리 보기에서 본 수량이 그대로 주문 수량이 되고 수익률·랭킹이 하루 동안 흔들리지 않게 (14-1 ①).
+- **그대로 장마감 기준인 것**: 계좌 평가·수익률·`Position`, 랭킹, 일별 자산 기록, 리스크 미리 보기와 활성화 수량, `priceAtCreation`, 시연 추천 진입가, ~~리포트(시세 Worker·PDF)~~, 분석.
+  (2026-10-08: 리포트 시세 Worker는 장 중에 만들면 현재가, 미리 보기·활성화의 가격 점검도 그때는 장중 가격 — 26장) 이유: 미리 보기에서 본 수량이 그대로 주문 수량이 되고 수익률·랭킹이 하루 동안 흔들리지 않게 (14-1 ①).
   그래서 같은 화면에서 시세(실시간)와 계좌 평가(장마감 기준)가 다를 수 있다 — 표기("실시간 · 시각" / "장마감 기준")로 구분한다.
 - **현재가를 받지 못하면** 그 종목은 장마감 기준 Quote(`basis: "close"`)로 낸다.
 - **조회량**: 현재가는 종목마다 1초 캐시를 팀 전체가 같이 쓴다. 키움은 국내 현재가를 여러 종목 한 번(`ka10095`)에 받으므로 한도(초당 5회) 안이다.
@@ -998,7 +1000,8 @@ AI가 낸 시나리오의 손익비가 2.0을 넘은 적이 없었다 (운영 �
 AI는 목표를 가깝게(+6~9%), 손절을 멀게(−5~−19%) 잡았다. 그래서 AI 추천은 활성화에서 거의 모두 `reward_risk_low`로 막혔다.
 
 - **손절가는 AI가 아니라 코드가 정한다** (`engine/paper_engine/judge/stops.py`): 최근 완성 봉 10개의 최저가 − ATR14×0.5를
-  기준가 − ATR14×2 ~ 기준가 − ATR14×1 안으로 맞추고 호가 단위로 내린다. 기준가는 분석할 때의 가격(엔진 분석 `lastPrice`, AI 리포트 직전 정규장 종가)이다.
+  기준가 − ATR14×2 ~ 기준가 − ATR14×1 안으로 맞추고 호가 단위로 내린다. 기준가는 분석할 때의 가격(엔진 분석 `lastPrice`, AI 리포트 시세 조사의 `price` —
+  2026-10-08부터 장 중이면 현재가, 아니면 직전 정규장 종가, 26장)이다.
   진입가가 아니라 기준가로 정하므로 AI는 손절가를 미리 받아 확률을 추정한다.
   - 엔진 교차검증: 제안 전에 종목 데이터의 `stopRule`(값·정하는 법)을 넣고, 제안된 `stopPrice`를 그 값으로 바꾼다 (`pipeline.apply_stop`).
     일봉·ATR이 모자라 정하지 못했거나 진입가가 손절가 이하면 사실 검증에서 거른다. 제안 AI의 응답 형식에서 `stopPrice`를 뺐다.
@@ -1084,3 +1087,24 @@ AI는 목표를 가깝게(+6~9%), 손절을 멀게(−5~−19%) 잡았다. 그�
   상세의 안전장치(종가)와 활성화의 장중 확인이 지금처럼 막는다. 기한으로 끝난 추천은 `expiredReason: "deadline"`이다 (예전 행도 `deadline`으로 낸다).
 - 고치지 않은 것: 추천이 생기는 순간 이미 가격이 지났으면 '계획 제안' 알림이 먼저 가고 1분 안에 정리된다(알림을 열면 끝난 제안으로 보인다 — 만들 때 막으면 리포트 끝 알림이 사라진다,
   `reports/alerts.py`). 관리 서버(`paper_admin`)는 지운 리포트도 그대로 보인다(`deleted_at` 열).
+
+## 26. 리포트 시세는 만들 때 가격: 장 중이면 현재가 (2026-10-08, 사용자 결정)
+
+근거: 사용자가 "조사 시 전일 종가를 가져오는 것 같다"고 했다. 운영 리포트 #44(엑스게이트, 10-08 15:23 KST 실행)의 조사 자료 요약 시세가
+"종가 18,700원 · 10월 7일(수) 15:30 장마감 기준"이었고, 그때 가격은 17,990원(−3.8%)이었다. 그날 리포트 #26~#47이 모두 10-07 종가를 썼다.
+17장에서 리포트를 장마감 기준으로 남겼기 때문이다 (기준일은 정규장 종료 + 10분에 바뀐다 — 14-1). 두 방법(① 판단은 종가로 두고 화면에 현재가를 같이 보이기,
+② 시세 조사가 장 중에는 현재가를 쓰기) 중 사용자가 ②를 골랐다. 계약은 `docs/API.md` 공통 규칙 "리포트 시세".
+
+- **언제**: 그 시장의 기준일 뒤 날짜의 정규장이 이미 시작됐을 때 (`trading.market.traded_since_basis`) — 정규장 중과, 끝났지만 기준일이 아직 바뀌기 전(KR 15:30~15:40).
+  장 시작 전(자동 리포트 08:00 포함)·장 마감 뒤·휴장에는 지금처럼 직전 정규장 종가다.
+- **리포트 시세 조사**(`market_agent`): `price` = 현재가, `priceBasis: "live"`, `asOf` = 받은 시각, `changePct` = 현재가 ÷ 직전 종가 − 1. 현재가를 받지 못하면 종가.
+  지표는 완성 봉만(그대로). 손절 가격의 기준가 = `price` — 엔진 분석이 `lastPrice`(현재가)와 완성 봉으로 손절가를 정하는 것과 같아진다 (21장).
+  작성 AI의 진입가 규칙("price에서 5% 안")과 검토 점검도 같은 `price`를 본다.
+- **표기**: "장중 가격 17,990원 · 10월 8일(목) 15:23 기준" (웹 쉬운 보기·쉬운 PDF·자세한 PDF). 리포트는 나중에도 읽으므로 "실시간 · 시각"이 아니라 날짜를 넣는다.
+- **미리 보기·활성화의 가격 점검**(`price_passed`)도 같은 때에는 장중 가격으로 본다 (미리 보기는 현재가, 활성화는 장중 확인 가격. 숫자 없는 정해진 문장).
+  왜: 리포트의 손절·목표가가 장중 가격 기준인데 어제 종가와 비교하면, 오른 날에는 손절가가 어제 종가보다 높아 시작할 수 있는 제안이 "직전 종가가 이미 손절가 이하"로 막히고,
+  내린 날에는 이미 지난 제안이 열려 보인다 (가격이 지난 제안 자동 정리는 이미 현재가를 본다 — 25장). 미리 보기의 수량·금액·자산·`lastPrice`는 그대로 장마감 기준이라
+  "본 수량이 그대로 활성화 수량"(14-1 ①)은 지켜진다. 활성화는 전에는 종가 점검 + 정규장 중 장중 확인이었고, 이제 그때는 장중 확인만 한다.
+- **그대로인 것**: `priceAtCreation`(만들 때의 직전 종가 — 화면 "추천 때 종가"), 재무 조사의 PER·PBR, 리포트 차트(완성 봉), 계좌 평가·랭킹, 분석(교차검증), 매매 종목 선정 팀.
+- 알아 둘 것: 같은 종목 리포트도 만든 시각에 따라 가격·손절가가 다르다 (시각을 표기로 밝힌다). 장 중 리포트의 손절가는 오늘 장중 저가를 보지 않는다 (지표처럼 완성 봉만).
+  예전 리포트(`priceBasis` 없음)는 종가로 읽어 표기가 바뀌지 않는다.

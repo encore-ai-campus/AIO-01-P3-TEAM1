@@ -183,6 +183,13 @@ def test_market_basis_label(user, candles):
     for bad in ("어제", "2026-10-02T15:30:00", None, 20261002):  # 형식이 틀림 · 시간대 없음 · 없음 · 숫자
         html = html_for("005930", {"price": 72000, "asOf": bad})
         assert "시세 지표 기준 시각: 자료 없음" in html and "종가 72,000원" not in html, bad
+    # 장 중에 만든 리포트 (docs/API.md "리포트 시세"): 장중 가격과 받은 시각 (그 시장 현지 시각)
+    live = html_for("005930", {"price": 71500, "asOf": "2026-10-08T11:20:05+09:00", "priceBasis": "live"})
+    assert "시세 지표: 장중 가격 71,500원 · 10월 8일(목) 11:20 기준" in live and "장마감 기준" not in live
+    us_live = html_for("AAPL", {"price": 180.5, "asOf": "2026-10-08T00:20:05+09:00", "priceBasis": "live"})
+    assert "시세 지표: 장중 가격 180.50달러 · 10월 7일(수) 11:20(뉴욕) 기준" in us_live
+    bad_live = html_for("005930", {"price": 71500, "asOf": "어제", "priceBasis": "live"})
+    assert "시세 지표 기준 시각: 자료 없음" in bad_live and "71,500원" not in bad_live
 
 
 def test_report_html_escapes_values(user, candles):

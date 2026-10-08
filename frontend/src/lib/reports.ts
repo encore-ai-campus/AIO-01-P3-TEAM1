@@ -6,6 +6,7 @@ import type {
   ErrorType,
   ExecutionPlan,
   FailurePolicy,
+  QuoteBasis,
   RecommendationExpiredReason,
   ReportDetail,
   ReportOpinion,
@@ -669,9 +670,10 @@ export function dataTimeText(iso: string | null | undefined): string {
 
 export interface MarketView {
   summary: string | null;
-  price: number | null; // 장마감 기준 종가 (MarketResult.price)
+  price: number | null; // MarketResult.price — basis close면 장마감 기준 종가, live면 리포트를 만들 때의 장중 가격
   changePct: number | null;
   asOf: string | null;
+  basis: QuoteBasis; // MarketResult.priceBasis (2026-10-08, docs/API.md "리포트 시세"). 없거나 다른 값이면 close (예전 결과)
   rsi: number | null;
   volatilityPct: number | null;
   signals: string[];
@@ -706,6 +708,7 @@ export function researchOf(state: Pick<SharedState, "results">): { market: Marke
           price: finite(m.price),
           changePct: finite(m.changePct),
           asOf: text(m.asOf),
+          basis: m.priceBasis === "live" ? "live" : "close",
           rsi: finite(m.rsi),
           volatilityPct: finite(m.volatilityPct),
           signals: texts(m.signals, 5),

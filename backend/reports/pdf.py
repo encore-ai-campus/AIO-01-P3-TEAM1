@@ -9,6 +9,7 @@ Agent가 아직 결과를 다 못 채웠어도(`Report.results`가 비어 있어
 맨 위에 쉬운 요약 상자(`results.report_agent.plainSummary`, B1)와 통일 면책 문장을 두고, 꼬리말도 같은 면책 문장이다.
 가격은 장마감 기준이다: 차트는 완성 일봉(`trading.market.completed_candles` — 장중 미완성 봉 없음)으로 그리고
 범례에 "YYYY-MM-DD 종가 기준"을, 시세 지표 아래에 `market_agent`의 종가·`asOf`("… 장마감 기준")를 적는다.
+리포트를 장 중에 만들었으면(`priceBasis: "live"`, 2026-10-08 — docs/API.md "리포트 시세") 시세 지표 기준 줄은 "장중 가격 … · … 기준"이다.
 
 주린이모드 쉬운 판(`build_easy_report_html`, docs/DECISIONS.md 20장)은 웹 쉬운 보기와 같은 문장(easy_text.py)으로
 결론·신뢰 패널·쉬운 요약·매매 계획·근거와 위험·세 가지 경우·가격 흐름·조사 자료·용어 풀이를 싣는다. 검토 점수·확률·신뢰도·모델·비용은 싣지 않는다.
@@ -175,6 +176,12 @@ def _as_of(value, mkt: str) -> str | None:
     at = at.astimezone(market.MARKET_TZ.get(mkt, KST))
     return (f"{at.month}월 {at.day}일({WEEKDAYS[at.weekday()]}) {at:%H:%M}{'(뉴욕)' if mkt == 'US' else ''} "
             f"장마감 기준")
+
+
+def _live_at(at: datetime, mkt: str) -> str:
+    """장 중에 받은 가격의 시각 → "10월 8일(목) 15:23 기준" (그 시장 현지 시각, 미국은 "15:23(뉴욕)")."""
+    at = at.astimezone(market.MARKET_TZ.get(mkt, KST))
+    return f"{at.month}월 {at.day}일({WEEKDAYS[at.weekday()]}) {at:%H:%M}{'(뉴욕)' if mkt == 'US' else ''} 기준"
 
 
 # --- 가격 차트 (SVG 문자열) ---
@@ -404,12 +411,17 @@ def _footer(report: Report, trace: list[TraceEvent], now: datetime) -> str:
 
 def _market_basis(mkt_res: dict, mkt: str) -> str:
     """시세 지표 아래 기준 줄: "시세 지표: 종가 72,000원 · 10월 2일(금) 15:30 장마감 기준" (MarketResult의 price·asOf).
+    장 중에 만든 리포트(priceBasis live)는 "시세 지표: 장중 가격 71,500원 · 10월 8일(목) 11:20 기준".
     asOf가 없으면(장마감 기준 이전의 결과) 기준 시각을 알 수 없다고 적고 가격을 보이지 않는다."""
+    live = mkt_res.get("priceBasis") == market.BASIS_LIVE
     as_of = _as_of(mkt_res.get("asOf"), mkt) if mkt_res.get("asOf") else None
+    if live and as_of is not None:
+        as_of = _live_at(datetime.fromisoformat(str(mkt_res["asOf"])), mkt)
     if as_of is None:
         return f'<p class="legend">시세 지표 기준 시각: {NO_DATA}</p>'
-    close = _num(mkt_res.get("price"))
-    price = f"종가 {_price(close, mkt)}{'원' if mkt == 'KR' else '달러'} · " if close is not None and close > 0 else ""
+    value = _num(mkt_res.get("price"))
+    name = "장중 가격" if live else "종가"
+    price = f"{name} {_price(value, mkt)}{'원' if mkt == 'KR' else '달러'} · " if value is not None and value > 0 else ""
     return f'<p class="legend">시세 지표: {_e(price)}{_e(as_of)}</p>'
 
 
@@ -666,7 +678,7 @@ DATE_ONLY = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 
 
 def _easy_close_at(value, mkt: str) -> datetime | None:
-    """쉬운 판의 장마감 기준 시각(시세 AI의 asOf)을 그 시장 시간대로. 읽지 못하면 None.
+    """쉬운 판 시세 칸의 기준 시각(시세 AI의 asOf — 장마감 기준 시각, 장 중에 만들었으면 받은 시각)을 그 시장 시간대로. 읽지 못하면 None.
 
     화면(ResearchCards의 new Date(asOf), 한국 시간 브라우저)과 같게 읽는다: 시간대가 없으면 한국 시간, 날짜만이면 UTC 자정.
     자세한 판 _as_of는 시간대가 없으면 None이다 (자세한 판은 바꾸지 않는다).
@@ -715,18 +727,20 @@ def _easy_metrics(items: list[tuple[str, str]]) -> str:
             + "</dl>")
 
 
-def _easy_research(research: dict, mkt: str, currency: str, close_at: datetime | None = None) -> str:
-    """조사 자료 요약 (ResearchCards): 시세(종가·장마감 기준 시각·RSI·하루 변동성) · 재무·공시 · 뉴스(제목·매체·날짜, 링크 없음).
-    close_at은 시세 AI asOf를 화면처럼 읽은 시각 (_easy_close_at — 시간대가 없으면 한국 시간)."""
+def _easy_research(research: dict, mkt: str, currency: str, price_at: datetime | None = None) -> str:
+    """조사 자료 요약 (ResearchCards): 시세(종가·장마감 기준 시각, 장 중에 만들었으면 장중 가격·받은 시각 — RSI·하루 변동성)
+    · 재무·공시 · 뉴스(제목·매체·날짜, 링크 없음). price_at은 시세 AI asOf를 화면처럼 읽은 시각 (_easy_close_at — 시간대가 없으면 한국 시간)."""
     m, f, n = research["market"], research["fundamental"], research["news"]
     if not (m or f or n):
         return ""
     t = ez.RESEARCH_TEXT
     parts = []
     if m:
-        as_of = _as_of(close_at.isoformat(), mkt) if close_at else None
+        live = m["basis"] == "live"
+        as_of = (_live_at(price_at, mkt) if live else _as_of(price_at.isoformat(), mkt)) if price_at else None
         if as_of:  # 기준 시각을 모르면 그 가격이 종가인지 알 수 없어 가격을 보이지 않는다 (_market_basis와 같다)
-            price = (f'<span class="k">{_e(t["close"])}</span> <b>{_e(ez.format_price(m["price"], currency))}</b> '
+            price = (f'<span class="k">{_e(t["live" if live else "close"])}</span> '
+                     f'<b>{_e(ez.format_price(m["price"], currency))}</b> '
                      if m["price"] is not None and m["price"] > 0 else "")
             basis = f'<p class="close">{price}<span class="at">{_e(as_of)}</span></p>'
         else:
@@ -815,7 +829,10 @@ def build_easy_report_html(report: Report, trace: list[TraceEvent], now: datetim
             f"{_e(ez.HEAD_DATE.format(year=when.year, month=when.month, day=when.day))}</p>")
     candles = _load_candles(report.symbol)
     research = ez.research_of(results)
-    close_at = _easy_close_at(research["market"]["asOf"], report.market) if research["market"] else None
+    m = research["market"]
+    price_at = _easy_close_at(m["asOf"], report.market) if m else None  # 시세 칸의 기준 시각
+    # 장마감 기준 시각 — 장 중에 만든 리포트(basis live)는 없다 (차트 범례는 마지막 봉의 "… 종가 기준")
+    close_at = price_at if m and m["basis"] != "live" else None
     chart_close_at = _chart_close_at(candles, close_at)
     scenario = ez.scenario_of(prices) if plan else None
     body = "".join((
@@ -824,7 +841,7 @@ def build_easy_report_html(report: Report, trace: list[TraceEvent], now: datetim
         _easy_reasons({**draft, "targets": prices}, opinion, currency) if draft else "",
         _easy_scenario(scenario) if scenario else "",
         _easy_chart(candles, prices if plan else {}, report.market, currency, chart_close_at),
-        _easy_research(research, report.market, currency, close_at),
+        _easy_research(research, report.market, currency, price_at),
         _easy_glossary(_easy_terms(plan, len(candles) >= 2, research, close_at, chart_close_at)),
         _easy_footer(trace, now)))
     return _page(f"{report.name} AI 리포트", f'<main class="ez">{body}</main>', EASY_CSS)

@@ -93,8 +93,9 @@ def test_preview_blockers(api, fake):
 
 
 def test_preview_price_above_target_or_below_stop(api, fake):
-    """미리 보기는 직전 종가로 본다 (종가 숫자는 문장에 넣어도 된다)."""
+    """장 밖(기준일 뒤 정규장이 아직 없음)이면 미리 보기는 직전 종가로 본다 (종가 숫자는 문장에 넣어도 된다)."""
     rec = make_rec()
+    switch(fake, KR=False)  # 장 시작 전
     set_price(fake, "005930", 81000)
     p = api.get(f"/api/recommendations/{rec.id}/preview").json()
     assert not p["activatable"] and p["reasonCodes"] == ["price_passed"]
@@ -102,9 +103,25 @@ def test_preview_price_above_target_or_below_stop(api, fake):
     set_price(fake, "005930", 65000)
     p = api.get(f"/api/recommendations/{rec.id}/preview").json()
     assert p["reasons"] == [f"직전 종가({close_of(65000):,.0f}원)가 이미 손절가 이하"]
-    set_price(fake, "005930", 80100)  # 장중 가격은 목표가 이상이지만 종가(79,823원)는 아직 아래: 미리 보기는 통과
+    set_price(fake, "005930", 80100)  # 장중 가격은 목표가 이상이지만 종가(79,823원)는 아직 아래: 장 밖 미리 보기는 통과
     p = api.get(f"/api/recommendations/{rec.id}/preview").json()
     assert p["activatable"] and p["lastPrice"] == close_of(80100) < 80000
+
+
+def test_preview_during_session_checks_live_price(api, fake):
+    """장 중이면 직전 종가는 지난 가격이다 — 미리 보기도 현재가로 본다 (숫자 없는 문장, docs/API.md "리포트 시세").
+    lastPrice·금액은 그대로 종가 기준이다."""
+    rec = make_rec()  # 목표 80,000 · 손절 66,000
+    set_price(fake, "005930", 80100)  # 종가 79,823원 < 목표가 80,000원 ≤ 현재가 80,100원
+    p = api.get(f"/api/recommendations/{rec.id}/preview").json()
+    assert p["reasonCodes"] == ["price_passed"] and p["reasons"] == ["장중 가격이 이미 목표가 이상이에요"]
+    assert p["lastPrice"] == close_of(80100) and p["priceBasis"] == "close"
+    set_price(fake, "005930", 66100)  # 종가 65,872원은 손절가 이하지만 지금 가격은 손절가 위: 시작할 수 있다
+    p = api.get(f"/api/recommendations/{rec.id}/preview").json()
+    assert p["activatable"] and p["lastPrice"] == close_of(66100) <= 66000
+    switch(fake, KR=False)  # 장 밖이면 종가로
+    p = api.get(f"/api/recommendations/{rec.id}/preview").json()
+    assert p["reasons"] == [f"직전 종가({close_of(66100):,.0f}원)가 이미 손절가 이하"]
 
 
 def test_preview_expired_and_warning(api, fake):
@@ -644,10 +661,12 @@ def test_reason_pairs_are_deduplicated_in_order(fake, user, monkeypatch):
     assert p["reasonCodes"] == ["daily_loss_limit", "reward_risk_low"] and p["reasons"] == ["일일 손실 한도 도달", "손익비 낮음"]
 
 
-def test_activation_rechecks_intraday_price_without_numbers(api, fake):
-    """종가로는 통과해도 정규장 중 장중 확인 가격이 이미 목표가 이상이면 활성화하지 않는다 (문장에 장중 가격 숫자 없음)."""
+def test_activation_rechecks_intraday_price_without_numbers(api, fake, monkeypatch):
+    """종가로는 통과해도 정규장 중 장중 확인 가격이 이미 목표가 이상이면 활성화하지 않는다 (문장에 장중 가격 숫자 없음).
+    활성화는 장중 확인 가격(확인 가격)으로 본다 — 미리 보기의 현재가가 아니다."""
     rec = make_rec()
-    set_price(fake, "005930", 80100)  # 종가 79,823원 < 목표가 80,000원 ≤ 장중 80,100원
+    set_price(fake, "005930", 79900)  # 종가 79,624원·현재가 79,900원 < 목표가 80,000원 ≤ 장중 확인 가격 80,100원
+    monkeypatch.setattr(fake, "confirmed_prices", lambda symbols: {s: 80100.0 for s in symbols})
     assert api.get(f"/api/recommendations/{rec.id}/preview").json()["activatable"]
     body = activate(api, rec)
     assert body.status_code == 400

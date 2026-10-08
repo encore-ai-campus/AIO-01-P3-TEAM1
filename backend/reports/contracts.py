@@ -143,6 +143,8 @@ def _market(data: dict[str, Any]) -> dict[str, Any]:
         "price": _number(_required(data, "price"), "price", nullable=True),
         "changePct": _number(_required(data, "changePct"), "changePct", nullable=True),
         "asOf": _string(data.get("asOf"), "asOf", nullable=True),
+        # 가격 기준 (2026-10-08, docs/API.md "리포트 시세"): live = 장 중 현재가, close = 직전 정규장 종가. 코드가 채운다 (없으면 null = close)
+        "priceBasis": None if data.get("priceBasis") is None else _enum(data["priceBasis"], "priceBasis", ("live", "close")),
         "rsi": _number(_required(data, "rsi"), "rsi", nullable=True),
         "volatilityPct": _number(_required(data, "volatilityPct"), "volatilityPct", nullable=True),
         "volumeRank": _integer(_required(data, "volumeRank"), "volumeRank", nullable=True),
@@ -386,7 +388,8 @@ NAMES = tuple(_VALIDATORS)
 
 _DESCRIPTIONS = {
     "MarketResult": "trend(up/down/sideways), summary, price·changePct·asOf·rsi·volatilityPct·volumeRank·support·"
-                    "resistance(키 필수, 값 null 가능; volumeRank는 정수), signals(최대 5), evidence(최대 8)",
+                    "resistance(키 필수, 값 null 가능; volumeRank는 정수), priceBasis(live/close, null 가능), "
+                    "signals(최대 5), evidence(최대 8)",
     "FundamentalResult": "summary, metrics(null 가능 또는 per/pbr/roe/revenueGrowthPct/opMarginPct; 각 값 null 가능), "
                          "recentFilings(date/title/impact[positive/negative/neutral]; 최대 5), evidence(최대 8)",
     "NewsResult": "sentiment(positive/negative/neutral), score(null 또는 -1~1), summary, "

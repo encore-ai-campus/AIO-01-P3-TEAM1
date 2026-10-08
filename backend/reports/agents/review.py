@@ -2,7 +2,7 @@
 
 입력: 조사 결과 + 초안(`ctx.inputs["report_agent"]`). LLM이 초안의 주장을 조사 결과와 대조해 PASS·RETRY·FAIL을 낸다.
 결정론적 안전장치 두 가지 (LLM이 빠뜨려도 코드가 채운다):
-- 코드 점검: buy인데 진입·목표·손절이 비었거나 `0 < stop < entry < target`이 아니거나 진입이 종가에서 5% 밖이면 PASS를 RETRY로.
+- 코드 점검: buy인데 진입·목표·손절이 비었거나 `0 < stop < entry < target`이 아니거나 진입이 시세 조사의 기준 가격(price — 장 중이면 현재가, 아니면 직전 종가)에서 5% 밖이면 PASS를 RETRY로.
 - 투자유의 지정(`trading.market.warnings`)이 있으면 `handoff = {"to": "risk_agent", "reason": "투자유의: …"}`. 조회 실패는 모름으로 둔다.
 - 쉬운 글 Guard(`guards.easy_jargon`): 첫 검토에서만, 초안의 쉬운 글(plainSummary·oneLiner·reasons·risks)에 전문 용어가 있으면 RETRY.
   검토 LLM의 '코드 점검 결과'에는 넣지 않고 finish에서만 더한다 (LLM 규칙과 부딪혀 FAIL이 나지 않게). 두 번째부터는 저장 때 괄호 풀이로 통과.
@@ -15,7 +15,7 @@ from .prompts import system_prompt, user_prompt
 from .risk import labels_text, warning_labels
 
 RESEARCH = {"market_agent": "시세·차트 조사", "fundamental_agent": "재무·공시 조사", "news_agent": "뉴스·심리 조사"}
-ENTRY_BAND = 0.05   # 진입 가격이 직전 종가에서 벗어나도 되는 비율 (작성 프롬프트의 "price에서 5% 안"과 같다)
+ENTRY_BAND = 0.05   # 진입 가격이 시세 조사의 기준 가격(price)에서 벗어나도 되는 비율 (작성 프롬프트의 "price에서 5% 안"과 같다)
 MAX_ISSUES = 10     # ReviewResult.issues 상한
 
 ROLE = ("너는 모의투자 서비스 '모매매'의 AI 리포트 팀에서 검토를 맡은 AI다. "
@@ -75,9 +75,10 @@ def check_draft(draft: dict, market_result: dict | None) -> list[dict]:
                  "fix": "시세 조사의 price·support·resistance에 근거해 0 < stop < entry < target이 되게 세 가격을 모두 채운다."}]
     price = (market_result or {}).get("price")
     if price and abs(entry / price - 1) > ENTRY_BAND:
-        close = f"{price:,.2f}".rstrip("0").rstrip(".")
-        return [{"claim": claim, "problem": f"진입 가격이 직전 종가 {close}에서 {ENTRY_BAND:.0%} 넘게 떨어져 있습니다.",
-                 "fix": f"진입 가격을 직전 종가 {close}에서 {ENTRY_BAND:.0%} 안으로 다시 정하고 목표·손절도 맞춘다."}]
+        shown = f"{price:,.2f}".rstrip("0").rstrip(".")
+        name = "장중 가격" if (market_result or {}).get("priceBasis") == "live" else "직전 종가"
+        return [{"claim": claim, "problem": f"진입 가격이 {name} {shown}에서 {ENTRY_BAND:.0%} 넘게 떨어져 있습니다.",
+                 "fix": f"진입 가격을 {name} {shown}에서 {ENTRY_BAND:.0%} 안으로 다시 정하고 목표·손절도 맞춘다."}]
     return []
 
 

@@ -177,7 +177,8 @@ describe("투자자 프로필 · 주린이모드", () => {
 });
 
 describe("실행 불가 사유 코드 · 활성화", () => {
-  it("미리 보기는 종가로 보고, 사유와 코드가 같은 길이·순서다", () => {
+  it("장 밖이면 미리 보기는 종가로 보고, 사유와 코드가 같은 길이·순서다", () => {
+    db.options.marketOpen = { KR: false };
     const ok = db.riskPreview(1, 91, null);
     expect(ok).toMatchObject({ activatable: true, reasons: [], reasonCodes: [], lastPrice: 182_300, priceBasis: "close" });
     expect(ok.lastPriceAsOf).toBe(sessionEndIso("KR", basisDay("KR"))); // 미리 보기는 장마감 기준 (실시간 시세의 받은 시각이 아니다)
@@ -202,9 +203,9 @@ describe("실행 불가 사유 코드 · 활성화", () => {
     expect(input.extra).toBeNull();
   });
 
-  it("정규장이면 장중 확인 가격으로 한 번 더 본다 (문장에 장중 가격 숫자가 없다)", () => {
+  it("정규장이면 미리 보기·활성화가 장중 가격으로 본다 (문장에 장중 가격 숫자가 없다)", () => {
     db.setPrice("000660", 205_000); // 종가는 그대로 (182,300)
-    expect(db.riskPreview(1, 91, null).activatable).toBe(true);
+    expect(db.riskPreview(1, 91, null)).toMatchObject({ activatable: false, reasons: ["장중 가격이 이미 목표가 이상이에요"], lastPrice: 182_300 });
     const e = caught(() => db.activate(alice(), 91, {}));
     expect(e.message).toBe("장중 가격이 이미 목표가 이상이에요");
     expect(e.extra).toEqual({ reasonCodes: ["price_passed"] });

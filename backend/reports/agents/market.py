@@ -1,12 +1,14 @@
-"""시세·차트 Worker `market_agent` (docs/tasks/02-worker.md T2-4, 00-공통.md 10절 — 장마감 기준).
+"""시세·차트 Worker `market_agent` (docs/tasks/02-worker.md T2-4, 00-공통.md 10절, docs/API.md 공통 규칙 "리포트 시세").
 
-자료: `trading.market.closes`(직전 정규장 종가·전 종가·기준 시각)와 `completed_candles`(완성 봉만)로 지표를 코드가 계산한다.
-LLM은 추세·신호·요약만 쓰고, 응답의 숫자(price·changePct·asOf·rsi·volatilityPct·support·resistance·volumeRank)는
+자료: 가격은 만들 때의 가격이다 — 기준일 뒤 정규장이 시작됐으면(`trading.market.traded_since_basis`, 장 중) 현재가(`live_prices`),
+아니면(또는 현재가를 받지 못하면) `closes`의 직전 정규장 종가. 지표는 `completed_candles`(완성 봉만)로 코드가 계산한다.
+LLM은 추세·신호·요약만 쓰고, 응답의 숫자(price·changePct·asOf·priceBasis·rsi·volatilityPct·support·resistance·volumeRank)는
 자료 값으로 덮어쓴다 (LLM이 숫자를 지어내지 않게). 일봉·가격이 없으면 WorkerError.
-stop은 코드가 정한 손절 가격이다 (엔진 judge/stops.py, 기준가 = 직전 정규장 종가). 시세 LLM에는 보여 주지 않고 결과에만 넣는다.
+stop은 코드가 정한 손절 가격이다 (엔진 judge/stops.py, 기준가 = price). 시세 LLM에는 보여 주지 않고 결과에만 넣는다.
 작성 AI(report_agent)는 이 값을 손절 가격으로 받아 쓴다.
 """
 import math
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from django.utils import timezone
@@ -23,17 +25,19 @@ KST = ZoneInfo("Asia/Seoul")
 WINDOW = 20         # 변동성·지지·저항을 보는 최근 완성 봉 수
 RECENT_ROWS = 20    # 프롬프트에 넣는 최근 일봉 수
 MAX_EVIDENCE = 8    # MarketResult.evidence 상한
-DATA_KEYS = ("price", "changePct", "asOf", "rsi", "volatilityPct", "support", "resistance", "volumeRank", "stop")
+DATA_KEYS = ("price", "changePct", "asOf", "priceBasis", "rsi", "volatilityPct", "support", "resistance", "volumeRank",
+             "stop")
 CURRENCY = {"KR": "KRW", "US": "USD"}
-CLOSE_KEYS = ("price", "prevClose", "changePct", "date", "asOf")
+CLOSE_KEYS = ("price", "prevClose", "changePct", "date", "asOf", "priceBasis")
 HIDDEN_KEYS = ("stop",)  # 결과에만 넣고 시세 LLM의 프롬프트에는 넣지 않는 값
 
 ROLE = ("너는 모의투자 서비스 '모매매'의 AI 리포트 팀에서 시세·차트를 맡은 조사 AI다. "
-        "장마감 기준 가격과 완성된 일봉으로 코드가 계산한 지표를 보고 추세·변동성·가격대를 정리한다.")
-RULES = """- price·changePct·asOf·rsi·volatilityPct·support·resistance·volumeRank는 "코드가 계산한 값"을 그대로 옮긴다 (자료에 없으면 null). 코드가 다시 덮어쓴다.
+        "기준 가격(장 중이면 그때 가격, 아니면 직전 종가)과 완성된 일봉으로 코드가 계산한 지표를 보고 추세·변동성·가격대를 정리한다.")
+RULES = """- price·changePct·asOf·priceBasis·rsi·volatilityPct·support·resistance·volumeRank는 "코드가 계산한 값"을 그대로 옮긴다 (자료에 없으면 null). 코드가 다시 덮어쓴다.
 - trend는 이동평균(sma20·sma60)과 등락률(change5dPct·change20dPct)로 정한다: 오르는 흐름이면 up, 내리는 흐름이면 down, 뚜렷하지 않으면 sideways.
 - signals는 자료로 확인되는 짧은 관찰 문장이다 (예: "종가가 20일 이동평균 위", "RSI 70 이상 과열권").
-- summary는 두세 문장으로 쓰고 장마감 기준 날짜를 밝힌다. changePct는 직전 정규장 종가와 그 전 종가를 비교한 값이다.
+- summary는 두세 문장으로 쓰고 가격의 기준을 밝힌다: priceBasis가 live면 price는 asOf 시각의 장중 가격이고 changePct는 그 가격을 직전 정규장 종가(prevClose)와 비교한 값이다.
+  close면 price는 date의 종가(장마감 기준)이고 changePct는 그 종가를 전 종가와 비교한 값이다. 지표는 모두 완성된 일봉으로 계산한 값이다.
 - 매수·매도 의견은 내지 않는다 (의견은 작성 AI가 낸다).
 - evidence에는 쓴 자료의 이름과 날짜 범위를 적는다 (예: "일봉 2026-09-01~2026-10-06", "RSI14 (완성 봉 기준)")."""
 
@@ -47,16 +51,16 @@ class MarketAgent:
         stock = {"symbol": ctx.symbol, "name": ctx.name, "market": ctx.market}
         prompt = user_prompt({
             "종목": stock,
-            "장마감 기준 가격 (코드가 계산한 값)": data["close"],
+            "기준 가격 (코드가 계산한 값)": data["close"],
             "지표 (완성 봉 기준, 코드가 계산한 값)": data["indicators"],
             f"최근 일봉 {RECENT_ROWS}개 (과거 → 최신)": data["recent"],
         })
         reply = ctx.llm(system_prompt(ROLE, self.output_contract, RULES), prompt, contract=self.output_contract)
-        return finish(reply.data, data)
+        return finish(reply.data, data, ctx.market)
 
 
 def gather(symbol: str, market_code: str) -> dict:
-    """장마감 기준 가격·지표·최근 일봉. 증권사 조회 실패·완성 봉 없음·가격 없음은 WorkerError."""
+    """기준 가격(장 중이면 현재가, 아니면 직전 정규장 종가)·지표·최근 일봉. 증권사 조회 실패·완성 봉 없음·가격 없음은 WorkerError."""
     key = market.norm_symbol(symbol)
     try:
         close = market.closes([key]).get(key)
@@ -69,11 +73,13 @@ def gather(symbol: str, market_code: str) -> dict:
         prev = rows[-2]["close"] if len(rows) > 1 else None
         close = {"price": rows[-1]["close"], "prevClose": prev, "date": rows[-1]["date"],
                  "asOf": _session_end(market_code, rows[-1]["date"])}
-    price, prev = _finite(close.get("price")), _finite(close.get("prevClose"))
+    basis = _live(key, market_code, rows[-1]["close"]) or {**close, "priceBasis": market.BASIS_CLOSE}
+    price, prev = _finite(basis.get("price")), _finite(basis.get("prevClose"))
     if price is None or price <= 0:
         raise WorkerError("직전 정규장 종가가 없어 시세를 정리할 수 없습니다.")
     values = _indicators(rows)
-    values |= {"price": price, "prevClose": prev, "date": close.get("date"), "asOf": close.get("asOf"),
+    values |= {"price": price, "prevClose": prev, "date": basis.get("date"), "asOf": basis.get("asOf"),
+               "priceBasis": basis["priceBasis"],
                "changePct": _round((price / prev - 1) * 100) if prev else None,
                "volumeRank": volume_rank(key, market_code),
                "stop": stops.swing_stop(price, [r["low"] for r in rows], values["atr14"],
@@ -87,14 +93,39 @@ def gather(symbol: str, market_code: str) -> dict:
     }
 
 
-def finish(answer: dict, data: dict) -> dict:
+def _live(symbol: str, market_code: str, last_close: float) -> dict | None:
+    """장 중(기준일 뒤 정규장이 시작됨)이면 현재가 {"price", "prevClose", "date", "asOf", "priceBasis": "live"}, 아니면 None.
+
+    prevClose = 직전 정규장 종가 = 마지막 완성 봉의 종가 (기준일 뒤 정규장이 시작됐으므로 완성 봉의 마지막이 직전 거래일이다).
+    현재가를 받지 못하면 None (종가로 정리한다).
+    """
+    if not market.traded_since_basis(market_code):
+        return None
+    try:
+        found = market.live_prices([symbol]).get(symbol)
+    except Unavailable:
+        return None
+    price = _finite(found[0]) if found else None
+    if price is None or price <= 0:
+        return None
+    today = timezone.now().astimezone(market.MARKET_TZ.get(market_code, KST)).date()
+    return {"price": price, "prevClose": last_close, "date": f"{today}", "asOf": found[1],
+            "priceBasis": market.BASIS_LIVE}
+
+
+def finish(answer: dict, data: dict, market_code: str = "KR") -> dict:
     """LLM 응답의 숫자를 자료 값으로 덮어쓰고, 코드가 만든 출처 한 줄을 evidence 맨 앞에 둔다."""
     result = dict(answer)
     values = data["values"]
     for key in DATA_KEYS:
         result[key] = values.get(key)
     first, last, count = data["range"]
-    source = f"일봉 {first}~{last} 완성 봉 {count}개 · {values['date']} 종가 {_text(values['price'])} (장마감 기준)"
+    if values["priceBasis"] == market.BASIS_LIVE:
+        at = _clock(values["asOf"], market_code)
+        price = f"{values['date']} {at + ' ' if at else ''}장중 가격 {_text(values['price'])}"
+    else:
+        price = f"{values['date']} 종가 {_text(values['price'])} (장마감 기준)"
+    source = f"일봉 {first}~{last} 완성 봉 {count}개 · {price}"
     result["evidence"] = [source, *[e for e in result.get("evidence") or [] if e != source]][:MAX_EVIDENCE]
     return result
 
@@ -160,6 +191,15 @@ def _rows(candles: list[dict]) -> list[dict]:
             row["volume"] = _finite(c.get("volume"))
             rows.append(row)
     return rows
+
+
+def _clock(as_of, market_code: str) -> str | None:
+    """받은 시각 ISO → 그 시장 현지 시각 "15:23" (미국은 "11:20(뉴욕)" — date와 같은 시간대). 읽지 못하면 None."""
+    try:
+        at = datetime.fromisoformat(str(as_of)).astimezone(market.MARKET_TZ.get(market_code, KST))
+    except (TypeError, ValueError):
+        return None
+    return f"{at:%H:%M}{'(뉴욕)' if market_code == 'US' else ''}"
 
 
 def _session_end(market_code: str, day: str) -> str | None:

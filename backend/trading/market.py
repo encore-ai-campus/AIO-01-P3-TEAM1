@@ -4,6 +4,7 @@
   현재가를 받지 못한 종목만 장마감 기준 Quote(basis "close")다.
 - **그 밖에 화면에 보이는 가격은 장마감 기준**이다 (docs/API.md 공통 규칙 "장마감 기준"): `basis`·`closes`·`close_price`·`completed_candles`.
   종가는 종목·기준일별로 캐시한다 (같은 종목·같은 기준일은 몇 명이 봐도 증권사 일봉 조회 1번).
+  리포트 시세 조사와 미리 보기의 가격 점검은 `traded_since_basis`(기준일 뒤 정규장이 시작됨)이면 현재가를 쓴다 (docs/API.md "리포트 시세", DECISIONS 26).
 - `confirmed_prices`·`last_price`는 **내부 경로 전용**이다 (모의 체결, sync, 예약 실행, 재주문, 활성화의 장중 확인).
   `current_prices`는 내부 경로와 실시간 시세가 같이 쓴다 (같은 1초 캐시).
 - 현재가 1초, 일봉 120개·장 달력·환율 60초, 종가·전 거래일 종가(실시간 시세의 prevClose)·종목 목록(거래소별)·종목 정보·매수 유의는 하루
@@ -288,6 +289,23 @@ def _basis_day(market: str) -> tuple[str, dict]:
 def basis_day(market: str) -> str:
     """그 시장의 기준일 YYYY-MM-DD. 장 달력을 받지 못하면 그 시장 현지 어제 날짜 (closes·completed_candles와 같은 값)."""
     return _basis_day(market)[0]
+
+
+def traded_since_basis(market: str, now: datetime | None = None) -> bool:
+    """기준일 뒤 날짜의 정규장이 이미 시작됐는지 — 직전 정규장 종가보다 새 가격(현재가)이 있다 (docs/API.md "리포트 시세").
+
+    정규장 중이거나, 오늘 정규장이 끝났지만 기준일이 아직 오늘로 바뀌기 전(KR 15:30~15:40 KST)이면 True.
+    장 시작 전·기준일이 오늘로 바뀐 뒤·휴장이면 False. 장 달력(60초 캐시)을 받지 못하면 False (장마감 기준 쪽).
+    """
+    now = now or timezone.now()
+    try:
+        cal = calendar(market)
+        day = close_basis_day(cal, market, now)
+        starts = [start for start, _ in regular_sessions(cal)]
+    except (Unavailable, KeyError, TypeError, ValueError):
+        return False
+    tz = MARKET_TZ[market]
+    return bool(day) and any(start <= now and f"{start.astimezone(tz).date()}" > day for start in starts)
 
 
 def session_end(market: str, day: str) -> str:

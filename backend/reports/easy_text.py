@@ -137,6 +137,7 @@ RESEARCH_TEXT = {
     "fundamental": "재무·공시",
     "news": "뉴스",
     "close": "종가",
+    "live": "장중 가격",  # 리포트를 장 중에 만들었을 때 (MarketResult.priceBasis live — docs/API.md "리포트 시세")
     "no_basis": "시세 기준 시각: 자료 없음",
     "rsi": "RSI",
     "volatility": "하루 변동성",
@@ -153,8 +154,8 @@ GLOSSARY = {
     "목표 가격": "여기에 닿으면 팔기로 정해 둔 가격이에요. 닿는다는 보장은 없어요.",
     "보유 기간": "산 뒤 최대 며칠(거래일) 가지고 있을지 정한 기간이에요. 그때까지 목표·손절에 닿지 않으면 그날 가격에 팔아요.",
     "종가": "그날 정규장이 끝날 때의 마지막 가격이에요.",
-    "장마감 기준": "계좌 평가·랭킹·리포트는 직전 정규장 종가로 보여 장중에는 숫자가 바뀌지 않아요. 종목 시세는 실시간으로 몇 초마다 새로 받아요. "
-                "모의 체결은 주문 시점 가격으로 해요.",
+    "장마감 기준": "계좌 평가·랭킹은 직전 정규장 종가로 보여 장중에는 숫자가 바뀌지 않아요. 종목 시세는 실시간으로 몇 초마다 새로 받고, "
+                "리포트는 장 중에 만들면 그때 가격을 써요. 모의 체결은 주문 시점 가격으로 해요.",
     "RSI": "최근 오른 폭과 내린 폭을 비교한 0~100 사이 지표예요. 70 위면 짧은 기간에 많이 올랐고, 30 아래면 많이 내렸다는 뜻으로 읽어요.",
     "변동성": "가격이 얼마나 크게 오르내리는지예요. 크면 같은 기간에도 이익과 손실이 모두 커질 수 있어요.",
     "PER": "주가가 1주당 1년 순이익의 몇 배인지예요. 높으면 이익에 비해 비싸게, 낮으면 싸게 거래된다는 뜻이고 같은 업종끼리 비교해요.",
@@ -554,12 +555,14 @@ def _rows(value) -> list[dict]:
 
 
 def research_of(results) -> dict:
-    """조사 AI 세 곳의 결과 {"market", "fundamental", "news"} (없으면 None) — TS researchOf에서 쉬운 보기가 쓰는 값만."""
+    """조사 AI 세 곳의 결과 {"market", "fundamental", "news"} (없으면 None) — TS researchOf에서 쉬운 보기가 쓰는 값만.
+    market.basis: "live"(장 중에 만든 리포트의 장중 가격) 또는 "close"(priceBasis가 없거나 다른 값 — 예전 결과)."""
     r = _dict(results)
     m, f, n = r.get("market_agent"), r.get("fundamental_agent"), r.get("news_agent")
     metrics = _dict(f.get("metrics")) if isinstance(f, dict) else {}
     return {
         "market": {"summary": clean(m.get("summary")), "price": finite(m.get("price")), "asOf": clean(m.get("asOf")),
+                   "basis": "live" if m.get("priceBasis") == "live" else "close",
                    "rsi": finite(m.get("rsi")), "volatilityPct": finite(m.get("volatilityPct"))}
         if isinstance(m, dict) else None,
         "fundamental": {

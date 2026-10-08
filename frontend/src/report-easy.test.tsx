@@ -6,7 +6,7 @@ import { createChart } from "lightweight-charts";
 import { http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { keys } from "./api/queries";
-import type { ReportDetail, ReportSummary, RiskPreview, TraceEvent } from "./api/types";
+import type { Market, QuoteBasis, ReportDetail, ReportSummary, RiskPreview, TraceEvent } from "./api/types";
 import { ResearchCards } from "./components/reports/easy/ResearchCards";
 import { formatSignedKrw } from "./lib/format";
 import { AI_REVIEW_NOTE, DISCLAIMER, OPINION_TEXT, REPORT_FAILURE_TEXT, REPORT_KEEPS_RUNNING } from "./lib/plainText";
@@ -1108,16 +1108,45 @@ describe("lib/reports 쉬운 보기 함수", () => {
 });
 
 describe("조사 자료 요약 — 시세 기준 시각", () => {
-  const market = (asOf: string | null): lib.MarketView => ({ summary: null, price: 71_300, changePct: null, asOf, rsi: 55, volatilityPct: 1.2, signals: [] });
-  const show = (asOf: string | null) => {
-    render(<ResearchCards market={market(asOf)} fundamental={null} news={null} marketCode="KR" currency="KRW" />);
+  const market = (asOf: string | null, basis: QuoteBasis = "close"): lib.MarketView => ({
+    summary: null,
+    price: 71_300,
+    changePct: null,
+    asOf,
+    basis,
+    rsi: 55,
+    volatilityPct: 1.2,
+    signals: [],
+  });
+  const show = (asOf: string | null, basis: QuoteBasis = "close", marketCode: Market = "KR") => {
+    render(<ResearchCards market={market(asOf, basis)} fundamental={null} news={null} marketCode={marketCode} currency="KRW" />);
     return screen.getByRole("region", { name: "시세" });
   };
 
   it("asOf가 있으면 종가와 장마감 기준 시각", () => {
     const box = show("2026-10-05T15:30:00+09:00");
     expect(box.textContent).toContain("71,300원");
+    expect(within(box).getByText("종가")).toBeTruthy();
     expect(within(box).getByText("10월 5일(월) 15:30 장마감 기준")).toBeTruthy();
+  });
+
+  it("장 중에 만든 리포트(basis live)는 장중 가격과 받은 시각 (날짜 포함 — PDF와 같다)", () => {
+    const box = show("2026-10-08T15:23:05+09:00", "live");
+    expect(box.textContent).toContain("71,300원");
+    expect(within(box).getByText("장중 가격")).toBeTruthy();
+    expect(within(box).getByText("10월 8일(목) 15:23 기준")).toBeTruthy();
+    expect(box.textContent).not.toContain("장마감 기준");
+    expect(box.textContent).not.toContain("종가");
+  });
+
+  it("미국 종목의 장중 가격 시각은 뉴욕 시각", () => {
+    const box = show("2026-10-08T00:20:05+09:00", "live", "US");
+    expect(within(box).getByText("10월 7일(수) 11:20(뉴욕) 기준")).toBeTruthy();
+  });
+
+  it("researchOf: priceBasis가 live일 때만 live (없거나 다른 값이면 close — 예전 결과)", () => {
+    const of = (priceBasis: unknown) => lib.researchOf({ results: { market_agent: { price: 1, priceBasis } } }).market?.basis;
+    expect([of("live"), of("close"), of(undefined), of("?")]).toEqual(["live", "close", "close", "close"]);
   });
 
   it.each([null, "어제"])("asOf가 %s이면 가격을 보이지 않고 기준 시각 자료 없음 (PDF와 같다)", (asOf) => {
