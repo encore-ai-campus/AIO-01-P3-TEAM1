@@ -13,6 +13,7 @@ from django.db import IntegrityError
 from django.db.models import Q
 from django.utils import timezone
 from paper_engine.data.ticks import round_price
+from reports.contracts import MAX_HOLDING_DAYS, MAX_ITEMS, MIN_HOLDING_DAYS, RISK_LEVELS
 from reports.models import Report
 from trading import market
 
@@ -23,10 +24,8 @@ from . import text as texts
 from .models import Recommendation
 from .tokens import activation_token
 
-DEFAULT_HOLDING_DAYS, MIN_HOLDING_DAYS, MAX_HOLDING_DAYS = 10, 1, 20
+DEFAULT_HOLDING_DAYS = 10
 ASSUMED_PROBABILITY = 0.5
-MAX_ITEMS = 3  # reasons·risks
-RISK_LEVELS = ("low", "medium", "high")
 REPORT_LOOKBACK, ANALYSIS_LOOKBACK = timedelta(days=7), timedelta(days=3)
 SOURCE_LABEL = texts.SOURCE_LABEL
 COLOR = {Recommendation.REPORT: 0x2E7D32, Recommendation.ANALYSIS: 0x1565C0, Recommendation.DEMO: 0x757575}

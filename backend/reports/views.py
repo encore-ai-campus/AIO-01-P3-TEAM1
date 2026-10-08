@@ -19,7 +19,7 @@ from trading import market
 
 from config.api import Rejected, page
 
-from . import quota
+from . import budget, quota
 from .models import Report
 from .payloads import detail, iso, nicknames, plan, summary
 from .pdf import ensure_report_file
@@ -74,7 +74,7 @@ class ReportsView(APIView):
                 quota.check(request.user, now)  # Claude: 하루 리포트 횟수 한도 (D-7)
             except quota.Exceeded as e:  # 본문에 limit·used가 있어 Response를 직접 (config.api는 detail 외 필드를 버린다)
                 return Response(e.body(), status=e.status_code)
-            # ← 2: 비용 예산 budget.check(now) 자리 (횟수 한도 바로 뒤)
+            budget.check(now)  # 팀 전체 AI 비용 예산 (분석 예상 비용 + 리포트 실제 비용)
             report = Report.objects.create(user=request.user, symbol=item["symbol"], name=item["name"],
                                            market=item["market"], created_at=now)
         return Response(detail(report), status=status.HTTP_201_CREATED)

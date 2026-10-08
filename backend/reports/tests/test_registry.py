@@ -60,7 +60,7 @@ def test_default_registry_plan_shape():
     market = plan["workers"][0]
     assert set(market) == {"id", "title", "goal", "provider", "model", "fallbacks", "outputContract"}
     assert (market["title"], market["provider"], market["model"], market["fallbacks"], market["outputContract"]) == (
-        "시세·차트 Agent", None, None, [], "MarketResult")
+        "시세·차트 Agent", "devpass", "gemini-3.8-flash", ["gpt-5.6-luna"], "MarketResult")
     assert all(w["goal"] for w in plan["workers"])
     assert plan["handoffs"] == [{"from": "review_agent", "to": "risk_agent",
                                  "responsibility": "투자 유의 종목이거나 고위험 신호가 있으면 리스크 점검 책임을 넘긴다",

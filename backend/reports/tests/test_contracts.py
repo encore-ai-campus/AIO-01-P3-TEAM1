@@ -20,7 +20,7 @@ def fundamental(**changes):
         "summary": "재무 요약",
         "metrics": {"per": 12.3, "pbr": 1.2, "roe": None, "revenueGrowthPct": 4.5, "opMarginPct": 8.1},
         "recentFilings": [{"date": "2026-10-01", "title": "분기보고서", "impact": "neutral"}],
-        "evidence": ["전자공시"],
+        "evidence": ["전자공시"], "ignored": "제거",
     }
     value.update(changes)
     return value
@@ -30,7 +30,7 @@ def news(**changes):
     value = {
         "sentiment": "neutral", "score": 0.1, "summary": "뉴스 요약",
         "headlines": [{"date": "2026-10-01", "title": "제목", "source": "매체", "impact": "중립"}],
-        "evidence": ["제목 · 매체"],
+        "evidence": ["제목 · 매체"], "ignored": "제거",
     }
     value.update(changes)
     return value
@@ -42,20 +42,22 @@ def report(**changes):
         "plainSummary": ["AI 의견은 아직 흐름을 더 지켜봐야 한다는 쪽이에요."], "markdown": "## 본문",
         "reasons": ["실적 흐름이 안정적입니다."], "risks": ["이 의견이 틀리는 경우를 확인해야 합니다."],
         "targets": {"entry": None, "target": None, "stop": None, "holdingDays": None, "probability": None},
-        "confidence": 65, "citations": ["완성 일봉"],
+        "confidence": 65, "citations": ["완성 일봉"], "ignored": "제거",
     }
     value.update(changes)
     return value
 
 
 def review(**changes):
-    value = {"verdict": "PASS", "score": 90, "issues": [], "instructions": None, "handoff": None}
+    value = {"verdict": "PASS", "score": 90, "issues": [], "instructions": None, "handoff": None,
+             "ignored": "제거"}
     value.update(changes)
     return value
 
 
 def risk(**changes):
-    value = {"level": "low", "flags": [], "warnings": ["변동성 확인"], "summary": "위험이 낮습니다."}
+    value = {"level": "low", "flags": [], "warnings": ["변동성 확인"], "summary": "위험이 낮습니다.",
+             "ignored": "제거"}
     value.update(changes)
     return value
 
@@ -73,7 +75,10 @@ def test_each_contract_accepts_valid_output(name, value):
 def test_names_and_descriptions_cover_all_contracts():
     assert set(NAMES) == {"MarketResult", "FundamentalResult", "NewsResult", "ReportDraft", "ReviewResult", "RiskResult"}
     assert all(describe(name) for name in NAMES)
-    with pytest.raises(ContractError, match="모르는 출력 계약"):
+    assert "positive/negative/neutral" in describe("FundamentalResult")
+    assert "1~20" in describe("ReportDraft") and "0~1" in describe("ReportDraft")
+    assert "volumeRank는 정수" in describe("MarketResult")
+    with pytest.raises(KeyError, match="모르는 출력 계약"):
         describe("Unknown")
 
 
@@ -82,6 +87,19 @@ def test_market_adds_optional_as_of_and_truncates_limits():
     assert result["asOf"] is None
     assert len(result["summary"]) == 600
     assert result["signals"] == ["0", "1", "2", "3", "4"]
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_numbers_must_be_finite(value):
+    with pytest.raises(ContractError, match="유한한 숫자"):
+        validate("MarketResult", market(price=value))
+
+
+def test_numeric_contract_fields_accept_null():
+    assert validate("MarketResult", market(price=None, changePct=None))["price"] is None
+    assert validate("NewsResult", news(score=None))["score"] is None
+    assert validate("ReportDraft", report(confidence=None))["confidence"] is None
+    assert validate("ReviewResult", review(score=None))["score"] is None
 
 
 @pytest.mark.parametrize(("value", "message"), [
@@ -104,6 +122,10 @@ def test_fundamental_rejects_invalid_values(value, message):
         validate("FundamentalResult", value)
 
 
+def test_fundamental_metrics_may_be_null():
+    assert validate("FundamentalResult", fundamental(metrics=None))["metrics"] is None
+
+
 @pytest.mark.parametrize(("value", "message"), [
     (news(sentiment="mixed"), "sentiment"),
     (news(score=1.1), "score"),
@@ -114,6 +136,11 @@ def test_news_rejects_invalid_values(value, message):
         validate("NewsResult", value)
 
 
+def test_news_date_and_source_may_be_null():
+    item = {"date": None, "title": "제목", "source": None, "impact": "중립"}
+    assert validate("NewsResult", news(headlines=[item]))["headlines"][0]["source"] is None
+
+
 def test_plain_summary_rejects_digits_and_empty_list_and_truncates_text():
     with pytest.raises(ContractError, match="숫자"):
         validate("ReportDraft", report(plainSummary=["목표가가 70000원이에요."]))
@@ -121,6 +148,24 @@ def test_plain_summary_rejects_digits_and_empty_list_and_truncates_text():
         validate("ReportDraft", report(plainSummary=[]))
     result = validate("ReportDraft", report(plainSummary=["가" * 101]))
     assert len(result["plainSummary"][0]) == 100
+
+
+@pytest.mark.parametrize("plain", [[""], ["목표가 ７만원이에요"], ["AI 의견으로는 사 볼 만해요"]])
+def test_plain_summary_rejects_empty_unicode_digits_and_persuasion(plain):
+    with pytest.raises(ContractError):
+        validate("ReportDraft", report(plainSummary=plain))
+
+
+def test_one_liner_rejects_persuasion_and_required_text_rejects_empty_values():
+    with pytest.raises(ContractError, match="권유 표현"):
+        validate("ReportDraft", report(oneLiner="지금 사면 좋아요"))
+    with pytest.raises(ContractError, match="markdown.*비어"):
+        validate("ReportDraft", report(markdown="  "))
+
+
+def test_markdown_is_not_silently_truncated():
+    markdown = "본문" * 11_000
+    assert validate("ReportDraft", report(markdown=markdown))["markdown"] == markdown
 
 
 @pytest.mark.parametrize(("value", "message"), [
@@ -143,6 +188,13 @@ def test_review_rejects_invalid_values(value, message):
         validate("ReviewResult", value)
 
 
+def test_review_retry_rejects_whitespace_instructions_and_keeps_full_text():
+    with pytest.raises(ContractError, match="instructions"):
+        validate("ReviewResult", review(verdict="RETRY", instructions="   "))
+    instructions = "수정" * 400
+    assert validate("ReviewResult", review(verdict="RETRY", instructions=instructions))["instructions"] == instructions
+
+
 @pytest.mark.parametrize(("value", "message"), [
     (risk(level="critical"), "level"),
     (risk(flags="주의"), "flags"),
@@ -156,5 +208,33 @@ def test_risk_rejects_invalid_values(value, message):
 def test_contract_requires_json_object_and_known_name():
     with pytest.raises(ContractError, match="JSON 객체"):
         validate("MarketResult", [])
-    with pytest.raises(ContractError, match="모르는 출력 계약"):
+    with pytest.raises(KeyError, match="모르는 출력 계약"):
         validate("Unknown", {})
+
+
+def test_enum_error_does_not_echo_an_unbounded_model_value():
+    value = "x" * 10_000
+    with pytest.raises(ContractError) as error:
+        validate("MarketResult", market(trend=value))
+    assert len(str(error.value)) < 200
+
+
+def test_unknown_keys_are_removed_from_nested_objects():
+    fundamental_value = fundamental(
+        metrics={"per": 1, "pbr": 1, "roe": 1, "revenueGrowthPct": 1, "opMarginPct": 1, "extra": 1},
+        recentFilings=[{"date": "오늘", "title": "공시", "impact": "neutral", "extra": 1}],
+    )
+    assert "extra" not in validate("FundamentalResult", fundamental_value)["metrics"]
+    assert "extra" not in validate("FundamentalResult", fundamental_value)["recentFilings"][0]
+
+    headline = {"date": None, "title": "제목", "source": None, "impact": "중립", "extra": 1}
+    assert "extra" not in validate("NewsResult", news(headlines=[headline]))["headlines"][0]
+
+    targets = {"entry": None, "target": None, "stop": None, "holdingDays": None, "probability": None, "extra": 1}
+    assert "extra" not in validate("ReportDraft", report(targets=targets))["targets"]
+
+    issue = {"claim": "주장", "problem": "문제", "fix": "수정", "extra": 1}
+    handoff = {"to": "risk_agent", "reason": "위험", "extra": 1}
+    result = validate("ReviewResult", review(issues=[issue], handoff=handoff))
+    assert "extra" not in result["issues"][0]
+    assert "extra" not in result["handoff"]
