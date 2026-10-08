@@ -16,6 +16,7 @@ ERROR_TYPES = ("timeout", "server_error", "bad_output")   # 주입할 수 있는
 SCOPES = ("primary", "all")    # primary: 주 모델 호출만 실패 (대체 모델로 복구되는 것을 보인다) · all: 대체 모델까지
 DEFAULT_PROBABILITY = 0.5
 SEED_BITS = 31
+MAX_SEED = 2 ** 53   # 신청에서 받는 seed 상한 (브라우저 Number가 정확한 범위 — "같은 설정으로 다시 신청"이 같은 seed를 보내게)
 KEYS = {"enabled", "probability", "errorTypes", "workers", "scope", "seed"}
 
 
@@ -43,12 +44,17 @@ def parse(body, team: str = registry.TEAM) -> dict | None:
     seed = body.get("seed")
     if seed is None:
         seed = secrets.randbits(SEED_BITS)
-    elif isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed < 2 ** 63:
-        raise Rejected("chaos.seed는 0 이상의 정수입니다.")
+    elif isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed < MAX_SEED:
+        raise Rejected("chaos.seed는 0 이상 2^53 미만의 정수입니다.")
     if not enabled:  # 끈 설정은 저장하지 않는다 (null = 끄기). 그래도 형식은 위에서 검사했다
         return None
     return {"enabled": True, "probability": probability, "errorTypes": error_types, "workers": workers,
             "scope": scope, "seed": seed}
+
+
+def is_on(chaos: dict | None) -> bool:
+    """저장된 ChaosConfig가 장애 주입을 켰는지."""
+    return isinstance(chaos, dict) and chaos.get("enabled") is True
 
 
 def should_fail(chaos: dict | None, worker_id: str, model: str, is_primary: bool, attempt: int) -> str | None:
@@ -56,7 +62,7 @@ def should_fail(chaos: dict | None, worker_id: str, model: str, is_primary: bool
 
     attempt는 그 Worker 실행에서의 전체 시도 번호 (Trace `agent_failed.details.attempt`와 같다).
     """
-    if not isinstance(chaos, dict) or chaos.get("enabled") is not True:
+    if not is_on(chaos):
         return None
     workers = chaos.get("workers")
     if workers is not None and worker_id not in workers:

@@ -1,10 +1,11 @@
 """장애 주입 (docs/tasks/04-autohealing.md T4-6, docs/tasks/00-공통.md 5절): 설정 검사(chaos.parse), 재현 가능한 판정(should_fail),
-호출기의 실제 호출 직전 주입(주입 뒤는 진짜 복구 경로), 리포트 신청의 chaos, 장애 주입을 켠 리포트가 끝까지 나오는지."""
+호출기의 실제 호출 직전 주입(주입 뒤는 진짜 복구 경로), 리포트 전용 Circuit Breaker, 리포트 신청의 chaos,
+장애 주입을 켠 리포트가 끝까지 나오는지, 다른 리포트를 막지 않는지."""
 import pytest
 
 from config import engine
 from config.api import Rejected
-from reports import chaos, healing, orchestrator, state
+from reports import chaos, healing, orchestrator, registry, state
 from reports.healing import ErrorType, LlmGaveUp
 from reports.models import Report
 
@@ -35,6 +36,10 @@ def test_parse_server_seed_is_31_bits():
     assert all(0 <= seed < 2 ** 31 for seed in seeds) and len(seeds) > 1
 
 
+def test_parse_seed_upper_bound():
+    assert chaos.parse({"enabled": True, "seed": 2 ** 53 - 1})["seed"] == 2 ** 53 - 1  # 브라우저 Number가 정확한 끝
+
+
 def test_parse_full():
     body = {"enabled": True, "probability": 1, "errorTypes": ["bad_output", "timeout", "bad_output"],
             "workers": ["news_agent", "market_agent"], "scope": "all", "seed": 0}
@@ -50,7 +55,7 @@ def test_parse_full():
     {"enabled": True, "workers": []}, {"enabled": True, "workers": ["nope"]}, {"enabled": True, "workers": "market_agent"},
     {"enabled": True, "workers": ["selector_agent"]},  # 다른 팀(매매 종목 선정)의 Worker
     {"enabled": True, "scope": "fallback"}, {"enabled": True, "seed": -1}, {"enabled": True, "seed": 1.5},
-    {"enabled": True, "seed": True}, {"enabled": True, "seed": "1"},
+    {"enabled": True, "seed": True}, {"enabled": True, "seed": "1"}, {"enabled": True, "seed": 2 ** 53},
     {"enabled": False, "probability": 2},  # 꺼도 형식은 검사한다
 ])
 def test_parse_rejects(body):
@@ -146,10 +151,32 @@ def test_injected_server_error_takes_real_recovery_path(running, fake_llm, clock
 
 
 @pytest.mark.django_db
-def test_injected_failures_count_for_circuit_breaker(running, fake_llm, clock):
-    healing.breaker.failed(PRIMARY, clock["t"])
-    healing.make_caller(running, WORKER, ALL, fake_llm({FALLBACK: [ANSWER]}), 2000.0)("s", "u")
-    assert healing.breaker.is_open(PRIMARY, clock["t"])  # 앞선 1번 + 주입 2번 = 연속 3번
+def test_injected_failures_count_in_report_breaker_only(running, user, fake_llm, clock):
+    """주입한 실패도 Circuit Breaker가 세지만 그 리포트 안에서만 센다 (Worker끼리는 같이 쓴다)."""
+    news = {**WORKER, "id": "news_agent", "outputContract": "NewsResult"}
+    healing.make_caller(running, WORKER, ALL, fake_llm({FALLBACK: [ANSWER]}), 2000.0)("s", "u")  # 주 모델 주입 실패 2번
+    second = healing.make_caller(running, news, ALL, fake_llm({FALLBACK: [ANSWER]}), 2000.0)
+    assert second.breaker is healing.breaker_for(running, ALL) is not healing.breaker
+    assert second("s", "u").attempts == 2  # 3번째 실패에서 차단 → 같은 모델 재시도 없이 대체 모델
+    assert second.breaker.is_open(PRIMARY, clock["t"])
+    third = healing.make_caller(running, WORKER, ALL, fake_llm({FALLBACK: [ANSWER]}), 2000.0)
+    assert third("s", "u").attempts == 1  # 리포트 안에서는 차단돼 주 모델을 건너뛴다
+    assert running.trace_events.filter(action="agent_failover", details__reason="circuit_open").count() == 1
+    assert not healing.breaker.is_open(PRIMARY, clock["t"])  # 전역 Breaker는 그대로
+
+    other = state.start(make_report(user, symbol="AAPL"))
+    client = fake_llm({PRIMARY: [ANSWER]})
+    assert healing.make_caller(other, WORKER, None, client, 2000.0)("s", "u").model == PRIMARY  # 다른 리포트는 주 모델
+
+
+@pytest.mark.django_db
+def test_report_breaker_follows_global_open(running, fake_llm, clock):
+    """진짜 장애로 전역에서 열린 차단은 장애 주입 리포트도 따른다."""
+    for _ in range(healing.BREAKER_FAILURES):
+        healing.breaker.failed(PRIMARY, clock["t"])
+    client = fake_llm({FALLBACK: [ANSWER]})
+    reply = healing.make_caller(running, WORKER, {**ALL, "workers": ["news_agent"]}, client, 2000.0)("s", "u")
+    assert (reply.model, [call[0] for call in client.calls]) == (FALLBACK, [FALLBACK])
 
 
 @pytest.mark.django_db
@@ -211,3 +238,24 @@ def test_report_with_chaos_still_completes(user, fake_llm, clock, inline_workers
     assert done.model == FALLBACK and done.details["recovered"] is True and done.details["attempts"] == 3
     failures = report.trace_events.filter(actor="market_agent", action="agent_failed")
     assert [f.details["injected"] for f in failures] == [True, True]
+
+
+@pytest.mark.django_db
+def test_chaos_report_does_not_block_other_reports(user, other, fake_llm, clock, inline_workers, monkeypatch):
+    """대체 모델까지 실패시키는 리포트를 두 번 돌려도 장애 주입 없는 다른 사용자 리포트는 주 모델을 부른다
+    (주입한 실패가 전역 Circuit Breaker에 쌓이면 FALLBACK_POOL이 다 막혀 다른 리포트가 0번 시도로 실패했다)."""
+    monkeypatch.setattr(engine, "broker_client", lambda: None)
+    config = {**ALL, "errorTypes": ["server_error"], "scope": "all"}
+    definitions = registry.execution_plan(registry.TEAM)["workers"]
+    for symbol in ("005930", "AAPL"):
+        report = make_report(user, symbol=symbol, chaos=config)
+        workers = fake_team(**{d["id"]: FakeWorker(d["id"], llm=True, contract=d["outputContract"]) for d in definitions})
+        orchestrator.run_report(report, workers=workers, llm_client=fake_llm({}))
+        report.refresh_from_db()
+        assert report.status == Report.FAILED
+    assert not any(healing.breaker.is_open(model, clock["t"]) for model in healing.FALLBACK_POOL)
+
+    normal = state.start(make_report(other))
+    client = fake_llm({PRIMARY: [ANSWER]})
+    reply = healing.make_caller(normal, WORKER, None, client, clock["t"] + 100)("s", "u")
+    assert (reply.model, reply.attempts) == (PRIMARY, 1)

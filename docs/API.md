@@ -499,6 +499,7 @@ interface AnalysisQuota {
 `chaos`는 장애 주입 신청(T4-6) 전까지 늘 null이다.
 2026-10-07(담당 4, T4-6): `POST /api/reports`의 `chaos`를 받는다 (`reports/chaos.py`). `enabled: false`면 저장하지 않아 `chaos`는 null,
 켜면 기본값·seed를 채워 저장한다. 주입한 timeout은 실제로 기다리지 않고 바로 실패로 처리한다 (시험 시간을 줄인다).
+2026-10-08: 신청에서 직접 주는 `seed`는 0 이상 2^53 미만 정수만 받는다 (그 밖은 `400`).
 담당별 할 일은 `docs/tasks/`, 셈법과 모듈 경계는 `docs/tasks/00-공통.md`. 아래에서 "(추가)"로 표시한 것은 아직 서버가 내지 않는다.
 
 ## 타입
@@ -570,7 +571,7 @@ interface ChaosConfig {           // (구현) 장애 주입 설정 (docs/tasks/0
   errorTypes: ErrorType[];      // 일으킬 실패 종류 (unknown 제외)
   workers: string[] | null;     // 대상 Worker (null이면 전부)
   scope: "primary" | "all";     // primary: 주 모델 호출만 실패 (대체 모델로 복구를 보인다) · all: 대체 모델까지 실패
-  seed: number;                 // 같은 시험을 다시 돌릴 수 있게 서버가 정해 저장한다
+  seed: number;                 // 같은 시험을 다시 돌릴 수 있게 서버가 정해 저장한다 (신청에서 직접 주면 0 이상 2^53 미만 정수)
 }
 
 interface RecoverySummary {       // (추가) 이 리포트의 장애·복구 요약 (Trace에서 계산. 셈법은 00-공통.md 9절)

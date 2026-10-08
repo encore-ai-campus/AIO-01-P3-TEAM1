@@ -10,8 +10,9 @@ Trace는 `state.record`로만 남긴다 (`add_result`·`add_error`·`finish`는 
   YAML의 `fallbacks`는 쓰지 않는다. 대체 모델도 같은 규칙으로 한 번 더 할 수 있다.
 - 시도는 모델마다 MAX_ATTEMPTS_PER_MODEL, 전체 MAX_ATTEMPTS(첫 시도 + 재시도 3번), Worker `deadline` 안에서만. 넘으면 `LlmGaveUp`.
 - Circuit Breaker: 모델별 연속 실패 BREAKER_FAILURES번이면 BREAKER_OPEN_SEC 동안 그 모델을 건너뛴다 (이 프로세스 메모리).
+  장애 주입을 켠 리포트는 그 리포트 전용 Breaker(`ReportBreaker`)에서 센다 — 일부러 낸 실패가 다른 리포트의 모델을 막지 않게.
 장애 주입(T4-6, `chaos.py`)은 `_once`의 실제 호출 직전 한 곳에서만 한다. 복구 경로에는 "주입이면"이라는 분기를 두지 않는다
-(주입된 실패도 Circuit Breaker가 센다). 주입 여부는 Trace `agent_failed.details.injected`에만 남는다.
+(주입된 실패도 그 리포트의 Circuit Breaker가 센다). 주입 여부는 Trace `agent_failed.details.injected`에만 남는다.
 """
 import threading
 import time
@@ -123,10 +124,39 @@ class CircuitBreaker:
 breaker = CircuitBreaker()
 
 
-def fallback_for(primary: str | None, now: float, tried: set[str] = frozenset()) -> str | None:
-    """대체 모델: FALLBACK_POOL 순서에서 주 모델·이미 쓴 모델이 아니고 차단되지 않은 첫 모델. 없으면 None."""
+class ReportBreaker(CircuitBreaker):
+    """장애 주입을 켠 리포트 하나의 Circuit Breaker. 실패·성공은 이 리포트 안에서만 세고(그 리포트의 Worker끼리는 같이 쓴다),
+    전역 `breaker`에서 열린 차단(진짜 장애)은 따른다. 일부러 낸 실패로 다른 사용자·자동 리포트의 모델이 막히지 않게 한다."""
+
+    def is_open(self, model: str, now: float) -> bool:
+        return breaker.is_open(model, now) or super().is_open(model, now)
+
+
+_report_breaker_lock = threading.Lock()
+
+
+def breaker_for(report: Report, chaos: dict | None) -> CircuitBreaker:
+    """이 리포트의 호출기가 쓸 Circuit Breaker: 장애 주입을 켰으면 그 리포트 전용, 아니면 전역 `breaker`.
+
+    리포트 전용 Breaker는 Report 객체에 붙여 둔다 — Orchestrator가 한 실행 동안 같은 객체로 모든 Worker의 호출기를 만들고,
+    실행이 끝나 객체가 사라지면 같이 사라진다 (pk가 같은 다른 객체와는 나누지 않는다).
+    """
+    if not injection.is_on(chaos):
+        return breaker
+    with _report_breaker_lock:
+        own = report.__dict__.get("_chaos_breaker")
+        if own is None:
+            own = report._chaos_breaker = ReportBreaker()
+        return own
+
+
+def fallback_for(primary: str | None, now: float, tried: set[str] = frozenset(),
+                 circuit: CircuitBreaker | None = None) -> str | None:
+    """대체 모델: FALLBACK_POOL 순서에서 주 모델·이미 쓴 모델이 아니고 차단되지 않은 첫 모델. 없으면 None.
+    circuit은 차단을 볼 Circuit Breaker (기본은 전역 `breaker`)."""
+    circuit = breaker if circuit is None else circuit
     for model in FALLBACK_POOL:
-        if model != primary and model not in tried and not breaker.is_open(model, now):
+        if model != primary and model not in tried and not circuit.is_open(model, now):
             return model
     return None
 
@@ -136,6 +166,7 @@ class LlmCaller:
 
     def __init__(self, report: Report, worker: dict, chaos: dict | None, client, deadline: float):
         self.report, self.worker, self.chaos, self.client, self.deadline = report, worker, chaos, client, deadline
+        self.breaker = breaker_for(report, chaos)
         self.calls: list[LlmReply] = []   # 성공한 호출 기록 (Orchestrator가 agent_completed의 attempts·model을 여기서 읽는다)
         self.cost_usd = 0.0
         self.attempt = 0                  # 이 Worker 실행에서의 전체 시도 번호 (agent_failed.details.attempt)
@@ -155,7 +186,7 @@ class LlmCaller:
             raise LlmGaveUp(ErrorType.UNKNOWN, 0, None, f"{self.worker_id}: 모델이 정해지지 않았습니다.")
         started = clock()
         model, tried = primary, {primary}
-        if breaker.is_open(primary, started):
+        if self.breaker.is_open(primary, started):
             model = self._failover(primary, "circuit_open", tried)
             if model is None:
                 raise LlmGaveUp(ErrorType.UNKNOWN, 0, primary,
@@ -176,14 +207,14 @@ class LlmCaller:
                 cost += failure.cost
                 error_type, last_error = failure.error_type, f"{model}: {failure.error}"
                 first_failure = clock() if first_failure is None else first_failure  # 복구 시간은 첫 agent_failed부터 (9절)
-                breaker.failed(model, clock())
+                self.breaker.failed(model, clock())
                 self._record("agent_failed", "failed", model, begun,
                              {"errorType": error_type.value, "attempt": self.attempt, "injected": failure.injected,
                               "final": False})
                 if attempts >= MAX_ATTEMPTS:
                     break
                 if error_type in RETRY_SAME_MODEL and on_model < MAX_ATTEMPTS_PER_MODEL \
-                        and not breaker.is_open(model, clock()):
+                        and not self.breaker.is_open(model, clock()):
                     if not self._wait_before_retry(error_type):
                         break
                     self._record("agent_retry", "started", model, None,
@@ -197,7 +228,7 @@ class LlmCaller:
                 model, prompt, on_model = next_model, user, 0
                 continue
             cost += spent
-            breaker.succeeded(model)
+            self.breaker.succeeded(model)
             now = clock()
             reply = LlmReply(data=data, provider=self.provider, model=model, attempts=attempts,
                              recovered=attempts > 1, latency_ms=_ms(now - started),
@@ -242,7 +273,7 @@ class LlmCaller:
 
     def _failover(self, frm: str, reason: str, tried: set[str]) -> str | None:
         """대체 모델로 넘어간다 (agent_failover). 대체 모델은 하나뿐이라 이미 넘어갔거나 고를 모델이 없으면 None."""
-        to = fallback_for(self.worker.get("model"), clock(), tried) if len(tried) == 1 else None
+        to = fallback_for(self.worker.get("model"), clock(), tried, self.breaker) if len(tried) == 1 else None
         if to is None:
             return None
         tried.add(to)
