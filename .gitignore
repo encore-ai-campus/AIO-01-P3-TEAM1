@@ -33,3 +33,6 @@ node_modules/
 frontend/dist/
 
 .DS_Store
+
+# 개인 작업 일지 (공유하지 않음)
+/작업일지/
