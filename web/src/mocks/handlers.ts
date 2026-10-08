@@ -1,6 +1,6 @@
 // API.md의 모든 경로를 흉내 내는 MSW 핸들러. 로그인은 admin / admin1234만 성공한다.
 import { http, HttpResponse } from "msw";
-import { alerts, costs, dayWindow, deploys, engine, matchesKind, overview, recovery, reportRows, service, trace } from "./data";
+import { alerts, costs, dayWindow, deploys, engine, matchesKind, mcp, overview, recovery, reportRows, service, trace } from "./data";
 
 const SESSION_KEY = "paper-admin-mock-session";
 
@@ -100,5 +100,11 @@ export const handlers = [
   guarded("/api/admin/alerts", (url) => {
     const hours = intParam(url, "hours", 24, 1, 168);
     return hours === null ? bad("hours", 1, 168) : HttpResponse.json(alerts(hours));
+  }),
+  guarded("/api/admin/mcp", (url) => {
+    const hours = intParam(url, "hours", 24, 1, 168);
+    if (hours === null) return bad("hours", 1, 168);
+    const limit = intParam(url, "limit", 200, 1, 500);
+    return limit === null ? bad("limit", 1, 500) : HttpResponse.json(mcp(hours, limit));
   }),
 ];

@@ -213,6 +213,37 @@ export interface Alerts {
   stuck: StuckJob[];
 }
 
+// F10 MCP 도구·호출 기록 — GET /api/admin/mcp?hours=&limit= (API.md 6장)
+export interface McpTool {
+  name: string;
+  description: string;
+  path: string;
+  params: string[];
+}
+export interface McpToken {
+  name: string;
+  createdAt: string | null;
+  lastUsedAt: string | null;
+  calls: number;
+  errors: number;
+}
+export interface McpCall {
+  at: string;
+  who: string | null;
+  tool: string | null;
+  path: string;
+  status: number;
+  ok: boolean;
+}
+export interface McpStatus {
+  endpoint: string;
+  hours: number;
+  tools: McpTool[];
+  tokens: McpToken[];
+  summary: { calls: number; errors: number; invalid: number; byTool: { tool: string; calls: number; errors: number }[] };
+  calls: McpCall[];
+}
+
 // ---------------------------------------------------------------------------
 
 export class ApiError extends Error {

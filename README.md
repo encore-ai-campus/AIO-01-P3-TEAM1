@@ -126,6 +126,7 @@ ADMIN_TEST_PG_DSN=postgresql://paper_admin_ro:ro-dev@127.0.0.1:55432/paper uv ru
   ```
   도구 호출은 감사 기록(`docker compose --env-file ../.env exec api tail /data/audit.jsonl`)에 누가 어떤 도구를 불렀는지 남는다.
   토큰 목록·지우기: `python -m paper_admin.tokens list` · `revoke <이름>`.
+  화면의 **MCP 도구·호출** 메뉴(`/tools`, API.md 6장)에서 도구 9개와 부르는 경로, 토큰별 마지막 사용, 토큰으로 들어온 호출 기록(누가·도구·응답 코드, 틀린 토큰 포함)을 본다.
 
 ## 6. 완료 기준 확인 (계획 6장)
 

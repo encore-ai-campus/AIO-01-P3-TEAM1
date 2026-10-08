@@ -271,3 +271,32 @@ describe("알림 (F9)", () => {
     await waitFor(() => expect((screen.getByLabelText("기간") as HTMLSelectElement).value).toBe("168"));
   });
 });
+
+describe("MCP 도구·호출 (F10)", () => {
+  it("연결 주소, 도구 9개와 부르는 경로, 토큰의 마지막 사용을 보여 준다", async () => {
+    renderApp("/tools");
+    expect(await screen.findByText(`${window.location.origin}/mcp`)).toBeTruthy();
+    expect(screen.getByText("도구 목록")).toBeTruthy();
+    expect(screen.getByText("/api/admin/reports/{report_id}/trace")).toBeTruthy();
+    expect(screen.getAllByRole("row").filter((r) => r.textContent?.includes("alerts_and_jobs")).length).toBeGreaterThan(0);
+    const yubeen = screen.getAllByRole("row").find((r) => r.textContent?.startsWith("yubeen"));
+    expect(yubeen?.textContent).toContain("쓴 적 없음");
+  });
+
+  it("호출 기록에 틀린 토큰과 토큰 확인을 구분해 보이고, 도구로 거를 수 있다", async () => {
+    renderApp("/tools");
+    expect(await screen.findByText("틀린 토큰", { selector: "td span" })).toBeTruthy();
+    expect(screen.getAllByText("토큰 확인").length).toBeGreaterThan(0);
+    expect(screen.getByText("404")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("도구"), { target: { value: "report_trace" } });
+    const callRows = () => screen.getAllByRole("row").filter((r) => r.textContent?.includes("hwanseok"));
+    await waitFor(() => expect(callRows().some((r) => r.textContent?.includes("/api/admin/overview"))).toBe(false));
+    expect(callRows().every((r) => r.textContent?.includes("report_trace") || !r.querySelector("td code"))).toBe(true);
+    expect(screen.getByText("/api/admin/reports/1042/trace")).toBeTruthy();
+  });
+
+  it("메뉴에 MCP 도구·호출이 있다", async () => {
+    renderApp("/");
+    expect(await screen.findByRole("link", { name: "MCP 도구·호출" })).toBeTruthy();
+  });
+});

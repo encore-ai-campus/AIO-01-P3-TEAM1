@@ -14,6 +14,7 @@ const MENU = [
   { to: "/recovery", label: "복구 지표" },
   { to: "/costs", label: "AI 비용" },
   { to: "/alerts", label: "알림·작업 실패" },
+  { to: "/tools", label: "MCP 도구·호출" },
 ];
 
 /** 로그인하지 않았으면 /login으로 보낸다. 가려던 경로는 state.from에 담는다. */

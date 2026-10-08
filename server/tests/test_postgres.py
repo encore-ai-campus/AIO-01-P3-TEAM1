@@ -19,7 +19,7 @@ pytestmark = [pytest.mark.pg, pytest.mark.skipif(not DSN, reason="ADMIN_TEST_PG_
 
 PATHS = ["/api/admin/me", "/api/admin/overview", "/api/admin/service", "/api/admin/engine", "/api/admin/deploys",
          "/api/admin/reports?days=90", "/api/admin/recovery?days=90", "/api/admin/costs?days=90",
-         "/api/admin/alerts?hours=168"]
+         "/api/admin/alerts?hours=168", "/api/admin/mcp?hours=168"]
 
 
 @pytest.fixture

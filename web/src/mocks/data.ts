@@ -8,6 +8,9 @@ import type {
   Deploys,
   EngineStatus,
   HealthCheck,
+  McpCall,
+  McpStatus,
+  McpTool,
   Overview,
   RecoveryStats,
   ReportRow,
@@ -431,3 +434,65 @@ export function overview(): Overview {
   items.sort((a, b) => order[a.level] - order[b.level] || keyOrder.indexOf(a.key) - keyOrder.indexOf(b.key));
   return { at: new Date().toISOString(), level: items[0].level, items };
 }
+
+// F10 MCP 도구·호출 기록 (API.md 6장). 도구 목록은 서버의 mcp_tools.TOOLS와 같은 순서.
+export const MCP_TOOLS: McpTool[] = [
+  { name: "overview", description: "관리자 개요: 서비스·엔진·배포·리포트 장애·복구 지표·AI 비용·알림을 나쁜 것부터 한 줄씩 요약한다.", path: "/api/admin/overview", params: [] },
+  { name: "service_status", description: "서비스 주소(/api/health, /)의 응답 여부·응답 시간과 최근 24시간 가동률을 본다.", path: "/api/admin/service", params: [] },
+  { name: "engine_status", description: "엔진 루프의 마지막 동작 시각(2분 넘으면 멈춤)·버전·중단 스위치·최근 단계 오류·한도를 본다.", path: "/api/admin/engine", params: [] },
+  { name: "deploy_history", description: "서버별 지금 버전과 배포 기록(성공·실패·되돌림)을 최신순으로 본다. limit 1~200.", path: "/api/admin/deploys", params: ["limit"] },
+  { name: "report_failures", description: "기간 안 AI 리포트의 실패·복구·장애 주입 목록.", path: "/api/admin/reports", params: ["days", "kind", "team", "limit"] },
+  { name: "report_trace", description: "리포트 하나의 실행 기록(재시도·대체 모델 전환·포기)을 시간순으로 보고 복구 요약을 함께 본다.", path: "/api/admin/reports/{report_id}/trace", params: ["report_id"] },
+  { name: "recovery_stats", description: "기간 안 자동 복구율·평균 복구 시간·오류 종류별·Worker별 장애 수. days 1~90.", path: "/api/admin/recovery", params: ["days"] },
+  { name: "ai_costs", description: "날짜별 AI 비용(리포트·분석·장기투자)과 오늘 예산·한도 대비 사용량. days 1~90.", path: "/api/admin/costs", params: ["days"] },
+  { name: "alerts_and_jobs", description: "Discord 알림 발송 실패·오래된 대기와 오래 멈춘 분석·리포트 작업을 본다. hours 1~168.", path: "/api/admin/alerts", params: ["hours"] },
+];
+
+function mcpCallsAll(): McpCall[] {
+  const c = (min: number, who: string | null, tool: string | null, path: string, status: number): McpCall => ({
+    at: ago(min * MIN), who, tool, path, status, ok: status < 400,
+  });
+  return [
+    c(3, "hwanseok", "overview", "/api/admin/overview", 200),
+    c(3, "hwanseok", null, "/api/admin/me", 200),
+    c(12, null, null, "/api/admin/me", 401),
+    c(40, "hwanseok", "report_trace", "/api/admin/reports/9999/trace", 404),
+    c(41, "hwanseok", "report_trace", "/api/admin/reports/1042/trace", 200),
+    c(42, "hwanseok", "report_failures", "/api/admin/reports?days=7&kind=failed&team=&limit=100", 200),
+    c(150, "dy", "ai_costs", "/api/admin/costs?days=14", 200),
+    c(30 * 60, "dy", "recovery_stats", "/api/admin/recovery?days=7", 200),
+  ];
+}
+
+export function mcp(hours: number, limit: number): McpStatus {
+  const since = Date.now() - hours * HOUR;
+  const all = mcpCallsAll();
+  const recent = all.filter((x) => Date.parse(x.at) >= since);
+  const toolCalls = recent.filter((x) => x.tool);
+  const byTool = new Map<string, { tool: string; calls: number; errors: number }>();
+  for (const x of toolCalls) {
+    const b = byTool.get(x.tool!) ?? { tool: x.tool!, calls: 0, errors: 0 };
+    b.calls += 1;
+    b.errors += x.ok ? 0 : 1;
+    byTool.set(x.tool!, b);
+  }
+  const lastUsed = (name: string) => all.filter((x) => x.who === name).map((x) => x.at).sort().at(-1) ?? null;
+  const tokenRow = (name: string, createdDaysAgo: number) => {
+    const mine = toolCalls.filter((x) => x.who === name);
+    return { name, createdAt: ago(createdDaysAgo * DAY), lastUsedAt: lastUsed(name), calls: mine.length, errors: mine.filter((x) => !x.ok).length };
+  };
+  return {
+    endpoint: "/mcp",
+    hours,
+    tools: MCP_TOOLS,
+    tokens: [tokenRow("dy", 1), tokenRow("hwanseok", 2), tokenRow("yubeen", 0)],
+    summary: {
+      calls: toolCalls.length,
+      errors: toolCalls.filter((x) => !x.ok).length,
+      invalid: recent.filter((x) => x.who === null).length,
+      byTool: [...byTool.values()].sort((a, b) => b.calls - a.calls || a.tool.localeCompare(b.tool)),
+    },
+    calls: recent.slice(0, limit),
+  };
+}
+

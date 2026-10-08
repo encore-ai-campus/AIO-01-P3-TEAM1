@@ -6,6 +6,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from paper_admin import mcp_tools
 from paper_admin.mcp_server import create_app
 
 HEADERS = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
@@ -85,6 +86,9 @@ def test_tool_calls_admin_api(mcp, fake, tool, args, path, params):
     call = fake.calls[-1]
     assert call.method == "GET" and call.url.host == "api" and call.url.port == 8100
     assert call.headers["authorization"] == "Bearer good" and call.headers["x-admin-tool"] == tool
+    # 관리자 화면의 도구 목록(mcp_tools)이 실제로 부르는 경로·인자와 같다
+    listed = mcp_tools.BY_NAME[tool]
+    assert listed.path.format(**args) == path and set(listed.params) >= set(params) | set(args)
 
 
 def test_api_error_becomes_tool_error(mcp):

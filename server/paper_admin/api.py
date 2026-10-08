@@ -15,7 +15,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import deploys as deploy_log
-from . import metrics
+from . import mcp_usage, metrics
 from .auth import (COOKIE_NAME, DUMMY_HASH, LOGIN_FAILED, SESSION_TTL, AuditLog, LoginLimiter, Sessions, TokenStore,
                    find_staff, verify_django_password)
 from .config import Settings, load
@@ -193,6 +193,10 @@ def create_app(settings: Settings, *, db: Database | None = None, monitor: Healt
     @app.get("/api/admin/alerts", dependencies=authed)
     def alerts(hours: int = Query(24, ge=1, le=168)):
         return metrics.alerts(db, clock(), hours)
+
+    @app.get("/api/admin/mcp", dependencies=authed)
+    def mcp(hours: int = Query(24, ge=1, le=168), limit: int = Query(200, ge=1, le=500)):
+        return mcp_usage.status(tokens, settings.audit_path, clock(), hours, limit)
 
     @app.get("/api/admin/overview", dependencies=authed)
     def overview():

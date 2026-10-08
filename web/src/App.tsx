@@ -5,6 +5,7 @@ import Costs from "./pages/Costs";
 import Deploys from "./pages/Deploys";
 import Engine from "./pages/Engine";
 import Login from "./pages/Login";
+import McpTools from "./pages/McpTools";
 import Overview from "./pages/Overview";
 import Recovery from "./pages/Recovery";
 import ReportDetail from "./pages/ReportDetail";
@@ -25,6 +26,7 @@ export default function App() {
         <Route path="recovery" element={<Recovery />} />
         <Route path="costs" element={<Costs />} />
         <Route path="alerts" element={<Alerts />} />
+        <Route path="tools" element={<McpTools />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

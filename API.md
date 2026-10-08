@@ -224,6 +224,7 @@ interface Alerts {
 | `GET /api/admin/recovery?days=` | `200 RecoveryStats` |
 | `GET /api/admin/costs?days=` | `200 Costs` |
 | `GET /api/admin/alerts?hours=` | `200 Alerts` |
+| `GET /api/admin/mcp?hours=&limit=` | `200 McpStatus` (6장) |
 | `GET /api/admin/health` | `200 {"ok": true}` (로그인 없이. 관리 서버 컨테이너 상태 확인용) |
 
 ## 3. 복구 셈법 (F6·F7, 서비스 `docs/tasks/00-공통.md` 9절 · `backend/reports/stats.py`(담당 4, T4-7)와 같은 규칙)
@@ -281,3 +282,45 @@ GitHub Actions `deploy.yml`의 마지막 작업이 배포 결과 한 줄을 관�
 
 - 검사: 모르는 키는 버리고, `at`·`server`·`tag`·`result`는 필수. `server`는 `[a-z0-9-]{1,32}`, `tag`·`previous`는 `[0-9A-Za-z._-]{1,64}`, `result`는 `DeployResult` 중 하나,
   문자열은 각각 300자, 한 줄은 4KB 이하. 틀리면 아무것도 쓰지 않고 0이 아닌 코드로 끝난다.
+
+## 6. MCP 도구·호출 기록 (F10, 2026-10-08 추가)
+
+관리자 화면의 "MCP" 메뉴가 쓴다. MCP 도구 목록, 사람별 토큰(이름·만든 시각·마지막 사용), 토큰으로 들어온 요청의 감사 기록(1장 `audit.jsonl`)을 함께 낸다.
+토큰 원문·해시는 내지 않는다.
+
+`GET /api/admin/mcp?hours=24&limit=200` — hours 1~168 (기본 24), limit 1~500 (기본 200)
+
+```ts
+interface McpTool {
+  name: string;                 // MCP 도구 이름 (예 "report_trace")
+  description: string;          // MCP 클라이언트에 보이는 설명
+  path: string;                 // 부르는 관리자 API 경로 (예 "/api/admin/reports/{report_id}/trace")
+  params: string[];             // 도구 인자 이름 (예 ["days", "kind", "team", "limit"])
+}
+interface McpToken {
+  name: string; createdAt: string | null;
+  lastUsedAt: string | null;    // 감사 기록에서 그 토큰의 가장 최근 요청 (기간과 상관없이, 읽은 기록 안에서)
+  calls: number;                // 기간 안 도구 호출 수 (X-Admin-Tool이 있는 요청)
+  errors: number;               // 그중 응답 코드가 400 이상
+}
+interface McpCall {
+  at: string; who: string | null;   // 토큰 이름. 틀린 토큰이면 null
+  tool: string | null;              // 도구 이름. null이면 MCP 서버의 토큰 확인(GET /api/admin/me) 같은 도구 밖 요청
+  path: string; status: number; ok: boolean;   // ok = status < 400
+}
+interface McpStatus {
+  endpoint: string;             // "/mcp" (화면이 지금 주소에 붙여 연결 주소를 보인다)
+  hours: number;
+  tools: McpTool[];             // 도구 9개, 등록 순서
+  tokens: McpToken[];           // 이름순
+  summary: {
+    calls: number; errors: number;   // 기간 안 도구 호출 수 · 그중 실패
+    invalid: number;                 // 기간 안 틀린 토큰 요청 (who null, 401)
+    byTool: { tool: string; calls: number; errors: number }[];   // 호출 많은 순
+  };
+  calls: McpCall[];             // 기간 안 토큰 요청 최신순 limit개 (도구 밖 요청 포함)
+}
+```
+
+- 감사 기록은 파일 끝 4MB까지만 읽는다 (오래된 기록은 `lastUsedAt`·기간 셈에서 빠질 수 있다).
+
