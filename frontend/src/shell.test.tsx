@@ -582,10 +582,10 @@ describe("PageHeader", () => {
     expect(h1.className).toContain("max-lg:sr-only");
     const name = screen.getByText("모매매");
     expect(name.closest("a, h1, h2")).toBeNull();
-    // 잠금: 로고 28px(접힌 선 없는 판, 장식) + 이름 18px, PC에서는 숨는다 (PC는 왼쪽 메뉴에 브랜드가 있다)
+    // 잠금: 로고 28px(32px보다 작아 속이 찬 사각형 셋, 장식) + 워드마크, PC에서는 숨는다 (PC는 왼쪽 메뉴에 브랜드가 있다)
     const lockup = name.parentElement!;
     const logo = lockup.querySelector("svg")!;
-    expect([logo.getAttribute("width"), logo.getAttribute("aria-hidden"), logo.querySelectorAll("path").length]).toEqual(["28", "true", 1]);
+    expect([logo.getAttribute("width"), logo.getAttribute("aria-hidden"), logo.querySelectorAll("path").length, logo.querySelectorAll("rect").length]).toEqual(["28", "true", 0, 4]);
     expect(lockup.className.split(" ")).toEqual(expect.arrayContaining(["text-[18px]", "lg:hidden"]));
     expect(lockup.textContent).toBe("모매매"); // 옛 'AI' 글자 마크가 남지 않는다
   });

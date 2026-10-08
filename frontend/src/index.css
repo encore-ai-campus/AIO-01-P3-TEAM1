@@ -735,3 +735,184 @@ html[data-theme-anim]::view-transition-new(root) {
 html[data-theme-anim] * {
   view-transition-name: none !important;
 }
+
+/*
+ * 브랜드 인트로 (components/BrandIntro.tsx): 하나의 타임라인을 --intro-dur(기본 5s)로 늘이고 줄인다.
+ *   0~22% 워드마크 → 22~34% ㅁ을 뺀 획이 옅어짐 → 30~60% 세 ㅁ이 계단 자리로 모이며 작아짐 → 60~72% ㅁ이 흰색으로, 파란 타일이 깔림
+ *   (lockup) 76~92% 아이콘이 왼쪽으로 밀리고 이름이 옆에 나옴. (overlay) 덮개는 인트로가 끝난 0.5초 뒤 0.4초 동안 사라진다.
+ * 동작 줄이기에서는 위의 전역 규칙이 길이를 0.01ms로 줄여 끝 모양(아이콘 + 이름)으로 바로 간다. 좌표는 BrandIntro의 viewBox(-70 0 780 180) 기준 px.
+ */
+@keyframes intro-letters {
+  0%,
+  22% {
+    opacity: 1;
+  }
+  34%,
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes intro-b1 {
+  0%,
+  30% {
+    transform: translate(0px, 0px) scale(1);
+    fill: var(--color-brand);
+  }
+  60% {
+    transform: translate(170px, 66px) scale(0.4);
+    fill: var(--color-brand);
+  }
+  72%,
+  100% {
+    transform: translate(170px, 66px) scale(0.4);
+    fill: var(--color-on-brand);
+  }
+}
+@keyframes intro-b2 {
+  0%,
+  30% {
+    transform: translate(0px, 0px) scale(1);
+    fill: var(--color-brand);
+  }
+  60% {
+    transform: translate(48px, 2px) scale(0.4);
+    fill: var(--color-brand);
+  }
+  72%,
+  100% {
+    transform: translate(48px, 2px) scale(0.4);
+    fill: var(--color-on-brand);
+  }
+}
+@keyframes intro-b3 {
+  0%,
+  30% {
+    transform: translate(0px, 0px) scale(1);
+    fill: var(--color-brand);
+  }
+  60% {
+    transform: translate(-122px, -22px) scale(0.4);
+    fill: var(--color-brand);
+  }
+  72%,
+  100% {
+    transform: translate(-122px, -22px) scale(0.4);
+    fill: var(--color-on-brand);
+  }
+}
+@keyframes intro-tile {
+  0%,
+  56% {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+  72%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes intro-shift {
+  0%,
+  76% {
+    transform: translateX(0px);
+  }
+  92%,
+  100% {
+    transform: translateX(-246.5px);
+  }
+}
+@keyframes intro-name {
+  0%,
+  78% {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  92%,
+  100% {
+    opacity: 1;
+    transform: translateX(0px);
+  }
+}
+@keyframes intro-out {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.intro-letters,
+.intro-shifts,
+.intro-name {
+  animation-duration: var(--intro-dur, 5s);
+  animation-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  animation-fill-mode: both;
+}
+.intro-b1,
+.intro-b2,
+.intro-b3,
+.intro-tile {
+  animation-duration: var(--intro-dur, 5s);
+  animation-timing-function: cubic-bezier(0.45, 0, 0.2, 1);
+  animation-fill-mode: both;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.intro-name {
+  transform-box: fill-box;
+}
+.intro-letters {
+  animation-name: intro-letters;
+}
+.intro-b1 {
+  animation-name: intro-b1;
+}
+.intro-b2 {
+  animation-name: intro-b2;
+}
+.intro-b3 {
+  animation-name: intro-b3;
+}
+.intro-tile {
+  animation-name: intro-tile;
+}
+.intro-shifts {
+  animation-name: intro-shift;
+}
+.intro-name {
+  animation-name: intro-name;
+}
+/* 덮개: 인트로(--intro-dur)가 끝나고 0.5초 머문 뒤 0.4초 동안 사라진다. 끝(animationend)에서 앱이 덮개를 지운다 */
+.intro-overlay {
+  animation: intro-out 400ms cubic-bezier(0.2, 0, 0, 1) calc(var(--intro-dur, 5s) + 500ms) both;
+}
+
+/*
+ * 로고 반복 모션 (BrandMark loop — 로그인 화면): 세 블록이 계단을 오르는 순서로 한 칸씩 튀고, 한동안 쉰다 (4.2초 주기).
+ * 첫 방문 인트로가 도는 동안(html[data-intro=playing], components/IntroGate.tsx)은 멈춰 있다가 끝나면 시작한다. 마우스를 올리면 멈춘다.
+ * 동작 줄이기에서는 위의 전역 규칙이 길이 0.01ms · 1회로 줄여 가만히 있는다. 좌표는 로고 viewBox(32) 기준 px.
+ */
+@keyframes brand-hop {
+  0%,
+  16%,
+  100% {
+    transform: translateY(0px);
+  }
+  8% {
+    transform: translateY(-1.6px);
+  }
+}
+.brand-hop {
+  animation: brand-hop 4.2s cubic-bezier(0.2, 0, 0, 1) infinite;
+}
+.brand-hop-2 {
+  animation-delay: 0.18s;
+}
+.brand-hop-3 {
+  animation-delay: 0.36s;
+}
+.brand-loop:hover .brand-hop,
+html[data-intro="playing"] .brand-hop {
+  animation-play-state: paused;
+}

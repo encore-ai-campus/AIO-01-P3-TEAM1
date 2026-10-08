@@ -41,15 +41,13 @@ describe("로그인", () => {
     renderApp("/", null);
     const name = await screen.findByRole("heading", { name: "모매매" });
     const hero = name.parentElement!;
-    // 로고 56px: 48px 이상이라 돛의 접힌 선까지 (타일·배·접힌 선), 이름 옆 장식이라 화면 읽기에서 숨는다
+    // 로고 56px: 32px 이상이라 속이 빈 ㅁ 블록 셋, 이름 옆 장식이라 화면 읽기에서 숨는다 (이름은 제목 안의 숨김 글자가 읽는다)
     const logo = hero.querySelector("svg")!;
-    expect([logo.getAttribute("width"), logo.getAttribute("aria-hidden"), logo.querySelectorAll("path").length]).toEqual(["56", "true", 2]);
-    expect(within(hero).getByText("종이 위에서 연습하는 AI 리포트 모의투자")).toBeTruthy();
-    expect(
-      within(hero).getByText("진짜 돈 대신 종이 위에서 — AI가 쓴 리포트를 읽고 따져 본 뒤, 가상 현금으로 모의투자를 연습해요."),
-    ).toBeTruthy();
+    expect([logo.getAttribute("width"), logo.getAttribute("aria-hidden"), logo.querySelectorAll("path").length]).toEqual(["56", "true", 3]);
+    expect(within(hero).getByText("여러 AI가 함께 검증하는 모의투자")).toBeTruthy();
+    expect(within(hero).getByText("AI들이 조사하고 서로 따져 본 리포트를 읽고, 가상 현금으로 매매를 연습해요.")).toBeTruthy();
     expect(screen.getByText("실제 주문은 나가지 않아요.")).toBeTruthy();
-    // '가상 현금으로 모의투자'는 풀이 한 줄이 말한다 — 안심 줄이 '모의 계좌에서만'을 되풀이하지 않는다
+    // '가상 현금'은 풀이 한 줄이 말한다 — 안심 줄이 '모의 계좌에서만'을 되풀이하지 않는다
     expect(screen.queryByText(/모의 계좌에서만/)).toBeNull();
     expect(screen.queryByText(/팀 모의매매|리포트 데스크/)).toBeNull(); // 옛 이름(D-5)이 다시 나오지 않는다
   });

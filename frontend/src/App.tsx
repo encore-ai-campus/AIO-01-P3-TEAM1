@@ -3,12 +3,14 @@ import type { ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router";
 import { Layout } from "./components/Layout";
 import { ScrollManager } from "./components/motion/ScrollManager";
+import { IntroGate } from "./components/IntroGate";
 import { AuthBridge, RequireAuth } from "./components/RequireAuth";
 import { ToastProvider } from "./components/ToastProvider";
 import { Card, EmptyState, PageHeader } from "./components/ui";
 import { ADMIN_PATH } from "./lib/secretTaps";
 import { AdminPage } from "./pages/AdminPage";
 import { AnalysisPage } from "./pages/AnalysisPage";
+import { BrandPreviewPage } from "./pages/BrandPreviewPage";
 import { ErrorPreviewPage } from "./pages/ErrorPreviewPage";
 import { HomePage } from "./pages/HomePage";
 import { LoginPage } from "./pages/LoginPage";
@@ -64,11 +66,14 @@ export default function App() {
     <>
       {/* 화면을 옮길 때의 스크롤 (새 화면은 맨 위, 뒤로 가기는 보던 자리) — 로그인 화면 포함 */}
       <ScrollManager />
+      {/* 앱을 / 또는 /login으로 열 때마다 로그인 화면 앞에 인트로 (끝나면 사라진다). 다른 화면으로 바로 연 주소·디자인 검수 화면·움직임 줄이기에서는 건너뛴다 */}
+      <IntroGate />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         {/* 디자인 검수 화면은 실제 API·로그인 없이 열려야 한다. VITE_MOCK=1 개발 서버에만 존재한다. */}
         {import.meta.env.VITE_MOCK === "1" && <Route path="/ui/errors" element={<ErrorPreviewPage />} />}
         {import.meta.env.VITE_MOCK === "1" && <Route path="/ui/workflows" element={<WorkflowPreviewPage />} />}
+        {import.meta.env.VITE_MOCK === "1" && <Route path="/ui/brand" element={<BrandPreviewPage />} />}
         <Route element={<RequireAuth />}>
           <Route element={<Layout />}>
             <Route index element={<HomePage />} />
