@@ -10,9 +10,12 @@
 - 활성화 점검 = 미리 보기와 같은 계산(장마감 기준) + 장중 확인(risk.preview live_check). 막히면 Blocked → 400 {"detail", "reasonCodes"}.
 - 알림 문장은 autotrade/text.py (쉬운 문장·전문가 문장·Discord 숫자 한 줄). PlanEvent.message·failure_reason은 원래 용어이고
   장중 가격 숫자를 넣지 않는다 (docs/API.md 공통 규칙).
+- 알림 합치기 (docs/API.md "알림 합치기", DECISIONS 23장): 활성화 요청 하나 안에서 이어진 사건(activated → order_placed → filled,
+  또는 failed)은 알림을 마지막 상태 하나만 보낸다 (웹·Discord). 사건(PlanEvent)은 다 남긴다. 엔진 루프의 사건은 하나씩 보낸다.
 """
 import logging
 import math
+from contextvars import ContextVar
 from datetime import datetime, timedelta
 
 from django.db import IntegrityError, transaction
@@ -44,6 +47,8 @@ TRANSIENT = (Unavailable, KiwoomApiError, OSError)  # 다음 번에 다시 시�
 VIA_LABEL = {"web": "웹", "discord": "Discord 링크"}
 MAX_STEPS = 4  # step 한 번에 이어서 바꿀 수 있는 상태 수 (주문 → 체결 → 청산)
 RECOVER_AFTER = timedelta(minutes=5)  # entry_pending인데 주문이 없으면 이만큼 기다린 뒤 active로 되돌린다
+# 활성화 요청 안에서 커밋된 알림 [(kind, notice, discord)] — 있으면 알림을 바로 보내지 않고 모았다가 마지막 하나만 보낸다
+_merged: ContextVar[list | None] = ContextVar("autotrade_merged_notices", default=None)
 
 
 class Blocked(Rejected):
@@ -107,12 +112,28 @@ def _notify(plan: TradePlan, kind: str, notice: notices.Notice, discord: bool = 
         logger.exception("계획 #%s 알림 실패", plan.id)
 
 
+def _later(plan: TradePlan, kind: str, notice: notices.Notice, discord: bool = True) -> None:
+    """트랜잭션이 커밋된 뒤에 알린다 (롤백되면 알림 없음). 활성화 요청 안이면 보내지 않고 모은다 (_send_last가 하나만 보낸다)."""
+    merged = _merged.get()
+    if merged is None:
+        transaction.on_commit(lambda: _notify(plan, kind, notice, discord))
+    else:
+        transaction.on_commit(lambda: merged.append((kind, notice, discord)))
+
+
+def _send_last(plan: TradePlan, merged: list) -> None:
+    """활성화 요청 안에서 모은 알림 중 마지막 상태 하나만 보낸다 (없으면 보내지 않는다)."""
+    if merged:
+        kind, notice, discord = merged[-1]
+        _notify(plan, kind, notice, discord)
+
+
 def _record(plan: TradePlan, kind: str, message: str, details: dict, notice: notices.Notice | None = None,
             discord: bool = True) -> None:
     """사건을 남기고 (notice가 있으면) 계획 주인에게 같은 kind로 알린다. 알림은 트랜잭션이 커밋된 뒤에 보낸다."""
     _event(plan, kind, message, details)
     if notice is not None:
-        transaction.on_commit(lambda: _notify(plan, kind, notice, discord))
+        _later(plan, kind, notice, discord)
 
 
 def _end(plan: TradePlan, frm, to: str, reason: str, details: dict | None = None, match: dict | None = None,
@@ -136,11 +157,30 @@ def activate(rec: Recommendation, user, budget_krw: float | None = None, via: st
 
     점검은 미리 보기와 같은 계산(장마감 기준)에 장중 확인을 더한 것이다 (risk.preview live_check). 막히면 Blocked
     (사유와 사유 코드, 아무것도 만들지 않는다). acknowledged: 실행 확인 체크리스트를 모두 켰는지 (activated 사건 details에 남긴다).
+    알림은 이 요청 안에서 이어진 사건의 마지막 상태 하나만 보낸다 (시작·주문 접수·체결 → "샀어요" 하나).
     """
     now = now or timezone.now()
     preview = risk.preview(rec, user, budget_krw, now, live_check=True)
     if not preview["activatable"]:
         raise Blocked(preview["reasons"], preview["reasonCodes"])
+    merged: list = []
+    token = _merged.set(merged)
+    try:
+        plan = _start(rec, user, budget_krw, via, now, preview, acknowledged)
+        try:
+            step(plan, now)
+        except Exception:  # 활성화는 성공으로 두고 엔진 루프가 이어 간다
+            logger.exception("계획 #%s 첫 진행 실패", plan.id)
+    finally:
+        _merged.reset(token)
+    transaction.on_commit(lambda: _send_last(plan, merged))  # 모은 알림 콜백들(먼저 등록됨) 뒤에 돈다
+    plan.refresh_from_db()
+    return plan
+
+
+def _start(rec: Recommendation, user, budget_krw: float | None, via: str, now: datetime, preview: dict,
+           acknowledged: bool) -> TradePlan:
+    """계획을 active로 만들고 activated·risk_checked 사건을 남긴다. 같은 종목 계획이 그사이 생겼으면 Blocked(plan_exists)."""
     try:
         with transaction.atomic():
             plan = TradePlan.objects.create(
@@ -156,15 +196,9 @@ def activate(rec: Recommendation, user, budget_krw: float | None = None, via: st
                    f"손익비 {rec.reward_risk:.2f})",
                    {"approved": preview["approved"], "quantity": plan.quantity, "limitedBy": preview["limitedBy"],
                     "rewardRisk": rec.reward_risk, "reasons": preview["reasons"]})
-            notice = texts.plan_activated(plan)
-            transaction.on_commit(lambda: _notify(plan, "plan_activated", notice))
+            _later(plan, "plan_activated", texts.plan_activated(plan))
     except IntegrityError:
         raise Blocked([risk.PLAN_EXISTS], ["plan_exists"]) from None
-    try:
-        step(plan, now)
-    except Exception:  # 활성화는 성공으로 두고 엔진 루프가 이어 간다
-        logger.exception("계획 #%s 첫 진행 실패", plan.id)
-    plan.refresh_from_db()
     return plan
 
 
@@ -253,7 +287,7 @@ def _place(plan: TradePlan, now: datetime, log, previous: int | None = None, qua
             linked = True
             _record(plan, "order_placed", f"{what} 주문 접수",
                     {"orderId": order_id, "limitPrice": plan.entry_price, "quantity": qty},
-                    texts.order_placed(plan, order_id, qty))
+                    texts.order_placed(plan, order_id, qty, started=_merged.get() is not None))
         else:
             linked = True
             details = {"orderId": order_id, "previousOrderId": previous}
@@ -303,7 +337,7 @@ def _watch_entry(plan: TradePlan, now: datetime, log) -> None:
                      filled_at=order.filled_at):
                 _record(plan, "filled", f"{plan.name} {qty_text(qty)} {money(order.fill_price, c)}에 진입 체결",
                         {"orderId": order.id, "fillPrice": order.fill_price, "quantity": qty},
-                        texts.filled(plan, order.fill_price, qty))
+                        texts.filled(plan, order.fill_price, qty, started=_merged.get() is not None))
         return
     if order.status == CANCELED:
         note = order.note or ""

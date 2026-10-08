@@ -2,6 +2,7 @@
 
 자료: Google 뉴스 RSS 제목(`paper_engine.data.news.fetch_news`, 최근 7일)과 증권사 목표주가 헤드라인
 (`broker_reports.stock_reports`, 최근 30일). 키가 필요 없고, 받지 못하면 "자료 없음"으로 LLM을 그대로 부른다 (선택 Worker).
+블로그·개인 콘텐츠 출처는 fetch_news가 빼고, 여기서도 출처 이름으로 한 번 더 뺀다 (`is_blocked_source`).
 제목·매체 이름은 모두 `guards.clean_text`를 거쳐 넣고, 지운 사유가 있으면 결과에 `_guarded`를 붙인다.
 headlines는 받은 제목에 있는 것만 남기고(날짜·매체·제목은 자료 값), 자료가 하나도 없으면 sentiment는 neutral·score는 null이다.
 """
@@ -9,7 +10,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from paper_engine.data import broker_reports
-from paper_engine.data.news import LOCALE, fetch_news
+from paper_engine.data.news import LOCALE, fetch_news, is_blocked_source
 
 from .. import healing
 from ..guards import clean_text, merge_reasons
@@ -121,9 +122,11 @@ def match_headlines(items: list[dict], known: list[dict]) -> list[dict]:
 
 
 def _clean(rows: list[dict], reasons: list[list[str]]) -> list[dict]:
-    """제목·매체·증권사 이름을 clean_text로 거른다 (지운 사유는 reasons에). 제목이 비면 뺀다."""
+    """제목·매체·증권사 이름을 clean_text로 거른다 (지운 사유는 reasons에). 제목이 비거나 블로그 출처면 뺀다."""
     out = []
     for row in rows:
+        if is_blocked_source(row.get("source")):
+            continue
         title, why = clean_text(row.get("title"), TITLE_MAX)
         reasons.append(why)
         if not title.strip():

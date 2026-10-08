@@ -4,7 +4,7 @@ import { http, HttpResponse } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReportDetail, TraceEvent } from "./api/types";
 import { DISCLAIMER } from "./lib/plainText";
-import { EXPERT_FAILURE_NOTE } from "./lib/reports";
+import { EXPERT_FAILURE_NOTE, VERDICT_TEXT } from "./lib/reports";
 import * as db from "./mocks/db";
 import { server } from "./mocks/server";
 import { renderApp } from "./test/render";
@@ -191,7 +191,9 @@ describe("리포트 목록·신청", () => {
     db.addSampleReports();
     renderApp("/reports");
     const list = await screen.findByRole("list", { name: "리포트 목록" });
-    await waitFor(() => expect(within(list).getAllByRole("listitem")).toHaveLength(5));
+    // 밥이 신청한 실패 리포트(에코프로)는 팀 리포트에 없다 — 남의 실패는 팀 피드에서 뺀다 (UX-15)
+    await waitFor(() => expect(within(list).getAllByRole("listitem")).toHaveLength(4));
+    expect(within(list).queryByText(/에코프로/)).toBeNull();
     const naver = within(list)
       .getAllByRole("listitem")
       .find((li) => li.textContent?.includes("NAVER"));
@@ -199,12 +201,7 @@ describe("리포트 목록·신청", () => {
     expect(within(naver as HTMLElement).getByText("AI 의견 매수")).toBeTruthy();
     expect(within(naver as HTMLElement).getByText("완료")).toBeTruthy();
     expect(within(naver as HTMLElement).getByText(/오를 근거가 더 많다고 봤다/)).toBeTruthy();
-    // 만드는 중·실패에는 의견이 없다
-    const failed = within(list)
-      .getAllByRole("listitem")
-      .find((li) => li.textContent?.includes("에코프로"));
-    expect(within(failed as HTMLElement).queryByText(/AI 의견/)).toBeNull();
-    expect(within(failed as HTMLElement).getByText("실패")).toBeTruthy();
+    // '장애 주입' 거르기는 실패까지 그대로 (시연용 — 실패는 report-e2efix.test.tsx)
 
     click("내 리포트");
     await waitFor(() => expect(within(screen.getByRole("list", { name: "리포트 목록" })).getAllByRole("listitem")).toHaveLength(1));
@@ -214,7 +211,8 @@ describe("리포트 목록·신청", () => {
     const rows = within(await screen.findByRole("list", { name: "교차검증 분석 목록" })).getAllByRole("listitem");
     const first = db.listAnalyses(null, null)[0];
     expect(rows[0].querySelector("a")?.getAttribute("href")).toBe(`/analyses/${first.id}`);
-    expect(within(rows[0]).getByText(first.verdict)).toBeTruthy();
+    // 판정은 전문가 보기도 한국어 (BUY 매수 · PASS 지켜보기)
+    expect(within(rows[0]).getByText(VERDICT_TEXT[first.verdict])).toBeTruthy();
     if (first.best) expect(within(rows[0]).getByText(/점수/)).toBeTruthy();
     if (first.priceAtAnalysis !== null) expect(within(rows[0]).getByText(/분석 시각 가격/)).toBeTruthy();
   });

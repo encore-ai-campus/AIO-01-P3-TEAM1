@@ -3,8 +3,10 @@
 금액은 시나리오 통화 기준으로 계산하고, 자산 대비 한도는 환율로 환산해 비교한다.
 탈락 사유(reasons)마다 같은 자리에 사유 코드(codes)를 둔다 — 화면이 코드로 쉬운 문장을 고른다
 (docs/API.md "실행 불가 사유 코드"). 새 사유를 더하면 그 표를 먼저 고친다.
+사유 문장의 숫자 뒤 조사(이/가)는 josa가 숫자를 읽는 소리로 고른다 ("손익비 0.73이", "손익비 1.5가").
 """
 import math
+import re
 from dataclasses import dataclass, field
 
 from .scenario import Scenario
@@ -37,6 +39,43 @@ LIMITS = {
                             max_daily_loss=0.03),
 }
 MIN_FRACTIONAL_AMOUNT = 1.0  # 소수점(금액) 매수의 최소 금액 (달러)
+
+# 숫자 한 자리를 읽는 소리(영 일 이 삼 사 오 육 칠 팔 구)에 받침이 있는지
+_DIGIT_FINAL = dict(zip("0123456789", (True, True, False, True, False, False, True, True, True, False)))
+_NUMBER_END = re.compile(r"(\d[\d,]*)(\.\d+)?$")
+
+
+def _has_final(word: str) -> bool | None:
+    """word를 읽을 때 마지막 소리에 받침이 있는지. 한글 음절·숫자가 아니면 None.
+
+    숫자는 읽는 소리로 본다: 소수는 마지막 자리(0.73 → 삼), 정수는 끝의 0을 자릿수 이름(십·백·천·만·억은 받침, 조는 없음)으로.
+    """
+    word = word.rstrip()
+    if not word:
+        return None
+    last = word[-1]
+    if "가" <= last <= "힣":
+        return (ord(last) - ord("가")) % 28 != 0
+    number = _NUMBER_END.search(word)
+    if number is None:
+        return None
+    integer, decimals = number.group(1).replace(",", ""), number.group(2)
+    if decimals:
+        return _DIGIT_FINAL[decimals[-1]]
+    zeros = len(integer) - len(integer.rstrip("0"))
+    if zeros == 0 or zeros == len(integer):  # 끝이 0이 아니거나 0 하나(영)
+        return _DIGIT_FINAL[integer[-1]]
+    return not 12 <= zeros < 16  # 십·백·천·만·억(받침) · 조(받침 없음) · 경(받침)
+
+
+def josa(word: str, final: str = "이", plain: str = "가") -> str:
+    """word 바로 뒤에 붙일 조사. 마지막 소리에 받침이 있으면 final(이·은·을), 없으면 plain(가·는·를).
+
+    josa("0.73") == "이", josa("1.5") == "가", josa("1,000") == "이", josa("삼성전자", "은", "는") == "는".
+    한글·숫자로 끝나지 않으면 둘 다 ("이(가)").
+    """
+    has = _has_final(word)
+    return f"{final}({plain})" if has is None else (final if has else plain)
 
 
 @dataclass(frozen=True)
@@ -94,7 +133,8 @@ def assess(scenario: Scenario, account: AccountContext, fractional: bool = False
     ev_per_share = s.probability * gain - (1 - s.probability) * loss
 
     if reward_risk < limits.min_reward_risk:
-        reject("reward_risk_low", f"손익비 {reward_risk:.2f}가 최소 기준 {limits.min_reward_risk:.1f}보다 낮음")
+        shown = f"{reward_risk:.2f}"
+        reject("reward_risk_low", f"손익비 {shown}{josa(shown)} 최소 기준 {limits.min_reward_risk:.1f}보다 낮음")
     if ev_per_share <= 0:
         reject("ev_negative", "비용을 반영한 기대값이 0 이하")
     if account.warnings:
@@ -167,7 +207,8 @@ def assess_position(price: float, quantity: float, account: AccountContext,
     cost = price * quantity * (1 + account.commission_rate)  # 종목 통화
     if cost > account.buying_power:
         codes.append("cash_short")
-        reasons.append(f"매수 금액 {_money(cost)}이 매수 가능 금액 {_money(account.buying_power)}보다 큼")
+        shown = _money(cost)
+        reasons.append(f"매수 금액 {shown}{josa(shown)} 매수 가능 금액 {_money(account.buying_power)}보다 큼")
     if limits.max_position is not None:
         equity = account.equity_krw / account.fx_rate  # 종목 통화로 환산
         if account.position_value + cost > equity * limits.max_position:

@@ -127,7 +127,7 @@ SAMPLES = {
                    "evidence": ["연합뉴스 2026-10-05"]},
     "ReportDraft": {"title": "삼성전자 종목 리포트", "verdict": "hold", "oneLiner": "AI 의견은 지켜보기",
                     "plainSummary": ["주가가 오르는 흐름이에요", "실적은 안정적이에요"], "markdown": "# 삼성전자\n\n본문",
-                    "reasons": ["추세 상승"], "risks": ["변동성"],
+                    "reasons": ["추세 상승"], "risks": ["가격이 크게 오르내릴 수 있음"],
                     "targets": {"entry": 70000, "target": 77000, "stop": 66000, "holdingDays": 10, "probability": 0.5},
                     "confidence": 60, "citations": ["일봉"]},
     "ReviewResult": {"verdict": "PASS", "score": 85, "issues": [], "instructions": None, "handoff": None},

@@ -17,7 +17,8 @@ import { useAnalysis, useQuotes } from "../api/queries";
 import type { AnalysisDetail, Currency, NewsItem, Scenario } from "../api/types";
 import { SourceRecommendations } from "../components/autotrade/SourceRecommendations";
 import { Term } from "../components/Term";
-import { AsOf, Card, EmptyState, ErrorState, Flash, PageHeader, PriceChange, Skeleton, SkeletonCard, VerdictBadge } from "../components/ui";
+import { VerdictText } from "../components/reports/VerdictText";
+import { AsOf, Card, EmptyState, ErrorState, Flash, PageHeader, PriceChange, Skeleton, SkeletonCard } from "../components/ui";
 import { useViewMode } from "../hooks/useBeginnerMode";
 import { useRevealAfterLoading } from "../hooks/useMotionState";
 import { crossCheckSummary, duringSession } from "../lib/autotrade";
@@ -339,7 +340,7 @@ export function AnalysisPage() {
                   {a.verdict === "BUY" ? "통과한 계획 있음" : "통과한 계획 없음"}
                 </span>
               ) : (
-                <VerdictBadge verdict={a.verdict} className="h-8 px-3 text-[15px]" />
+                <VerdictText verdict={a.verdict} className="h-8 px-3 text-[15px]" />
               )}
             </div>
             <p className="mt-3 text-[14px] text-sub">

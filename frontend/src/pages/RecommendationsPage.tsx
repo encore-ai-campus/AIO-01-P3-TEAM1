@@ -1,9 +1,11 @@
 // /recommendations: 새 계획 제안 목록 (전문가 보기: AI 추천, 팀 공용). 모의투자 탭 안의 화면이다 (docs/컨셉변경계획.md 4-1).
 // 쉬운 보기: 리포트에서 나온 계획만 앞에, 분석·연습용 예시는 접힌 "다른 계획 ○개" 안에 (출처는 늘 표시).
 // 필터(기한 안 / 전체), 카드를 누르면 실행 확인. 연습용 예시 계획 만들기(AI 아님)는 보조 도구라 목록 뒤(PC는 오른쪽 열)에 둔다.
-// 배치: 이 화면의 목적은 목록에서 고르는 것 — 목록 제목·필터 → 안내 한 줄 → 카드 → 다른 계획(접힘) → 만들기 (trade-26).
+// 배치: 이 화면의 목적은 목록에서 고르는 것 — 목록 제목·필터 → 안내 한 줄 → 카드 → 다른 계획(접힘) → 지금은 시작할 수 없는 제안(접힘) → 만들기 (trade-26).
+//   카드는 시작할 수 있는 것만 앞에 두고, 계좌와 무관한 사유(blockedBy)로 시작할 수 없는 것은 아래에 접는다. 같은 종목은 하나만 보이고
+//   나머지는 그 카드 안 '같은 종목의 이전 제안 n개'로 접는다 (UX-2, DECISIONS 23장). '전체' 필터에서는 시작할 수 없는 것(기한 지남 포함)을 펼쳐 둔다.
 //   연습용 예시는 개발·시연용(D-4)이라 쉬운 보기에서는 접어 둔다. PC는 [목록 | 만들기] 2단.
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { useCreateDemo } from "../api/autotrade";
 import { ApiError, errorMessage } from "../api/client";
@@ -16,7 +18,7 @@ import { useToast } from "../components/toast";
 import { Card, EmptyState, ErrorState, Notice, PageHeader, Segmented, SkeletonCard, Spinner } from "../components/ui";
 import { useViewMode } from "../hooks/useBeginnerMode";
 import { revealList, useRevealAfterLoading } from "../hooks/useMotionState";
-import { otherKinds, splitProposals } from "../lib/autotrade";
+import { type ProposalGroup, arrangeProposals, otherKinds } from "../lib/autotrade";
 import { cn } from "../lib/cn";
 
 type Filter = "open" | "all";
@@ -151,18 +153,39 @@ function DemoCreate({ easy, off, onOff }: { easy: boolean; off: boolean; onOff: 
   );
 }
 
-function CardList({ list, easy, label, reveal }: { list: Recommendation[]; easy: boolean; label: string; reveal: boolean }) {
+function CardList({ list, easy, label, reveal }: { list: ProposalGroup<Recommendation>[]; easy: boolean; label: string; reveal: boolean }) {
   // 카드 5개 이하면 순서대로 살짝 올라오고, 많으면 목록 전체가 한 번에 페이드 (처음 불러왔을 때만).
   // 방식은 처음 개수로 정해 둔다 (필터로 개수가 바뀌어 rise↔fade가 바뀌면 애니메이션이 다시 돈다)
   const [kind] = useState<"rise" | "fade">(() => (list.length <= 5 ? "rise" : "fade"));
   return (
-    <ul {...revealList(reveal, kind)} aria-label={label} className="grid gap-3 sm:grid-cols-2">
-      {list.map((r) => (
-        <li key={r.id}>
-          <RecommendationCard r={r} easy={easy} />
+    <ul {...revealList(reveal, kind)} aria-label={label} className="grid gap-3 sm:grid-cols-2 sm:items-start">
+      {list.map((g) => (
+        <li key={g.rec.id}>
+          <RecommendationCard r={g.rec} rest={g.rest} restOlder={g.restOlder} easy={easy} />
         </li>
       ))}
     </ul>
+  );
+}
+
+/** 목록 아래의 접힘 한 줄 (다른 계획 · 지금은 시작할 수 없는 제안). */
+function Fold({ id, label, open, onToggle, children }: { id: string; label: string; open: boolean; onToggle: () => void; children: ReactNode }) {
+  return (
+    <div>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={open ? id : undefined}
+        onClick={onToggle}
+        className="press flex min-h-12 w-full items-center justify-between gap-2 rounded-2xl bg-card px-4 py-2 text-left text-[15px] font-semibold text-sub hover:bg-line"
+      >
+        {label}
+        <Icon name="chevron-down" className={cn("size-5 shrink-0 text-mute-weak transition-transform duration-fast", open && "rotate-180")} />
+      </button>
+      <Collapse open={open} id={id} className="mt-3">
+        {children}
+      </Collapse>
+    </div>
   );
 }
 
@@ -174,8 +197,12 @@ export function RecommendationsPage() {
   const { data, isPending, isError, error, refetch, isFetching, isPlaceholderData } = useRecommendations({ status: filter }, true, { keepPrevious: true });
   const reveal = useRevealAfterLoading(isPending);
   const [showOthers, setShowOthers] = useState(false);
+  // 시작할 수 없는 제안: 기본은 접고, '전체'를 고르면 펼친다 (기한이 지난 것을 보려고 고른 필터다). 한 번 누르면 그 선택을 따른다
+  const [blockedOpen, setBlockedOpen] = useState<boolean | null>(null);
+  const showBlocked = blockedOpen ?? filter === "all";
   const [demoOff, setDemoOff] = useState(false);
-  const { main, others } = splitProposals(data?.results ?? [], easy);
+  const { ready, others, blocked } = arrangeProposals(data?.results ?? [], easy);
+  const empty = ready.length === 0 && others.length === 0 && blocked.length === 0;
   const setFilter = (v: Filter) =>
     setParams(
       (prev) => {
@@ -210,7 +237,7 @@ export function RecommendationsPage() {
           <div className="flex items-center justify-between gap-3 px-1">
             <h2 id="rec-list-title" className="text-[17px] font-bold">
               {heading}
-              {data && <span className="ml-1.5 text-[15px] font-semibold text-mute tabular-nums">{easy ? main.length : data.count}</span>}
+              {data && <span className="ml-1.5 text-[15px] font-semibold text-mute tabular-nums">{easy ? ready.length : data.count}</span>}
               {isPlaceholderData && <Spinner className="ml-2 size-3.5 align-[-2px] text-mute" />}
             </h2>
             <Segmented
@@ -230,7 +257,7 @@ export function RecommendationsPage() {
               ? "AI는 제안만 해요. 몇 주를 살지와 시작할 수 있는지는 안전장치가 내 모의 계좌로 정해요."
               : "AI는 제안만 합니다. 수량과 활성화 가능 여부는 리스크 엔진이 내 모의 계좌 기준으로 정합니다."}
           </p>
-          {isPending || (isPlaceholderData && main.length === 0 && others.length === 0) ? (
+          {isPending || (isPlaceholderData && empty) ? (
             // 처음 불러올 때만 스켈레톤. 앞 필터의 '없어요' 문구는 새 결과가 올 때까지 보이지 않는다
             <div className="grid gap-3 sm:grid-cols-2">
               <SkeletonCard lines={5} />
@@ -245,7 +272,7 @@ export function RecommendationsPage() {
               aria-busy={isPlaceholderData || undefined}
               className={cn("space-y-3 transition-opacity duration-fast", isPlaceholderData && "opacity-60")}
             >
-              {main.length === 0 && others.length === 0 ? (
+              {empty ? (
                 <Card>
                   <EmptyState
                     compact
@@ -260,27 +287,36 @@ export function RecommendationsPage() {
                 </Card>
               ) : (
                 <>
-                  {main.length > 0 ? (
-                    <CardList list={main} easy={easy} label="추천 목록" reveal={reveal} />
+                  {ready.length > 0 ? (
+                    <CardList list={ready} easy={easy} label="추천 목록" reveal={reveal} />
                   ) : (
-                    <p className="rounded-2xl bg-card px-5 py-4 text-[14px] text-mute">AI 리포트에서 나온 계획이 아직 없어요.</p>
+                    <p className="rounded-2xl bg-card px-5 py-4 text-[14px] text-mute">
+                      {easy
+                        ? others.length > 0
+                          ? "AI 리포트에서 나온 계획이 아직 없어요."
+                          : "지금 시작할 수 있는 계획 제안이 없어요. 아래에서 시작할 수 없는 이유를 볼 수 있어요."
+                        : "지금 활성화할 수 있는 추천이 없습니다."}
+                    </p>
                   )}
                   {others.length > 0 && (
-                    <div>
-                      <button
-                        type="button"
-                        aria-expanded={showOthers}
-                        aria-controls={showOthers ? "other-recs" : undefined}
-                        onClick={() => setShowOthers((v) => !v)}
-                        className="press flex h-12 w-full items-center justify-between rounded-2xl bg-card px-4 text-[15px] font-semibold text-sub hover:bg-line"
-                      >
-                        다른 계획 {others.length}개 ({otherKinds(others)})
-                        <Icon name="chevron-down" className={cn("size-5 text-mute-weak transition-transform duration-fast", showOthers && "rotate-180")} />
-                      </button>
-                      <Collapse open={showOthers} id="other-recs" className="mt-3">
-                        <CardList list={others} easy={easy} label="다른 계획 목록" reveal={false} />
-                      </Collapse>
-                    </div>
+                    <Fold
+                      id="other-recs"
+                      label={`다른 계획 ${others.length}개 (${otherKinds(others.map((g) => g.rec))})`}
+                      open={showOthers}
+                      onToggle={() => setShowOthers((v) => !v)}
+                    >
+                      <CardList list={others} easy={easy} label="다른 계획 목록" reveal={false} />
+                    </Fold>
+                  )}
+                  {blocked.length > 0 && (
+                    <Fold
+                      id="blocked-recs"
+                      label={easy ? `지금은 시작할 수 없는 제안 ${blocked.length}개` : `지금은 활성화할 수 없는 추천 ${blocked.length}개`}
+                      open={showBlocked}
+                      onToggle={() => setBlockedOpen(!showBlocked)}
+                    >
+                      <CardList list={blocked} easy={easy} label={easy ? "시작할 수 없는 제안 목록" : "활성화할 수 없는 추천 목록"} reveal={false} />
+                    </Fold>
                   )}
                 </>
               )}

@@ -18,7 +18,7 @@ import type {
 } from "./types";
 
 /**
- * 보유 중 계획의 전량 매도 요청을 지켜보는 두 조회 (계획 화면의 '매도 요청됨' ↔ '매도 예약이 취소됨' — trade-v06. 판단은 PlanPage).
+ * 보유 중 계획의 모두 팔기(전량 매도) 요청을 지켜보는 두 조회 (계획 화면의 '매도 요청됨' ↔ '매도 예약이 취소됨' — trade-v06. 판단은 PlanPage).
  * - reservation: 그 주문의 매도 예약이 지금 있는지. 사건 이력(exit_requested)만 보면 예약을 내 주식에서 취소한 뒤에도 '팔도록 요청했어요'에
  *   멈춘다 (서버는 예약이 없으면 중단을 다시 받는다 — backend/autotrade/executor.py cancel).
  * - held: 그 주문이 아직 보유 중(EXIT_WATCHING)인지. 장이 열리면 엔진이 예약을 먼저 지우고 팔며, 계획은 같은 바퀴의 뒤 단계에서야
@@ -42,6 +42,20 @@ export function useExitWatch(orderId: number | null, enabled: boolean) {
     ...live(POLL.orders),
   });
   return { reservation, held };
+}
+
+/**
+ * 보유 중 계획의 보유 기한 (연결된 모의 주문의 expireDate "YYYY-MM-DD", 없으면 null). 내 주식의 보유 카드와 같은 날짜를 보인다 (UX-11).
+ * 내 주식 화면과 같은 쿼리(진행 중 주문 목록)를 같이 쓰고, 기한은 바뀌지 않으므로 이 화면에서 따로 폴링하지 않는다.
+ */
+export function useOrderExpireDate(orderId: number | null, enabled: boolean) {
+  return useQuery({
+    queryKey: keys.orders("active"),
+    queryFn: () => api.get<Page<Order>>(`/api/orders${qs({ status: "active", limit: 50 })}`),
+    enabled: enabled && orderId != null,
+    select: (d) => d.results.find((o) => o.id === orderId)?.expireDate ?? null,
+    staleTime: 60_000,
+  });
 }
 
 /** 계획이 바뀌면 다시 받아야 하는 것들 (추천의 myPlan·planCount, 계획, 알림, 모의 계좌·주문). */
@@ -88,7 +102,7 @@ export function useCreateDemo() {
   });
 }
 
-/** 계획 중단: 주문 전·체결 대기면 취소, 보유 중이면 전량 매도 요청. */
+/** 계획 중단: 주문 전·체결 대기면 취소, 보유 중이면 모두 팔기(전량 매도) 요청. */
 export function useCancelPlan(id: number) {
   const qc = useQueryClient();
   const refresh = useRefreshAutotrade();

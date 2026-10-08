@@ -260,7 +260,8 @@ export const progressStepsOf = (team?: string | null): readonly ProgressStepDef[
 /** 검토 단계 담당자 (검토 실패는 그 단계에서 멈췄다). */
 const REVIEW_ACTORS = new Set(["review_agent", "selection_review_agent"]);
 
-export type ProgressState = "waiting" | "active" | "done" | "failed" | "skipped";
+/** again: 검토 AI가 고쳐 쓰게 해(RETRY) 고친 글을 다시 볼 차례 — 끝남 표시를 지운다 (처음부터 기다리는 단계처럼 보이지 않게 따로 둔다). */
+export type ProgressState = "waiting" | "active" | "done" | "failed" | "skipped" | "again";
 
 export const PROGRESS_STATE_TEXT: Record<ProgressState, string> = {
   waiting: "기다리는 중",
@@ -268,36 +269,69 @@ export const PROGRESS_STATE_TEXT: Record<ProgressState, string> = {
   done: "끝났어요",
   failed: "하지 못했어요",
   skipped: "건너뛰었어요",
+  again: "고친 글을 다시 봐요",
 };
+
+/** 검토 RETRY로 다시 쓰는(고르는) 단계 아래의 한 줄 (팀별). */
+export const REWRITE_NOTE: Record<string, string> = {
+  stock_report: "검토 AI가 고쳐 쓰라고 해서 다시 쓰는 중이에요",
+  [SELECTION_TEAM]: "선정을 검토하는 AI가 다시 고르라고 해서 다시 고르는 중이에요",
+};
+export const rewriteNoteOf = (team?: string | null): string => REWRITE_NOTE[team === SELECTION_TEAM ? SELECTION_TEAM : "stock_report"];
 
 export interface ProgressStep {
   actor: string;
   label: string;
   state: ProgressState;
   recovered: boolean; // 중간에 실패했지만 재시도·다른 AI로 끝냄
+  rewriting: boolean; // 검토 AI가 고쳐 쓰게 해 다시 하는 중 (화면이 이 단계 아래에 REWRITE_NOTE를 보인다)
 }
 
+/** 검토 결과가 다시 쓰기(RETRY)였는지 (검토 담당자의 agent_completed.details.verdict). */
+const isRetryVerdict = (e: TraceEvent | undefined) => e?.action === "agent_completed" && REVIEW_ACTORS.has(e.actor) && e.details.verdict === "RETRY";
+
 /**
- * Trace → 팀의 단계별 상태 (종목 리포트는 다섯 단계). 그 담당자의 마지막 사건으로 정한다 (검토 RETRY로 다시 쓰면 "지금 하는 중"으로 돌아간다).
+ * Trace → 팀의 단계별 상태 (종목 리포트는 다섯 단계). 그 담당자의 마지막 사건으로 정한다.
+ * 검토 RETRY: 검토 단계는 '끝났어요' 대신 '고친 글을 다시 봐요'(again), 다시 쓰는 단계는 마지막 review_retry 뒤에 끝나기 전까지
+ * '지금 하는 중' + rewriting — 끝난 단계가 아무 말 없이 '지금 하는 중'으로 돌아가 보이지 않게 까닭을 같이 보인다.
  * team: 리포트의 팀 (없으면 종목 리포트).
  */
 export function progressOf(trace: TraceEvent[], team?: string | null): ProgressStep[] {
+  let retryAt = -1;
+  for (let i = trace.length - 1; i >= 0; i--) {
+    if (trace[i].action === "review_retry") {
+      retryAt = i;
+      break;
+    }
+  }
+  const retryTarget = retryAt >= 0 ? str(trace[retryAt].details.target) : "";
   return progressStepsOf(team).map(({ actor, label }) => {
     const mine = trace.filter((e) => e.actor === actor);
     const last = mine[mine.length - 1];
     let state: ProgressState = "waiting";
     if (last) {
-      if (last.action === "agent_completed") state = "done";
+      if (isRetryVerdict(last)) state = "again";
+      else if (last.action === "agent_completed") state = "done";
       else if (last.action === "agent_skipped") state = "skipped";
       else if (isGiveUp(last)) state = "failed";
       else state = "active";
     }
-    return { actor, label, state, recovered: attemptHistory(trace, actor).recovered };
+    // 다시 쓰라는 지시(review_retry) 뒤에 아직 다시 끝내지 못한 단계: 시작 전이라도 '지금 하는 중' (지시를 받았다)
+    let rewriting = false;
+    if (actor === retryTarget && state !== "failed") {
+      const doneAfter = trace.slice(retryAt + 1).some((e) => e.actor === actor && e.action === "agent_completed");
+      if (!doneAfter) {
+        state = "active";
+        rewriting = true;
+      }
+    }
+    return { actor, label, state, recovered: attemptHistory(trace, actor).recovered, rewriting };
   });
 }
 
 /** 끝난 단계 수 (끝났어요·건너뛰었어요·하지 못했어요 — 더 기다릴 일이 없는 단계). */
-export const progressDone = (steps: readonly ProgressStep[]): number => steps.filter((s) => s.state !== "waiting" && s.state !== "active").length;
+export const progressDone = (steps: readonly ProgressStep[]): number =>
+  steps.filter((s) => s.state !== "waiting" && s.state !== "active" && s.state !== "again").length;
 
 /**
  * 진행 막대 값: 지금까지 끝난 단계 수의 최댓값. 검토 RETRY로 '리포트를 쓰는 중'이 다시 시작돼도 막대가 뒤로 가지 않게
@@ -312,10 +346,11 @@ export function progressPeak(trace: TraceEvent[], team?: string | null): number 
 /**
  * 진행 표시를 화면 읽기 프로그램에 알리는 한 줄 (보이는 글자와 겹치지 않게 따로 만든다).
  * done: 진행 막대에 보이는 끝난 단계 수 (없으면 지금 끝난 수) — 막대와 알림이 다른 숫자를 말하지 않게.
+ * rewriteNote: 검토 RETRY로 다시 하는 단계면 덧붙일 한 줄 (rewriteNoteOf).
  */
-export function progressAnnouncement(steps: readonly ProgressStep[], done: number = progressDone(steps)): string {
+export function progressAnnouncement(steps: readonly ProgressStep[], done: number = progressDone(steps), rewriteNote?: string): string {
   const active = steps.find((s) => s.state === "active");
-  if (active) return `지금: ${active.label} (${done}/${steps.length})`;
+  if (active) return `지금: ${active.label} (${done}/${steps.length})${active.rewriting && rewriteNote ? ` · ${rewriteNote}` : ""}`;
   return done === steps.length ? `${countWord(steps.length)} 단계를 모두 끝냈어요 (${done}/${steps.length})` : `진행 ${done}/${steps.length}`;
 }
 
@@ -413,12 +448,13 @@ export function draftOf(state: Pick<SharedState, "results">): DraftView | null {
   if (!isObj(d)) return null;
   const t = isObj(d.targets) ? d.targets : {};
   const verdict = d.verdict === "buy" || d.verdict === "hold" || d.verdict === "avoid" ? d.verdict : null;
+  // AI가 쓴 글은 그리기 전에 다듬는다 (쉼표 없는 금액·의견 영어 — cleanReportText)
   return {
     verdict,
-    oneLiner: text(d.oneLiner),
-    plainSummary: texts(d.plainSummary, 3),
-    reasons: texts(d.reasons, 3),
-    risks: texts(d.risks, 3),
+    oneLiner: cleanOrNull(text(d.oneLiner)),
+    plainSummary: texts(d.plainSummary, 3).map(cleanReportText),
+    reasons: texts(d.reasons, 3).map(cleanReportText),
+    risks: texts(d.risks, 3).map(cleanReportText),
     citations: texts(d.citations, 10),
     targets: {
       entry: finite(t.entry),
@@ -444,7 +480,7 @@ export function opinionOf(r: Pick<ReportDetail, "status" | "opinion" | "state">)
 /** 한 줄 요약: opinion과 같은 규칙. */
 export function oneLinerOf(r: Pick<ReportDetail, "status" | "oneLiner" | "state">): string | null {
   if (r.status !== "completed") return null;
-  return r.oneLiner ?? draftOf(r.state)?.oneLiner ?? null;
+  return r.oneLiner !== null && r.oneLiner !== undefined ? cleanReportText(r.oneLiner) : (draftOf(r.state)?.oneLiner ?? null);
 }
 
 // 아래 근거·'틀리는 경우' 함수(splitSource ~ withoutPriceClause)는 쉬운 PDF(backend/reports/easy_text.py)가 그대로 옮겨 쓴다 — 바꾸면 둘 다 고친다
@@ -665,7 +701,7 @@ export function researchOf(state: Pick<SharedState, "results">): { market: Marke
   return {
     market: isObj(m)
       ? {
-          summary: text(m.summary),
+          summary: cleanOrNull(text(m.summary)),
           price: finite(m.price),
           changePct: finite(m.changePct),
           asOf: text(m.asOf),
@@ -676,7 +712,7 @@ export function researchOf(state: Pick<SharedState, "results">): { market: Marke
       : null,
     fundamental: isObj(f)
       ? {
-          summary: text(f.summary),
+          summary: cleanOrNull(text(f.summary)),
           per: finite(metrics.per),
           pbr: finite(metrics.pbr),
           roe: finite(metrics.roe),
@@ -690,7 +726,7 @@ export function researchOf(state: Pick<SharedState, "results">): { market: Marke
       : null,
     news: isObj(n)
       ? {
-          summary: text(n.summary),
+          summary: cleanOrNull(text(n.summary)),
           headlines: rows(n.headlines)
             .map((x) => ({ date: text(x.date), title: text(x.title) ?? "", source: text(x.source) }))
             .filter((x) => x.title)
@@ -724,6 +760,8 @@ export function stepsOf(status: ReportStatus, executed: boolean, plan?: PlanCard
 /**
  * 완성 화면 머리의 다음 행동 안내 (매매 계획 카드 상태별, docs/컨셉변경계획.md 3장).
  * 준비 중·불러오는 중에는 없다 — 매매 계획 카드와 반대로 말하지 않게.
+ * 실행할 계획이 없는 경우(지켜보기·부정적·계획 없음)도 없다: "실행할 계획이 없어요"는 매매 계획 카드 한 곳에서만 말한다 (UX-8 — 머리·결론·카드에서 세 번 되풀이했다).
+ * 머리에서는 단계 막대 ③ '없음'이 같은 뜻을 보인다.
  * 카드의 자리를 말하지 않는다 ('아래' 아님): 모바일은 아래, PC는 오른쪽 열에 있다.
  */
 export function planGuide(plan: PlanCardState | "loading" | null | undefined): string | null {
@@ -732,10 +770,6 @@ export function planGuide(plan: PlanCardState | "loading" | null | undefined): s
       return "결론과 손실 금액을 확인했으면 매매 계획 카드에서 실행 준비로 넘어가요.";
     case "blocked":
       return "안전장치가 지금은 실행을 막았어요. 이유는 매매 계획 카드에 있어요.";
-    case "watch":
-    case "negative":
-    case "no_plan":
-      return "이 리포트로는 실행할 계획이 없어요.";
     case "expired":
       return "계획 기한이 끝났어요.";
     default:
@@ -743,9 +777,104 @@ export function planGuide(plan: PlanCardState | "loading" | null | undefined): s
   }
 }
 
-/** 진행 화면의 예상 시간: 최근 완성 리포트(최대 take개)의 시작~끝 시간 중앙값. 3건 미만이면 null (docs/컨셉변경계획.md 4-6). */
-export function typicalDurationMs(reports: Pick<ReportSummary, "status" | "startedAt" | "finishedAt">[], take = 10): number | null {
-  const ms = reports
+/** 계획 미니(결론 카드 안)를 보일 매매 계획 상태: 실행할 계획이 없는 상태는 매매 계획 카드만 말한다 (같은 말을 되풀이하지 않게). */
+export const showPlanMini = (plan: PlanCardState | "loading" | null | undefined): boolean =>
+  plan !== "watch" && plan !== "negative" && plan !== "no_plan";
+
+/**
+ * AI 의견의 뜻 한 줄 (쉬운 보기 결론 아래, UX-8). '지켜보기'·'부정적'이 이미 가진 사람에게 팔라는 말로 읽히지 않게.
+ * 긍정적은 매매 계획 카드가 다음 행동을 말하므로 없다. 권유·명령형을 쓰지 않는다 (docs/API.md "금지 표현").
+ */
+export const OPINION_MEANING: Partial<Record<ReportOpinion, string>> = {
+  hold: "지금은 사지 않고 지켜보자는 뜻이에요. 이미 가진 사람에게 팔라는 뜻은 아니에요.",
+  avoid: "지금 새로 사기에는 위험이 더 크다고 본 거예요. 이미 가진 사람에게 당장 팔라는 뜻은 아니에요.",
+};
+
+// ---------------------------------------------------------------- AI 글 다듬기 (옛 데이터용 화면 안전장치, UX-5)
+// 서버(리포트 Worker·Guard)가 새 리포트부터 고치지만, 이미 만든 리포트의 글은 그대로다. 리포트 화면에서 그릴 때만 바꾼다 (원문은 그대로 둔다).
+
+/** 의견 영어 표기 → 화면 말 (리포트 화면의 의견과 같은 말). */
+const VERDICT_WORD: Record<string, string> = { hold: "지켜보기", buy: "매수", sell: "매도", avoid: "부정적" }; // 백엔드 tidy.OPINION_KO와 같은 말
+
+/** 바꾼 말(모두 받침 없이 끝난다) 뒤에 바로 붙은 조사를 받침 없는 꼴로 ("sell이에요" → "매도예요"). */
+const PARTICLE_AFTER_VOWEL: [RegExp, string][] = [
+  [/^이에요/, "예요"],
+  [/^이었/, "였"],
+  [/^으로/, "로"],
+  [/^을/, "를"],
+  [/^은/, "는"],
+  [/^과/, "와"],
+  [/^이(?=[\s.,!?)]|$)/, "가"],
+];
+
+/** 앞뒤 글자로 의견 영어인지 본다: 한글이 바로 붙었거나("hold예요"), 뒤에 '의견'이 오거나, 앞이 "의견은 "·"의견: "일 때만 (영어 문장·뉴스 제목의 buy는 그대로). */
+function isVerdictContext(before: string, after: string): boolean {
+  return /^[가-힣]/.test(after) || /^\s*의견/.test(after) || /의견\s*(?:은|는|이|:)\s*$/.test(before);
+}
+
+/**
+ * 리포트의 AI 글을 그리기 전에 다듬는다: 쉼표 없는 원 금액("201000원" → "201,000원"), 문장 속 의견 영어(hold·buy·sell·avoid → 지켜보기·매수·매도·부정적, 바로 붙은 조사도 맞춘다).
+ * 이미 쉼표가 있거나 4자리 미만인 수, '원'이 붙지 않은 수(연도·개수)는 그대로다.
+ */
+export function cleanReportText(s: string): string {
+  // "2026 원/달러"·"원화"·"0123원"은 금액이 아니다 (백엔드 tidy._WON과 같은 규칙, 리뷰 R-11)
+  const withCommas = s.replace(/(?<![\d,.])([1-9]\d{3,})(?=\s?원(?![/화]))/g, (n) => Number(n).toLocaleString("en-US"));
+  return withCommas.replace(
+    /(?<![A-Za-z])(hold|buy|sell|avoid)(?![A-Za-z])(이에요|이었|으로|을|은|과|이(?=[\s.,!?)]|$))?/gi,
+    (m: string, word: string, particle: string | undefined, offset: number, all: string) => {
+      if (!isVerdictContext(all.slice(0, offset), all.slice(offset + word.length))) return m;
+      const p = particle ?? "";
+      const fixed = PARTICLE_AFTER_VOWEL.find(([re]) => re.test(p));
+      return VERDICT_WORD[word.toLowerCase()] + (fixed ? p.replace(fixed[0], fixed[1]) : p);
+    },
+  );
+}
+
+const cleanOrNull = (s: string | null): string | null => (s === null ? null : cleanReportText(s));
+
+/** 근거·위험 한 줄 (끝에 붙은 출처를 뗀 글과 출처). */
+export interface SourcedLine {
+  line: string; // 원문 (목록 key)
+  text: string;
+  source: string | null;
+}
+
+export interface ReasonsRisksView {
+  reasons: SourcedLine[];
+  risks: SourcedLine[]; // '틀리는 경우'로 옮긴 위험은 뺀다
+  stopLine: number | null; // 코드가 만드는 손절 문장의 가격 (긍정적이고 가격이 맞을 때만)
+  wrong: string | null; // '틀리는 경우'의 AI 문장 (손절 문장과 같은 뜻이면 null, 앞의 같은 손절 가격 조건은 뗀 글)
+}
+
+/**
+ * 근거와 위험 카드에 보일 글 (ReasonsRisks). 쉬운 보기가 AI 글의 용어 풀이를 붙일 때 같은 글을 미리 알아야 해서 함수로 둔다.
+ * targets: 손절 문장·가격 판단에 쓸 가격 (주지 않으면 draft.targets).
+ */
+export function reasonsRisksView(draft: DraftView, opinion: ReportOpinion | null, currency: Currency, targets?: ReportTargets): ReasonsRisksView {
+  const { risk, others } = whenWrongOf(draft, opinion);
+  const prices = targets ?? draft.targets;
+  const stopLine = opinion === "buy" && validTargets(prices) ? prices.stop : null;
+  const riskText = risk === null ? null : splitSource(risk).text;
+  // 손절 문장이 있으면 그 손절 가격만 말하는 AI 문장은 같은 뜻이라 숨긴다 (다른 금액·다른 조건이면 그대로 — 위험 목록에서 이미 옮겨 왔으므로 지우지 않는다)
+  const kept = riskText !== null && !(stopLine !== null && priceOnlyRisk(riskText, stopLine, currency)) ? riskText : null;
+  // 손절 문장이 가격을 말하므로 AI 문장 앞의 같은 손절 가격 조건은 떼고 다른 조건만 (같은 가격을 두 번 보이지 않게)
+  const wrong = kept !== null && stopLine !== null ? withoutPriceClause(kept, stopLine, currency) : kept;
+  const sourced = (line: string): SourcedLine => ({ line, ...splitSource(line) });
+  return { reasons: draft.reasons.map(sourced), risks: others.map(sourced), stopLine, wrong };
+}
+
+/** 교차검증 분석 판정의 전문가 표기 (BUY 매수 · PASS 지켜보기 — 리포트 의견 '지켜보기'와 같은 말, UX-5). */
+export const VERDICT_TEXT: Record<AnalysisSummary["verdict"], string> = { BUY: "매수", PASS: "지켜보기" };
+
+/**
+ * 팀 피드(리포트 목록의 팀 리포트)에 보일 리포트인지 (UX-15): 남이 신청한 실패 리포트와 자동 리포트 실패는 뺀다 — 서비스가 고장 난 것처럼 보인다.
+ * 내 실패는 '다시 만들기'와 함께 남긴다. mine: 내 리포트인지.
+ */
+export const inTeamFeed = (r: Pick<ReportSummary, "status">, mine: boolean): boolean => r.status !== "failed" || mine;
+
+/** 최근 완성 리포트(최대 take개)의 시작~끝 시간 (ms, 짧은 순). */
+function recentDurations(reports: Pick<ReportSummary, "status" | "startedAt" | "finishedAt">[], take: number): number[] {
+  return reports
     .filter((r) => r.status === "completed" && r.startedAt && r.finishedAt)
     .map((r) => ({ end: Date.parse(r.finishedAt ?? ""), start: Date.parse(r.startedAt ?? "") }))
     .filter((x) => Number.isFinite(x.end) && Number.isFinite(x.start) && x.end >= x.start)
@@ -753,14 +882,46 @@ export function typicalDurationMs(reports: Pick<ReportSummary, "status" | "start
     .slice(0, take)
     .map((x) => x.end - x.start)
     .sort((a, b) => a - b);
+}
+
+/** 진행 화면의 예상 시간: 최근 완성 리포트(최대 take개)의 시작~끝 시간 중앙값. 3건 미만이면 null (docs/컨셉변경계획.md 4-6). */
+export function typicalDurationMs(reports: Pick<ReportSummary, "status" | "startedAt" | "finishedAt">[], take = 10): number | null {
+  const ms = recentDurations(reports, take);
   if (ms.length < 3) return null;
   const mid = Math.floor(ms.length / 2);
   return ms.length % 2 ? ms[mid] : (ms[mid - 1] + ms[mid]) / 2;
 }
 
-export const durationSentence = (ms: number): string => `지난 리포트들은 보통 ${Math.max(1, Math.round(ms / 60_000))}분쯤 걸렸어요`;
+/**
+ * 진행 화면의 걸린 시간 범위 (분): 최근 완성 리포트(최대 take개)의 시작~끝 시간 중 가운데 절반(아래 1/4 ~ 위 1/4 — 유난히 오래 걸린 한 건에 끌리지 않게).
+ * 아래는 반올림(최소 1분), 위는 올림. 3건 미만이면 null. 한 값 하나로 말하면 넘겼을 때 '고장인가' 싶다 (UX-7: "보통 1분"인데 2분).
+ */
+export function typicalDurationRange(reports: Pick<ReportSummary, "status" | "startedAt" | "finishedAt">[], take = 10): { lo: number; hi: number } | null {
+  const ms = recentDurations(reports, take);
+  if (ms.length < 3) return null;
+  const n = ms.length - 1;
+  const lo = Math.max(1, Math.round(ms[Math.floor(n * 0.25)] / 60_000));
+  const hi = Math.max(lo, Math.ceil(ms[Math.ceil(n * 0.75)] / 60_000));
+  return { lo, hi };
+}
 
-/** 기다린 시간 ("방금" · "3분" · "2시간" · "1일"). 진행 화면의 "시작한 지 ○분"에 쓴다. */
+/** 걸린 시간 안내: "보통 1~3분 걸려요" (범위가 한 값이면 "보통 2분쯤 걸려요", 자료가 없으면 기본 문장). */
+export function durationSentence(range: { lo: number; hi: number } | null): string {
+  if (!range) return "보통 몇 분 걸려요";
+  return range.lo === range.hi ? `보통 ${range.lo}분쯤 걸려요` : `보통 ${range.lo}~${range.hi}분 걸려요`;
+}
+
+/**
+ * 진행 화면의 기다린 시간: 늘 신청 시각 기준 한 문장 ("신청한 지 1분이 안 됐어요" · "신청한 지 3분").
+ * 시작 시각으로 기준을 바꾸면 "신청한 지 1분 → 방금 시작했어요"처럼 시간이 뒤로 가 보인다 (UX-7).
+ */
+export function requestedAgoText(createdAt: string | null | undefined, now: number): string | null {
+  const t = elapsedText(createdAt, now);
+  if (t === null) return null;
+  return t === "방금" ? "신청한 지 1분이 안 됐어요" : `신청한 지 ${t}`;
+}
+
+/** 기다린 시간 ("방금" · "3분" · "2시간" · "1일"). 진행 화면의 "신청한 지 ○분"에 쓴다. */
 export function elapsedText(fromIso: string | null | undefined, now: number): string | null {
   const from = fromIso ? Date.parse(fromIso) : NaN;
   if (!Number.isFinite(from)) return null;

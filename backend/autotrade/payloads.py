@@ -9,6 +9,7 @@ from django.db.models import Count
 from django.utils import timezone
 from trading.store import iso
 
+from . import risk
 from .models import PlanEvent, Recommendation, TradePlan
 
 
@@ -23,7 +24,8 @@ def _status(rec: Recommendation, now: datetime) -> str:
 
 def recommendation(rec: Recommendation, nickname: str | None, my_plan: dict | None, plan_count: int,
                    now: datetime | None = None) -> dict:
-    """Recommendation."""
+    """Recommendation. blockedBy는 리스크 엔진과 같은 계산 (risk.blocked_by)."""
+    now = now or timezone.now()
     return {
         "id": rec.id, "source": rec.source, "sourceId": _source_id(rec), "requestedBy": nickname,
         "symbol": rec.symbol, "name": rec.name, "market": rec.market, "currency": rec.currency,
@@ -32,9 +34,9 @@ def recommendation(rec: Recommendation, nickname: str | None, my_plan: dict | No
         "stopLossRate": rec.stop_loss_rate, "rewardRisk": rec.reward_risk, "probability": rec.probability,
         "probabilityAssumed": rec.probability_assumed, "expectedReturn": rec.expected_return,
         "confidence": rec.confidence, "summary": rec.summary, "reasons": rec.reasons, "risks": rec.risks,
-        "riskLevel": rec.risk_level, "status": _status(rec, now or timezone.now()),
+        "riskLevel": rec.risk_level, "status": _status(rec, now),
         "validUntil": iso(rec.valid_until), "createdAt": iso(rec.created_at),
-        "myPlan": my_plan, "planCount": plan_count,
+        "myPlan": my_plan, "planCount": plan_count, "blockedBy": risk.blocked_by(rec, now),
     }
 
 

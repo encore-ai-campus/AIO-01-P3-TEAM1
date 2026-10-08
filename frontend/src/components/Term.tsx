@@ -1,5 +1,6 @@
 // 용어를 눌러서 풀이를 보는 조각: <Term k="손익비" /> 또는 <Term k="손절">손절 가격</Term>.
-// 다시 누르거나, 바깥을 누르거나, Esc를 누르거나, 포커스가 용어를 떠나면(Tab) 닫힌다. 풀이는 lib/glossary.ts (화면 고정 사전).
+// 다시 누르거나, 바깥을 누르거나, Esc를 누르거나, 포커스가 용어를 떠나면(Tab) 닫힌다. 풀이는 lib/glossary.ts (화면 고정 사전)
+// + lib/reportTerms.ts (AI 글에만 나오는 용어 — 이동평균선·지지선·저항선·등락률·밸류에이션, 쉬운 보기 리포트가 AI 글에 자동으로 붙인다).
 // 풀이 상자는 body에 띄우고(position: fixed) 화면 안에 들어오게 자리를 잡는다 — 360px 화면의 오른쪽 열(표의 셋째 칸 등)이나
 // 가로 스크롤 상자(overflow-x-auto) 안의 용어도 잘리거나 페이지 가로 스크롤을 만들지 않게. 아래에 자리가 없으면 위로 연다.
 // 열 때만 용어 쪽에서 살짝 커지며 나타나고(index.css .tooltip-pop, 꼬리 자리가 기준점), 닫힘은 바로다. 꼬리가 어느 용어의 풀이인지 잇는다.
@@ -7,7 +8,7 @@
 import { type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "../lib/cn";
-import { GLOSSARY, type GlossaryKey } from "../lib/glossary";
+import { type TermKey, termEntry } from "../lib/reportTerms";
 
 /** 화면 가장자리와 띄우는 거리(px) — 페이지 좌우 여백과 같다. */
 const GUTTER = 16;
@@ -28,8 +29,8 @@ function placeTooltip(anchor: DOMRect, tip: { width: number; height: number }, v
   return { left, top: side === "top" ? above : below, side, tailX };
 }
 
-export function Term({ k, children, className }: { k: GlossaryKey; children?: ReactNode; className?: string }) {
-  const entry = GLOSSARY[k];
+export function Term({ k, children, className }: { k: TermKey; children?: ReactNode; className?: string }) {
+  const entry = termEntry(k);
   const [open, setOpen] = useState(false);
   const id = useId();
   const btn = useRef<HTMLButtonElement>(null);

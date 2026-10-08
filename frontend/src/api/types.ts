@@ -157,7 +157,15 @@ export interface Position {
   stopPrice: number | null;
   expireDate: string | null;
   filledAt: string;
+  /**
+   * 평가에 쓴 가격 (docs/API.md "장마감 기준", 2026-10-08 DECISIONS 23장). 없으면 "close"로 본다.
+   * close: 직전 장마감 종가 · today_fill: 장마감 기준 시각 뒤에 산 보유(오늘 산 종목)라 체결가로 평가(손익 0, 장 마감 뒤 종가로 바뀜)
+   * · fill: 종가를 받지 못해 체결가로 평가
+   */
+  priceBasis?: PositionPriceBasis;
 }
+
+export type PositionPriceBasis = "close" | "today_fill" | "fill";
 
 export interface AccountSummary {
   initialCapitalKrw: number;
@@ -596,6 +604,11 @@ export interface Recommendation {
   createdAt: string;
   myPlan: { id: number; status: TradePlanStatus } | null;
   planCount: number;
+  /**
+   * 계좌와 무관하게 지금 이 추천의 시작(활성화)을 막는 사유 코드 (reward_risk_low · ev_negative · expired · halted 중, 2026-10-08 DECISIONS 23장).
+   * 비어 있어도 내 계좌 사정(현금·한도·같은 종목)으로 막힐 수 있다 — 최종 판단은 RiskPreview. 없으면 []로 본다.
+   */
+  blockedBy?: ReasonCode[];
 }
 
 /**

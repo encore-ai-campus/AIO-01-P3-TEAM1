@@ -65,6 +65,11 @@ B1(`ReportDraft.plainSummary`)은 HTTP가 아니라 리포트 출력 계약이�
 - **`asOf`**(가격 기준 시각, ISO): 종가 봉 날짜의 정규장 종료 시각. 장 달력에 그 날짜가 있으면 그 종료 시각, 없으면 KR `15:30+09:00`, US 뉴욕 `16:00`.
   봉 날짜를 쓰므로 장 달력이 휴일을 몰라도(예: 키움 + `DATA_GOKR_API` 없음) 실제 마지막 거래일로 표시된다.
 - 화면 표기: KR "10월 2일(금) 15:30 장마감 기준", US "10월 2일(금) 16:00(뉴욕) 장마감 기준". 가격·평가를 보이는 곳마다 옆에 붙인다.
+- **오늘 산 종목** (2026-10-08 사용자 결정, DECISIONS 23장): 그 시장의 장마감 기준 시각(평가에 쓸 종가의 `asOf`) **뒤에 체결된 보유**는 그 종가로 평가하지 않고
+  **체결가로 평가**한다 (손익 0, `Position.priceBasis: "today_fill"`). 기준일이 오늘로 바뀌면(KR 15:40) 그날 종가로 평가된다.
+  원가는 오늘 실시간 체결가인데 평가는 어제 종가라 생기던 가짜 손익(예: 어제 종가 79,900 · 오늘 76,600에 삼 → "+4.31%")을 없앤다.
+  `AccountSummary`·`Position`·`Ranking`(그리고 그것을 쓰는 홈·마이) 모두 같은 규칙이다. 일별 자산 기록(15:40 이후)은 그날 종가라 영향이 없다.
+  미국 종목은 원화 환산에 지금 환율을 쓰므로 체결 뒤 환율이 바뀐 만큼 손익이 생긴다 (달러 기준 손익은 0).
 - **장마감 기준인 것**: ~~`Quote`, `StockDetail`(일봉은 완성 봉만)~~(2026-10-06 실시간으로 바뀜 — 현재가를 받지 못할 때만 장마감 기준), `AccountSummary`·`Position`(평가·수익률), `Ranking`,
   일별 자산(`/api/account/equity` — 그날 기록은 KR 기준일이 오늘이 된 뒤(국내 거래일 15:40 KST 이후) 남기고, 국내 보유는 그날 종가, 미국 보유는 그때의 최신 미국 종가(`AccountSummary.pricesAsOf.US`와 같은 값)로 평가한다),
   `RiskPreview`(금액·자산 기준 포함)와 활성화 수량, `Recommendation.priceAtCreation`(출처와 무관하게 만들 때의 종가 — 분석에서 나온 추천(`from_analysis`)도 분석 시각 가격이 아니라 만들 때의 종가), 시연 추천의 진입가, 리포트 PDF 차트,
@@ -233,6 +238,9 @@ interface Position {             // 보유 중(EXIT_WATCHING)인 주문의 평�
   profitRate: number | null;
   targetPrice: number | null; stopPrice: number | null; expireDate: string | null;
   filledAt: string;
+  priceBasis: "close" | "today_fill" | "fill";   // 평가에 쓴 가격 (2026-10-08, DECISIONS 23장). close: 직전 장마감 종가 ·
+                               // today_fill: 그 시장의 장마감 기준 시각(종가 asOf) 뒤에 체결된 보유 = 오늘 산 종목 → 체결가로 평가 (lastPrice는 직전 종가 그대로, valueKrw = 체결가 × 수량)
+                               // · fill: 종가를 받지 못해 체결가로 평가 (lastPrice null). 화면은 today_fill이면 "오늘 산 종목은 장 마감 뒤에 평가돼요"
 }
 
 interface AccountSummary {       // My Page · 홈 자산 카드. 평가는 장마감 기준
@@ -692,6 +700,15 @@ SSE 형식 (실행 Event를 발생 즉시 한 방향으로 전달):
   상세(매매 계획 카드)는 `GET /api/recommendations?source=report&sourceId={리포트 id}&status=all`로 받는다 (기한이 지난 추천까지 와야 "기한 지남" 상태를 보인다).
   두 쿼리는 지금 서버가 된다 (2026-10-04 `autotrade/views.py`로 확인. 페이지 상한은 100).
 
+리포트 글 후처리와 쉬운 글 Guard (2026-10-08, DECISIONS 23장 — `backend/reports/tidy.py`, `guards.easy_jargon`):
+- Worker 결과는 출력 계약을 통과한 뒤 State에 넣기 전에 후처리한다: 쉼표 없는 원 금액("201000원" → "201,000원"), 한국어 문장 속 의견 영어
+  (buy·hold·watch·sell·avoid → 매수·지켜보기·지켜보기·매도·부정적, 뒤 조사 맞춤). `verdict` 같은 값 필드와 `citations`는 바꾸지 않는다. 추천의 근거·위험도 이 값을 옮긴다.
+- 종목 리포트 초안의 쉬운 글(`oneLiner`·`plainSummary`·`reasons`·`risks`)에 전문 용어(`tidy.JARGON` — 이동평균선·지지선·RSI·PER·밸류에이션 등)가 있으면
+  검토 Worker가 코드 점검 문제로 RETRY한다(Trace `review_retry`에 걸린 용어). 검토 반복 한도를 넘으면 실패시키지 않고 용어 뒤에 괄호 풀이를 붙여 통과한다.
+  전문 용어와 지표 숫자는 `markdown` 본문에만 쓴다. 최소 손익비 숫자는 지금처럼 프롬프트에 넣지 않는다.
+- 뉴스 근거에서 블로그·개인 콘텐츠를 뺀다 (네이버 블로그·프리미엄콘텐츠·포스트, 티스토리, 브런치 — 엔진 `data/news.py`). 교차검증 분석·장기투자 뉴스도 같다.
+- 화면은 옛 리포트(이 규칙 전)에도 같은 숫자·의견 치환과 용어 풀이(`frontend/src/lib/reports.ts`, `lib/reportTerms.ts`)를 그릴 때 적용한다.
+
 하루 리포트 한도 (2026-10-04 합의, D-7 — 구현: 2026-10-05 (Claude), `backend/reports/quota.py`, `docs/DECISIONS.md` 14-6):
 - 팀원마다 오늘(KST) 한도에 세는 리포트 수가 `AI_DAILY_REPORTS_PER_USER`(기본 3)에 닿으면 `POST /api/reports`가 새 리포트를 만들지 않고 `429 {"detail", "limit", "used"}`를 돌려준다.
 - 세는 것: 오늘 내가 신청한 리포트에서 **장애 주입 없이 `failed`로 끝난 것을 뺀** 수. 장애 주입을 켠 리포트는 실패해도 센다.
@@ -749,6 +766,9 @@ interface Recommendation {
   createdAt: string;
   myPlan: { id: number; status: TradePlanStatus } | null;   // 내가 활성화한 계획 (진행 중인 것, 없으면 가장 최근 것)
   planCount: number;              // 이 추천으로 활성화한 계획 수 (팀 전체)
+  blockedBy: string[];            // 계좌와 무관하게 지금 시작(활성화)을 막는 사유 코드 — reward_risk_low · ev_negative · expired · halted 중 (아래 "실행 불가 사유 코드"와 같은 코드,
+                                  // 같은 계산). 목록·홈에서 '시작할 수 없음'을 미리 보이고 정렬하는 데 쓴다. 비어 있어도 내 계좌 사정으로 막힐 수 있다 — 최종 판단은 RiskPreview
+                                  // (2026-10-08, DECISIONS 23장)
 }
 
 interface RiskPreview {           // 리스크 엔진이 "내 계좌"로 계산한 결과 (활성화 전 확인용). 가격·자산은 장마감 기준
@@ -899,7 +919,12 @@ interface NotificationSettings {
     Discord 글이 `[모매매 · 모의투자]`로 시작한다.
   - 권유 표현은 쓰지 않는다 — 공통 규칙 "금지 표현"의 `PERSUASION` (`forbidden_phrases(text)`가 빈 목록인지 쉬운 문장·전문가 문장 전부 테스트).
 - **Discord로 보내지 않는 알림** (웹 알림만): `daily_move`·`thesis_check`(사용자별 묶음이라 팀 채널 하나에 사람 수만큼 쌓이고, 등락 설명이 공개 채널에서 권유로 읽힐 수 있다). 구현: 2026-10-05 (Claude).
-- 프론트 폴링: 알림 개수 15초, 진행 중 계획 5초, 추천 목록 30초.
+- **알림 합치기** (2026-10-08, DECISIONS 23장): 한 계획에서 몇 초 안에 이어진 사건(활성화 → 주문 접수 → 체결처럼 활성화 요청 하나 안에서 일어난 것)은
+  웹 알림·Discord를 **마지막 상태 하나**로 보낸다 (예: 바로 체결되면 "샀어요" 하나). 사건 기록(`PlanEvent`, 계획 타임라인)은 그대로 다 남긴다.
+  구현 (2026-10-08, `autotrade/executor.py` `activate`): 바로 체결 → `filled` 하나("모의 자동매매를 시작하자마자 모의 계좌에서 … 샀어요"),
+  지정가 대기 → `order_placed` 하나(제목 "{종목} 모의 자동매매를 시작하고 매수 주문을 냈어요", 본문에 매도 규칙·진입 기한), 실패 → `failed` 하나,
+  첫 주문을 일시 오류로 못 냄 → `plan_activated` 하나. 엔진 루프가 나중에 만드는 사건(체결·재주문·청산 등)은 지금처럼 하나씩이다.
+- 프론트 폴링: 알림 개수 15초, 진행 중 계획 5초(진행 중 계획이 있을 때만. 없으면 30초 — 2026-10-08), 추천 목록 30초.
 
 ### 실행 불가 사유 코드 (`RiskPreview.reasonCodes`, 2026-10-04 합의, 컨셉 계획 B4 — 구현: 2026-10-05 (Claude))
 

@@ -201,7 +201,8 @@ describe("쉬운 보기 — 리포트 상세", () => {
     ]);
     expect(screen.getByText(REPORT_KEEPS_RUNNING)).toBeTruthy();
     // 기다리는 사람이 먼저 묻는 것: 얼마나 기다렸나 · 진행 막대(n/5, 단계 목록 밖) · 화면 읽기용 알림
-    expect(screen.getByText("방금 신청했어요")).toBeTruthy();
+    // 기다린 시간은 늘 신청 시각 기준 한 문장 (시작 시각으로 기준을 바꾸지 않는다 — UX-7)
+    expect(screen.getByText("신청한 지 1분이 안 됐어요")).toBeTruthy();
     const progress = screen.getByRole("progressbar", { name: "리포트 만들기 진행" });
     expect([progress.getAttribute("aria-valuenow"), progress.getAttribute("aria-valuemax")]).toEqual(["0", "5"]);
     expect(screen.getByText("진행 0/5").getAttribute("aria-live")).toBe("polite");
@@ -254,14 +255,24 @@ describe("쉬운 보기 — 리포트 상세", () => {
     click("예시로 보기: AI가 늦어지는 경우");
     click("멈춤");
     const bar = () => screen.getByRole("progressbar", { name: "리포트 만들기 진행" }).getAttribute("aria-valuenow");
-    // 검토가 RETRY를 낸 뒤 '리포트를 쓰는 중'이 다시 지금 단계가 될 때까지 넘긴다 (검토는 한 번 끝난 상태)
-    const rewriting = () => stepText(3).includes("지금 하는 중") && stepText(4).includes("끝났어요");
-    for (let i = 0; i < 30 && !rewriting(); i++) click("다음 단계");
+    const seen: number[] = [];
+    const next = () => {
+      click("다음 단계");
+      seen.push(Number(bar()));
+    };
+    // 검토가 RETRY를 낸 뒤 '리포트를 쓰는 중'이 다시 지금 단계가 될 때까지 넘긴다: 쓰기 단계 아래에 까닭 한 줄,
+    // 검토 단계는 '끝났어요'가 아니라 '고친 글을 다시 봐요' (UX-7 — 끝난 단계가 말없이 '지금 하는 중'으로 돌아가 보이지 않게)
+    const rewriting = () => stepText(3).includes("지금 하는 중") && stepText(3).includes(lib.rewriteNoteOf());
+    for (let i = 0; i < 30 && !rewriting(); i++) next();
     expect(rewriting()).toBe(true);
+    expect(stepText(4)).toContain("고친 글을 다시 봐요");
+    expect(stepText(4)).not.toContain("끝났어요");
     expect(bar()).toBe("4");
-    expect(screen.getByText("지금: 리포트를 쓰는 중 (4/5)")).toBeTruthy();
-    for (let i = 0; i < 30 && !screen.queryByRole("heading", { name: "예시 리포트가 완성됐어요" }); i++) click("다음 단계");
+    expect(screen.getByText(`지금: 리포트를 쓰는 중 (4/5) · ${lib.rewriteNoteOf()}`)).toBeTruthy();
+    for (let i = 0; i < 30 && !screen.queryByRole("heading", { name: "예시 리포트가 완성됐어요" }); i++) next();
     expect(bar()).toBe("5");
+    // 단계 수는 줄었다 늘었다 하지 않는다
+    expect(seen.every((n, i) => i === 0 || n >= seen[i - 1])).toBe(true);
     expect(screen.getByText("다섯 단계를 모두 끝냈어요 (5/5)")).toBeTruthy();
   });
 
@@ -278,7 +289,8 @@ describe("쉬운 보기 — 리포트 상세", () => {
     expect(await screen.findByRole("heading", { name: "NAVER AI 리포트" })).toBeTruthy();
     expect(screen.getByText("AI 의견: 긍정적")).toBeTruthy();
     expect(screen.getByText(OPINION_TEXT.buy.line)).toBeTruthy();
-    expect(screen.getByText(buy.oneLiner ?? "-")).toBeTruthy();
+    // 한 줄 요약 (AI 글 — 용어 풀이가 붙어 글자가 나뉠 수 있어 글 전체로 본다)
+    expect(screen.getByRole("region", { name: "AI 의견" }).textContent).toContain(buy.oneLiner ?? "-");
     // 단계: ① 끝, ② 지금 (검토·읽고 확인하기), ③ 아직 — 안전장치가 막은 계획은 나중에 풀릴 수 있어 '없음'이 아니라 '아직'
     const bar = within(screen.getByRole("list", { name: "리포트 단계" })).getAllByRole("listitem");
     expect(bar.map((li) => li.getAttribute("aria-current"))).toEqual([null, "step", null]);
@@ -325,7 +337,7 @@ describe("쉬운 보기 — 리포트 상세", () => {
     expect(document.activeElement).toBe(screen.getByRole("region", { name: "매매 계획" }));
 
     // 차트: 일봉(오늘 장중이면 진행 중인 봉까지) + 사는·목표·손절 가격 선(범례에 이름과 값), 실시간 기준 표기
-    expect(await screen.findByRole("img", { name: "일봉 차트와 계획 가격 선" })).toBeTruthy();
+    expect(await screen.findByRole("img", { name: "종가 선 차트와 계획 가격 선" })).toBeTruthy();
     const legend = screen.getByRole("list", { name: "차트의 가로선" });
     expect(within(legend).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
       `목표 가격 ${rec.targetPrice.toLocaleString("ko-KR")}원`,
@@ -338,10 +350,12 @@ describe("쉬운 보기 — 리포트 상세", () => {
     // 마지막 봉이 오늘 진행 중이라 기준 표시는 시세를 받은 시각 (KST)
     expect(screen.getByRole("region", { name: "가격 흐름" }).querySelector("time")?.textContent).toMatch(/^실시간 · 14:0\d:\d{2}$/);
 
-    // 조사 자료 요약: 시세 종가는 장마감 기준, 지표는 눌러서 풀이, 뉴스 출처 표기
+    // 조사 자료 요약: 시세 종가는 장마감 기준, 지표 칸은 "어려운 숫자 보기"에 접혀 있고(UX-4) 눌러서 풀이, 뉴스 출처 표기
     const research = screen.getByRole("region", { name: "조사 자료 요약" });
     expect(within(within(research).getByRole("region", { name: "시세" })).getByText(CLOSE_LABEL)).toBeTruthy();
-    fireEvent.click(within(research).getByRole("button", { name: "PER" }));
+    expect(within(research).queryByLabelText("재무 지표")).toBeNull();
+    fireEvent.click(within(research).getByRole("button", { name: "어려운 숫자 보기" }));
+    fireEvent.click(within(within(research).getByLabelText("재무 지표")).getByRole("button", { name: "PER" }));
     expect(screen.getByRole("tooltip").textContent).toContain("1주당 1년 순이익"); // 풀이 상자는 body에 뜬다
     expect(within(research).getByText("뉴스 제목: Google 뉴스 검색 결과(각 언론사)")).toBeTruthy();
 
@@ -443,7 +457,7 @@ describe("쉬운 보기 — 리포트 상세", () => {
     series.createPriceLine.mockClear();
     renderApp(`/reports/${buy.id}`, "bob");
     expect(await screen.findByText("AI 의견: 긍정적")).toBeTruthy();
-    expect(await screen.findByRole("img", { name: "일봉 차트와 계획 가격 선" })).toBeTruthy();
+    expect(await screen.findByRole("img", { name: "종가 선 차트와 계획 가격 선" })).toBeTruthy();
     expect(itemsOf("이 의견이 틀리는 경우")).toEqual(["실적이 나빠지면 의견을 다시 봐야 해요"]);
     expect(itemsOf("세 가지 경우")).toBeNull();
     expect(itemsOf("차트의 가로선")).toBeNull();
@@ -473,7 +487,7 @@ describe("쉬운 보기 — 리포트 상세", () => {
     freezeTime(NOW);
     const { hold } = samples();
     renderApp(`/reports/${hold.id}`, "bob");
-    const img = await screen.findByRole("img", { name: "일봉 차트와 계획 가격 선" });
+    const img = await screen.findByRole("img", { name: "종가 선 차트와 계획 가격 선" });
     const link = screen.getByRole("link", { name: "TradingView" });
     expect(link.getAttribute("href")).toBe("https://www.tradingview.com/");
     expect(img.contains(link)).toBe(false);
@@ -483,7 +497,7 @@ describe("쉬운 보기 — 리포트 상세", () => {
     freezeTime(NOW, { marketOpen: { KR: false, US: false } });
     const { hold } = samples();
     renderApp(`/reports/${hold.id}`, "bob");
-    await screen.findByRole("img", { name: "일봉 차트와 계획 가격 선" });
+    await screen.findByRole("img", { name: "종가 선 차트와 계획 가격 선" });
     const flow = screen.getByRole("region", { name: "가격 흐름" });
     await waitFor(() => expect(flow.querySelector("time")?.textContent).toBe(CLOSE_LABEL));
     expect(within(flow).getByRole("button", { name: CLOSE_LABEL })).toBeTruthy(); // 눌러서 풀이를 보는 용어
@@ -497,15 +511,24 @@ describe("쉬운 보기 — 리포트 상세", () => {
     renderApp(`/reports/${hold.id}`, "bob");
     expect(await screen.findByText("AI 의견: 지켜보기")).toBeTruthy();
     expect(screen.getByText(OPINION_TEXT.hold.line)).toBeTruthy();
-    expect(await screen.findByRole("img", { name: "일봉 차트와 계획 가격 선" })).toBeTruthy();
+    expect(await screen.findByRole("img", { name: "종가 선 차트와 계획 가격 선" })).toBeTruthy();
     expect(screen.queryByRole("list", { name: "세 가지 경우" })).toBeNull();
     expect(series.createPriceLine).not.toHaveBeenCalled();
     expect(screen.queryByText("가로선은 AI가 제안한 사는 가격·목표 가격·손절 가격이에요.")).toBeNull();
-    // 실행할 계획이 없는 리포트: ③은 '없음'(할 일이 남은 것처럼 보이지 않게)이고 안내 문장도 같은 말
+    // 실행할 계획이 없는 리포트: ③은 '없음'(할 일이 남은 것처럼 보이지 않게). "실행할 계획이 없어요"는 매매 계획 카드 한 곳만 (UX-8 — 머리 안내·계획 미니 없음)
     const bar = within(screen.getByRole("list", { name: "리포트 단계" })).getAllByRole("listitem");
     expect(await within(bar[2]).findByText(/없음/)).toBeTruthy();
-    expect(screen.getByText(lib.planGuide("watch") ?? "-")).toBeTruthy();
+    const card = await screen.findByRole("region", { name: "매매 계획" });
+    await waitFor(() => expect(card.getAttribute("data-state")).toBe("watch"));
+    expect(screen.getAllByText(/실행할 계획이 없어요/)).toHaveLength(1);
+    expect(screen.queryByLabelText("계획 미니")).toBeNull();
     expect(screen.queryByText(lib.planGuide("ready") ?? "-")).toBeNull();
+    // 결론 아래 뜻 한 줄: 가진 사람에게 팔라는 뜻이 아니다
+    expect(within(screen.getByRole("region", { name: "AI 의견" })).getByText(lib.OPINION_MEANING.hold ?? "-")).toBeTruthy();
+    // 막다른 길이 아니다: 다른 종목으로 · 시작할 수 있는 계획 제안 · 며칠 뒤 다시
+    expect(within(card).getByRole("link", { name: "다른 종목으로 리포트 만들기" }).getAttribute("href")).toBe("/search");
+    expect((await within(card).findByRole("link", { name: /^시작할 수 있는 계획 제안/ })).getAttribute("href")).toBe("/recommendations");
+    expect(within(card).getByRole("link", { name: "며칠 뒤 다시 만들기" }).getAttribute("href")).toBe(`/stocks/${hold.symbol}`);
     // 지켜보기에는 손절 문장 대신 위험에서 고른 문장
     const wrong = screen.getByRole("list", { name: "이 의견이 틀리는 경우" });
     expect(within(wrong).getAllByRole("listitem")).toHaveLength(1);
@@ -518,7 +541,7 @@ describe("쉬운 보기 — 리포트 상세", () => {
     const series = fakeSeries();
     series.createPriceLine.mockClear();
     renderApp(`/reports/${buy.id}`, "bob");
-    await screen.findByRole("img", { name: "일봉 차트와 계획 가격 선" });
+    await screen.findByRole("img", { name: "종가 선 차트와 계획 가격 선" });
     await waitFor(() => expect(series.createPriceLine).toHaveBeenCalledTimes(3));
     const lines = series.createPriceLine.mock.results.map((r) => (r.value as { applyOptions: ReturnType<typeof vi.fn> }).applyOptions);
     series.applyOptions.mockClear();
@@ -527,7 +550,8 @@ describe("쉬운 보기 — 리포트 상세", () => {
     act(() => setThemePref("dark"));
     await waitFor(() => expect(series.applyOptions).toHaveBeenCalled());
     // 봉 색과 가격 선 색이 다크 값으로 (다시 만들지 않는다 — 가격 선 수는 그대로 3)
-    expect(series.applyOptions).toHaveBeenLastCalledWith(expect.objectContaining({ upColor: "#F25C68", downColor: "#458EF7" }));
+    // 쉬운 보기는 종가 선 (UX-17) — 선 색이 다크의 상승·하락색 중 하나로
+    expect(series.applyOptions).toHaveBeenLastCalledWith({ color: expect.stringMatching(/^#(F25C68|458EF7)$/) });
     for (const l of lines) expect(l).toHaveBeenCalledTimes(1);
     expect(series.createPriceLine).toHaveBeenCalledTimes(3);
   });
@@ -714,7 +738,8 @@ describe("쉬운 보기 — 리포트 상세", () => {
     expect(stepText(3)).toContain("기다리는 중");
     expect(steps()[1].getAttribute("aria-current")).toBe("step");
     expect(screen.getByText("뉴스를 읽는 AI가 제대로 답하지 못해 한 번 더 시도해 끝냈어요")).toBeTruthy();
-    expect(await screen.findByText("지난 리포트들은 보통 2분쯤 걸렸어요")).toBeTruthy();
+    // 최근 완성 리포트(1·3·2분)의 범위 (UX-7 — 한 값으로 말하면 넘겼을 때 고장처럼 보인다)
+    expect(await screen.findByText("보통 1~3분 걸려요")).toBeTruthy();
     // 끝난 단계 수 막대(2/5)와 화면 읽기 프로그램용 지금 단계
     expect(screen.getByRole("progressbar", { name: "리포트 만들기 진행" }).getAttribute("aria-valuenow")).toBe("2");
     expect(screen.getByText("지금: 재무제표를 읽는 중 (2/5)")).toBeTruthy();
@@ -827,12 +852,20 @@ describe("lib/reports 쉬운 보기 함수", () => {
     at: `2026-10-05T01:00:0${step}Z`,
   });
 
-  it("progressOf: 담당자의 마지막 사건으로 다섯 단계 상태 (검토 RETRY로 다시 쓰면 다시 '지금 하는 중')", () => {
+  it("progressOf: 담당자의 마지막 사건으로 다섯 단계 상태 (검토 RETRY로 다시 쓰면 쓰기는 '지금 하는 중' + 까닭, 검토는 '고친 글을 다시 봐요')", () => {
     expect(lib.progressOf([]).map((s) => s.state)).toEqual(["waiting", "waiting", "waiting", "waiting", "waiting"]);
     expect(lib.progressOf(recovery).map((s) => s.state)).toEqual(["done", "done", "done", "done", "done"]);
     expect(lib.progressOf(recovery).find((s) => s.actor === "news_agent")?.recovered).toBe(true);
-    // 예시 ③의 17번째 사건(review_retry) 뒤 다시 작성 시작
-    expect(lib.progressOf(recovery.slice(0, 18)).map((s) => s.state)).toEqual(["done", "done", "done", "active", "done"]);
+    // 예시 ③의 17번째 사건(review_retry) 뒤 다시 작성 시작: 검토의 끝남 표시를 지운다
+    expect(lib.progressOf(recovery.slice(0, 18)).map((s) => s.state)).toEqual(["done", "done", "done", "active", "again"]);
+    expect(lib.progressOf(recovery.slice(0, 18)).map((s) => s.rewriting)).toEqual([false, false, false, true, false]);
+    // 검토가 RETRY를 낸 직후(지시 사건 전)에도 검토는 '끝났어요'가 아니다
+    const retryAt = recovery.findIndex((e) => e.action === "review_retry");
+    expect(lib.progressOf(recovery.slice(0, retryAt))[4].state).toBe("again");
+    // 지시는 받았지만 쓰기를 아직 시작하지 않았어도 쓰기 단계는 '지금 하는 중' + 까닭
+    expect(lib.progressOf(recovery.slice(0, retryAt + 1))[3]).toMatchObject({ state: "active", rewriting: true });
+    // 다시 쓰기가 끝나면 까닭 한 줄은 사라진다
+    expect(lib.progressOf(recovery).every((s) => !s.rewriting)).toBe(true);
     // 예시 ①: 선택 Worker(뉴스) 실패, 리포트 작성 전
     expect(lib.progressOf(normal.slice(0, 7)).map((s) => s.state)).toEqual(["done", "done", "failed", "waiting", "waiting"]);
     expect(lib.progressOf([ev(1, "report_agent", "agent_skipped", "skipped")])[3].state).toBe("skipped");
@@ -951,12 +984,13 @@ describe("lib/reports 쉬운 보기 함수", () => {
   });
 
   it("진행 막대·멈춘 단계·기다린 시간: 검토 뒤 다시 쓰기에도 막대는 뒤로 가지 않는다", () => {
-    // 예시 ③의 18번째 사건까지: 다시 쓰는 중이라 끝난 단계는 4개지만, 막대는 지금까지의 최댓값(5)을 지킨다
+    // 예시 ③의 18번째 사건까지: 다시 쓰는 중이라 끝난 단계는 3개(검토는 다시 볼 차례)지만, 막대는 지금까지의 최댓값(4)을 지킨다
     const upto = recovery.slice(0, 18);
-    expect(lib.progressDone(lib.progressOf(upto))).toBe(4);
-    expect(lib.progressPeak(upto)).toBe(5);
+    expect(lib.progressDone(lib.progressOf(upto))).toBe(3);
+    expect(lib.progressPeak(upto)).toBe(4);
     expect(lib.progressPeak([])).toBe(0);
-    expect(lib.progressAnnouncement(lib.progressOf(upto))).toBe("지금: 리포트를 쓰는 중 (4/5)");
+    expect(lib.progressAnnouncement(lib.progressOf(upto), 4)).toBe("지금: 리포트를 쓰는 중 (4/5)");
+    expect(lib.progressAnnouncement(lib.progressOf(upto), 4, lib.rewriteNoteOf())).toBe(`지금: 리포트를 쓰는 중 (4/5) · ${lib.rewriteNoteOf()}`);
     expect(lib.progressAnnouncement(lib.progressOf(recovery))).toBe("다섯 단계를 모두 끝냈어요 (5/5)");
     // 멈춘 단계: 검토 실패는 검토, 필수 실패는 그 단계, 아무것도 시작하지 않았으면 첫 단계
     const steps = lib.progressOf(normal.slice(0, 7));
@@ -991,6 +1025,10 @@ describe("lib/reports 쉬운 보기 함수", () => {
     expect(lib.elapsedText("2026-10-06T11:30:00+09:00", at)).toBe("2시간");
     expect(lib.elapsedText("2026-10-04T14:00:00+09:00", at)).toBe("2일");
     expect(lib.elapsedText(null, at)).toBeNull();
+    // 진행 화면의 한 문장: 늘 신청 시각 기준
+    expect(lib.requestedAgoText("2026-10-06T13:59:40+09:00", at)).toBe("신청한 지 1분이 안 됐어요");
+    expect(lib.requestedAgoText("2026-10-06T13:57:00+09:00", at)).toBe("신청한 지 3분");
+    expect(lib.requestedAgoText(null, at)).toBeNull();
   });
 
   it("교차검증 목록 한 줄·AI 이름·오늘 리포트", () => {
@@ -1025,8 +1063,15 @@ describe("lib/reports 쉬운 보기 함수", () => {
     expect(lib.typicalDurationMs([r("completed", at(0), at(1)), r("completed", at(2), at(5)), r("completed", at(10), at(12)), r("completed", at(20), at(24))])).toBe(150_000);
     // 최근 take개만
     expect(lib.typicalDurationMs([r("completed", at(0), at(9)), r("completed", at(10), at(11)), r("completed", at(20), at(21)), r("completed", at(30), at(31))], 3)).toBe(60_000);
-    expect(lib.durationSentence(150_000)).toBe("지난 리포트들은 보통 3분쯤 걸렸어요");
-    expect(lib.durationSentence(10_000)).toBe("지난 리포트들은 보통 1분쯤 걸렸어요");
+    // 걸린 시간 범위: 가운데 절반(아래 1/4 ~ 위 1/4), 아래는 반올림(최소 1분) · 위는 올림
+    expect(lib.typicalDurationRange([r("completed", at(0), at(1)), r("completed", at(2), at(4))])).toBeNull();
+    expect(lib.typicalDurationRange([r("completed", at(0), at(1)), r("completed", at(10), at(13)), r("completed", at(20), at(22))])).toEqual({ lo: 1, hi: 3 });
+    // 유난히 오래 걸린 한 건(20분)에 끌리지 않는다
+    const many = [1, 2, 2, 2, 3, 20].map((m, i) => r("completed", at(i * 2), `2026-10-05T${String(10 + Math.floor((i * 2 + m) / 60)).padStart(2, "0")}:${String((i * 2 + m) % 60).padStart(2, "0")}:00+09:00`));
+    expect(lib.typicalDurationRange(many)).toEqual({ lo: 2, hi: 3 });
+    expect(lib.durationSentence({ lo: 1, hi: 3 })).toBe("보통 1~3분 걸려요");
+    expect(lib.durationSentence({ lo: 2, hi: 2 })).toBe("보통 2분쯤 걸려요");
+    expect(lib.durationSentence(null)).toBe("보통 몇 분 걸려요");
   });
 
   it("단계 막대·목록 상태·한도 문장, 그리고 새 문장에 권유·단정 표현이 없다", () => {

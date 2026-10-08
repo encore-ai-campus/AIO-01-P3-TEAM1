@@ -5,9 +5,12 @@
 // 배치: PC는 왼쪽 본문(머리·단계·기록) + 오른쪽 고정 열(숫자·이동·멈추기 — 보유 중이면 노트북 화면보다 길 수 있어, 길면 아래 끝(멈추기)이
 //   보이게 붙는다: stickyFit). 모바일은 머리 → 단계(+가격 사다리) → 숫자 → 일어난 일 → 이동·멈추기
 //   ('어디쯤·얼마'를 기록보다 먼저, 위험 동작은 맨 끝에 구분선으로 떼어 — trade-24). 열 래퍼는 모바일에서 contents라 카드 순서(order)만 바뀐다.
+// 산 뒤에는 가격 사다리의 기준점이 산 가격이고 손절·목표 %도 산 가격 기준이다 (UX-3). 사는 가격을 기다리는 기한은 사기 전에만 보이고
+//   토·일이면 앞 금요일 장 마감으로, 보유 기한은 "11월 5일(목)까지 (최대 20거래일)"처럼 날짜와 거래일을 함께 (UX-11).
+//   보유 중 평가는 수수료·세금 빼기 전이라고 밝힌다 (UX-10).
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigationType, useParams } from "react-router";
-import { useCancelPlan, useExitWatch } from "../api/autotrade";
+import { useCancelPlan, useExitWatch, useOrderExpireDate } from "../api/autotrade";
 import { ApiError, errorMessage } from "../api/client";
 import { isPlanLive, useMarket, usePlan, useQuotes } from "../api/queries";
 import type { MarketSession, PlanEvent, TradePlanDetail } from "../api/types";
@@ -24,8 +27,8 @@ import {
   STICKY_FIT_TOP,
   closedMarketNotice,
   easySteps,
+  entryDeadlineLabel,
   exitReasonLabel,
-  kstDayOf,
   ladderDistances,
   planStatusOf,
   planWorkflow,
@@ -43,11 +46,11 @@ import {
   formatSignedPrice,
   trendClass,
 } from "../lib/format";
-import { PLAN_STATUS_TEXT, exitReasonText, planEventSentence, quotePriceName } from "../lib/plainText";
+import { PLAN_STATUS_TEXT, planEventSentence, planExitText, quotePriceName } from "../lib/plainText";
 
 /**
  * 멈추기(계획 중단) 확인 시트. 문구·버튼은 연 순간의 상태로 고정한다 — 열린 채 5초 폴링으로 상태가 바뀌어도
- * '주문 취소'로 읽은 대화상자에서 '전량 매도'가 나가지 않게 (trade-02).
+ * '주문 취소'로 읽은 대화상자에서 '모두 팔기'(전량 매도)가 나가지 않게 (trade-02).
  * - 열린 동안 체결되어 보유로 바뀌면: 위에 주의 안내를 띄우고 문구를 새 상태로 바꾼 뒤, 확인 버튼을 0.8초 막는다 (손가락 밑에서 바로 눌리지 않게).
  * - 열린 동안 계획이 끝나면(목표 청산·기한 만료 등): 닫고 결과 한 줄을 토스트로 알린다.
  * 처음 포커스는 안전한 '닫기'. 닫히면 연 버튼으로 돌아간다 (Sheet·useModal).
@@ -118,7 +121,7 @@ function StopSheet({
   useEffect(() => {
     if (!open || live || (mine.current && !failed)) return;
     onClose();
-    const result = plan.status === "closed" && plan.exitReason ? exitReasonText(plan.exitReason, easy) : easy ? PLAN_STATUS_TEXT[plan.status]?.line : planStatusOf(plan.status).label;
+    const result = plan.status === "closed" && plan.exitReason ? planExitText(plan.exitReason, easy) : easy ? PLAN_STATUS_TEXT[plan.status]?.line : planStatusOf(plan.status).label;
     toast(easy ? `이미 끝난 계획이에요 · ${result}` : `이미 끝난 계획입니다 · ${result}`);
   }, [open, live, failed, plan.status, plan.exitReason, easy, onClose, toast]);
 
@@ -217,7 +220,16 @@ function LadderNow({ p, easy }: { p: TradePlanDetail; easy: boolean }) {
   const lateLine = useChanged(line !== null);
   return (
     <div className="mt-5 border-t border-line pt-4">
-      <PriceLadder stop={p.stopPrice} entry={p.entryPrice} target={p.targetPrice} last={last} basis={basis} currency={p.currency} easy={easy} />
+      <PriceLadder
+        stop={p.stopPrice}
+        entry={p.entryPrice}
+        target={p.targetPrice}
+        fill={p.status === "holding" ? p.fillPrice : null}
+        last={last}
+        basis={basis}
+        currency={p.currency}
+        easy={easy}
+      />
       {/* 시세는 따로 받아 늦게 온다: 거리 한 줄과 기준 시각의 자리를 미리 잡아 둔다 (늦게 끼어들어 아래 카드를 밀지 않게) */}
       <div className="min-h-10">
         {line && (
@@ -233,6 +245,20 @@ function LadderNow({ p, easy }: { p: TradePlanDetail; easy: boolean }) {
       </div>
     </div>
   );
+}
+
+/** 사기 전인지 (사는 가격을 기다리는 기한이 아직 뜻이 있는 동안). */
+const beforeFill = (p: TradePlanDetail) => p.status === "active" || p.status === "entry_pending";
+
+/**
+ * 보유 기간 줄: 보유 중이면 연결된 모의 주문의 보유 기한 날짜와 거래일을 함께 "11월 5일(목)까지 (최대 20거래일)" (내 주식의 보유 카드와 같은 날짜),
+ * 사기 전이면 "산 뒤 최대 20거래일", 그 밖(끝남·날짜를 못 받음)이면 "최대 20거래일".
+ */
+function useHoldingSpan(p: TradePlanDetail): string {
+  const holding = p.status === "holding";
+  const { data: expire } = useOrderExpireDate(p.orderId, holding);
+  if (holding && expire) return `${formatDayLabel(expire)}까지 (최대 ${p.holdingDays}거래일)`;
+  return beforeFill(p) ? `산 뒤 최대 ${p.holdingDays}거래일` : `최대 ${p.holdingDays}거래일`;
 }
 
 /** 숫자 칸 하나. 값은 줄을 바꾸지 않고(자릿수 중간에서 갈라지지 않게), 보조 줄은 넘치면 줄임표 + 전체는 title (trade-03). */
@@ -252,6 +278,9 @@ function Cell({ label, children, sub, subClass }: { label: string; children: Rea
 
 function Numbers({ p, className }: { p: TradePlanDetail; className?: string }) {
   const { holding, last, asOf, basis, unrealized, rate } = useHoldingValue(p);
+  const span = useHoldingSpan(p);
+  // 산 뒤에는 목표·손절 %를 체결가 기준으로 (UX-3)
+  const base = p.fillPrice ?? p.entryPrice;
   return (
     // 칸 수는 화면이 아니라 카드 폭으로 정한다 (PC 오른쪽 열 360px에서는 2칸, 넓은 한 열에서는 4칸)
     <Card aria-labelledby="numbers-title" className={cn("@container", className)}>
@@ -277,18 +306,18 @@ function Numbers({ p, className }: { p: TradePlanDetail; className?: string }) {
       {holding && <AsOf at={asOf} market={p.market} basis={basis} className="mt-1 block text-right" />}
       <dl className="mt-3">
         <Row label="진입가 (지정가)">{formatPrice(p.entryPrice, p.currency)}</Row>
-        <Row label="목표가">
+        <Row label={p.fillPrice != null ? "목표가 (체결가 기준)" : "목표가"}>
           <span className="text-up">
-            {formatPrice(p.targetPrice, p.currency)} ({formatRate(p.targetPrice / p.entryPrice - 1, 1)})
+            {formatPrice(p.targetPrice, p.currency)} ({formatRate(p.targetPrice / base - 1, 1)})
           </span>
         </Row>
-        <Row label="손절가">
+        <Row label={p.fillPrice != null ? "손절가 (체결가 기준)" : "손절가"}>
           <span className="text-down">
-            {formatPrice(p.stopPrice, p.currency)} ({formatRate(p.stopPrice / p.entryPrice - 1, 1)})
+            {formatPrice(p.stopPrice, p.currency)} ({formatRate(p.stopPrice / base - 1, 1)})
           </span>
         </Row>
-        <Row label="보유 기간">{p.holdingDays}거래일</Row>
-        <Row label="진입 기한">{formatDateTime(p.entryDeadline)}</Row>
+        <Row label={p.status === "holding" ? "보유 기한" : "보유 기간"}>{span}</Row>
+        {beforeFill(p) && <Row label="진입 기한">{formatDateTime(p.entryDeadline)}</Row>}
         {p.budgetKrw != null && <Row label="예산">{formatKrw(p.budgetKrw)}</Row>}
         {p.filledAt && <Row label="체결 시각">{formatDateTime(p.filledAt)}</Row>}
         {p.closedAt && <Row label="청산 시각">{formatDateTime(p.closedAt)}</Row>}
@@ -299,6 +328,7 @@ function Numbers({ p, className }: { p: TradePlanDetail; className?: string }) {
 
 function EasyNumbers({ p, className }: { p: TradePlanDetail; className?: string }) {
   const { holding, last, asOf, basis, unrealized, rate } = useHoldingValue(p);
+  const span = useHoldingSpan(p);
   return (
     <Card aria-labelledby="numbers-title" className={className}>
       <h2 id="numbers-title" className="mb-2 text-[17px] font-bold">
@@ -306,7 +336,7 @@ function EasyNumbers({ p, className }: { p: TradePlanDetail; className?: string 
       </h2>
       {holding && (
         <div className="mb-2 rounded-xl bg-fill p-3">
-          <p className="text-[12px] text-mute">{basis === "live" ? "지금 가격으로 본 평가 (비용 전)" : "직전 종가로 본 평가 (비용 전)"}</p>
+          <p className="text-[12px] text-mute">{basis === "live" ? "지금 가격으로 본 평가 (수수료·세금 빼기 전)" : "직전 종가로 본 평가 (수수료·세금 빼기 전)"}</p>
           {/* 시세로 바뀌는 금액이라 전문가 보기와 같은 Flash로 알린다 (trade-31) */}
           <p className={cn("text-[19px] font-bold tabular-nums", trendClass(unrealized))}>
             <Flash value={unrealized}>{formatSignedPrice(unrealized, p.currency)}</Flash> <span className="text-[13px]">({formatRate(rate)})</span>
@@ -315,13 +345,15 @@ function EasyNumbers({ p, className }: { p: TradePlanDetail; className?: string 
             {quotePriceName(basis, true)} {formatPrice(last, p.currency)}
           </p>
           <AsOf at={asOf} market={p.market} basis={basis} className="block" />
+          {/* +1,200원이 멈추자 −917원이 된 이유를 미리 (UX-10) */}
+          <p className="mt-1 text-[12px] leading-snug text-sub">팔 때 수수료와 세금이 빠져서 받는 돈은 조금 적어요.</p>
         </div>
       )}
       {p.status === "closed" && (
         <div className="mb-2 rounded-xl bg-fill p-3">
           <p className="text-[12px] text-mute">손익 (수수료·세금 포함)</p>
           <p className={cn("text-[19px] font-bold tabular-nums", trendClass(p.pnlKrw))}>{formatSignedKrw(p.pnlKrw)}</p>
-          {p.exitReason && <p className="text-[13px] text-sub">{exitReasonText(p.exitReason, true)}</p>}
+          {p.exitReason && <p className="text-[13px] text-sub">{planExitText(p.exitReason, true)}</p>}
         </div>
       )}
       <dl>
@@ -335,8 +367,8 @@ function EasyNumbers({ p, className }: { p: TradePlanDetail; className?: string 
         <Row label="손절 가격">
           <span className="text-down">{formatPrice(p.stopPrice, p.currency)}</span>
         </Row>
-        <Row label="보유 기간">최대 {p.holdingDays}거래일</Row>
-        <Row label="사는 가격을 기다리는 기한">{formatDayLabel(kstDayOf(p.entryDeadline))}까지</Row>
+        <Row label={holding ? "보유 기한" : "보유 기간"}>{span}</Row>
+        {beforeFill(p) && <Row label="사는 가격을 기다리는 기한">{entryDeadlineLabel(p.entryDeadline, p.market)}까지</Row>}
         {p.budgetKrw != null && <Row label="예산">{formatKrw(p.budgetKrw)}</Row>}
       </dl>
     </Card>
@@ -348,7 +380,7 @@ function EasyOutcome({ p }: { p: TradePlanDetail }) {
   if (p.status === "closed") {
     return (
       <OutcomeNote tone="done" className="mt-4">
-        {p.exitReason ? exitReasonText(p.exitReason, true) : "모의 계좌에서 팔았어요"} · 손익 <Pnl value={p.pnlKrw} />
+        {p.exitReason ? planExitText(p.exitReason, true) : "모의 계좌에서 팔았어요"} · 손익 <Pnl value={p.pnlKrw} />
       </OutcomeNote>
     );
   }

@@ -5,13 +5,18 @@
 `verdict == "buy"`이고 targets가 `0 < stop < entry < target`이면 엔진 루프가 이 초안으로 AI 추천을 만든다 (autotrade.sources.from_report).
 손익비 기준은 프롬프트에 넣지 않는다 (리스크 엔진이 거른다). citations는 조사 결과의 evidence에 있는 것만 남긴다.
 손절 가격은 코드가 정한다: 시세 조사의 stop(엔진 judge/stops.py)을 프롬프트로 알려 주고, 초안의 targets.stop은 그 값으로 덮어쓴다.
+쉬운 글(plainSummary·oneLiner·reasons·risks)에는 전문 용어(tidy.JARGON)를 쓰지 않게 한다 — 검토의 쉬운 글 Guard가 확인하고,
+금액 쉼표·의견 영어·남은 용어의 괄호 풀이는 Orchestrator가 State에 넣기 전에 후처리한다 (tidy.tidy_result).
 """
+from ..tidy import JARGON
 from .base import WorkerContext, WorkerError
 from .prompts import system_prompt, user_prompt
 
 RESEARCH = {"market_agent": "시세·차트 조사", "fundamental_agent": "재무·공시 조사", "news_agent": "뉴스·심리 조사"}
 MAX_CITATIONS = 10   # ReportDraft.citations 상한
 UNITS = {"KR": "원", "US": "달러"}
+# 쉬운 글에 쓰지 않는 전문 용어 (Guard와 같은 표). "손익비"는 말 자체도 프롬프트에 넣지 않는다 (DECISIONS 21·22 — 쓰면 Guard가 잡는다)
+JARGON_LIST = "·".join(name for name, _, _ in JARGON if name != "손익비")
 
 ROLE = ("너는 모의투자 서비스 '모매매'의 AI 리포트 팀에서 리포트를 쓰는 작성 AI다. "
         "조사 AI 세 명(시세·차트, 재무·공시, 뉴스·심리)의 결과만 근거로 종목 리포트 초안을 쓴다. "
@@ -26,6 +31,10 @@ RULES = """- verdict는 소문자 buy·hold·avoid 중 하나다 (buy = AI 의�
 - plainSummary는 쉬운 문장 정확히 3개다. 중학생도 읽을 말로 쓰고 "~예요", "~어요"로 끝낸다.
   숫자(0-9)를 쓰지 않는다 (가격·비율은 화면이 따로 보여 준다). 조사 결과에 없는 주장을 넣지 않는다. verdict와 반대 방향으로 쓰지 않는다.
 - oneLiner는 80자 안의 한 줄 결론이다. 주어는 "AI 의견"이다.
+- 쉬운 글(plainSummary·oneLiner·reasons·risks)에는 다음 말을 쓰지 말고 쉬운 말로 풀어 쓴다: {jargon}.
+  예: "최근 한 달 평균 가격보다 낮아요", "이 가격 아래로 내려가면 더 떨어질 수 있어요", "회사가 버는 돈에 비해 주가가 낮은 편이에요".
+  이런 말과 지표 숫자는 markdown 본문에만 쓴다.
+- 글에 buy·hold·avoid 같은 영어 의견을 쓰지 않는다 (긍정적·지켜보기·부정적처럼 한국어로). 금액은 천 단위 쉼표를 넣어 쓴다 (예: 201,000{unit}).
 - reasons는 최대 3개다. targets.target이 있으면 그중 하나는 "목표 가격 ○○{unit}의 근거: …" 형식으로 목표 가격을 정한 근거를 쓴다.
 - risks는 최대 3개다. 그중 하나는 "이 의견이 틀리는 경우: ○○{unit} 아래로 내려가거나 ○○이 나오면 의견을 다시 봐야 해요" 형식이고,
   ○○{unit}에는 손절 가격을 쓴다.
@@ -48,7 +57,7 @@ class ReportAgent:
         sections = {"종목": {"symbol": ctx.symbol, "name": ctx.name, "market": ctx.market, "priceUnit": unit}}
         sections |= {f"{title} ({wid})": research.get(wid) for wid, title in RESEARCH.items()}
         prompt = user_prompt(sections, instructions=ctx.instructions, previous=ctx.inputs.get("report_agent"))
-        system = system_prompt(ROLE, self.output_contract, RULES.replace("{unit}", unit))
+        system = system_prompt(ROLE, self.output_contract, RULES.replace("{unit}", unit).replace("{jargon}", JARGON_LIST))
         reply = ctx.llm(system, prompt, contract=self.output_contract)
         return finish(reply.data, research)
 

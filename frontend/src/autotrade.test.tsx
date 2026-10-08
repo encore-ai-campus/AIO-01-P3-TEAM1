@@ -28,10 +28,14 @@ describe("AI 추천 목록", () => {
     expect(within(cards[2]).getByText("AI 교차검증 분석")).toBeTruthy();
     expect(cards[1].getAttribute("href")).toBe("/recommendations/91");
 
+    // '전체': 기한이 지난 추천은 '지금은 활성화할 수 없는 추천'으로 아래에 모이고, 이 필터에서는 펼쳐 둔다 (UX-2)
     fireEvent.click(screen.getByRole("button", { name: "전체" }));
-    await waitFor(() => expect(within(screen.getByRole("list", { name: "추천 목록" })).getAllByRole("link")).toHaveLength(4));
-    const expired = screen.getByRole("link", { name: "삼성전자 추천 보기" });
+    const blocked = await screen.findByRole("list", { name: "활성화할 수 없는 추천 목록" });
+    expect(screen.getByRole("button", { name: "지금은 활성화할 수 없는 추천 1개" }).getAttribute("aria-expanded")).toBe("true");
+    const expired = within(blocked).getByRole("link", { name: "삼성전자 추천 보기" });
     expect(within(expired).getByText("만료")).toBeTruthy();
+    expect(within(expired).getByText("활성화 불가 · 만료")).toBeTruthy();
+    expect(within(screen.getByRole("list", { name: "추천 목록" })).getAllByRole("link")).toHaveLength(3);
   });
 
   it("연습용 예시 계획 만들기: 성공하면 상세로, 서버가 꺼 두었으면(403) 설정 이름 없이 한 줄로 접는다", async () => {
@@ -63,12 +67,12 @@ describe("AI 추천 목록", () => {
     await waitFor(() => expect(document.activeElement).toBe(off));
   });
 
-  it("카드의 칩은 유효 기한(시간 사실)만, 목록 제목·필터도 '활성화할 수 있는'이라고 말하지 않는다 (막힌 계획도 있으므로)", async () => {
+  it("오른쪽 위 칩은 유효 기한(시간 사실), 배지 줄은 계좌와 무관한 사유(blockedBy)로 '활성화 가능'. 목록 제목·필터는 시간 사실만 (UX-2)", async () => {
     renderApp("/recommendations");
     expect(await screen.findByRole("heading", { name: /^유효한 추천/ })).toBeTruthy();
     const list = await screen.findByRole("list", { name: "추천 목록" });
     expect(within(list).getAllByText(/^유효 · \d+(일|시간|분) 남음$/).length).toBeGreaterThan(0);
-    expect(within(list).queryByText("활성화 가능")).toBeNull();
+    expect(within(list).getAllByText("활성화 가능")).toHaveLength(3);
     expect(screen.getByRole("button", { name: "유효" }).getAttribute("aria-pressed")).toBe("true");
   });
 
@@ -149,12 +153,14 @@ describe("추천 상세 · 활성화", () => {
     expect(screen.getByText("Discord에서 연 활성화 링크")).toBeTruthy();
   });
 
-  it("활성화할 수 없으면 사유를 보이고 버튼을 막는다", async () => {
+  it("활성화할 수 없으면 사유를 보이고 예산·확인·활성화 버튼 대신 다른 추천으로 가는 길 (UX-2)", async () => {
     db.options.halted = true;
     renderApp("/recommendations/93");
     const reasons = await screen.findByRole("list", { name: "활성화할 수 없는 사유" });
     expect(within(reasons).getByText("새 모의 매수가 중단되어 있습니다.")).toBeTruthy();
-    expect((screen.getByRole("button", { name: "계획 활성화" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "계획 활성화" })).toBeNull();
+    expect(screen.queryByLabelText("예산 (원, 선택)")).toBeNull();
+    expect(screen.getByRole("link", { name: /다른 추천 보기/ }).getAttribute("href")).toBe("/recommendations");
   });
 
   it("만료된 추천은 활성화 대신 안내와 내 계획 보기", async () => {
@@ -164,7 +170,7 @@ describe("추천 상세 · 활성화", () => {
     expect(screen.getByRole("link", { name: /내 계획 보기/ }).getAttribute("href")).toBe("/plans/95");
   });
 
-  it("머리 칩은 안전장치(미리 보기) 결과로 말한다: 통과면 '활성화 가능', 막히면 '활성화 불가'와 막힌 확인 칸, 진행 중이면 그것", async () => {
+  it("머리 칩은 안전장치(미리 보기) 결과로 말한다: 통과면 '활성화 가능', 막히면 '활성화 불가'와 그 아래 사유 한 줄(확인 칸은 없다), 진행 중이면 그것", async () => {
     const first = renderApp("/recommendations/91");
     expect(await screen.findByText("활성화 가능")).toBeTruthy();
     first.unmount();
@@ -173,8 +179,10 @@ describe("추천 상세 · 활성화", () => {
     const blocked = renderApp("/recommendations/93");
     expect(await screen.findByText("활성화 불가")).toBeTruthy();
     expect(screen.queryByText("활성화 가능")).toBeNull();
-    expect(screen.getByRole("checkbox", { name: "위 내용을 확인했습니다" }).matches(":disabled")).toBe(true); // 막힌 fieldset 안
-    expect(screen.getByText("활성화할 수 있게 되면 확인할 수 있습니다.")).toBeTruthy();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    // 머리 배지 아래 사유 한 줄 (실행 확인 카드의 사유 목록과 같은 말)
+    const head = screen.getByText("NAVER", { selector: "p" }).closest("section")!;
+    expect(within(head).getByText("새 모의 매수가 중단되어 있습니다.")).toBeTruthy();
     blocked.unmount();
 
     db.options.halted = false;
@@ -193,7 +201,8 @@ describe("추천 상세 · 활성화", () => {
     renderApp("/recommendations/91");
     const link = await screen.findByRole("link", { name: /다른 추천 보기/ });
     expect(link.getAttribute("href")).toBe("/recommendations");
-    expect((screen.getByRole("button", { name: "계획 활성화" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "계획 활성화" })).toBeNull();
+    expect(within(screen.getByRole("list", { name: "활성화할 수 없는 사유" })).getByText("손익비 부족")).toBeTruthy();
   });
 
   it("리스크 미리 보기를 받지 못하면(503) 머리 칩은 뼈대로 남지 않고 기한으로 돌아가고, 실행 확인 카드에서 다시 받으면 칩도 바뀐다 (trade-r5)", async () => {
@@ -244,7 +253,7 @@ describe("내 자동매매", () => {
     expect(db.listOrders(1, "all").find((o) => o.id === plan.orderId)?.status).toBe("CANCELED");
   });
 
-  it("보유 중 계획 중단은 전량 매도 안내 → 청산 완료(직접 매도)", async () => {
+  it("보유 중 계획 중단은 전량 매도 안내 → 청산 완료(사용자 매도)", async () => {
     const plan = db.activate(alice(), 91, {});
     db.setPrice("000660", 180_000); // 진입가 아래 → 지정가 체결
     renderApp(`/plans/${plan.id}`);
@@ -575,8 +584,15 @@ describe("알림", () => {
 });
 
 describe("알림 설정 (My Page)", () => {
-  it("Webhook 미설정 안내, Discord ID 검증 메시지, 저장, 테스트 알림", async () => {
+  it("Webhook 미설정: Discord 묶음은 접고 '지금은 웹 알림으로만 와요' 한 줄. 펼치면 ID 검증 메시지, 저장, 테스트 알림 (UX-14)", async () => {
     renderApp("/my");
+    expect(await screen.findByText("지금은 웹 알림으로만 와요.")).toBeTruthy();
+    expect(screen.queryByRole("switch", { name: /Discord로도 받기/ })).toBeNull();
+    expect(screen.queryByLabelText("Discord 사용자 ID")).toBeNull();
+    expect(screen.queryByRole("button", { name: "테스트 알림 보내기" })).toBeNull();
+    const more = screen.getByRole("button", { name: /Discord 알림 설정/ });
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(more);
     // 경고 상자 대신 스위치 설명 줄 (설명은 스위치에 이어 읽힌다)
     const sw = await screen.findByRole("switch", { name: /Discord로도 받기/ });
     expect(sw.getAttribute("aria-describedby")).toBe("discord-help");
@@ -604,6 +620,7 @@ describe("알림 설정 (My Page)", () => {
   });
 
   it("ID를 Enter로 저장해도 입력 칸을 다시 그리지 않아 포커스가 남고, 칸은 저장된 값(앞뒤 공백 없이)으로 맞춘다", async () => {
+    db.options.webhookConfigured = true;
     renderApp("/my");
     const input = (await screen.findByLabelText("Discord 사용자 ID")) as HTMLInputElement;
     input.focus();

@@ -4,7 +4,12 @@
 결정론적 안전장치 두 가지 (LLM이 빠뜨려도 코드가 채운다):
 - 코드 점검: buy인데 진입·목표·손절이 비었거나 `0 < stop < entry < target`이 아니거나 진입이 종가에서 5% 밖이면 PASS를 RETRY로.
 - 투자유의 지정(`trading.market.warnings`)이 있으면 `handoff = {"to": "risk_agent", "reason": "투자유의: …"}`. 조회 실패는 모름으로 둔다.
+- 쉬운 글 Guard(`guards.easy_jargon`): 첫 검토에서만, 초안의 쉬운 글(plainSummary·oneLiner·reasons·risks)에 전문 용어가 있으면 RETRY.
+  검토 LLM의 '코드 점검 결과'에는 넣지 않고 finish에서만 더한다 (LLM 규칙과 부딪혀 FAIL이 나지 않게). 두 번째부터는 저장 때 괄호 풀이로 통과.
+  검토 반복 한도(YAML review 단계의 retry.max_rounds)를 다 쓴 마지막 검토에서는 더하지 않는다 — 리포트를 실패시키지 않고,
+  State에 저장할 때 붙인 괄호 풀이(tidy.explain_jargon)를 단 채로 통과한다.
 """
+from .. import guards, registry
 from .base import WorkerContext, WorkerError
 from .prompts import system_prompt, user_prompt
 from .risk import labels_text, warning_labels
@@ -23,7 +28,8 @@ RULES = """- 대조 항목: oneLiner·plainSummary·reasons·risks·markdown의 
 - issues는 문제마다 claim(초안의 문장), problem(무엇이 틀렸나), fix(고치는 방법)이다. 문제가 없으면 빈 목록이다.
 - score는 초안이 근거와 맞는 정도(0~100)다.
 - handoff: 투자유의 지정이 있거나 고위험 신호(아주 큰 변동성, 거래정지·감사의견 같은 공시 등)가 있으면 {"to": "risk_agent", "reason": "…"}, 없으면 null.
-- "코드 점검 결과"에 문제가 있으면 반드시 issues에 넣고 PASS를 내지 않는다."""
+- "코드 점검 결과"에 문제가 있으면 반드시 issues에 넣고 PASS를 내지 않는다.
+- 쉬운 글(plainSummary·oneLiner·reasons·risks)의 전문 용어는 코드가 따로 점검한다. 그것만으로 RETRY·FAIL을 내지 않는다."""
 
 
 class ReviewAgent:
@@ -35,6 +41,8 @@ class ReviewAgent:
         if not draft:
             raise WorkerError("검토할 리포트 초안이 없습니다.")
         problems = check_draft(draft, ctx.inputs.get("market_agent"))
+        # 쉬운 글 용어는 첫 검토에서만 한 번 고쳐 쓰게 한다 (비용 상한 — 작성·검토 1번씩 더). 검토 LLM에는 주지 않는다
+        jargon = guards.easy_jargon(draft) if ctx.attempt == 1 and retry_rounds() >= 1 else []
         labels = warning_labels(ctx.symbol)
         sections = {"종목": {"symbol": ctx.symbol, "name": ctx.name, "market": ctx.market}}
         sections |= {f"{title} ({wid})": ctx.inputs.get(wid) for wid, title in RESEARCH.items()}
@@ -42,7 +50,17 @@ class ReviewAgent:
                      "코드 점검 결과": problems or "문제 없음"}
         reply = ctx.llm(system_prompt(ROLE, self.output_contract, RULES), user_prompt(sections),
                         contract=self.output_contract)
-        return finish(reply.data, problems, labels)
+        return finish(reply.data, problems + jargon, labels)
+
+
+def retry_rounds() -> int:
+    """종목 리포트 실행 계획에서 이 검토가 초안을 고쳐 쓰게 할 수 있는 횟수 (review 단계의 retry.maxRounds, 없으면 0).
+
+    Orchestrator는 검토 시도 n번째의 RETRY를 n <= maxRounds일 때만 고쳐 쓰기로 이어 간다 (넘으면 review_failed).
+    """
+    plan = registry.execution_plan(registry.TEAM)
+    step = next((item for item in plan["steps"] if ReviewAgent.id in item["workers"]), None)
+    return ((step or {}).get("retry") or {}).get("maxRounds", 0)
 
 
 def check_draft(draft: dict, market_result: dict | None) -> list[dict]:

@@ -30,6 +30,7 @@ import type {
   Quote,
   PlanEvent,
   Ranking,
+  ReasonCode,
   Recommendation,
   RecommendationSource,
   ReportQuota,
@@ -104,7 +105,7 @@ type MockOrder = Owned<Order> & { fx: number };
 type MockJob = Owned<Job> & { symbol: string; polls: number };
 type MockReport = Owned<ReportDetail>;
 /** 추천은 팀 공용. status·myPlan·planCount는 볼 때 계산한다. */
-type MockRec = Omit<Recommendation, "status" | "myPlan" | "planCount">;
+type MockRec = Omit<Recommendation, "status" | "myPlan" | "planCount" | "blockedBy">;
 /** nextAt: 시연용 진행 시각 (이 시각이 지나면 다음 단계로). exitRequested: 보유 중 중단으로 매도를 요청함. */
 type MockPlan = Owned<TradePlan> & { events: PlanEvent[]; nextAt: number | null; exitRequested: boolean };
 type MockSettings = Omit<NotificationSettings, "webhookConfigured">;
@@ -897,6 +898,7 @@ export function account(userId: number): AccountSummary {
         stopPrice: o.stopPrice,
         expireDate: o.expireDate,
         filledAt: o.filledAt ?? o.createdAt,
+        priceBasis: last === null ? ("fill" as const) : ("close" as const),
       };
     });
   const cash = Math.round(state.cash[userId]);
@@ -1255,13 +1257,43 @@ function makeRec(id: number, x: RecInput): MockRec {
   };
 }
 
+/**
+ * 테스트·시연용: 추천 하나를 더한다 (손익비·기대수익률은 가격으로 계산 — 손익비가 낮으면 blockedBy에 reward_risk_low가 붙는다).
+ * 주지 않은 값은 리포트 출처·10거래일·확률 0.5·지금 만듦·48시간 뒤 기한. 새 번호를 돌려준다.
+ */
+export function addRecommendation(x: Pick<RecInput, "symbol" | "entryPrice" | "targetPrice" | "stopPrice"> & Partial<RecInput>): number {
+  const id = Math.max(0, ...state.recommendations.map((r) => r.id)) + 1;
+  state.recommendations.push(
+    makeRec(id, {
+      source: "report",
+      sourceId: null,
+      requestedBy: null,
+      holdingDays: 10,
+      probability: 0.5,
+      confidence: null,
+      summary: `${stockOf(x.symbol).name} 계획`,
+      reasons: [],
+      risks: [],
+      riskLevel: null,
+      createdAt: kstIso(),
+      validUntil: kstIso(new Date(Date.now() + 48 * 3_600_000)),
+      ...x,
+    }),
+  );
+  return id;
+}
+
 const recOpen = (r: MockRec) => Date.parse(r.validUntil) > Date.now();
 
 function toRecommendation(r: MockRec, userId: number): Recommendation {
   const plans = state.plans.filter((p) => p.recommendationId === r.id);
   const mine = plans.filter((p) => p.userId === userId).sort((a, b) => b.id - a.id);
   const my = mine.find((p) => LIVE.includes(p.status)) ?? mine[0] ?? null;
-  return { ...r, status: recOpen(r) ? "open" : "expired", myPlan: my ? { id: my.id, status: my.status } : null, planCount: plans.length };
+  const blockedBy: ReasonCode[] = [];
+  if (r.rewardRisk < MIN_REWARD_RISK) blockedBy.push("reward_risk_low");
+  if (r.expectedReturn <= 0) blockedBy.push("ev_negative");
+  if (!recOpen(r)) blockedBy.push("expired");
+  return { ...r, status: recOpen(r) ? "open" : "expired", myPlan: my ? { id: my.id, status: my.status } : null, planCount: plans.length, blockedBy };
 }
 
 function recOf(id: number): MockRec {

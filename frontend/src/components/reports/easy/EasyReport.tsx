@@ -1,13 +1,15 @@
 // 리포트 상세의 쉬운 보기 (주린이모드 켬의 기본, docs/컨셉변경계획.md 4-2 "리포트 상세 (쉬운 보기)").
 // 머리(종목 + 단계 막대 + "이 화면만 자세히 보기" + 다음 행동 한 줄) →
 //   만드는 중: 쉬운 진행 표시 / 만들지 못함: 사유 문장 + 다시 만들기 /
-//   완성: AI 의견 배지 + 한 줄 요약 + 신뢰 패널 + 계획 미니 → 쉬운 요약 3줄 → 매매 계획 카드 → 근거·위험·틀리는 경우 → 시나리오 세 칸 → 차트 → 조사 자료 요약
+//   완성: AI 의견 배지 + 의견의 뜻 한 줄(지켜보기·부정적) + 한 줄 요약 + 신뢰 패널 + 계획 미니 → 쉬운 요약 3줄 → 매매 계획 카드 → 근거·위험·틀리는 경우 → 시나리오 세 칸 → 차트 → 조사 자료 요약
 // → PDF · 면책 문장. 리포트와 매매 계획(추천)은 추천 API로 맞춘다 (api/reports.ts usePlanCardData — PlanCard와 같은 훅·같은 상태).
 //
 // 위치: 모바일은 위 순서 그대로 한 열 (결론 먼저 — 360×740 첫 화면에 배지·한 줄 요약·신뢰 첫 줄·계획 미니).
 // PC(lg)는 같은 DOM 순서로 두 열: 왼쪽은 ② 검토(읽기), 오른쪽 340px는 ③ 실행(매매 계획 카드, 스크롤해도 따라온다).
 // 오른쪽에 카드가 늘 보이므로 PC에서는 결론 카드의 계획 미니를 숨긴다. 만드는 중·실패 화면은 PC에서 720px로 줄인다 (버튼이 화면 끝까지 늘지 않게).
 // 완성되는 순간(이 화면에서 상태가 바뀐 경우만): 결론 카드가 올라오며 나타나고, 아래로 내려가 있던 사람에게는 토스트로 알린다 (스크롤은 옮기지 않는다).
+// 실행할 계획이 없으면(지켜보기·부정적·계획 없음) "실행할 계획이 없어요"는 매매 계획 카드 한 곳만 말한다 — 머리 안내 문장·결론 카드의 계획 미니는 비킨다 (UX-8).
+// AI가 쓴 글(한 줄 요약·쉬운 요약·근거·위험·틀리는 경우·조사 요약)은 전문 용어마다 처음 나온 한 번에 용어 풀이를 붙인다 (UX-4, AiTermsProvider — 화면 순서대로).
 // 완성 화면의 고정 문장(결론·쉬운 요약 빈 값·차트 범례)은 쉬운 PDF(backend/reports/pdf.py 쉬운 판)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
 import { Suspense, lazy, useEffect, useMemo, type CSSProperties } from "react";
 import { useStock } from "../../../api/queries";
@@ -21,14 +23,17 @@ import { scrollToTop } from "../../../lib/motion";
 import { DISCLAIMER, opinionText } from "../../../lib/plainText";
 import { stockAsOfBasis } from "../../../lib/quote";
 import {
+  OPINION_MEANING,
   type ReportTargets,
   draftOf,
   floorTargets,
   oneLinerOf,
   opinionOf,
   planGuide,
+  reasonsRisksView,
   researchOf,
   scenarioOf,
+  showPlanMini,
   stepsOf,
   trustOf,
   validTargets,
@@ -42,6 +47,7 @@ import { AsOf, Card, ErrorState, Skeleton } from "../../ui";
 import { OpinionBadge } from "../OpinionBadge";
 import { PdfOpenButton } from "../PdfOpenButton";
 import { ViewToggle } from "../ViewToggle";
+import { AiTermsProvider, AiText } from "./AiText";
 import { EasyFailure } from "./EasyFailure";
 import { EasyProgress } from "./EasyProgress";
 import { ReasonsRisks } from "./ReasonsRisks";
@@ -56,7 +62,10 @@ const ReportChart = lazy(() => import("./ReportChart").then((m) => ({ default: m
 // 범례 견본 색 (차트의 선 색과 같은 토큰: 목표 = 상승, 사는 가격 = 보조 글자, 손절 = 하락)
 const SWATCH: Record<PriceLineKind, string> = { target: "border-up", entry: "border-sub", stop: "border-down" };
 
-/** 일봉(오늘 정규장이 열렸으면 진행 중인 봉까지 — 실시간 시세 기준) + AI가 제안한 가격 선과 그 값을 적은 범례. 완성된 리포트에서만 불러온다. */
+/**
+ * 종가 선(오늘 정규장이 열렸으면 진행 중인 봉의 지금 가격까지 — 실시간 시세 기준, 종목 상세 쉬운 보기와 같은 선) + AI가 제안한 가격 선과 그 값을 적은 범례.
+ * 완성된 리포트에서만 불러온다. 캔들은 전문가 보기에만 (UX-17).
+ */
 function ChartSection({ symbol, market, currency, targets }: { symbol: string; market: Market; currency: Currency; targets: ReportTargets | null }) {
   const { data: stock, isError, refetch, isFetching } = useStock(symbol);
   const ok = targets !== null && validTargets(targets);
@@ -86,7 +95,7 @@ function ChartSection({ symbol, market, currency, targets }: { symbol: string; m
               <ReportChart candles={stock.candles} currency={stock.currency} lines={lines} />
             </Suspense>
           ) : (
-            <p className="py-6 text-center text-[14px] text-mute">일봉 자료가 없어요.</p>
+            <p className="py-6 text-center text-[14px] text-mute">가격 자료가 없어요.</p>
           )
         ) : isError ? (
           <div className="flex h-[260px] items-center lg:h-[340px]">
@@ -111,7 +120,7 @@ function ChartSection({ symbol, market, currency, targets }: { symbol: string; m
       )}
       {stock && (
         <p className="mt-1.5 flex flex-wrap items-center gap-x-1.5 text-[12px] leading-snug text-sub">
-          일봉 · 최근 {stock.candles.length}일 ·
+          {stockAsOfBasis(stock) === "live" ? "종가 선 (마지막은 오늘 진행 중)" : "종가"} · 최근 {stock.candles.length}일 ·
           {stock.asOf ? (
             stockAsOfBasis(stock) === "live" ? (
               // 마지막 봉이 오늘 진행 중이다 — 기준 표시는 시세를 받은 시각
@@ -131,8 +140,21 @@ function ChartSection({ symbol, market, currency, targets }: { symbol: string; m
   );
 }
 
-function Conclusion({ r, opinion, oneLiner, className }: { r: ReportDetail; opinion: ReportOpinion | null; oneLiner: string | null; className?: string }) {
+function Conclusion({
+  r,
+  opinion,
+  oneLiner,
+  mini,
+  className,
+}: {
+  r: ReportDetail;
+  opinion: ReportOpinion | null;
+  oneLiner: string | null;
+  mini: boolean;
+  className?: string;
+}) {
   const t = opinionText(opinion);
+  const meaning = opinion ? OPINION_MEANING[opinion] : undefined;
   return (
     <Card aria-labelledby="opinion-title" className={cn("space-y-3", className)}>
       <h2 id="opinion-title" className="sr-only">
@@ -142,14 +164,26 @@ function Conclusion({ r, opinion, oneLiner, className }: { r: ReportDetail; opin
         <div className="space-y-1">
           <OpinionBadge opinion={opinion} large />
           <p className="text-[14px] text-sub">{t.line}</p>
+          {/* 지켜보기·부정적의 뜻: 이미 가진 사람에게 팔라는 말로 읽히지 않게 (UX-8) */}
+          {meaning && (
+            <p className="flex items-start gap-1.5 pt-0.5 text-[14px] leading-snug text-ink">
+              <Icon name="info" className="mt-0.5 size-4 shrink-0 text-mute-weak" />
+              {meaning}
+            </p>
+          )}
         </div>
       ) : (
         <p className="text-[15px] text-mute">AI 의견을 읽지 못했어요.</p>
       )}
-      {oneLiner && <p className="text-[18px] leading-snug font-bold tracking-tight">{oneLiner}</p>}
+      {oneLiner && (
+        <p className="text-[18px] leading-snug font-bold tracking-tight">
+          <AiText text={oneLiner} />
+        </p>
+      )}
       <TrustPanel trust={trustOf(r.state, r.trace)} />
-      {/* PC는 오른쪽 열에 매매 계획 카드가 늘 보이므로 미니를 숨긴다 (같은 카드를 두 번 그리지 않고 CSS로만) */}
-      <PlanCard report={{ ...r, opinion }} variant="mini" view="easy" className="lg:hidden" />
+      {/* PC는 오른쪽 열에 매매 계획 카드가 늘 보이므로 미니를 숨긴다 (같은 카드를 두 번 그리지 않고 CSS로만).
+          실행할 계획이 없으면 미니를 두지 않는다 — 그 말은 매매 계획 카드가 한 번만 한다 */}
+      {mini && <PlanCard report={{ ...r, opinion }} variant="mini" view="easy" className="lg:hidden" />}
     </Card>
   );
 }
@@ -166,7 +200,9 @@ function PlainSummary({ lines, className }: { lines: string[]; className?: strin
             <li key={line} className="flex gap-2.5 text-[16px] leading-snug">
               {/* 반전 번호 원: 다크에서는 밝은 원 + 어두운 숫자 */}
               <span className="grid size-6 shrink-0 place-items-center rounded-full bg-ink text-[12px] font-bold text-on-ink">{i + 1}</span>
-              {line}
+              <span className="min-w-0">
+                <AiText text={line} />
+              </span>
             </li>
           ))}
         </ol>
@@ -199,6 +235,18 @@ export function EasyReport({ r, view }: { r: ReportDetail; view: ViewModeState }
   const researchAll = completed ? researchOf(r.state) : null;
   const research = researchAll && (researchAll.market || researchAll.fundamental || researchAll.news) ? researchAll : null;
   const guide = completed && !executed ? planGuide(planState) : null;
+  // 계획 미니는 긍정적 의견에서만 (지켜보기·부정적·계획 없음은 매매 계획 카드가 한 번만 말한다). 지켜보기·부정적은 추천을 받기 전에도 알 수 있어 자리가 생겼다 사라지지 않는다
+  const mini = opinion === "buy" && showPlanMini(planState);
+  // AI 글을 화면 순서대로: 용어 풀이는 용어마다 처음 나온 한 번만 (UX-4)
+  const why = draft ? reasonsRisksView(draft, opinion, currency, targets ?? undefined) : null;
+  const aiTexts = [
+    oneLiner,
+    ...(draft?.plainSummary ?? []),
+    ...(why ? [...why.reasons.map((x) => x.text), ...why.risks.map((x) => x.text), why.wrong] : []),
+    research?.market?.summary,
+    research?.fundamental?.summary,
+    research?.news?.summary,
+  ];
 
   // 이 화면에서 완성된 순간 (처음부터 완성이면 false)
   const justCompleted = useChanged(r.status) && completed;
@@ -240,32 +288,34 @@ export function EasyReport({ r, view }: { r: ReportDetail; view: ViewModeState }
       ) : !completed ? (
         <EasyProgress r={r} />
       ) : (
-        <div className={cn("space-y-3 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start lg:gap-4 lg:space-y-0", justCompleted && "reveal-fade")}>
-          <Conclusion r={r} opinion={opinion} oneLiner={oneLiner} className={cn(left, justCompleted && "animate-rise-in")} />
-          <PlainSummary lines={draft?.plainSummary ?? []} className={left} />
-          {/* ③ 실행: 모바일은 쉬운 요약 바로 아래(문서 순서), PC는 오른쪽 열에 붙어 따라온다 */}
-          <div className="lg:sticky lg:top-8 lg:col-start-2 lg:self-start" style={planSpan}>
-            <PlanCard report={{ ...r, opinion }} variant="full" view="easy" id={PLAN_CARD_ID} />
+        <AiTermsProvider texts={aiTexts}>
+          <div className={cn("space-y-3 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start lg:gap-4 lg:space-y-0", justCompleted && "reveal-fade")}>
+            <Conclusion r={r} opinion={opinion} oneLiner={oneLiner} mini={mini} className={cn(left, justCompleted && "animate-rise-in")} />
+            <PlainSummary lines={draft?.plainSummary ?? []} className={left} />
+            {/* ③ 실행: 모바일은 쉬운 요약 바로 아래(문서 순서), PC는 오른쪽 열에 붙어 따라온다 */}
+            <div className="lg:sticky lg:top-8 lg:col-start-2 lg:self-start" style={planSpan}>
+              <PlanCard report={{ ...r, opinion }} variant="full" view="easy" id={PLAN_CARD_ID} />
+            </div>
+            {draft && (
+              <div className={left}>
+                <ReasonsRisks draft={draft} opinion={opinion} currency={currency} targets={targets ?? undefined} />
+              </div>
+            )}
+            {scenario && (
+              <div className={left}>
+                <ScenarioBoxes scenario={scenario} market={r.market} />
+              </div>
+            )}
+            <div className={left}>
+              <ChartSection symbol={r.symbol} market={r.market} currency={currency} targets={opinion === "buy" ? targets : null} />
+            </div>
+            {research && (
+              <div className={left}>
+                <ResearchCards {...research} marketCode={r.market} currency={currency} />
+              </div>
+            )}
           </div>
-          {draft && (
-            <div className={left}>
-              <ReasonsRisks draft={draft} opinion={opinion} currency={currency} targets={targets ?? undefined} />
-            </div>
-          )}
-          {scenario && (
-            <div className={left}>
-              <ScenarioBoxes scenario={scenario} market={r.market} />
-            </div>
-          )}
-          <div className={left}>
-            <ChartSection symbol={r.symbol} market={r.market} currency={currency} targets={opinion === "buy" ? targets : null} />
-          </div>
-          {research && (
-            <div className={left}>
-              <ResearchCards {...research} marketCode={r.market} currency={currency} />
-            </div>
-          )}
-        </div>
+        </AiTermsProvider>
       )}
 
       <Card as="div" className="space-y-2">

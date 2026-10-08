@@ -16,6 +16,7 @@ class ContractError(ValueError):
 SUMMARY_MAX = 600
 LIST_ITEM_MAX = 200
 ONE_LINER_MAX = 80
+PLAIN_ITEM_MAX = 100   # plainSummary 항목 하나의 길이 상한
 MAX_ITEMS = 3
 MIN_HOLDING_DAYS = 1
 MAX_HOLDING_DAYS = 20
@@ -210,7 +211,7 @@ def _targets(data: dict[str, Any], path: str) -> dict[str, Any]:
 
 
 def _report(data: dict[str, Any]) -> dict[str, Any]:
-    plain = _strings(_required(data, "plainSummary"), "plainSummary", maximum=3, minimum=1, item_limit=100)
+    plain = _strings(_required(data, "plainSummary"), "plainSummary", maximum=3, minimum=1, item_limit=PLAIN_ITEM_MAX)
     for index, item in enumerate(plain):
         if any(character.isdigit() for character in item):
             raise _error(f"plainSummary[{index}]", "에는 숫자를 넣을 수 없습니다.")

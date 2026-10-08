@@ -5,12 +5,15 @@
 - Join Guard `join`: `join: true` 단계 앞에서 앞 단계의 필수 결과가 있고 계약을 통과했는지 보고, 다음 Worker에 줄 입력을 고른다.
   판정을 Trace(`join_completed`·`join_blocked`)로 남긴다. 막히면 Orchestrator가 리포트를 `join_blocked`로 끝낸다.
 - Handoff Guard `handoff`: 검토 Worker가 다른 Worker에게 책임을 넘기기 전에 경로·Hop 수·요청자·비밀 값을 확인한다 (판정만, 기록은 Orchestrator).
+- 쉬운 글 Guard `easy_jargon`: 종목 리포트 초안의 쉬운 글(plainSummary·oneLiner·reasons·risks)에 전문 용어(tidy.JARGON)가 있으면
+  검토 Worker가 코드 점검 문제로 더해 RETRY(사유에 걸린 용어)로 고쳐 쓰게 한다. 검토 반복 한도를 넘으면 더하지 않는다 —
+  그때는 State에 저장할 때 붙인 괄호 풀이(tidy.explain_jargon)를 단 채로 통과한다 (agents/review.py).
 """
 import json
 import re
 from dataclasses import dataclass, field
 
-from . import contracts, state
+from . import contracts, state, tidy
 
 TEXT_MAX = 2000  # 외부 글 하나의 길이 상한 (넘으면 자른다)
 
@@ -142,3 +145,33 @@ def handoff(report, plan: dict, frm: str, to: str, payload, hop_count: int) -> H
     if _SECRETS.search(json.dumps(payload, ensure_ascii=False, default=str)):
         return HandoffDecision(False, "전달 데이터에 비밀 값 모양이 있습니다.")
     return HandoffDecision(True)
+
+
+EASY_FIELD_NAMES = {"oneLiner": "한 줄 결론", "plainSummary": "쉬운 요약", "reasons": "근거", "risks": "위험"}
+EXAMPLES_MAX = 3   # fix에 붙이는 용어 풀이 예시 수 (ReviewResult issue 글 상한 200자 안에)
+
+
+def easy_jargon(draft: dict | None) -> list[dict]:
+    """종목 리포트 초안의 쉬운 글에 있는 전문 용어 → 검토 issues 모양 [{claim, problem, fix}] (필드마다 하나, 없으면 []).
+
+    claim은 용어가 처음 나온 글, problem은 걸린 용어 이름들, fix는 쉬운 말 예시다 (Trace review_retry에 그대로 보인다).
+    """
+    if not isinstance(draft, dict):
+        return []
+    issues = []
+    for key in tidy.EASY_FIELDS:
+        value = draft.get(key)
+        texts = value if isinstance(value, list) else [value]
+        hits = [(text, tidy.jargon_terms(text)) for text in texts if isinstance(text, str)]
+        terms = list(dict.fromkeys(term for _, found in hits for term in found))
+        if not terms:
+            continue
+        label = f"{EASY_FIELD_NAMES[key]}({key})"
+        claim = next(text for text, found in hits if found)
+        # 예시는 작성 Worker 지시로 간다 — "손익비"는 예시에 넣지 않는다 (작성 프롬프트에 그 말을 넣지 않는 규칙, report.py)
+        examples = ", ".join(f"{term} → '{tidy.PLAIN[term]}'" for term in [t for t in terms if t != "손익비"][:EXAMPLES_MAX])
+        examples = examples or "쉬운 말로"
+        issues.append({"claim": f"{label}: {claim}"[:200],
+                       "problem": f"코드 확인: {label}에 쉬운 글에 쓰지 않는 전문 용어가 있습니다: {', '.join(terms)}",
+                       "fix": f"{label}의 전문 용어를 쉬운 말로 풀어 쓴다 (예: {examples}). 용어와 지표 숫자는 markdown 본문에만 쓴다."})
+    return issues

@@ -12,8 +12,9 @@ import { formatDateTime, formatPercent, formatPrice, formatRequester } from "../
 import { ANALYSIS_PRICE_LABEL } from "../../lib/plainText";
 import { CROSS_CHECK_TEXT, crossCheckLine } from "../../lib/reports";
 import { Icon } from "../Icon";
-import { EmptyState, ErrorState, VerdictBadge } from "../ui";
+import { EmptyState, ErrorState } from "../ui";
 import { ListSkeleton } from "./ListSkeleton";
+import { VerdictText } from "./VerdictText";
 
 function Row({ a, expert }: { a: AnalysisSummary; expert: boolean }) {
   const t = CROSS_CHECK_TEXT[a.verdict];
@@ -24,7 +25,7 @@ function Row({ a, expert }: { a: AnalysisSummary; expert: boolean }) {
         <span className="flex flex-wrap items-center gap-1.5">
           <span className="truncate text-[16px] font-semibold">{a.name}</span>
           {expert ? (
-            <VerdictBadge verdict={a.verdict} />
+            <VerdictText verdict={a.verdict} />
           ) : (
             <span
               className={cn(

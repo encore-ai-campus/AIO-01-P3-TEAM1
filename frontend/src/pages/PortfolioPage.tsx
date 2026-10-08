@@ -26,6 +26,7 @@ import { exitReasonLabel, otherKinds, plansByOrder, splitProposals } from "../li
 import { cn } from "../lib/cn";
 import { formatDate, formatDateTime, formatKrw, formatPrice, formatQty, formatRate, formatSignedKrw, trendClass } from "../lib/format";
 import { prefersReducedMotion } from "../lib/motion";
+import { isTodayFill, todayFillText } from "../lib/orderText";
 import { errorSentence, exitReasonText } from "../lib/plainText";
 
 type Tab = "holdings" | "orders" | "fills";
@@ -249,6 +250,11 @@ function Holdings({ easy, byOrder, plansReady }: { easy: boolean; byOrder: Map<n
   }
   const profit = acc.positions.reduce((n, p) => n + p.profitKrw, 0);
   const markets = (Object.keys(acc.pricesAsOf) as Market[]).sort();
+  // 오늘 산 보유는 체결가로 평가했다 (손익 0, 장 마감 뒤에 종가로) — 평가 기준 문구에 덧붙인다
+  const boughtToday = acc.positions.some(isTodayFill);
+  const basisText = easy
+    ? `평가는 지난 장 마감 가격으로 해요${boughtToday ? " (오늘 산 종목은 장 마감 뒤에)" : ""}`
+    : `평가: 직전 장마감 종가${boughtToday ? " (당일 매수는 장 마감 뒤에)" : ""}`;
   return (
     <div className="space-y-3">
       <Card>
@@ -264,7 +270,7 @@ function Holdings({ easy, byOrder, plansReady }: { easy: boolean; byOrder: Map<n
         </p>
         {markets.length > 0 && (
           <p aria-label="평가 기준" className="mt-1 flex flex-wrap gap-x-3 text-[12px] text-mute">
-            <span>{easy ? "평가는 직전 장마감 종가로 해요" : "평가: 직전 장마감 종가"}</span>
+            <span>{basisText}</span>
             {markets.map((m) => (
               <AsOf key={m} at={acc.pricesAsOf[m]} market={m} />
             ))}
@@ -274,6 +280,7 @@ function Holdings({ easy, byOrder, plansReady }: { easy: boolean; byOrder: Map<n
       <ul {...revealList(reveal)} className="divide-y divide-line overflow-hidden rounded-2xl bg-card" aria-label="보유 종목">
         {acc.positions.map((p) => {
           const plan = byOrder.get(p.orderId);
+          const today = isTodayFill(p);
           return (
             <li key={p.orderId}>
               <Link to={`/stocks/${encodeURIComponent(p.symbol)}`} className={cn("press-row block px-5 py-4 hover:bg-fill/50", HOLDING_FOCUS)}>
@@ -284,18 +291,22 @@ function Holdings({ easy, byOrder, plansReady }: { easy: boolean; byOrder: Map<n
                       <StyleBadge style={p.style} />
                     </p>
                     <p className="text-[13px] text-mute tabular-nums">
-                      {formatQty(p.quantity)} · {easy ? "산 가격" : "평균"} {formatPrice(p.avgPrice, p.currency)} · 종가 {formatPrice(p.lastPrice, p.currency)}
+                      {formatQty(p.quantity)} · {easy ? "산 가격" : "평균"} {formatPrice(p.avgPrice, p.currency)}
+                      {!today && ` · 종가 ${formatPrice(p.lastPrice, p.currency)}`}
                     </p>
                   </div>
                   <div className="shrink-0 text-right">
                     <p className="text-[16px] font-semibold tabular-nums">
                       <Flash value={p.valueKrw}>{formatKrw(p.valueKrw)}</Flash>
                     </p>
-                    <p className={cn("text-[13px] font-medium tabular-nums", trendClass(p.profitKrw))}>
-                      {formatSignedKrw(p.profitKrw)} ({formatRate(p.profitRate)})
-                    </p>
+                    {!today && (
+                      <p className={cn("text-[13px] font-medium tabular-nums", trendClass(p.profitKrw))}>
+                        {formatSignedKrw(p.profitKrw)} ({formatRate(p.profitRate)})
+                      </p>
+                    )}
                   </div>
                 </div>
+                {today && <p className="mt-1 text-[12px] font-medium text-sub">{todayFillText(p.market, easy)}</p>}
                 {p.style === "long" ? (
                   <p className="mt-2 text-[12px] text-mute">{easy ? "장기 보유 · 자동으로 팔지 않아요" : "장기 보유 · 자동 매도 없음"}</p>
                 ) : (

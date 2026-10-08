@@ -1,6 +1,8 @@
 // 마이의 알림 설정: "Discord로도 받기" → (켰을 때만) Discord 사용자 ID(멘션용) → 테스트 알림.
 // 대부분은 웹 알림만 보고 Discord는 한 번 설정하므로 세부(ID·찾는 법)는 켰을 때만 펼친다 (아래 설정이 덜 묻히게).
 // 웹 알림 문장은 받는 사람의 주린이모드를 따르고, Discord(팀 공용 채널)는 쉬운 문장 + 숫자 한 줄 하나로 간다 (docs/API.md B6).
+// 서버에 Webhook이 없으면(webhookConfigured=false) Discord 묶음(받기 스위치·사용자 ID·ID 찾는 법·테스트 알림)을 접고 "지금은 웹 알림으로만 와요" 한 줄만 보인다 —
+// 쓸 수 없는 기능이고 초보자는 Discord 사용자 ID가 무엇인지 모른다 (UX-14). 미리 ID를 넣어 두려는 사람은 펼칠 수 있다.
 import { useState } from "react";
 import { useTestNotification, useUpdateNotificationSettings } from "../../api/autotrade";
 import { errorMessage } from "../../api/client";
@@ -150,6 +152,7 @@ export function NotificationSettingsCard() {
   const { data: s, isPending, isError, error, refetch, isFetching } = useNotificationSettings();
   const test = useTestNotification();
   const reveal = useRevealAfterLoading(isPending);
+  const [showDiscord, setShowDiscord] = useState(false);
   if (isPending) return <SkeletonCard lines={4} />;
   if (isError) {
     return (
@@ -158,17 +161,8 @@ export function NotificationSettingsCard() {
       </Card>
     );
   }
-  return (
-    <Card aria-labelledby="noti-settings-title" className={cn("space-y-4", reveal && "reveal-fade")}>
-      <div>
-        <h2 id="noti-settings-title" className="flex items-center gap-1.5 text-[17px] font-bold">
-          <Icon name="bell" className="size-5 text-mute-weak" />
-          알림 설정
-        </h2>
-        <p className="mt-1 text-[13px] leading-relaxed text-sub">
-          웹 알림 문장은 주린이모드를 따라요. 오늘의 내 종목 뉴스·펀더멘털 점검 알림은 웹에만 와요.
-        </p>
-      </div>
+  const discord = (
+    <>
       <DiscordSection s={s} />
       <button
         type="button"
@@ -184,6 +178,42 @@ export function NotificationSettingsCard() {
         {test.isPending ? <Spinner /> : <Icon name="bell" className="size-4" />}
         테스트 알림 보내기
       </button>
+    </>
+  );
+  return (
+    <Card aria-labelledby="noti-settings-title" className={cn("space-y-4", reveal && "reveal-fade")}>
+      <div>
+        <h2 id="noti-settings-title" className="flex items-center gap-1.5 text-[17px] font-bold">
+          <Icon name="bell" className="size-5 text-mute-weak" />
+          알림 설정
+        </h2>
+        <p className="mt-1 text-[13px] leading-relaxed text-sub">
+          웹 알림 문장은 주린이모드를 따라요. 오늘의 내 종목 뉴스·펀더멘털 점검 알림은 웹에만 와요.
+        </p>
+      </div>
+      {s.webhookConfigured ? (
+        discord
+      ) : (
+        <div>
+          <p className="flex items-start gap-1.5 text-[15px] leading-snug font-semibold">
+            <Icon name="info" className="mt-0.5 size-4 shrink-0 text-mute-weak" />
+            지금은 웹 알림으로만 와요.
+          </p>
+          <button
+            type="button"
+            aria-expanded={showDiscord}
+            aria-controls={showDiscord ? "discord-settings" : undefined}
+            onClick={() => setShowDiscord((v) => !v)}
+            className="press -mx-2 mt-1 flex min-h-11 w-[calc(100%+1rem)] items-center justify-between gap-2 rounded-xl px-2 text-left text-[14px] font-semibold text-sub hover:bg-fill/60"
+          >
+            Discord 알림 설정 (서버 설정 전)
+            <Icon name="chevron-down" className={cn("size-5 shrink-0 text-mute-weak transition-transform duration-fast", showDiscord && "rotate-180")} />
+          </button>
+          <Collapse open={showDiscord} id="discord-settings">
+            <div className="space-y-4 pt-3">{discord}</div>
+          </Collapse>
+        </div>
+      )}
     </Card>
   );
 }

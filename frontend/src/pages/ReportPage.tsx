@@ -45,6 +45,7 @@ import {
   EXPERT_FAILURE_NOTE,
   NOT_IMPLEMENTED,
   actorLabel,
+  cleanReportText,
   isSelection,
   opinionOf,
   policyName,
@@ -424,8 +425,8 @@ function ExpertReport({ r, delivery, view }: { r: ReportDetail; delivery: Delive
               </div>
               {r.content ? (
                 <Suspense fallback={<SkeletonCard lines={4} className="px-0" />}>
-                  {/* 카드 제목(h2) 아래라 문서 제목을 한 단계 더 낮춘다 */}
-                  <Markdown levelOffset={2}>{r.content}</Markdown>
+                  {/* 카드 제목(h2) 아래라 문서 제목을 한 단계 더 낮춘다. 옛 리포트의 쉼표 없는 금액·의견 영어(hold 등)는 그릴 때만 다듬는다 (UX-5) */}
+                  <Markdown levelOffset={2}>{cleanReportText(r.content)}</Markdown>
                 </Suspense>
               ) : (
                 <div className="rounded-xl bg-fill px-4 py-6 text-center">

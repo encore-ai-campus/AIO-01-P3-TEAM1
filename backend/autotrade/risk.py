@@ -8,6 +8,7 @@ evaluate(RiskPreview)는 **장마감 기준**이다 (docs/API.md 공통 규칙 "
 - plan(재주문 점검): 엔진 내부 경로라 지금처럼 장중이다 (docs/API.md "AI 추천" 재주문, docs/DECISIONS.md 14-1) — 수량을 정하는 자산은
   보유를 장중 가격으로 평가한 값, 가격 점검은 장중 확인 가격으로만 한다 (문장은 활성화와 같다. 화면·문장에 장중 숫자를 내지 않는다).
 사유(reasons)마다 같은 자리에 사유 코드(reasonCodes)를 둔다 — 엔진 RiskAssessment.codes + 여기 코드 (docs/API.md "실행 불가 사유 코드").
+blocked_by(Recommendation.blockedBy)는 그중 계좌와 무관한 코드만 같은 assess·is_open으로 낸다 (목록·상세에서 미리 보이는 용도 — 최종 판단은 evaluate).
 """
 import math
 from datetime import datetime
@@ -32,6 +33,7 @@ from .text import money
 BUDGET = "예산"
 CLOSE_BASIS = "close"  # RiskPreview.priceBasis
 ASSUMED_PROBABILITY = 0.5
+ACCOUNT_FREE = ("reward_risk_low", "ev_negative")  # assess 사유 중 계좌와 무관한 것 (Recommendation.blockedBy)
 
 # 사유 문장 (사람이 읽는 원문 — 화면은 코드로 쉬운 문장을 고른다). 장중 가격 숫자는 넣지 않는다 (docs/API.md 공통 규칙 표)
 EXPIRED = "추천의 활성화 기한이 지남"
@@ -67,6 +69,32 @@ def target_for(entry: float, stop: float, reward_risk: float, market_: str) -> f
 
 def is_open(rec: Recommendation, now: datetime) -> bool:
     return rec.status == Recommendation.OPEN and now < rec.valid_until
+
+
+def _scenario(symbol: str, currency: str, entry: float, target: float, stop: float, probability: float,
+              holding_days: int) -> Scenario:
+    """리스크 엔진에 넘기는 스윙 시나리오 (evaluate와 blocked_by가 같이 쓴다)."""
+    return Scenario(symbol=symbol, currency=currency, horizon="SWING", entry_price=entry, target_price=target,
+                    stop_price=stop, probability=probability, holding_days=holding_days)
+
+
+def blocked_by(rec: Recommendation, now: datetime | None = None) -> list[str]:
+    """Recommendation.blockedBy: 계좌와 무관하게 지금 활성화를 막는 사유 코드 (docs/API.md Recommendation, DECISIONS 23장).
+
+    halted(중단 스위치)도 evaluate와 같은 파일로 본다. reward_risk_low·ev_negative는 미리 보기(evaluate)와 같은 assess로 낸다 — 계좌 값과 무관한 코드만 골라 쓰므로 계좌는 빈 값으로 둔다.
+    expired는 evaluate의 rec_open과 같은 is_open. 순서는 미리 보기 reasonCodes 안의 순서와 같다. 비어 있어도 내 계좌 사정으로 막힐 수 있다.
+    """
+    now = now or timezone.now()
+    commission = engine.engine_config().commission[rec.market]
+    scenario = _scenario(rec.symbol, rec.currency, rec.entry_price, rec.target_price, rec.stop_price,
+                         rec.probability, rec.holding_days)
+    a = assess(scenario, AccountContext(equity_krw=0.0, buying_power=0.0, commission_rate=commission))
+    codes = [code for code in a.codes if code in ACCOUNT_FREE]
+    if not is_open(rec, now):
+        codes.append("expired")
+    if engine.HALT_FILE.exists():  # 중단 스위치는 계좌와 무관하게 모두를 막는다 (리뷰 R-7)
+        codes.append("halted")
+    return codes
 
 
 def _fx(currency: str) -> float:
@@ -170,9 +198,8 @@ def evaluate(user, *, symbol: str, name: str, market: str, currency: str, entry:
         fx_rate=fx, daily_loss_krw=loss_today, daily_trades=trades_today, warnings=market_data.warnings(symbol),
         invested_krw=_invested_krw(store),
         max_total_krw=cfg.max_total_invest_krw)
-    scenario = Scenario(symbol=symbol, currency=currency, horizon="SWING", entry_price=entry, target_price=target,
-                        stop_price=stop, probability=probability, holding_days=holding_days)
-    a = assess(scenario, ctx, fractional=(market == "US"))
+    a = assess(_scenario(symbol, currency, entry, target, stop, probability, holding_days), ctx,
+               fractional=(market == "US"))
     pairs = list(zip(a.codes, a.reasons))
     quantity, limited_by = a.quantity, a.limited_by
     if budget_krw is not None:
@@ -183,7 +210,7 @@ def evaluate(user, *, symbol: str, name: str, market: str, currency: str, entry:
         if cap < quantity:
             quantity, limited_by = cap, BUDGET
             if us and amount < MIN_FRACTIONAL_AMOUNT:
-                pairs.append(("budget_too_small", f"예산 {budget_krw:,.0f}원으로 줄인 매수 금액 ${amount:,.2f}이(가) "
+                pairs.append(("budget_too_small", f"예산 {budget_krw:,.0f}원으로 줄인 매수 금액(${amount:,.2f})이 "
                                                   f"최소 주문 금액 ${MIN_FRACTIONAL_AMOUNT:g}보다 적음"))
             elif not us and quantity < 1:
                 pairs.append(("budget_too_small", f"예산 {budget_krw:,.0f}원으로는 1주도 살 수 없음"))

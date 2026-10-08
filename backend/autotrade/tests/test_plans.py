@@ -143,7 +143,7 @@ def test_activate_places_limit_order(api, clock, user, sent, at):
     assert (order.target_price, order.stop_price) == (80000, 66000)
     days = executor.order_days(rec.holding_days)
     assert str(order.expire_date) == str(now.date() + timedelta(days=days))  # 주문한 날의 KST 날짜 기준
-    assert sent.kinds == ["recommendation", "plan_activated", "order_placed"]
+    assert sent.kinds == ["recommendation", "order_placed"]  # 시작·주문 접수를 합친 하나 (docs/API.md "알림 합치기")
     assert sent.calls[-1]["link"] == f"/plans/{plan['id']}" and sent.calls[-1]["users"] == user
     assert sent.calls[-1]["discord"] is True
 
@@ -198,7 +198,7 @@ def test_full_flow_fill_then_target_exit(api, fake, sent):
     assert plan.status == "closed" and plan.exit_reason == "TARGET" and plan.exit_price == 81000
     assert plan.pnl_krw > 0 and plan.closed_at is not None
     assert kinds(plan) == ["activated", "risk_checked", "order_placed", "filled", "closed"]
-    assert sent.kinds == ["recommendation", "plan_activated", "order_placed", "filled", "closed"]
+    assert sent.kinds == ["recommendation", "order_placed", "filled", "closed"]  # 활성화 요청 안의 시작·주문 접수는 하나로
     assert sent.calls[-1]["expert_title"] == "삼성전자 청산 · 목표가 도달"
     assert sent.calls[-1]["title"] == "삼성전자 모의 계좌에서 모두 팔았어요"
     assert sent.calls[-1]["body"].startswith("목표 가격에 닿아 모의 계좌에서 삼성전자 25주를 81,000원에 모두 팔았어요.")
@@ -702,10 +702,11 @@ def test_evaluate_shape_matches_preview(fake, user):
 def test_requeue_sizes_from_intraday_equity(api, clock, user, monkeypatch):
     """재주문 점검의 수량은 보유를 장중 가격으로 평가한 자산으로 정한다 (docs/API.md "재주문의 계산은 지금처럼 장중 확인 가격").
     미리 보기·활성화는 그대로 장마감 기준(종가) 자산이다."""
-    clock("2026-09-22T10:00:00")  # 국내 정규장 중
+    clock("2026-09-21T10:00:00")  # 전 거래일 정규장 중에 산 보유 — 기준 종가보다 먼저 체결돼 종가로 평가된다 (오늘 산 것은 체결가, DECISIONS 23장)
     held = api.post("/api/orders", {"symbol": "000660", "quantity": 20, "orderType": "MARKET", "style": "long"},
                     format="json")
     assert held.status_code == 201 and held.json()["order"]["status"] == "EXIT_WATCHING", held.json()
+    clock("2026-09-22T10:00:00")  # 국내 정규장 중
     rec = make_rec()
     plan = plan_in("entry_pending", rec, user)
     cash = account_for(user).cash_krw

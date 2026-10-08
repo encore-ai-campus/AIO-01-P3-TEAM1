@@ -118,9 +118,10 @@ def test_ranking_prices_as_of_and_close_valuation(clock, django_user_model):
         profile.save()
         clients[name] = APIClient()
         clients[name].force_login(u)
+    clock("2026-09-21T10:00:00")
+    order(clients["alice"])                        # 21일 70,000에 체결, 22일 장중 평가는 21일 종가 69,300
     buy_us(clients["bob"], clock)
     clock("2026-09-22T12:00:00")
-    order(clients["alice"])                        # 70,000에 체결, 평가는 어제 종가 69,300
     body = clients["alice"].get("/api/ranking").json()
     assert body["pricesAsOf"] == {"KR": "2026-09-21T15:30:00+09:00", "US": "2026-09-21T16:00:00-04:00"}
     alice = next(e for e in body["results"] if e["nickname"] == "alice")

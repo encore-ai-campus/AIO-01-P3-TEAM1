@@ -1,4 +1,5 @@
 // 손절–진입–목표를 한 막대에 위치·퍼센트로 보이고 지금 가격(시세)을 표시한다 (CSS만).
+// 산 뒤(fill)에는 가운데 기준점이 '산 가격'(전문가 보기 '체결가')이고 손절·목표 %도 산 가격 기준이다 — 사는 가격 기준 %는 실제 손절 거리를 숨긴다 (UX-3).
 // 시세는 실시간이라 basis "live"면 표시는 "현재가"(easy는 "지금 가격"), 아니면 "종가"다 (기준 시각은 화면이 <AsOf>로 옆에 붙인다). easy면 쉬운 이름(사는 가격·목표 가격·손절 가격).
 // 막대 위 표시와 아래 이름표를 같은 모양으로 잇는다: 손절 ●(파랑) · 사는 가격 ○(속 빈 원) · 목표 ●(빨강).
 // 종가는 진한 세로선 + 말풍선이라, 속 빈 사는 가격 점과 섞이지 않는다 (trade-14).
@@ -9,6 +10,20 @@ import { priceLadder } from "../../lib/autotrade";
 import { cn } from "../../lib/cn";
 import { formatPrice, formatRate } from "../../lib/format";
 import { quotePriceName } from "../../lib/plainText";
+
+/**
+ * 가격 글자: 원화는 숫자와 '원' 사이에서만 줄을 바꿀 수 있게 한다 (좁은 칸에서 7자리 가격이 옆 칸과 붙지 않게 — UX-16. 자릿수 중간은 갈라지지 않는다).
+ */
+export function WrapPrice({ value, currency }: { value: number | null | undefined; currency: Currency }) {
+  const s = formatPrice(value ?? null, currency);
+  if (!s.endsWith("원") || s.length < 2) return <>{s}</>;
+  return (
+    <>
+      {s.slice(0, -1)}
+      <wbr />원
+    </>
+  );
+}
 
 /**
  * 종가 말풍선을 자기 너비의 몇 %만큼 왼쪽으로 옮길지 (trade-r4). 막대 가운데 절반에서는 표시선 가운데(-50%),
@@ -26,6 +41,7 @@ export function PriceLadder({
   stop,
   entry,
   target,
+  fill = null,
   last,
   basis,
   currency,
@@ -35,6 +51,8 @@ export function PriceLadder({
   stop: number;
   entry: number;
   target: number;
+  /** 산 가격 (체결 뒤에만). 있으면 기준점과 손절·목표 %가 이 가격 기준이다. */
+  fill?: number | null;
   /** 시세의 가격 (실시간 현재가, 못 받은 종목은 직전 장마감 종가. 없으면 표시하지 않는다). */
   last: number | null;
   /** last의 기준 (Quote.basis) — 이름("현재가"·"종가")을 고른다. 없으면 종가. */
@@ -44,13 +62,15 @@ export function PriceLadder({
   /** 기다린 끝에 처음 그릴 때만 true: 두 구간이 사는 가격 점에서 양쪽으로 펴지고 종가 표시가 조금 늦게 나타난다 (캐시로 바로 그리면 움직이지 않는다). */
   reveal?: boolean;
 }) {
-  const l = priceLadder(stop, entry, target, last);
+  const bought = fill != null && fill > 0;
+  const base = bought ? fill : entry;
+  const l = priceLadder(stop, base, target, last);
   // 종가가 화면을 연 뒤에 도착하면(시세를 따로 받는 계획 상세) 그때도 살짝 나타난다
   const lateLast = useChanged(l.last !== null);
   const fadeLast = reveal || lateLast;
   const marks = [
     { key: "stop", label: easy ? "손절 가격" : "손절", price: stop, pos: l.stop, cls: "text-down", dot: "border-card bg-down", legend: "bg-down" },
-    { key: "entry", label: easy ? "사는 가격" : "진입", price: entry, pos: l.entry, cls: "text-ink", dot: "border-ink bg-card", legend: "border-[1.5px] border-ink bg-card" },
+    { key: "entry", label: bought ? (easy ? "산 가격" : "체결가") : easy ? "사는 가격" : "진입", price: base, pos: l.entry, cls: "text-ink", dot: "border-ink bg-card", legend: "border-[1.5px] border-ink bg-card" },
     { key: "target", label: easy ? "목표 가격" : "목표", price: target, pos: l.target, cls: "text-up", dot: "border-card bg-up", legend: "bg-up" },
   ];
   // 가격이 바뀌면(실시간 시세는 5초마다, 종가는 장마감 뒤 다음 날) 말풍선·세로선이 새 자리로 미끄러진다 (말풍선은 정렬도 함께)
@@ -82,13 +102,15 @@ export function PriceLadder({
       </div>
       <ol className="mt-2 grid grid-cols-3 gap-1 text-[12px]">
         {marks.map((m, i) => (
-          <li key={m.key} className={cn(i === 0 ? "text-left" : i === 1 ? "text-center" : "text-right")}>
+          <li key={m.key} className={cn("min-w-0", i === 0 ? "text-left" : i === 1 ? "text-center" : "text-right")}>
             <span className="inline-flex items-center gap-1 text-mute">
               <span aria-hidden="true" className={cn("inline-block size-2 shrink-0 rounded-full", m.legend)} />
               {m.label}
             </span>
-            <span className={cn("block text-[14px] font-semibold tabular-nums", m.cls)}>{formatPrice(m.price, currency)}</span>
-            {m.key !== "entry" && <span className={cn("block tabular-nums", m.cls)}>{formatRate(m.price / entry - 1, 1)}</span>}
+            <span className={cn("block text-[14px] font-semibold tabular-nums", m.cls)}>
+              <WrapPrice value={m.price} currency={currency} />
+            </span>
+            {m.key !== "entry" && <span className={cn("block tabular-nums", m.cls)}>{formatRate(m.price / base - 1, 1)}</span>}
           </li>
         ))}
       </ol>
