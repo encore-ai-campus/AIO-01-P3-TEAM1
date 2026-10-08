@@ -544,6 +544,113 @@ def test_after_finish_never_raises(day, monkeypatch, recommend):
     auto.after_finish(finish(reports[1], {"report_agent": DRAFT}))   # 예외를 밖으로 내지 않는다
 
 
+# --- 다시 시도: 손익비 기준을 넘는 추천이 없으면 다음 종목으로 최대 2번 (docs/DECISIONS.md 22장) ---
+
+MORE = [{"symbol": s, "name": n, "score": v} for s, n, v in (
+    ("000270", "기아", 40.0), ("068270", "셀트리온", 38.0), ("105560", "KB금융", 36.0),
+    ("055550", "신한지주", 34.0), ("012450", "한화에어로스페이스", 32.0), ("009150", "삼성전기", 30.0),
+    ("003550", "LG", 28.0))]
+
+
+@pytest.fixture
+def rated(day, monkeypatch):
+    """진짜 추천 행을 만드는 from_report (손익비는 state["rr"][symbol], 없으면 0.7 — buy가 아니면 None) + 지금 = 그날 08:50.
+    후보는 7개를 더해 12개다."""
+    from autotrade import sources
+    from autotrade.models import Recommendation
+
+    state = {"rr": {}}
+    day["picks"] = [*day["picks"], *(dict(c) for c in MORE)]
+
+    def from_report(report, now=None):
+        draft = (report.results or {}).get("report_agent") or {}
+        if draft.get("verdict") != "buy":
+            return None
+        return Recommendation.objects.create(
+            source=Recommendation.REPORT, report=report, symbol=report.symbol, name=report.name, market="KR",
+            currency="KRW", entry_price=100, target_price=110, stop_price=95, holding_days=10, probability=0.5,
+            target_return=0.1, stop_loss_rate=-0.05, reward_risk=state["rr"].get(report.symbol, 0.7),
+            expected_return=0.01, summary="요약", valid_until=DAY_AT + timedelta(days=3))
+    monkeypatch.setattr(sources, "from_report", from_report)
+    monkeypatch.setattr(auto.timezone, "now", lambda: DAY_AT.replace(hour=8, minute=50))
+    return state
+
+
+def finish_round(reports, verdict="buy"):
+    for report in reports:
+        auto.after_finish(finish(report, {"report_agent": {**DRAFT, "verdict": verdict}}))
+
+
+def new_reports(seen):
+    from reports.models import Report
+
+    return list(Report.objects.filter(team=Report.STOCK_REPORT).exclude(pk__in=[r.id for r in seen]).order_by("id"))
+
+
+def covers(day):
+    return [(path, caption) for path, caption in day["notifier"].files if path.name.endswith(".cover.html")]
+
+
+def test_retry_twice_with_next_picks_when_no_recommendation_reaches_min_reward_risk(day, tmp_path, rated):
+    first = requested_day(day)
+    finish_round(first)   # 3개 모두 손익비 0.7
+    saved = day_file(tmp_path)
+    second = new_reports(first)
+    assert saved["retries"] == 1 and not saved["coverSent"] and covers(day) == []
+    assert [r.symbol for r in second] == ["000270", "068270", "105560"]   # 이미 고른·Guard가 뺀 종목 다음, 규칙 점수 순
+    assert [(p["symbol"], p.get("retryRound"), p["filledByRule"]) for p in saved["picks"][3:]] == [
+        ("000270", 1, True), ("068270", 1, True), ("105560", 1, True)]
+    assert saved["reportIds"] == [r.id for r in first + second]
+    assert day["notifier"].texts[-1] == ("자동 리포트 다시 시도 1/2: 손익비 1.5 이상인 추천이 없어 다음 종목으로 다시 만들어요 — "
+                                         "기아(000270), 셀트리온(068270), KB금융(105560)")
+
+    finish_round(second, verdict="hold")   # 추천 없음도 기준을 넘지 못한 것
+    third = new_reports(first + second)
+    assert day_file(tmp_path)["retries"] == 2 and [r.symbol for r in third] == ["055550", "012450", "009150"]
+
+    finish_round(third)
+    saved = day_file(tmp_path)
+    assert saved["retries"] == 2 and saved["coverSent"] is True and len(saved["picks"]) == 9
+    assert new_reports(first + second + third) == []   # 2번까지만
+    (path, caption), = covers(day)
+    assert caption.endswith("리포트 9개 (다시 시도 2번)") and "LG" not in path.read_text(encoding="utf-8")
+
+
+def test_no_retry_when_a_recommendation_reaches_min_reward_risk(day, tmp_path, rated):
+    rated["rr"]["005930"] = 1.5   # 기준과 같으면 넘은 것
+    finish_round(requested_day(day))
+    saved = day_file(tmp_path)
+    assert "retries" not in saved and saved["coverSent"] is True and len(covers(day)) == 1
+    assert covers(day)[0][1].endswith("리포트 3개")
+
+
+def test_retry_stops_when_no_candidates_are_left(day, tmp_path, rated):
+    day["picks"] = [dict(c) for c in CANDIDATES]   # 5개: 3개를 고르고 2개는 Guard가 뺐다 → 남은 종목 없음
+    finish_round(requested_day(day))
+    saved = day_file(tmp_path)
+    assert "retries" not in saved and saved["coverSent"] is True
+
+
+def test_no_retry_after_the_day(day, tmp_path, rated, monkeypatch):
+    first = requested_day(day)
+    monkeypatch.setattr(auto.timezone, "now", lambda: DAY_AT + timedelta(days=1))
+    finish_round(first)
+    saved = day_file(tmp_path)
+    assert "retries" not in saved and saved["coverSent"] is True and new_reports(first) == []
+
+
+def test_retry_failure_still_sends_cover(day, tmp_path, rated, monkeypatch):
+    from reports import selection
+
+    first = requested_day(day)
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("Guard 고장")
+    monkeypatch.setattr(selection, "guard", broken)
+    finish_round(first)
+    assert day_file(tmp_path)["coverSent"] is True and new_reports(first) == []
+
+
 # --- manage.py auto_report (T1-6) ---
 
 def test_auto_report_command_wait_runs_whole_day(day, monkeypatch, tmp_path, recommend):
@@ -586,3 +693,33 @@ def test_auto_report_command_checks_time_without_force(day, monkeypatch):
     monkeypatch.setattr(service, "now", lambda: DAY_AT.replace(hour=7))
     with pytest.raises(CommandError, match="08:00"):
         call_command("auto_report")
+
+
+def test_auto_report_command_wait_also_runs_retry_rounds(day, monkeypatch, tmp_path, rated):
+    import sys
+    from io import StringIO
+    from types import ModuleType
+
+    from django.core.management import call_command
+    from trading import service
+
+    from reports.models import Report
+
+    ran = []
+
+    def run_report(report):
+        ran.append(report.symbol)
+        if report.team == Report.STOCK_SELECTION:
+            finish(report, {"news_screen_agent": NEWS, "filing_screen_agent": FILINGS, "selector_agent": SELECTED})
+        else:
+            finish(report, {"report_agent": {**DRAFT, "verdict": "hold"}})
+
+    fake = ModuleType("reports.orchestrator")
+    fake.run_report = run_report
+    monkeypatch.setitem(sys.modules, "reports.orchestrator", fake)
+    monkeypatch.setattr(service, "now", lambda: DAY_AT.replace(hour=7))
+    call_command("auto_report", "--force", "--wait", "--top", "2", stdout=StringIO())
+    saved = day_file(tmp_path)
+    assert ran == ["KR", "042700", "005930", "005380", "000270", "068270", "105560"]   # 선정 → 2개 → 다시 2개 → 다시 2개
+    assert saved["retries"] == 2 and saved["coverSent"] is True
+    assert all(r.status == "completed" for r in Report.objects.all())

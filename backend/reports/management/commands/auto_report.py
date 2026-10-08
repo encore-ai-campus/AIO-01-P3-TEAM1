@@ -7,7 +7,7 @@
 그날 선정을 이미 시작했으면 새로 하지 않고 지금 상태를 보여 준다.
 --wait가 없으면 다음은 엔진 루프(run_engine)가 이어서 한다 — 선정 팀 실행은 runner가, 그 뒤 단계(선정 Guard → 종목 리포트)는
 루프의 "자동 리포트" 단계가 (진행 중인 선정은 AUTO_REPORT 값과 상관없이, KR·US 모두 이어 간다). --wait면 엔진 루프 없이 이 명령이 선정 팀 → 선정 Guard → 종목 리포트 → 발송까지
-그 자리에서 돌린다 (시연용. LLM을 부르고 몇 분 걸린다). 엔진 루프가 이미 실행 중인 리포트는 끝날 때까지 기다린다.
+그 자리에서 돌린다 (손익비 기준을 넘는 추천이 없어 다시 시도한 리포트까지 — 시연용. LLM을 부르고 몇 분 걸린다). 엔진 루프가 이미 실행 중인 리포트는 끝날 때까지 기다린다.
 선별은 증권사 조회를 100번 넘게 한다.
 """
 import importlib
@@ -58,14 +58,18 @@ class Command(BaseCommand):
         self.summary(auto.load(market, day) or {})
 
     def finish_day(self, market: str, day, top: int, now) -> None:
-        """--wait: 선정 팀 실행 → 선정 Guard·종목 리포트 신청 → 종목 리포트 실행·발송을 차례로."""
+        """--wait: 선정 팀 실행 → 선정 Guard·종목 리포트 신청 → 종목 리포트 실행·발송을 차례로.
+        마지막 리포트가 끝나며 다시 시도(auto._retry)가 리포트를 더 신청하면 그것도 돌린다."""
         current = (auto.load(market, day) or {}).get("selection") or {}
         if current.get("status") == auto.RUNNING:
             if current.get("reportId"):
                 self.run_or_wait(current["reportId"])
             auto.advance(market, day, self.stdout.write, top=top, now=now)
-        for report_id in (auto.load(market, day) or {}).get("reportIds") or []:
-            self.run_or_wait(report_id)
+        done: set[int] = set()
+        while todo := [i for i in (auto.load(market, day) or {}).get("reportIds") or [] if i not in done]:
+            for report_id in todo:
+                self.run_or_wait(report_id)
+                done.add(report_id)
 
     def run_or_wait(self, report_id: int) -> None:
         """requested면 이 자리에서 실행하고 발송한다 (runner처럼 after_finish). 엔진 루프가 실행 중이면 끝날 때까지 기다린다."""

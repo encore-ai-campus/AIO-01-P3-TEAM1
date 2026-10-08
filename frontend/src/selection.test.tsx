@@ -76,6 +76,20 @@ describe("오늘의 선별 결과 — 선정 팀", () => {
     expect(within(rows[2]).queryByText(/^AI \d위$/)).toBeNull();
   });
 
+  it("다시 시도한 날: 더한 종목에 'n차' 꼬리표, 위 줄에 다시 시도 횟수", async () => {
+    const s = sampleScreening();
+    const retried = { symbol: "105560", name: "KB금융", score: 58, tradingAmountRank: 14, aiRank: null, aiReason: null, theme: null, filledByRule: true, retryRound: 1 };
+    serve({ ...s, picks: [...s.picks, retried], retries: 1 });
+    renderApp("/reports");
+    const box = await panel();
+    await within(box).findByText("KB금융");
+    const rows = picks(box);
+    expect(rows).toHaveLength(4);
+    expect(within(rows[3]).getByText("다시 시도 1차")).toBeTruthy();
+    expect(within(rows[0]).queryByText(/다시 시도/)).toBeNull();
+    expect(within(box).getByText(/4개 선별 \(손익비 기준을 넘는 추천이 없어 다시 시도 1번\)/)).toBeTruthy();
+  });
+
   it("규칙으로 고른 날(Fallback): '오늘은 규칙으로 골랐어요' + 사유 문장 + 과정 보기, 칸마다 꼬리표를 되풀이하지 않는다", async () => {
     serve(sampleRuleScreening("join_blocked"));
     renderApp("/reports");
