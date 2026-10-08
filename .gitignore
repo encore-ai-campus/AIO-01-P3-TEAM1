@@ -1,0 +1,5 @@
+# 관리 서버 (README.md). 비밀 값·실행 데이터는 저장소에 넣지 않는다
+web/dist/
+server/data/
+deploy/secrets/
+deploy/records/
