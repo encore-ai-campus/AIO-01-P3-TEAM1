@@ -1,7 +1,7 @@
 # 04. AutoHealing 백엔드 (담당 4)
 
 > **2026-10-07 — 4의 호출기(T4-2~T4-5) 위에 Orchestrator·Worker를 Claude가 붙였다** (`docs/DECISIONS.md` 19장). `healing.py`는 고치지 않았다. 4에게 남는 것은 그대로: **T4-6 장애 주입(`chaos.py`)·T4-7 복구 지표(`stats.py`, `recovery-stats` API — 화면이 이미 부른다)**, T4-8~T4-11.
-> (2026-10-08: T4-6은 PR #5로 합쳤다. 주입 리포트는 리포트 전용 Circuit Breaker를 쓴다 — `00-공통.md` 5절.)
+> (2026-10-08: T4-6은 PR #5로 합쳤다. 주입 리포트는 리포트 전용 Circuit Breaker를 쓴다 — `00-공통.md` 5절. T4-7(`stats.py`·`recovery-stats`)도 `feat/4-stats`로 합쳤다.)
 
 > **할 일 (2026-10-05 단순화 — `TEAM_DEV_PLAN.md` 11장)**: ① 추천 워크플로우: 재시도·대체 모델·Circuit Breaker·장애 주입·복구 지표·`reports` 마이그레이션 0002 · ② UI/UX: 자동 복구 문장·지표 화면 · ③ 추가 기능 논의: ~~키움 실시간(단타 b) 도입 조건~~(2026-10-06 단타 폐기) · ④ 테스트: 장애 주입 시험 결과표(DR).
 > 그 밖의 확정된 변경은 Claude가 구현한다(`docs/DECISIONS.md` 14장). 아래 세부 표는 워크플로우 개발의 약속·참고로 남긴다.
