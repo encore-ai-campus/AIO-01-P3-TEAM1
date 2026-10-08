@@ -31,7 +31,7 @@ import { useOrderBarPresence } from "../lib/orderBar";
 import { isTodayFill, todayFillText } from "../lib/orderText";
 import { quotePriceName, reportStatusText } from "../lib/plainText";
 import { stockAsOfBasis } from "../lib/quote";
-import { todayReport } from "../lib/reports";
+import { quotaSentence, todayReport } from "../lib/reports";
 
 // 차트 라이브러리는 종목 상세에서만 쓰므로 따로 불러온다. 불러온 적이 있으면(다시 온 화면) 차트를 페이드하지 않는다
 let chartLoaded = false;
@@ -118,7 +118,7 @@ function ReportCta({ stock, easy }: { stock: StockDetail; easy: boolean }) {
   const reveal = useRevealAfterLoading(!settled);
   const quota = quotaQ.data;
   const existing = reportsQ.data ? todayReport(reportsQ.data.results) : null;
-  const spent = quota ? quota.remaining <= 0 : false;
+  const spent = quota?.remaining === 0;
   const chaosOn = !easy && chaos !== null;
   const create = () => request.mutate({ symbol: stock.symbol, chaos: chaosOn ? chaos : null }, { onSuccess: (r) => navigate(`/reports/${r.id}`) });
   const limitError = request.error instanceof ApiError && request.error.status === 429;
@@ -197,7 +197,7 @@ function ReportCta({ stock, easy }: { stock: StockDetail; easy: boolean }) {
             </p>
           ) : (
             <p className="mt-2 text-center text-[13px] text-sub" aria-live="polite">
-              {spent ? "오늘은 다 만들었어요. 내일 0시에 다시 만들 수 있어요" : `오늘 ${quota.remaining}번 더 만들 수 있어요`}
+              {quotaSentence(quota)}
             </p>
           )}
         </div>

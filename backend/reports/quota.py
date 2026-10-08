@@ -1,6 +1,7 @@
 """하루 AI 리포트 횟수 한도 (D-7 — docs/DECISIONS.md 14-6, docs/API.md "하루 리포트 한도"). Claude 파일.
 
-팀원마다 오늘(KST) 한도에 세는 리포트 수가 AI_DAILY_REPORTS_PER_USER(기본 3)에 닿으면 새 리포트를 만들지 않는다.
+팀원마다 오늘(KST) 한도에 세는 리포트 수가 AI_DAILY_REPORTS_PER_USER에 닿으면 새 리포트를 만들지 않는다.
+값이 비어 있으면(기본) 한도가 없다 — 2026-10-08 사용자 결정으로 기본값을 3에서 무제한으로 바꿨다 (docs/DECISIONS.md 14-6).
 세는 것: 오늘 내가 신청한 리포트에서 **장애 주입 없이 failed로 끝난 것을 뺀** 수 (장애 주입을 켠 리포트는 실패해도 센다).
 `chaos` 열은 아직 없으므로(담당 4의 마이그레이션 0002) `getattr(report, "chaos", None)`이 dict이고 `enabled`가 참일 때만
 failed도 센다 — 열이 생기기 전에는 failed를 모두 뺀다. JSON 열은 Python에서 읽는다 (PostgreSQL 전용 조회를 쓰지 않는다).
@@ -26,7 +27,7 @@ from config.api import LimitExceeded
 from .models import Report
 from .payloads import KST
 
-DEFAULT_PER_USER = 3
+DEFAULT_PER_USER = None  # 무제한 (2026-10-08 전에는 3)
 
 
 @cache
@@ -38,10 +39,10 @@ def _env(key: str) -> str:
     return (os.environ.get(key) or _dotenv().get(key) or "").strip()
 
 
-def per_user_limit() -> int:
-    """AI_DAILY_REPORTS_PER_USER (기본 3, 0이면 신청할 수 없다). 숫자가 아니면 기본값."""
+def per_user_limit() -> int | None:
+    """AI_DAILY_REPORTS_PER_USER (비었거나 숫자가 아니면 기본값 None = 무제한, 0이면 신청할 수 없다)."""
     try:
-        return max(int(_env("AI_DAILY_REPORTS_PER_USER") or DEFAULT_PER_USER), 0)
+        return max(int(_env("AI_DAILY_REPORTS_PER_USER")), 0)
     except ValueError:
         return DEFAULT_PER_USER
 
@@ -64,13 +65,13 @@ def counts(report: Report) -> bool:
 
 @dataclass(frozen=True)
 class Usage:
-    limit: int
+    limit: int | None       # None이면 무제한
     used: int               # 오늘 내가 신청한 리포트 중 한도에 세는 수
     resets_at: datetime     # 다음 날 0시 (KST)
 
     @property
-    def remaining(self) -> int:
-        return max(self.limit - self.used, 0)
+    def remaining(self) -> int | None:
+        return None if self.limit is None else max(self.limit - self.used, 0)
 
 
 def usage(user, now: datetime | None = None) -> Usage:
@@ -93,8 +94,8 @@ class Exceeded(LimitExceeded):
 
 
 def check(user, now: datetime | None = None) -> Usage:
-    """새 리포트를 만들 수 있으면 사용량을, 한도에 닿았으면 Exceeded를 낸다."""
+    """새 리포트를 만들 수 있으면 사용량을, 한도에 닿았으면 Exceeded를 낸다 (무제한이면 내지 않는다)."""
     used = usage(user, now)
-    if used.remaining <= 0:
+    if used.remaining is not None and used.remaining <= 0:
         raise Exceeded(used)
     return used

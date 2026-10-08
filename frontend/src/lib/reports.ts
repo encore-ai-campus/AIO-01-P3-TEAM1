@@ -962,8 +962,9 @@ export const PLAN_NOTE = {
   unchecked: "이 리포트에서 나온 계획이 있어요. 실행할 수 있는지는 리포트에서 확인해요",
 } as const;
 
-/** 하루 리포트 한도 문장 ("오늘 ○번 더 만들 수 있어요", D-7). */
+/** 하루 리포트 한도 문장 ("오늘 ○번 더 만들 수 있어요", D-7). remaining이 null이면 무제한. */
 export function quotaSentence(q: Pick<ReportQuota, "remaining">): string {
+  if (q.remaining === null) return "오늘은 횟수 제한 없이 만들 수 있어요";
   return q.remaining > 0 ? `오늘 ${q.remaining}번 더 만들 수 있어요` : "오늘은 다 만들었어요. 내일 0시에 다시 만들 수 있어요";
 }
 

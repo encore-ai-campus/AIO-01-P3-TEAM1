@@ -277,6 +277,13 @@ describe("리포트 한도 · 내 리포트 · 결론", () => {
     expect(db.listReports(null)[0]).toMatchObject({ opinion: null, oneLiner: null });
   });
 
+  it("한도가 null이면 무제한 (서버 기본값): limit·remaining이 null이고 429가 아니다", () => {
+    const me = alice();
+    db.options.reportLimit = null;
+    for (const symbol of ["005380", "035420", "373220"]) db.requestReport(me, symbol);
+    expect(db.reportQuota(me.id)).toMatchObject({ limit: null, used: 4, remaining: null });
+  });
+
   it("예시 리포트: 완성이면 AI 의견·한 줄 요약, 실패는 사유 코드, 긍정적이면 추천이 이어진다", () => {
     db.addSampleReports();
     const rows = db.listReports(null);

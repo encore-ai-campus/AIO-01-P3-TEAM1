@@ -110,7 +110,7 @@ class ReportsView(APIView):
 class QuotaView(APIView):
     @extend_schema(operation_id="reports_quota", responses=OpenApiTypes.OBJECT)
     def get(self, request):
-        """ReportQuota: 오늘(KST) 내 리포트 한도 {"limit", "used", "remaining", "resetsAt"} (D-7)."""
+        """ReportQuota: 오늘(KST) 내 리포트 한도 {"limit", "used", "remaining", "resetsAt"} (D-7). 무제한이면 limit·remaining이 null."""
         used = quota.usage(request.user)
         return Response({"limit": used.limit, "used": used.used, "remaining": used.remaining,
                          "resetsAt": iso(used.resets_at)})

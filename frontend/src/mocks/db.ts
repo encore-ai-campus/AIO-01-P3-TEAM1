@@ -163,8 +163,8 @@ export interface MockOptions {
   webhookConfigured: boolean;
   /** MarketStatus.quoteProvider (화면 아래 출처 줄). */
   quoteProvider: string;
-  /** 하루 리포트 한도 (AI_DAILY_REPORTS_PER_USER). */
-  reportLimit: number;
+  /** 하루 리포트 한도 (AI_DAILY_REPORTS_PER_USER). null이면 무제한 (서버 기본값). */
+  reportLimit: number | null;
   /** 끝난 예시 리포트(완성·실패)를 넣는다 (브라우저 가짜 API는 켬, 테스트는 db.addSampleReports()). */
   sampleReports: boolean;
 }
@@ -1161,7 +1161,8 @@ export function reportQuota(userId: number): ReportQuota {
       !(r.status === "failed" && !r.chaos?.enabled),
   ).length;
   const limit = options.reportLimit;
-  return { limit, used, remaining: Math.max(limit - used, 0), resetsAt: `${addDays(today, 1)}T00:00:00+09:00` };
+  const remaining = limit === null ? null : Math.max(limit - used, 0);
+  return { limit, used, remaining, resetsAt: `${addDays(today, 1)}T00:00:00+09:00` };
 }
 
 /** 리포트 신청. 같은 사람이 같은 종목으로 신청해 아직 끝나지 않은 리포트가 있으면 그것을 돌려준다 (created=false → 200, 한도와 무관). */
@@ -1173,7 +1174,7 @@ export function requestReport(user: MockUser, symbol: string, chaos?: ChaosReque
   );
   if (open) return { report: getReport(open.id), created: false };
   const q = reportQuota(user.id);
-  if (q.remaining <= 0) {
+  if (q.remaining !== null && q.remaining <= 0) {
     throw new MockError(429, `오늘 리포트 한도(${q.limit}개)를 다 썼어요. 내일 0시에 다시 만들 수 있어요.`, { limit: q.limit, used: q.used });
   }
   const r = newReport(nextId(), user, s, kstIso(), chaos);

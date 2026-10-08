@@ -1089,6 +1089,7 @@ describe("lib/reports 쉬운 보기 함수", () => {
     expect(lib.reportCardStatus("running", true)).toBe("running");
     expect(lib.quotaSentence({ remaining: 2 })).toBe("오늘 2번 더 만들 수 있어요");
     expect(lib.quotaSentence({ remaining: 0 })).toBe("오늘은 다 만들었어요. 내일 0시에 다시 만들 수 있어요");
+    expect(lib.quotaSentence({ remaining: null })).toBe("오늘은 횟수 제한 없이 만들 수 있어요");
 
     const copy = [
       ...Object.values(lib.REPORT_CARD_TEXT).flatMap((x) => [x.label, x.sentence]),

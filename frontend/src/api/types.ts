@@ -541,9 +541,9 @@ export type ReportOpinion = "buy" | "hold" | "avoid";
 
 /** GET /api/reports/quota — 하루 리포트 한도 (D-7). */
 export interface ReportQuota {
-  limit: number; // AI_DAILY_REPORTS_PER_USER (기본 3)
+  limit: number | null; // AI_DAILY_REPORTS_PER_USER (기본 null = 무제한, 2026-10-08)
   used: number; // 오늘(KST) 신청한 리포트 중 한도에 세는 수 (장애 주입 없이 failed로 끝난 것은 빼고)
-  remaining: number; // max(limit − used, 0). 0이면 POST /api/reports가 429 {detail, limit, used}
+  remaining: number | null; // max(limit − used, 0), 무제한이면 null. 0이면 POST /api/reports가 429 {detail, limit, used}
   resetsAt: string; // 다음 날 00:00 KST
 }
 

@@ -1,4 +1,4 @@
-// 하루 리포트 한도 한 줄 (D-7): "오늘 ○번 더 만들 수 있어요" / "오늘은 다 만들었어요. 내일 0시에 다시 만들 수 있어요".
+// 하루 리포트 한도 한 줄 (D-7): "오늘 ○번 더 만들 수 있어요" / "오늘은 다 만들었어요. 내일 0시에 다시 만들 수 있어요" (무제한이면 "횟수 제한 없이").
 // 한도를 받기 전에도 같은 높이의 자리를 둔다 (늦게 끼어들어 아래 목록·출처 줄을 밀지 않게). 받지 못하면(오류) 아무것도 그리지 않는다.
 import { useReportQuota } from "../../api/reports";
 import { cn } from "../../lib/cn";
@@ -15,7 +15,7 @@ export function QuotaLine({ className }: { className?: string }) {
     ) : null;
   }
   return (
-    <p aria-live="polite" className={cn("min-h-5 text-[13px] font-medium", data.remaining > 0 ? "text-sub" : "text-warn-ink", className)}>
+    <p aria-live="polite" className={cn("min-h-5 text-[13px] font-medium", data.remaining !== 0 ? "text-sub" : "text-warn-ink", className)}>
       {quotaSentence(data)}
     </p>
   );

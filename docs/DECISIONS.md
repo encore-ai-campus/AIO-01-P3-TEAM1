@@ -734,6 +734,8 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
   `chaos` 열이 아직 없으므로 `getattr(report, "chaos", None)`이 dict이고 `enabled`가 참일 때만 failed도 센다 (열이 생기기 전에는 failed를 모두 뺀다). JSON 필드는 Python에서 읽는다 (PostgreSQL 전용 조회를 쓰지 않는다).
 - 넘으면 `POST /api/reports` → `429 {"detail", "limit", "used"}` (`config.api`의 예외 처리는 `detail` 외 필드를 버리므로 `Response`를 직접 돌려준다). 같은 종목의 진행 중 리포트를 돌려주는 `200` 경로는 세지 않는다.
   남은 횟수는 `GET /api/reports/quota` (`limit`·`used`·`remaining`·`resetsAt`).
+- **2026-10-08 바뀜 (사용자 결정): 기본값은 무제한.** `AI_DAILY_REPORTS_PER_USER`가 비어 있으면(또는 숫자가 아니면) 한도가 없다 — `limit`·`remaining`이 `null`이고 `429`가 나지 않는다.
+  숫자를 넣으면 전처럼 그 수가 한도다 (0이면 신청할 수 없다). 팀 전체 하루 비용 예산(`AI_DAILY_BUDGET_USD`, `budget.check`)은 그대로 적용된다.
 - 비용 합산 한도(분석 + 리포트 $)는 `cost_usd` 열이 생긴 뒤 팀원(2) 몫이다 — 새 팀 파일 `backend/reports/budget.py`의 `check(now)`. `quota.py`(Claude)에 넣지 않는다.
   `ReportsView.post`에서는 `quota.check` 바로 뒤에 `budget.check`를 한 줄로 부른다 (14-2의 순서).
 

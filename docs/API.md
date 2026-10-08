@@ -657,9 +657,9 @@ interface ScreeningResult {       // 자동 리포트의 그날 선별 결과 (�
 // 같은 폴더의 곁 파일: <날짜>-<시장>.skip.json (증권사 조회 불가로 그날 건너뜀 — 다시 하지 않는다), <날짜>-<시장>.cover.html (표지)
 
 interface ReportQuota {           // GET /api/reports/quota — 하루 리포트 한도 (D-7, 2026-10-04 합의 — 구현: 2026-10-05 (Claude))
-  limit: number;                // 팀원별 하루 한도 AI_DAILY_REPORTS_PER_USER (기본 3)
+  limit: number | null;         // 팀원별 하루 한도 AI_DAILY_REPORTS_PER_USER. null = 무제한 (기본값 — 2026-10-08 바뀜, 전 3)
   used: number;                 // 오늘(KST) 내가 신청한 리포트 중 한도에 세는 수 (장애 주입 없이 failed로 끝난 것은 빼고 — 아래 규칙)
-  remaining: number;            // max(limit − used, 0). 0이면 POST /api/reports가 429
+  remaining: number | null;     // max(limit − used, 0), 무제한이면 null. 0이면 POST /api/reports가 429
   resetsAt: string;             // 한도가 다시 차는 시각 = 다음 날 00:00 KST
 }
 
@@ -679,7 +679,7 @@ interface ReportDetail extends ReportSummary {   // Snapshot
 |---|---|---|
 | `GET /api/reports/plan?team=` | `team` 기본 `stock_report` | `200 ExecutionPlan` (YAML Registry에서 읽은 실행 계획) · 모르는 `team` `400` (구현: 2026-10-07) |
 | `GET /api/reports?symbol=&team=` | 페이지, `symbol` 선택, `team` 기본 `stock_report` (`stock_selection`이면 선정 실행 목록) | `200 {"count", "results": ReportSummary[]}` (팀 전체 공용, 최신순) · 잘못된 `team` `400` (구현: 2026-10-07) |
-| `POST /api/reports` | `{"symbol", "chaos"?: {"enabled", "probability"?, "errorTypes"?, "workers"?, "scope"?, "seed"?}}` | `201 ReportDetail` · 같은 사람이 같은 종목으로 신청해 아직 끝나지 않은 리포트가 있으면 그것을 `200`으로 (한도를 넘었어도 돌려준다) · 없는 종목·잘못된 `chaos` `400` · 하루 한도 초과 `429 {"detail": string, "limit": number, "used": number}` (`detail` 예: "오늘 리포트 한도(3개)를 다 썼어요. 내일 0시에 다시 만들 수 있어요." — D-7, 구현: 2026-10-05 (Claude)) · (추가) AI 설정 없음 `503` · 증권사 조회 불가 `503` |
+| `POST /api/reports` | `{"symbol", "chaos"?: {"enabled", "probability"?, "errorTypes"?, "workers"?, "scope"?, "seed"?}}` | `201 ReportDetail` · 같은 사람이 같은 종목으로 신청해 아직 끝나지 않은 리포트가 있으면 그것을 `200`으로 (한도를 넘었어도 돌려준다) · 없는 종목·잘못된 `chaos` `400` · 하루 한도 초과 `429 {"detail": string, "limit": number, "used": number}` (한도가 무제한(기본, 2026-10-08)이면 나지 않는다) (`detail` 예: "오늘 리포트 한도(3개)를 다 썼어요. 내일 0시에 다시 만들 수 있어요." — D-7, 구현: 2026-10-05 (Claude)) · (추가) AI 설정 없음 `503` · 증권사 조회 불가 `503` |
 | `GET /api/reports/quota` | – | `200 ReportQuota` (D-7 — 구현: 2026-10-05 (Claude)) |
 | `GET /api/reports?symbol=&source=&mine=` | 페이지, `symbol`·`source`(`user`\|`auto`)·`mine`(`1`이면 내가 신청한 것만) 선택, 같이 쓸 수 있다 | `source` (구현: 2026-10-07, 잘못된 값 `400`) · `mine=1` (2026-10-04 합의, 컨셉 계획 B8 — 구현: 2026-10-05 (Claude): `ReportsView.get` 한 줄. 자동 리포트는 신청자가 없어 빠진다) |
 | `GET /api/reports/{id}` | – | `200 ReportDetail` · `404` (**Snapshot API**: 새로고침·연결 복구에 쓴다) |
