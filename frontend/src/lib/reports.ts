@@ -280,13 +280,13 @@ export function progressAnnouncement(steps: readonly ProgressStep[], done: numbe
 
 /**
  * 실패한 리포트가 멈춘 단계 (실패 화면의 "어디서 멈췄는지"). 검토 실패는 검토, Join 차단 등은 처음으로 실패한 단계.
- * 시간 초과·엔진 재시작·예외는 그때 하던 단계에서 멈췄다 — 먼저 포기한 선택 담당자(뉴스 등)가 있어도 하던 단계가 먼저다.
+ * 시간 초과·엔진 재시작·신청 만료·예외는 그때 하던 단계에서 멈췄다 — 먼저 포기한 선택 담당자(뉴스 등)가 있어도 하던 단계가 먼저다.
  * 세 조사 단계는 함께(병렬) 돌므로 순서가 진행 순서가 아니다: 다른 단계의 상태는 화면이 단계마다 따로 보인다(EasyFailure).
  */
 export function stoppedStepIndex(steps: readonly ProgressStep[], reason: string | null): number {
   if (reason === "review_failed") return steps.findIndex((s) => s.actor === "review_agent");
   const first = (state: ProgressState) => steps.findIndex((s) => s.state === state);
-  const cutOff = reason === "timeout" || reason === "engine_restarted" || reason === "exception";
+  const cutOff = reason === "timeout" || reason === "engine_restarted" || reason === "expired" || reason === "exception";
   for (const state of cutOff ? (["active", "failed", "waiting"] as const) : (["failed", "active", "waiting"] as const)) {
     const i = first(state);
     if (i >= 0) return i;
@@ -300,6 +300,7 @@ export const FAILURE_NEXT: Record<string, string> = {
   join_blocked: "자료가 다 모이지 않으면 리포트를 쓰지 않아요. 잠시 뒤 다시 만들 수 있어요",
   timeout: "일시적인 문제일 수 있어요. 잠시 뒤 다시 만들 수 있어요",
   engine_restarted: "일시적인 문제일 수 있어요. 잠시 뒤 다시 만들 수 있어요",
+  expired: "신청이 오래 대기해 자동으로 끝났어요. 다시 신청하면 새로 시작해요",
   exception: "일시적인 문제일 수 있어요. 잠시 뒤 다시 만들 수 있어요",
 };
 export const FAILURE_NEXT_FALLBACK = "다시 만들면 처음부터 새로 조사해요";
@@ -310,6 +311,7 @@ export const EXPERT_FAILURE_NOTE: Record<string, string> = {
   review_failed: "검토 Agent가 FAIL 판정을 냈습니다. 지적 사항은 “진행 기록” 탭에서 볼 수 있습니다.",
   timeout: "제한 시간을 넘겨 중단했습니다. 일시적인 문제일 수 있습니다.",
   engine_restarted: "엔진이 다시 시작돼 중단했습니다. 일시적인 문제일 수 있습니다.",
+  expired: "신청 후 24시간 안에 실행되지 않아 AI 호출 없이 종료했습니다.",
   exception: "예상하지 못한 예외로 중단했습니다. 마지막 사건은 “진행 기록” 탭에서 볼 수 있습니다.",
 };
 export const EXPERT_FAILURE_FALLBACK = "재시도와 대체 모델로도 복구하지 못했습니다. 어느 모델이 실패했는지는 “진행 기록” 탭에서 볼 수 있습니다.";

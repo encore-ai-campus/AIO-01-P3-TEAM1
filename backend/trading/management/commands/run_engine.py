@@ -28,6 +28,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, once=False, interval=5.0, **options):
         from analysis import jobs  # analysis 앱 소유 (분석 작업 실행)
+        from reports import runner
 
         if engine.broker_client() is None:
             self.log("증권사 조회 키가 없어 체결·예약·자산 기록·장기투자·자동 추천·자동매매를 건너뛰고 "
@@ -36,6 +37,9 @@ class Command(BaseCommand):
             recovered = jobs.recover()
             if recovered:
                 self.log(f"이전 실행이 남긴 분석 작업 {recovered}개를 실패로 정리함")
+            recovered_reports = runner.recover()
+            if recovered_reports:
+                self.log(f"이전 실행이 남긴 리포트 {recovered_reports}개를 실패로 정리함")
         try:
             while True:
                 if not once:  # 오래 도는 루프는 끊긴 DB 연결을 버리고 다시 붙는다 (한 번만 돌 때는 필요 없다)
@@ -49,6 +53,7 @@ class Command(BaseCommand):
         finally:
             if not once:
                 jobs.shutdown()  # 돌고 있는 분석 하위 프로세스를 끝낸다
+                runner.shutdown()
 
     def tick(self) -> None:
         now = service.now()
@@ -58,6 +63,7 @@ class Command(BaseCommand):
             self.step("예약 실행", lambda: service.run_reservations(now, self.log))
             self.step("일별 자산 기록", lambda: service.record_equity(now, self.log))
         self.step("분석 작업", _analysis_tick)
+        self.step("AI 리포트", _report_tick)
         self.step("추천 수집", lambda: _collect_recommendations(now, self.log))
         self.step("리포트 알림", lambda: _report_alerts(now, self.log))
         if broker:  # 선별·시세·주문이 필요하다
@@ -82,6 +88,12 @@ def _analysis_tick() -> None:
     from analysis import jobs  # analysis 앱 소유 (분석 작업 실행)
 
     jobs.tick()
+
+
+def _report_tick() -> None:
+    from reports import runner
+
+    runner.tick()
 
 
 def _collect_recommendations(now, log) -> None:

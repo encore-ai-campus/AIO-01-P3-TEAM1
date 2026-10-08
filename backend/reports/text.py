@@ -15,6 +15,7 @@ FAILURE_TEXT = {
     "review_failed": "검토 AI가 근거와 맞지 않는 주장을 찾아 완성하지 않았어요",
     "timeout": "시간이 너무 오래 걸려 멈췄어요",
     "engine_restarted": "서버가 다시 시작돼 중단됐어요",
+    "expired": "신청 후 24시간이 지나 리포트를 만들지 않았어요",
     "exception": "예상하지 못한 오류로 멈췄어요",
 }
 FAILURE_FALLBACK = "리포트를 만들지 못했어요. 다시 만들 수 있어요"

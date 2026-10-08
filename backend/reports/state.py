@@ -98,6 +98,19 @@ def add_error(report: Report, agent: str, message: str) -> Report:
     return _sync(report, current)
 
 
+def add_cost(report: Report, usd: float) -> Report:
+    """실패한 호출까지 포함해 발생한 LLM 비용을 누적한다."""
+    from math import isfinite
+
+    if isinstance(usd, bool) or not isinstance(usd, (int, float)) or not isfinite(usd) or usd < 0:
+        raise StateError("비용은 0 이상의 유한한 숫자여야 합니다.")
+    with transaction.atomic():
+        current = _locked(report, Report.RUNNING)
+        current.cost_usd += usd
+        current.save(update_fields=["cost_usd"])
+    return _sync(report, current)
+
+
 def finish(report: Report, status: str, content: str | None = None) -> Report:
     """전체 종료 (completed|failed). finished_at을 남기고 current_step을 비운다. content는 리포트 본문 (Markdown).
 
@@ -141,6 +154,6 @@ def _check_agent(agent: str) -> None:
 def _sync(report: Report, current: Report) -> Report:
     """넘겨받은 객체를 DB 값으로 맞춘다 (부르는 쪽이 같은 객체를 계속 쓴다)."""
     for field in ("status", "current_step", "results", "errors", "completed_agents", "failed_agents", "content",
-                  "started_at", "finished_at"):
+                  "started_at", "finished_at", "cost_usd"):
         setattr(report, field, getattr(current, field))
     return report

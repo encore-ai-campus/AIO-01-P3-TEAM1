@@ -15,7 +15,7 @@ from .agents import WORKERS
 from .agents.base import WorkerContext, WorkerError
 from .models import Report
 
-FAILURE_REASONS = {"join_blocked", "review_failed", "timeout", "engine_restarted", "exception"}
+FAILURE_REASONS = {"join_blocked", "review_failed", "timeout", "engine_restarted", "expired", "exception"}
 
 
 @dataclass
@@ -24,6 +24,7 @@ class WorkerRun:
     attempt: int
     caller: healing.LlmCaller
     future: Future
+    handoff: dict | None = None
 
 
 @dataclass
@@ -40,15 +41,18 @@ class WorkerOutcome:
 def run_report(report: Report, *, workers=None, llm_client=None, now=None) -> Report:
     """리포트 하나를 끝까지 실행한다. 실패도 예외를 내보내지 않고 ``failed``로 끝낸다."""
     del now  # 외부 API 호환용. 실행 제한은 반드시 monotonic clock을 쓴다.
-    plan = registry.execution_plan()
-    worker_map = WORKERS if workers is None else workers
-    client = healing.llm_client() if llm_client is None else llm_client
     started = time.monotonic()
     worker_attempts: dict[str, int] = {}
     failure_reason: str | None = None
 
     try:
-        state.start(report)
+        if report.status == Report.REQUESTED:
+            state.start(report)
+        elif report.status != Report.RUNNING or report.trace_events.exists():
+            return report
+        plan = registry.execution_plan()
+        worker_map = WORKERS if workers is None else workers
+        client = healing.llm_client() if llm_client is None else llm_client
         state.record(report, "orchestrator", "workflow_started", "started", details={
             "chaos": bool(getattr(report, "chaos", None)),
             "source": getattr(report, "source", "user"),
@@ -60,7 +64,12 @@ def run_report(report: Report, *, workers=None, llm_client=None, now=None) -> Re
             decision = guards.join(report, step, plan)
             if step.get("dependsOn"):
                 _record_join(report, step, plan, decision)
-            if not decision.ok and plan["failurePolicy"] != "best_effort":
+            cannot_proceed = (
+                (not decision.ok and plan["failurePolicy"] != "best_effort")
+                or ("report_agent" in step["workers"] and bool(step.get("dependsOn")) and not decision.inputs)
+                or ("review_agent" in step["workers"] and "report_agent" not in decision.inputs)
+            )
+            if cannot_proceed:
                 failure_reason = "join_blocked"
                 _skip_from(report, steps[index:], "join_blocked")
                 break
@@ -83,24 +92,36 @@ def run_report(report: Report, *, workers=None, llm_client=None, now=None) -> Re
                     report, step, plan, worker_map, client, worker_attempts, review,
                 )
                 if failure_reason:
-                    _skip_from(report, steps[index + 1:], "review_failed")
+                    _skip_from(report, steps[index + 1:],
+                               "review_failed" if failure_reason == "review_failed" else "join_blocked")
                     break
+                review = report.results.get("review_agent")
+                if review and review.get("handoff"):
+                    _run_handoff(report, plan, worker_map, client, worker_attempts, review["handoff"])
 
         if failure_reason:
             return _fail(report, failure_reason, started)
 
         draft = report.results.get("report_agent") or {}
+        if not draft.get("markdown") or ("review_agent" not in report.results):
+            return _fail(report, "join_blocked", started)
+        content = draft["markdown"]
+        risk = report.results.get("risk_agent")
+        if risk:
+            warnings = risk.get("warnings") or []
+            if warnings:
+                content = "> ⚠️ 리스크 점검: " + "; ".join(warnings) + "\n\n" + content
         state.record(report, "orchestrator", "workflow_completed", "completed", details={
             "reason": None,
             "costUsd": _report_cost(report),
             "durationMs": _ms(time.monotonic() - started),
         })
-        return state.finish(report, Report.COMPLETED, draft.get("markdown"))
+        return state.finish(report, Report.COMPLETED, content)
     except Exception:
         if report.status in Report.FINISHED:
             return report
         if report.status == Report.REQUESTED:
-            return state.finish(report, Report.FAILED)
+            state.start(report)
         return _fail(report, "exception", started)
 
 
@@ -112,15 +133,20 @@ def _run_step(report, step, plan, workers, client, inputs, attempts) -> list[Wor
             run = _prepare_run(report, step, plan, workers, client, inputs, attempts, worker_id, deadline)
             outcomes.append(_collect(report, run, deadline))
         return outcomes
-    runs = [
-        _prepare_run(report, step, plan, workers, client, inputs, attempts, worker_id, deadline)
-        for worker_id in step["workers"]
-    ]
+    executor = ThreadPoolExecutor(max_workers=len(step["workers"]), thread_name_prefix=f"report-{report.pk}-{step['id']}")
+    try:
+        runs = [
+            _prepare_run(report, step, plan, workers, client, inputs, attempts, worker_id, deadline,
+                         executor=executor)
+            for worker_id in step["workers"]
+        ]
+    finally:
+        executor.shutdown(wait=False)
     return [_collect(report, run, deadline) for run in runs]
 
 
 def _prepare_run(report, step, plan, workers, client, inputs, attempts, worker_id, deadline,
-                 instructions=None) -> WorkerRun:
+                 instructions=None, handoff=None, executor=None) -> WorkerRun:
     attempts[worker_id] = attempts.get(worker_id, 0) + 1
     worker_attempt = attempts[worker_id]
     state.record(report, worker_id, "agent_started", "started", details={
@@ -145,18 +171,21 @@ def _prepare_run(report, step, plan, workers, client, inputs, attempts, worker_i
         attempt=worker_attempt,
         inputs=inputs,
         instructions=instructions,
-        handoff=None,
+        handoff=handoff,
         llm=caller,
         deadline=deadline,
         cfg=engine.engine_config(),
         client=engine.broker_client(),
     )
-    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"report-{report.pk}-{worker_id}")
+    owned_executor = executor is None
+    if executor is None:
+        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"report-{report.pk}-{worker_id}")
     future = executor.submit(_invoke, workers[worker_id], ctx)
     # Python 스레드는 강제로 중단할 수 없다. future가 끝나면 스스로 정리하되,
     # Orchestrator는 단계 deadline 뒤 결과를 받지 않는다.
-    executor.shutdown(wait=False)
-    return WorkerRun(worker_id, worker_attempt, caller, future)
+    if owned_executor:
+        executor.shutdown(wait=False)
+    return WorkerRun(worker_id, worker_attempt, caller, future, handoff)
 
 
 def _invoke(worker, ctx) -> tuple[dict, list[str]]:
@@ -180,6 +209,7 @@ def _collect(report, run: WorkerRun, deadline: float) -> WorkerOutcome:
     except Exception as error:
         return _record_failure(report, run, error, timed_out=isinstance(error, TimeoutError))
 
+    state.add_cost(report, run.caller.cost_usd)
     state.add_result(report, run.worker_id, result)
     replies = run.caller.calls
     reply = replies[-1] if replies else None
@@ -221,6 +251,7 @@ def _record_failure(report, run: WorkerRun, error: Exception, *, timed_out: bool
         error_type = "unknown"
         attempts = run.caller.attempt
     message = str(error) or type(error).__name__
+    state.add_cost(report, run.caller.cost_usd)
     state.add_error(report, run.worker_id, message)
     state.record(report, run.worker_id, "agent_failed", "failed", details={
         "errorType": error_type,
@@ -233,9 +264,9 @@ def _record_failure(report, run: WorkerRun, error: Exception, *, timed_out: bool
 
 def _review_loop(report, review_step, plan, workers, client, attempts, review) -> str | None:
     retry = review_step.get("retry")
-    if not review or review.get("verdict") == "PASS":
+    if review and review.get("verdict") == "PASS":
         return None
-    if review.get("verdict") == "FAIL" or retry is None:
+    if not review or review.get("verdict") == "FAIL" or retry is None:
         return "review_failed"
 
     target = retry["target"]
@@ -271,6 +302,27 @@ def _review_loop(report, review_step, plan, workers, client, attempts, review) -
         if review.get("verdict") == "FAIL":
             return "review_failed"
     return "review_failed"
+
+
+def _run_handoff(report, plan, workers, client, attempts, request) -> None:
+    target = request.get("to")
+    decision = guards.handoff(report, plan, "review_agent", target, request.get("reason"),
+                              attempt=attempts.get(target, 0) + 1)
+    details = {"from": "review_agent", "to": target, "hopCount": 0, "reason": decision.reason}
+    if not decision.ok:
+        state.record(report, "handoff_guard", "handoff_blocked", "blocked", details=details)
+        return
+    details["hopCount"] = decision.payload["hop_count"]
+    state.record(report, "handoff_guard", "handoff_started", "started", details=details)
+    inputs = {key: report.results[key] for key in decision.payload["inputs"]["memory_refs"]}
+    step = {"id": "review", "workers": [target], "timeoutSec": 60}
+    deadline = time.monotonic() + step["timeoutSec"]
+    run = _prepare_run(report, step, plan, workers, client, inputs, attempts, target, deadline,
+                       handoff=decision.payload)
+    outcome = _collect(report, run, deadline)
+    state.record(report, "handoff_guard", "handoff_completed", "completed", details={
+        **details, "reason": None if outcome.error is None else "risk_worker_failed",
+    })
 
 
 def _record_join(report, step, plan, decision: guards.JoinDecision) -> None:

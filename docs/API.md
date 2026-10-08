@@ -931,7 +931,7 @@ interface NotificationSettings {
 - **완성** (`completed`): 이 리포트로 추천이 있으면(`verdict` buy이고 `0 < stop < entry < target` — `00-공통.md` 10절) `report_completed`를 보내지 않는다 —
   추천 알림(`recommendation`)의 본문 첫 줄 "리포트가 완성됐어요"가 그 역할이다. 판단 전에 추천을 만들 수 있으면 먼저 만든다(`autotrade.sources.from_report`, 이미 있으면 그대로).
   추천이 없으면(지켜보기·부정적·가격 조건이 맞지 않음) `report_completed` 하나 (`link`: `/reports/{id}`).
-- **실패** (`failed`, 엔진 재시작 정리 포함): `report_failed` 하나 (`link`: `/reports/{id}`). 본문은 실패 사유 코드(`00-공통.md` 9절의 `join_blocked`·`review_failed`·`timeout`·`engine_restarted`·`exception`)의
+- **실패** (`failed`, 엔진 재시작·신청 만료 정리 포함): `report_failed` 하나 (`link`: `/reports/{id}`). 본문은 실패 사유 코드(`00-공통.md` 9절의 `join_blocked`·`review_failed`·`timeout`·`engine_restarted`·`expired`·`exception`)의
   쉬운 문장 (`backend/reports/text.py`). 사유는 Trace의 마지막 `workflow_failed.details.reason`이고, 없거나 모르는 코드면 "리포트를 만들지 못했어요. 다시 만들 수 있어요".
 - **중복 방지**: 같은 사용자에게 같은 kind·같은 `link`의 알림이 이미 있으면 보내지 않는다 (두 경로가 겹치거나 엔진이 다시 떠도 한 번).
 - 예전 계획의 `system` kind와 `healing.notify_failure`의 사용자 알림은 쓰지 않는다.

@@ -503,7 +503,7 @@ export interface ReportQuota {
 }
 
 /** 리포트 실패 사유 코드 (Trace의 마지막 workflow_failed.details.reason). 모르는 값도 올 수 있다. */
-export type ReportFailureReason = "join_blocked" | "review_failed" | "timeout" | "engine_restarted" | "exception";
+export type ReportFailureReason = "join_blocked" | "review_failed" | "timeout" | "engine_restarted" | "expired" | "exception";
 
 export interface ReportDetail extends ReportSummary {
   // Snapshot

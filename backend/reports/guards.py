@@ -57,6 +57,41 @@ class JoinDecision:
     reason: str | None
 
 
+@dataclass(frozen=True)
+class HandoffDecision:
+    ok: bool
+    payload: dict | None
+    reason: str | None
+
+
+def handoff(report, plan: dict, source: str, target: str, message: str,
+            *, hop_count: int = 0, attempt: int = 1) -> HandoffDecision:
+    """계획된 경로와 전달 내용만 리스크 Worker에 넘긴다."""
+    route = next((item for item in plan.get("handoffs", [])
+                  if item["from"] == source and item["to"] == target), None)
+    if route is None:
+        return HandoffDecision(False, None, "route_not_allowed")
+    if hop_count >= route["maxHops"]:
+        return HandoffDecision(False, None, "max_hops")
+    if report.user_id is None:
+        return HandoffDecision(False, None, "user_missing")
+    if not isinstance(message, str) or not message.strip():
+        return HandoffDecision(False, None, "empty_message")
+    cleaned, reasons = clean_text(message)
+    if reasons or not cleaned:
+        return HandoffDecision(False, None, "unsafe_content")
+    refs = [key for key in ("market_agent", "fundamental_agent", "news_agent", "report_agent")
+            if key in report.results]
+    payload = {
+        "task_id": f"report-{report.pk}", "trace_id": f"report-{report.pk}",
+        "from_agent": source, "to_agent": target, "objective": cleaned,
+        "inputs": {"memory_refs": refs}, "constraints": [route["responsibility"]],
+        "expected_output": "RiskResult", "attempt": attempt,
+        "user_id": report.user_id, "hop_count": hop_count + 1,
+    }
+    return HandoffDecision(True, payload, None)
+
+
 def join(report, step: dict, plan: dict) -> JoinDecision:
     """앞 단계의 성공 결과만 골라 Worker 입력으로 전달한다.
 

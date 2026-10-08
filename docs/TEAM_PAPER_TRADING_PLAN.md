@@ -37,7 +37,7 @@
 ### 1-3. 비어 있는 것·막힌 것
 
 - **핵심 AI Agent 워크플로우가 0줄이다.** `backend/reports`에 contracts·agents·orchestrator·guards·runner·healing·chaos·stats·budget과 마이그레이션 0002가 없다. 원격 브랜치는 `main`뿐이고 PR은 0건이다(`git branch -r`·`gh pr list`). 10/5 오전 뼈대 PR 5개(`docs/tasks/00-공통.md` 13절)도 없다. 과제 주제(에러 자가 치유)의 핵심이고, 산출물 3종·`docs/개선이력.md`·장애 시험 결과표도 아직 없다.
-- **공유 개발 DB의 리포트 3건(10/2~10/5 신청)이 모두 `requested`다.** runner를 켜면 이 3건이 먼저 돈다(3-1 Q5).
+- **공유 개발 DB의 과거 `requested` 리포트**는 Runner가 실행 대상을 고르기 전 신청 후 24시간 초과 여부를 확인한다. 만료 건은 실행하지 않고 `failed(expired)`로 종료하며 행은 남긴다(3-1 Q5).
 - **10/6 개장 시험(U8·U15)은 시작하지 못했다.** 시험 계정이 없다. 호스트 PC(노트북)가 09:48~12:34에 절전과 짧은 깨어남을 되풀이했고, 그사이 토스 조회는 DNS 오류·403으로 실패했다(12:36부터 정상). 시각별 기록은 `docs/결정필요사항.md` U8.
 - **토스 client를 원본 개인 프로젝트(실주문)와 같이 쓴다.** 한쪽이 토큰을 새로 받으면 다른 쪽 토큰이 무효가 된다. 10/6에도 되풀이된다(엔진 로그 13:02 `token-revoked`, `.cache/toss_token.json`을 13시대에 여러 번 다시 씀). `AGENTS.md:26-27`과 어긋난다(U4 → U19).
 - **운영 전제는 팀장 몫으로 남았다.** 키움 키(U9)·`DATA_GOKR_API`(U14)·EC2·배포 설정이 없다. 운영 구성의 PDF는 HTML로 나간다(U22).
@@ -187,7 +187,7 @@ macOS·Linux·WSL2에서만 돈다. 공유 개발 DB는 `.env`에 `POSTGRES_HOST
 | Q2 | 제한 시간 | **결정(2026-10-08): 단계 `timeout`이 전체 상한. 각 LLM 호출은 단계의 남은 시간까지만 실행** | 4·3 · T4-4·T3-5에 반영 |
 | Q3 | 필수 Worker 시간 초과의 사유 코드 | **결정(2026-10-08): 직접 원인이 시간 초과이면 `timeout`; 그 밖의 필수 결과 누락·계약 오류는 `join_blocked`** | 3 · T3-5에 반영 |
 | Q4 | 검토 단계 입력 | **결정(2026-10-08): 최신 `report_agent` 초안과 성공한 조사 결과 전체. 선택 뉴스 실패 시 있는 조사 결과만 전달** | 3 · T3-5에 반영 |
-| Q5 | runner를 켜는 시점 | 묵은 `requested` 3건이 켜는 순간 실제 비용으로 돌고 끝 알림이 간다(같은 사람·종목 신청에는 이 행이 200으로 온다). 처리(끝내기·나이 제한·실행)를 정한다. 통합 전에는 별도 설정 키로 `runner.tick`을 막는다(제안 — `AGENTS_IMPLEMENTED`는 화면 SSE 깃발, `registry.py:17-18`) | 3·1 · ⑤ 전(오늘) |
+| Q5 | Runner 운영·신청 만료 | AWS(EC2)의 `run_engine`이 매 바퀴 `runner.tick()`을 호출하며 별도 ON/OFF 설정은 두지 않는다. 신청 후 24시간이 지난 `requested`는 실행하지 않고 `failed(reason: expired)`로 종료, DB 행은 보존한다. 남은 신청은 생성 순서대로 동시에 1건만 실행한다 | 3·1 · 결정(2026-10-08) |
 | Q6 | 시험 수단 | `errorTypes` 셋으로는 DR-CRT-01·02·DR-SEC-01을 못 만든다. Circuit Breaker(모델별·프로세스 전역 5분, T4-5)가 시나리오끼리 간섭한다 → 사이에 5분 대기나 재시작(제안). 리포트 한도 3건 → 시험 한도를 올리거나 계정을 나눈다(제안) | 4·1 · T4-6·T4-10 전 |
 | Q7 | 장애 분류·셈법 | `LlmError`에 상태 코드가 없어 server_error·bad_output을 나누기 어렵다 → 구조화된 오류(제안). LLM 실패 없는 실패(Worker 오류·단계 시간 초과)를 장애로 셀지 정한다 | 4 · T4-2·T4-7 전 |
 | Q8 | 그 밖 | **attempt 일부 결정(2026-10-08):** `agent_started.details.attempt`는 Worker 실행 횟수, 호출기의 `agent_failed`·`agent_retry.details.attempt`는 해당 Worker 실행 안의 LLM 호출 순번, `agent_completed.details.attempts`는 해당 실행의 전체 LLM 호출 수. `chaos.parse` 인자·권유 표현 검증·0002 `db_default`·산출물 위치는 미정 | 2·3·4·1 · 0002 전, 산출물은 10/8 전 |

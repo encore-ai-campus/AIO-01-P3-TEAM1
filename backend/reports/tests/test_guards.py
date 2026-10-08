@@ -113,3 +113,18 @@ def test_optional_news_failure_is_left_out_but_required_missing_blocks(monkeypat
     assert decision.inputs == {"market_agent": {"market": True}}
     assert decision.missing == ["fundamental_agent"]
     assert decision.reason == "join_blocked"
+
+
+def test_handoff_checks_route_hops_user_and_secrets():
+    report = SimpleNamespace(pk=9, user_id=3, results={"report_agent": {"markdown": "draft"}})
+    plan = {"handoffs": [{"from": "review_agent", "to": "risk_agent",
+                           "maxHops": 1, "responsibility": "위험 점검"}]}
+
+    accepted = guards.handoff(report, plan, "review_agent", "risk_agent", "투자 유의 점검")
+    assert accepted.ok and accepted.payload["inputs"]["memory_refs"] == ["report_agent"]
+    assert accepted.payload["hop_count"] == 1
+    assert guards.handoff(report, plan, "review_agent", "other", "점검").reason == "route_not_allowed"
+    assert guards.handoff(report, plan, "review_agent", "risk_agent", "점검", hop_count=1).reason == "max_hops"
+    assert guards.handoff(report, plan, "review_agent", "risk_agent", "sk-" + "A" * 24).reason == "unsafe_content"
+    report.user_id = None
+    assert guards.handoff(report, plan, "review_agent", "risk_agent", "점검").reason == "user_missing"
