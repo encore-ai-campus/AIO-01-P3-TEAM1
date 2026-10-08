@@ -1,7 +1,7 @@
 """Worker 프롬프트 공통 틀 (docs/tasks/02-worker.md T2-3).
 
 system = 역할 + 공통 규칙 + 출력 계약 설명(contracts.describe에서 자동으로). user = 이름 붙인 자료 덩어리들.
-프롬프트에는 API 키·비밀번호·사용자 아이디를 넣지 않는다 (넣을 자리를 두지 않는다). 손익비 기준(2.0)도 넣지 않는다.
+프롬프트에는 API 키·비밀번호·사용자 아이디를 넣지 않는다 (넣을 자리를 두지 않는다). 손익비 기준도 넣지 않는다 (값은 엔진 judge/risk.py).
 """
 import json
 from typing import Any

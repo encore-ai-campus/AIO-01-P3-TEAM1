@@ -8,6 +8,7 @@
 // PC(lg)는 같은 DOM 순서로 두 열: 왼쪽은 ② 검토(읽기), 오른쪽 340px는 ③ 실행(매매 계획 카드, 스크롤해도 따라온다).
 // 오른쪽에 카드가 늘 보이므로 PC에서는 결론 카드의 계획 미니를 숨긴다. 만드는 중·실패 화면은 PC에서 720px로 줄인다 (버튼이 화면 끝까지 늘지 않게).
 // 완성되는 순간(이 화면에서 상태가 바뀐 경우만): 결론 카드가 올라오며 나타나고, 아래로 내려가 있던 사람에게는 토스트로 알린다 (스크롤은 옮기지 않는다).
+// 완성 화면의 고정 문장(결론·쉬운 요약 빈 값·차트 범례)은 쉬운 PDF(backend/reports/pdf.py 쉬운 판)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
 import { Suspense, lazy, useEffect, useMemo, type CSSProperties } from "react";
 import { useStock } from "../../../api/queries";
 import { usePlanCardData } from "../../../api/reports";
@@ -19,7 +20,19 @@ import { formatDateTime, formatPrice } from "../../../lib/format";
 import { scrollToTop } from "../../../lib/motion";
 import { DISCLAIMER, opinionText } from "../../../lib/plainText";
 import { stockAsOfBasis } from "../../../lib/quote";
-import { type ReportTargets, draftOf, oneLinerOf, opinionOf, planGuide, researchOf, scenarioOf, stepsOf, trustOf, validTargets } from "../../../lib/reports";
+import {
+  type ReportTargets,
+  draftOf,
+  floorTargets,
+  oneLinerOf,
+  opinionOf,
+  planGuide,
+  researchOf,
+  scenarioOf,
+  stepsOf,
+  trustOf,
+  validTargets,
+} from "../../../lib/reports";
 import { Icon } from "../../Icon";
 import { Collapse } from "../../motion/Collapse";
 import { PLAN_CARD_ID, PlanCard } from "../../plan/PlanCard";
@@ -175,10 +188,13 @@ export function EasyReport({ r, view }: { r: ReportDetail; view: ViewModeState }
   const executed = Boolean(rec?.myPlan);
   const planState = completed ? plan.state : null;
   const currency: Currency = rec?.currency ?? (r.market === "US" ? "USD" : "KRW");
-  // 추천이 있으면 그 가격(리스크 미리 보기와 같은 값), 없으면 리포트가 제안한 가격
+  // 추천이 있으면 그 가격(리스크 미리 보기와 같은 값), 없으면 리포트가 제안한 가격을 추천처럼 호가 단위로 내린 값 (쉬운 PDF와 같은 숫자).
+  // 세 가지 경우·차트·'이 의견이 틀리는 경우'의 손절 문장이 모두 이 값 하나를 쓴다
   const targets: ReportTargets | null = rec
     ? { entry: rec.entryPrice, target: rec.targetPrice, stop: rec.stopPrice, holdingDays: rec.holdingDays, probability: rec.probability }
-    : (draft?.targets ?? null);
+    : draft
+      ? floorTargets(draft.targets, currency)
+      : null;
   const scenario = opinion === "buy" && targets ? scenarioOf(targets, rec ? plan.preview : null, targets.holdingDays, planState) : null;
   const researchAll = completed ? researchOf(r.state) : null;
   const research = researchAll && (researchAll.market || researchAll.fundamental || researchAll.news) ? researchAll : null;
@@ -233,7 +249,7 @@ export function EasyReport({ r, view }: { r: ReportDetail; view: ViewModeState }
           </div>
           {draft && (
             <div className={left}>
-              <ReasonsRisks draft={draft} opinion={opinion} currency={currency} />
+              <ReasonsRisks draft={draft} opinion={opinion} currency={currency} targets={targets ?? undefined} />
             </div>
           )}
           {scenario && (
@@ -253,7 +269,8 @@ export function EasyReport({ r, view }: { r: ReportDetail; view: ViewModeState }
       )}
 
       <Card as="div" className="space-y-2">
-        {completed && <PdfOpenButton reportId={r.id} />}
+        {/* 쉬운 판 PDF (?view=easy) — 준비 중·실패·재시도도 이 화면에서 보여 준다. */}
+        {completed && <PdfOpenButton reportId={r.id} view="easy" />}
         {/* 면책 문장은 꼭 읽어야 하는 문장이라 보조 글자색 (흐린 글자보다 진하게) */}
         <p className="text-[12px] leading-snug text-sub">{DISCLAIMER}</p>
       </Card>

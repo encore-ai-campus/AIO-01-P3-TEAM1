@@ -419,7 +419,8 @@ function ExpertReport({ r, delivery, view }: { r: ReportDetail; delivery: Delive
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <CardTitle id="content-title" title={selection ? "선정 결과" : "리포트 본문"} />
                 {/* 선정 실행은 PDF가 없다 (서버도 404) */}
-                {!selection && (r.hasPdf || r.status === "completed") && <PdfOpenButton reportId={r.id} />}
+                {/* 전문가 판 PDF (?view=expert) — 준비 중·실패·재시도도 이 화면에서 보여 준다. */}
+                {!selection && (r.hasPdf || r.status === "completed") && <PdfOpenButton reportId={r.id} view="expert" />}
               </div>
               {r.content ? (
                 <Suspense fallback={<SkeletonCard lines={4} className="px-0" />}>

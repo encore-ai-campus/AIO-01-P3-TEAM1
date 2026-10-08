@@ -1,7 +1,8 @@
-# 모매매 — 자동 주식 추천, 거래 서비스
+# 모매매 — 분석부터 모의매매까지, AI 투자 에이전트
 
-주식이 처음인 사람도 **AI 리포트를 만들고 · 읽고 검토하고 · 모의 자동매매로 실행해 보는** 팀 모의투자 웹 서비스다.
-시세는 증권사 조회 API로만 받고(운영은 키움 REST, 로컬 개발은 토스 조회), 매매는 팀원별 가상 현금 계좌에서만 체결한다. **실제 주문은 내지 않는다** (실주문 코드 0건).
+주식이 처음인 사람도 AI 에이전트가 분석한 투자 리포트를 바탕으로 종목을 이해하고, 직접 투자 판단을 내린 뒤 모의 자동매매까지 경험할 수 있는 팀 기반 모의투자 서비스입니다.
+
+AI는 시장·재무·뉴스 데이터를 분석해 투자 근거와 위험 요소를 제안하고, 최종 투자 결정과 매매 계획 활성화는 사용자가 직접 수행합니다.
 
 ## 서비스 흐름 · AI Agent 워크플로우 · ERD
 
@@ -57,7 +58,7 @@ flowchart LR
 ```
 
 - 정의는 YAML Registry(`backend/reports/team_definitions.yaml`·`worker_definitions.yaml`), Worker 출력 계약은 `contracts.py`.
-- 모든 AI 호출은 `healing.py`를 거친다: 같은 모델 재시도 → 대체 모델 → Circuit Breaker. 진행은 `state.py`가 Shared State·Trace로 남기고 SSE로 화면에 보낸다.
+- 모든 AI 호출은 `healing.py`를 거친다: 같은 모델 재시도 → 대체 모델 → Circuit Breaker. 호출 한 번은 **최대 4회** 시도한다 (주 모델 2회 + 대체 모델 2회). 진행은 `state.py`가 Shared State·Trace로 남기고 SSE로 화면에 보낸다.
 - 실행은 `orchestrator.py`(병렬·Join Guard·부분 실패·검토 반복·Handoff Guard)와 `runner.py`(엔진 루프에서 한 번에 하나), Worker는 `agents/` (2026-10-07 구현).
   종목 선정까지 AI 팀으로 하는 하루 파이프라인(규칙 후보 30 → 선정 팀 → 선정 Guard → 자동 리포트 3개, `AUTO_REPORT=on`)은 [docs/AI_AGENT_WORKFLOW.md](docs/AI_AGENT_WORKFLOW.md).
 

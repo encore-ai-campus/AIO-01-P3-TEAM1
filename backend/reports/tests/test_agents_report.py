@@ -12,6 +12,7 @@ import pytest
 from django.utils import timezone
 from longterm import sources
 from paper_engine.data import indicators
+from paper_engine.judge import stops
 from trading import market as quotes_module
 
 from config import engine
@@ -127,6 +128,24 @@ def test_market_overwrites_numbers_with_data():
     [(system, user, contract)] = llm.prompts
     assert contract == "MarketResult" and "MarketResult" in system
     assert "장마감 기준 가격" in user and f"{CLOSES[-1]}" in user
+
+
+def test_market_stop_is_code_value_and_not_shown_to_market_llm():
+    llm = FakeCaller(MARKET_ANSWER | {"stop": 1})  # LLM이 쓴 값은 버린다
+    result = checked("MarketResult", market.MarketAgent().run(context("market_agent", llm)))
+    rows = candles(CLOSES)
+    highs, lows = [float(c["highPrice"]) for c in rows], [float(c["lowPrice"]) for c in rows]
+    atr = round(indicators.atr(highs, lows, CLOSES, 14), 2)
+    assert result["stop"] == stops.swing_stop(CLOSES[-1], lows, atr, "KRW")
+    assert 0 < result["stop"] < CLOSES[-1] - atr  # 직전 종가에서 ATR 1배 넘게 아래
+    [(_, user, _)] = llm.prompts
+    assert '"stop"' not in user  # 시세 LLM은 손절 가격을 정하지도, 보지도 않는다
+
+
+def test_market_stop_is_null_without_enough_candles(outside):
+    outside.candles = candles(CLOSES[-5:])  # ATR14를 계산할 수 없다
+    result = checked("MarketResult", market.MarketAgent().run(context("market_agent", FakeCaller(MARKET_ANSWER))))
+    assert result["stop"] is None
 
 
 def test_market_volatility_is_daily_stdev_percent():
@@ -362,6 +381,31 @@ def test_report_without_matching_citations_uses_research_evidence():
     result = report.ReportAgent().run(context("report_agent", FakeCaller(DRAFT), inputs=inputs))
     evidence = [e for wid in ("market_agent", "fundamental_agent", "news_agent") for e in inputs[wid]["evidence"]]
     assert result["citations"] == list(dict.fromkeys(evidence))[:report.MAX_CITATIONS]
+
+
+def test_report_stop_is_replaced_with_market_stop():
+    inputs = research()
+    code_stop = inputs["market_agent"]["stop"]
+    assert code_stop is not None and code_stop != DRAFT["targets"]["stop"]
+    llm = FakeCaller(DRAFT)
+    result = checked("ReportDraft", report.ReportAgent().run(context("report_agent", llm, inputs=inputs)))
+    assert result["targets"] == DRAFT["targets"] | {"stop": code_stop}
+    [(system, user, _)] = llm.prompts
+    assert "시세 조사의 stop이 손절 가격" in system and f'"stop":{code_stop}' in user
+
+
+def test_report_stop_is_null_when_code_could_not_set_it():
+    inputs = research()
+    inputs["market_agent"] = inputs["market_agent"] | {"stop": None}
+    result = report.ReportAgent().run(context("report_agent", FakeCaller(DRAFT), inputs=inputs))
+    assert result["targets"]["stop"] is None  # 추천이 생기지 않는다 (sources.from_report)
+
+
+def test_report_hold_without_prices_keeps_null_targets():
+    hold = DRAFT | {"verdict": "hold", "targets": {"entry": None, "target": None, "stop": None,
+                                                   "holdingDays": None, "probability": None}}
+    result = report.ReportAgent().run(context("report_agent", FakeCaller(hold), inputs=research()))
+    assert result["targets"]["stop"] is None
 
 
 def test_report_retry_prompt_has_instructions_and_previous_draft():

@@ -139,14 +139,15 @@ function FilteredList({ s }: { s: ScreeningResult }) {
   );
 }
 
-/** 선별 종목 한 칸: 순위 · 이름 · 코드 · 거래대금 순위 · 점수, 선정 팀 키가 있으면 AI 순위·테마·규칙으로 채움 꼬리표와 AI가 고른 이유. */
+/** 선별 종목 한 칸: 순위 · 이름 · 코드 · 거래대금 순위 · 점수, 선정 팀 키가 있으면 AI 순위·테마·규칙으로 채움·다시 시도 꼬리표와 AI가 고른 이유. */
 function PickItem({ p, rank, ruleDay }: { p: Record<string, unknown>; rank: number; ruleDay: boolean }) {
   const aiRank = optInt(p.aiRank);
   const aiReason = optText(p.aiReason);
   const theme = optText(p.theme);
   // 규칙으로 고른 날은 모두 규칙이라 칸마다 붙이지 않는다 (위 안내가 말한다)
   const byRule = p.filledByRule === true && !ruleDay;
-  const tags = aiRank !== null || theme !== null || byRule;
+  const retryRound = optInt(p.retryRound);
+  const tags = aiRank !== null || theme !== null || byRule || retryRound !== null;
   return (
     <li className="rounded-xl bg-fill px-3 py-2.5">
       <div className="flex items-center gap-2.5">
@@ -165,6 +166,7 @@ function PickItem({ p, rank, ruleDay }: { p: Record<string, unknown>; rank: numb
           {aiRank !== null && <span className={cn(tag, "bg-brand-soft text-brand-ink")}>AI {aiRank}위</span>}
           {theme !== null && <span className={cn(tag, "bg-card text-sub")}>{theme}</span>}
           {byRule && <span className={cn(tag, "bg-warn-soft text-warn-ink")}>규칙으로 채움</span>}
+          {retryRound !== null && <span className={cn(tag, "bg-card text-sub")}>다시 시도 {retryRound}차</span>}
         </p>
       )}
       {aiReason !== null && <p className="mt-1 text-[13px] leading-snug text-sub">{aiReason}</p>}
@@ -207,6 +209,7 @@ function ScreeningPanel() {
           <p className="mt-0.5 text-[13px] text-mute">
             {formatDateTime(s.at)} · 거래대금 상위 {s.rankCount}개 중 {s.eligibleCount}개 대상
             {s.candidates && s.candidates.length > 0 && ` · 후보 ${s.candidates.length}개`} · {s.picks.length}개 선별
+            {s.retries ? ` (손익비 기준을 넘는 추천이 없어 다시 시도 ${s.retries}번)` : null}
           </p>
           <SelectionNote s={s} example={data.example} />
           {s.picks.length > 0 ? (

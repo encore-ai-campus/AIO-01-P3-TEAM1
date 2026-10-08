@@ -116,7 +116,8 @@ def fake_llm():
 SAMPLES = {
     "MarketResult": {"trend": "up", "summary": "20일 이동평균 위에서 오르는 흐름", "price": 70000, "changePct": 1.5,
                      "asOf": "2026-10-06T15:30:00+09:00", "rsi": 58.2, "volatilityPct": 1.8, "volumeRank": 3,
-                     "support": 68000, "resistance": 72000, "signals": ["20일선 위"], "evidence": ["일봉 120개"]},
+                     "support": 68000, "resistance": 72000, "stop": 66000, "signals": ["20일선 위"],
+                     "evidence": ["일봉 120개"]},
     "FundamentalResult": {"summary": "영업이익이 늘었다", "metrics": {"per": 12.0, "pbr": 1.1, "roe": 9.5,
                                                                "revenueGrowthPct": 5.0, "opMarginPct": 11.0},
                           "recentFilings": [{"date": "2026-09-30", "title": "분기보고서", "impact": "neutral"}],

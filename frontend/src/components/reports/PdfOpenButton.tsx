@@ -6,7 +6,7 @@ import { Icon } from "../Icon";
 import { Spinner } from "../ui";
 
 /** PDF를 실제로 받은 뒤 새 탭에서 연다. 준비 중·실패 상태를 현재 화면에 남긴다. */
-export function PdfOpenButton({ reportId, className }: { reportId: number; className?: string }) {
+export function PdfOpenButton({ reportId, view, className }: { reportId: number; view: "easy" | "expert"; className?: string }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
@@ -15,7 +15,9 @@ export function PdfOpenButton({ reportId, className }: { reportId: number; class
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(new URL(`/api/reports/${reportId}/pdf`, window.location.origin), {
+      const url = new URL(`/api/reports/${reportId}/pdf`, window.location.origin);
+      url.searchParams.set("view", view);
+      const response = await fetch(url, {
         credentials: "same-origin",
         headers: { Accept: "application/pdf, text/html" },
       });
@@ -26,16 +28,16 @@ export function PdfOpenButton({ reportId, className }: { reportId: number; class
       }
 
       const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const tab = window.open(url, "_blank", "noopener,noreferrer");
+      const objectUrl = URL.createObjectURL(blob);
+      const tab = window.open(objectUrl, "_blank", "noopener,noreferrer");
       if (!tab) {
         const link = document.createElement("a");
-        link.href = url;
+        link.href = objectUrl;
         link.target = "_blank";
         link.rel = "noreferrer";
         link.click();
       }
-      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught : new ApiError(0, "서버에 연결할 수 없습니다."));
     } finally {

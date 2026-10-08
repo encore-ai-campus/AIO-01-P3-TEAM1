@@ -2,6 +2,7 @@
 // 목표에 닿으면 +○원 · 손절에 닿으면 −○원 · 기간 안에 둘 다 안 닿으면 기간 끝날 때 가격으로 판다.
 // 금액은 이 리포트 추천의 리스크 미리 보기(장마감 기준, 이 계좌로 계산한 수량)이고, 없거나 기한이 지났으면 1주 기준 비율(비용 전).
 // 안전장치가 실행을 막은 계획이면 금액은 그대로 두고(막힌 이유 — 손익비 — 가 숫자로 보인다) '정했다'고 쓰지 않는다 (매매 계획 카드와 같은 말).
+// 1주 기준 칸의 문장은 쉬운 PDF(backend/reports/easy_text.py SCENARIO_TEXT)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
 import type { Market } from "../../../api/types";
 import { formatQty } from "../../../lib/format";
 import type { ScenarioView } from "../../../lib/reports";

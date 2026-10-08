@@ -62,7 +62,7 @@ def test_default_registry_plan_shape():
     market = plan["workers"][0]
     assert set(market) == {"id", "title", "goal", "provider", "model", "fallbacks", "outputContract"}
     assert (market["title"], market["provider"], market["model"], market["fallbacks"], market["outputContract"]) == (
-        "시세·차트 Agent", "devpass", "gemini-3.8-flash", ["gpt-5.6-luna", "deepseek-v4.1-flash"], "MarketResult")
+        "시세·차트 Agent", "devpass", "gemini-3.8-flash", ["gpt-5.6-luna"], "MarketResult")
     assert all(w["provider"] == "devpass" and w["model"] for w in plan["workers"])
     assert all(w["goal"] for w in plan["workers"])
     assert plan["handoffs"] == [{"from": "review_agent", "to": "risk_agent",
@@ -88,6 +88,18 @@ def test_selection_team_plan_shape():
     assert registry.step_ids("stock_selection") == ["candidate_research", "select", "select_review"]
     assert "selector_agent" in registry.worker_ids("stock_selection")
     assert "selector_agent" not in registry.worker_ids()
+
+
+@pytest.mark.parametrize("team", registry.TEAMS)
+def test_yaml_fallbacks_are_the_model_healing_picks(team):
+    """화면에 보이는 대체 모델(YAML fallbacks)은 호출기가 실제로 고르는 대체 모델 하나다 (차단이 없을 때 — 00-공통 4·7절).
+    healing.FALLBACK_POOL이나 주 모델을 바꾸면 YAML fallbacks도 같이 고친다."""
+    from reports import healing
+
+    healing.breaker.reset()
+    for worker in registry.execution_plan(team)["workers"]:
+        picked = healing.fallback_for(worker["model"], 0.0, {worker["model"]})
+        assert worker["fallbacks"] == [picked], worker["id"]
 
 
 def test_plan_is_cached_and_copied(monkeypatch):

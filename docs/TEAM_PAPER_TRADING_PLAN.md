@@ -27,7 +27,7 @@
 | 종목·차트 | 검색, 완성 일봉, 매수 유의, 펀더멘털 신호등(로컬은 `MARKETS=KR`) | 동작 | 14-3 |
 | AI 교차검증 분석 | 웹 요청 → `run_engine`이 엔진 `analyze` 하위 프로세스를 돌린다. 팀원별 하루 5회, 팀 하루 $10 | 실제 LLM 실행은 CLI smoke-test 1건(10/2, $0.30)뿐. 웹 경로는 가짜 테스트로만 확인(분석 작업 0건) | 8-4 |
 | AI 리포트 | 신청·하루 3회 한도, YAML Registry, State·Trace, Snapshot·SSE, 선별 API, A4 PDF, 쉬운 보기, 끝 알림 | **동작 (2026-10-07, Claude — `docs/DECISIONS.md` 19장)**: Orchestrator·Guard·runner·Worker 11개(종목 리포트 6 + 매매 종목 선정 5), 선정 Guard·하루 파이프라인(`AUTO_REPORT`, 기본 off). 가짜 LLM 테스트로 확인했고 실제 모델 실행(T2-10·T3-10)은 아직. 장애 주입(T4-6)·복구 지표(T4-7)·비용 예산은 없다(팀 몫). 하루 넘게 기다린 `requested`는 실행하지 않고 `expired`로 끝낸다 | 9-1 |
-| 추천 → 활성화 → 모의 자동매매 → 알림 | 출처 report·analysis·demo, 리스크 엔진(건당 1%·손익비 2.0), 진입 지정가·3일 재주문·목표·손절·기한 청산, 단계별 사건·알림 | 시연판: demo 규칙 추천만 있고 report 출처는 0건. 장중 체결·청산은 가짜 시세 테스트만(U8) | 12장, `docs/tasks/06-추천·자동매매.md:64-73` |
+| 추천 → 활성화 → 모의 자동매매 → 알림 | 출처 report·analysis·demo, 리스크 엔진(건당 1%·손익비 1.5, 손절가는 코드가 정함), 진입 지정가·3일 재주문·목표·손절·기한 청산, 단계별 사건·알림 | 시연판: demo 규칙 추천만 있고 report 출처는 0건. 장중 체결·청산은 가짜 시세 테스트만(U8) | 12장, `docs/tasks/06-추천·자동매매.md:64-73` |
 | 장기투자 | 장기 보유, "왜 샀나요?", 오늘의 내 종목 뉴스(16:30), 펀더멘털 점검(18:00), 웹 알림 | 동작(10/5 격리 환경). 실제 시각 실행은 아직(U15) | 14-3 |
 | ~~단타 연습~~ | – | **폐기 (2026-10-06, 사용자 결정)**. 코드·API·화면에서 모두 지웠다 | 16장 |
 | 주린이모드·화면 | 계정 저장, 7문항 진단, 홈 3단계 안내, 쉬운 보기, 실행 확인 체크리스트, 하단 탭 다섯, 다크 모드, 로고 | 동작. 쉬운 보기는 가짜 API(`VITE_MOCK=1`)로만 끝까지 봤다. 실기기 확인 전 | 14-7·15장 |
@@ -134,7 +134,7 @@ macOS·Linux·WSL2에서만 돈다. 공유 개발 DB는 `.env`에 `POSTGRES_HOST
 
 1. **실주문 코드 0건.** 키움은 조회 TR만. `orders.py`·`create_order`·`LIVE_TRADING`·`--live`·`--bypass`는 코드에 나오면 안 된다(CI가 막는다). `tossinvest`는 `engine/paper_engine/data/toss.py` 한 곳에만.
 2. **토스 조회는 로컬 개발 전용**(토큰 발급 말고 GET만), 운영은 키움만. 원본 `toss_trading`에 영향을 주지 않는다 — Redis 키는 `paper:`만, 토스 client는 따로(U19).
-3. **AI는 제안만 한다.** 수량·한도·활성화는 리스크 엔진, 주문·체결은 `trading.service`와 모의 체결기. 최소 손익비 2.0은 프롬프트에 넣지 않는다.
+3. **AI는 제안만 한다.** 수량·한도·활성화는 리스크 엔진, 주문·체결은 `trading.service`와 모의 체결기. 최소 손익비(스윙 1.5)는 프롬프트에 넣지 않는다. 손절가는 AI가 아니라 코드가 정한다 (`judge/stops.py`).
 4. **엔진은 표준 라이브러리만**, 외부 패키지는 `backend/`에만. 키움 응답 → 내부(토스) 형식 변환은 `data/kiwoom.py` 안에서만.
 5. **DB**: 같은 모델·마이그레이션을 SQLite·PostgreSQL에 쓴다(PostgreSQL 전용 기능 금지).
 6. **계약을 먼저 고친다**: 웹 API는 `docs/API.md`, 워크플로우 약속은 `00-공통.md`. State·Trace는 `backend/reports/state.py` 함수로만. "Claude" 파일(`00-공통.md` 2절)은 팀원이 고치지 않고 팀장에게 알린다.
@@ -184,7 +184,7 @@ macOS·Linux·WSL2에서만 돈다. 공유 개발 DB는 `.env`에 `POSTGRES_HOST
 
 | # | 쟁점 | 지금 | 정할 사람 · 막는 작업 |
 |---|---|---|---|
-| Q1 | timeout 규칙 | `00-공통.md` 7절·T4-4는 "다음 모델로", `TEAM_DEV_PLAN.md` 5-1·DR-LLM-01·예시 재생 ③은 "같은 모델 1회 → 대체 모델"이다. 하나로 정하고 다른 쪽을 고친다 | 4(5와) · T4-4 전 |
+| Q1 | timeout 규칙 (**2026-10-07 정함**: 같은 모델 1회 → 대체 모델 하나, 호출 한 번 최대 4회 — 00-공통 7절) | `00-공통.md` 7절·T4-4는 "다음 모델로", `TEAM_DEV_PLAN.md` 5-1·DR-LLM-01·예시 재생 ③은 "같은 모델 1회 → 대체 모델"이다. 하나로 정하고 다른 쪽을 고친다 | 4(5와) · T4-4 전 |
 | Q2 | 제한 시간 | 호출 제한 90초(`engine/paper_engine/llm.py:10`)가 단계 `timeout` 60초(`team_definitions.yaml`)보다 길어 시간 초과 뒤 대체 모델로 넘어갈 시간이 없다(추측). 검토 재작성·Handoff에는 제한 시간이 없다. 버린 Worker 스레드가 `finish` 뒤에 기록하면 `StateError`다(`03-orchestrator.md` 주의) | 4·3 · T4-4·T3-5 전 |
 | Q3 | 필수 Worker 시간 초과의 사유 코드 (**2026-10-07 정함**: 단계 제한 시간 초과면 `timeout`, 00-공통 9절) | `join_blocked`인지 `timeout`인지(9절 표) | 3 · T3-5 |
 | Q4 | 검토 단계 입력 | 문서는 "Join Guard가 초안·조사 결과를 검토에 넘긴다", YAML `review`에는 join이 없다 | 3 · T3-5 전 |
@@ -222,7 +222,7 @@ YAML 모델 값은 ① 뒤, budget·`add_cost`·chaos 저장·B9는 ② 뒤, `AG
 **주의**
 
 - 0002에서 user를 null로 열면 `payloads.summary`의 `get_username()`이 깨진다(`payloads.py:62`). user가 없는 리포트의 끝 알림은 활성 사용자 전체에게 간다(코드로 확인: `alerts.py:92,99` → `backend/notifications/service.py:161-162`. 건너뛰는 것은 `source == "auto"`뿐 — `alerts.py:67`).
-- 비용: 리포트는 동시에 1건, 하루 예산 $10을 분석·리포트·대체 모델·자동 리포트가 같이 쓴다. 한 리포트는 최대 Worker 실행 10번·LLM 시도 40번이다(Worker가 실행마다 LLM을 한 번 부른다고 본 계산). 실제 호출은 T2-10·T3-10·T4-10에서만 한다.
+- 비용: 리포트는 동시에 1건, 하루 예산 $10을 분석·리포트·대체 모델·자동 리포트가 같이 쓴다. 한 리포트는 최대 Worker 실행 10번·LLM 시도 40번이다(Worker 실행마다 LLM 호출 한 번 × 최대 4회 시도로 본 계산). 실제 호출은 T2-10·T3-10·T4-10에서만 한다.
 - 루트 `conftest.py`는 `DEVPASS_APIKEY`·`DART_API_KEY`를 비우지 않는다 → 팀 테스트는 가짜 `engine_config`와 `fake_llm`을 꼭 끼운다. 스레드가 DB를 쓰는 테스트에는 `django_db(transaction=True)`가 필요할 것이다(추측). 새 이름에 CI 금지 문자열을 쓰지 않는다.
 
 ### 3-2. 프론트엔드 개선 (담당 5)

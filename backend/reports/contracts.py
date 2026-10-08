@@ -147,6 +147,7 @@ def _market(data: dict[str, Any]) -> dict[str, Any]:
         "volumeRank": _integer(_required(data, "volumeRank"), "volumeRank", nullable=True),
         "support": _number(_required(data, "support"), "support", nullable=True),
         "resistance": _number(_required(data, "resistance"), "resistance", nullable=True),
+        "stop": _number(data.get("stop"), "stop", nullable=True),  # 코드가 정한 손절 가격 (LLM은 쓰지 않아도 된다)
         "signals": _strings(_required(data, "signals"), "signals", maximum=5),
         "evidence": _strings(_required(data, "evidence"), "evidence", maximum=8),
     }

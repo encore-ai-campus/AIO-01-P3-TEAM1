@@ -196,6 +196,7 @@ flowchart TD
 
         A --> B --> C --> D --> E --> REC
         B -. "팀 실패" .-> X -.-> C
+        E -. "손익비 1.5 이상 추천 없음<br/>다음 종목으로 (최대 2번)" .-> C
         A -. "증권사 조회 불가" .-> Z
     end
 
@@ -218,6 +219,8 @@ flowchart TD
 > A4 PDF로 받아 보고(`GET /api/reports/{id}/pdf`), 직접 **계획 활성화**를 눌러야 모의 자동매매가 시작된다. 활성화하지 않은 추천은 `validUntil`이 지나면 만료된다.
 
 AI 선정 팀이 실패하면 규칙 점수 상위 3개가 대신 선정 Guard로 들어간다 (AI를 다시 부르지 않는다).
+그날 리포트 3개가 모두 끝났는데 손익비(비용 반영)가 스윙 기준 1.5 이상인 추천이 하나도 없으면, 이미 리포트한 종목·선정 Guard가 뺀 종목을 빼고
+같은 선정 Guard로 다음 3개를 골라 리포트를 다시 낸다 (최대 2번, 선정 팀은 다시 부르지 않는다 — `docs/DECISIONS.md` 22장). 표지는 마지막 회차가 끝난 뒤 보낸다.
 
 ## 2. 선정 팀 안
 
@@ -330,7 +333,7 @@ flowchart TD
     classDef ok fill:#eafaf0,stroke:#22c55e,color:#0f3d22
     classDef fail fill:#fdecec,stroke:#ef4444,color:#5b0b0b
 
-    L1["① LLM 호출 · 담당 4<br/>재시도 · 대체 모델 · Circuit Breaker"]:::heal
+    L1["① LLM 호출 · 담당 4<br/>재시도 · 대체 모델 · Circuit Breaker<br/>호출 한 번 최대 4회"]:::heal
     L2["② Worker · 담당 3<br/>선택이면 빼고, 필수면 위로"]:::heal
     L3["③ 선정 팀 · 담당 3<br/>검토 RETRY · Join Guard"]:::heal
     L4["④ 하루 파이프라인 · auto.select<br/>규칙 상위 3으로 Fallback"]:::heal
@@ -387,7 +390,8 @@ flowchart TD
 
 - 2026-10-07 담당 4 결정(`docs/tasks/00-공통.md` 7절): 주 모델 → **대체 모델 하나**. 대체 모델은 YAML `fallbacks`가 아니라
   `healing.FALLBACK_POOL` 순서에서 주 모델이 아니고 차단되지 않은 첫 모델이다. 대체 모델도 같은 규칙으로 한 번 더 할 수 있다.
-- 무한 재시도는 없다: 시도 수와 `deadline` 둘 다로 막는다. 실패마다 `agent_failed(final: false)`를 남겨 복구율을 센다.
+- 호출 한 번은 **최대 4회** 시도한다: 첫 시도 + 재시도 3회, 모델마다 2회 (주 모델 2회 + 대체 모델 2회 — `MAX_ATTEMPTS = 4`, `MAX_ATTEMPTS_PER_MODEL = 2`).
+- 무한 재시도는 없다: 시도 수(최대 4회)와 `deadline` 둘 다로 막는다. 실패마다 `agent_failed(final: false)`를 남겨 복구율을 센다.
 - 호출 한 번이 60초(`CALL_TIMEOUT_SEC`)라 시간 초과 → 재시도 → 대체 모델까지 가려면 단계 제한이 180초는 되어야 한다 (2장·부록 YAML).
 
 ### 5-3. 복구 예시: 뉴스 Worker의 주 모델이 늦을 때
@@ -419,6 +423,8 @@ sequenceDiagram
 화면에는 "뉴스를 읽는 AI가 늦어 다른 AI가 이어받았어요"처럼 나온다 (주린이모드 신뢰 패널, `recovery` 값).
 
 ### 5-4. 무엇이 실패하면
+
+모델 쪽 실패(아래 표의 위 다섯 줄)는 모두 호출 한 번의 **최대 4회** 시도 안에서 복구한다 (주 모델 2회 + 대체 모델 2회). 넘으면 Worker 실패다.
 
 | 실패 | 복구 | 그래도 안 되면 |
 |---|---|---|
@@ -521,7 +527,7 @@ flowchart LR
 - `positive`·`negative`는 입장 지도에서 실제로 긍정·부정인 AI여야 한다. 아니면 코드가 그 항목을 버리고 코드 문장으로 바꾼다
   (예: "차트 AI는 오르는 흐름으로, 뉴스 AI는 나쁜 소식이 많다고 봤어요").
 - 검토 AI는 `conflicts`도 조사 결과와 대조한다. 근거에 없는 대립이면 RETRY.
-- 손익비 기준(2.0)은 여기서도 프롬프트에 넣지 않는다.
+- 손익비 기준(스윙 1.5)은 여기서도 프롬프트에 넣지 않는다.
 
 ### 6-4. 화면 (쉬운 보기)
 
@@ -561,15 +567,17 @@ flowchart LR
 <summary>YAML Registry · 구현에서 바꾼 곳 (2026-10-07)</summary>
 
 ```yaml
-# backend/reports/worker_definitions.yaml — fallbacks는 스키마에만 남고 호출기는 쓰지 않는다 (대체 모델은 healing.FALLBACK_POOL — 5-2)
+# backend/reports/worker_definitions.yaml — fallbacks는 화면에 보이는 대체 모델이다. 호출기는 healing.FALLBACK_POOL에서 고르므로(5-2)
+# 그 모델 하나를 적는다 (tests/test_registry.py가 확인)
   news_screen_agent:
     title: 후보 뉴스 점검 Agent
     goal: 후보 종목마다 최근 뉴스에서 재료와 악재를 찾아 출처와 함께 정리하고 테마 이름을 붙인다
-    provider: null
-    model: null
-    fallbacks: []
+    provider: devpass
+    model: gemini-3.8-flash
+    fallbacks: [gpt-5.6-luna]
     output_contract: CandidateNewsResult
-  # filing_screen_agent · flow_agent · selector_agent · selection_review_agent 도 같은 모양
+  # filing_screen_agent · flow_agent: 같은 모델 · selector_agent: gpt-5.6-luna → [gemini-3.8-flash]
+  # selection_review_agent: claude-opus-5-5 → [gpt-5.6-luna] (배정은 docs/tasks/00-공통.md 4절)
 ```
 
 ```yaml

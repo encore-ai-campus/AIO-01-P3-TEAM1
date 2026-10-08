@@ -3,12 +3,15 @@
 자료: `trading.market.closes`(직전 정규장 종가·전 종가·기준 시각)와 `completed_candles`(완성 봉만)로 지표를 코드가 계산한다.
 LLM은 추세·신호·요약만 쓰고, 응답의 숫자(price·changePct·asOf·rsi·volatilityPct·support·resistance·volumeRank)는
 자료 값으로 덮어쓴다 (LLM이 숫자를 지어내지 않게). 일봉·가격이 없으면 WorkerError.
+stop은 코드가 정한 손절 가격이다 (엔진 judge/stops.py, 기준가 = 직전 정규장 종가). 시세 LLM에는 보여 주지 않고 결과에만 넣는다.
+작성 AI(report_agent)는 이 값을 손절 가격으로 받아 쓴다.
 """
 import math
 from zoneinfo import ZoneInfo
 
 from django.utils import timezone
 from paper_engine.data import indicators
+from paper_engine.judge import stops
 from trading import market
 
 from config.api import Unavailable
@@ -20,7 +23,10 @@ KST = ZoneInfo("Asia/Seoul")
 WINDOW = 20         # 변동성·지지·저항을 보는 최근 완성 봉 수
 RECENT_ROWS = 20    # 프롬프트에 넣는 최근 일봉 수
 MAX_EVIDENCE = 8    # MarketResult.evidence 상한
-DATA_KEYS = ("price", "changePct", "asOf", "rsi", "volatilityPct", "support", "resistance", "volumeRank")
+DATA_KEYS = ("price", "changePct", "asOf", "rsi", "volatilityPct", "support", "resistance", "volumeRank", "stop")
+CURRENCY = {"KR": "KRW", "US": "USD"}
+CLOSE_KEYS = ("price", "prevClose", "changePct", "date", "asOf")
+HIDDEN_KEYS = ("stop",)  # 결과에만 넣고 시세 LLM의 프롬프트에는 넣지 않는 값
 
 ROLE = ("너는 모의투자 서비스 '모매매'의 AI 리포트 팀에서 시세·차트를 맡은 조사 AI다. "
         "장마감 기준 가격과 완성된 일봉으로 코드가 계산한 지표를 보고 추세·변동성·가격대를 정리한다.")
@@ -69,11 +75,13 @@ def gather(symbol: str, market_code: str) -> dict:
     values = _indicators(rows)
     values |= {"price": price, "prevClose": prev, "date": close.get("date"), "asOf": close.get("asOf"),
                "changePct": _round((price / prev - 1) * 100) if prev else None,
-               "volumeRank": volume_rank(key, market_code)}
+               "volumeRank": volume_rank(key, market_code),
+               "stop": stops.swing_stop(price, [r["low"] for r in rows], values["atr14"],
+                                        CURRENCY.get(market_code, "KRW"))}
     return {
         "values": values,
-        "close": {k: values[k] for k in ("price", "prevClose", "changePct", "date", "asOf")},
-        "indicators": {k: v for k, v in values.items() if k not in ("price", "prevClose", "changePct", "date", "asOf")},
+        "close": {k: values[k] for k in CLOSE_KEYS},
+        "indicators": {k: v for k, v in values.items() if k not in CLOSE_KEYS + HIDDEN_KEYS},
         "recent": rows[-RECENT_ROWS:],
         "range": (rows[0]["date"], rows[-1]["date"], len(rows)),
     }

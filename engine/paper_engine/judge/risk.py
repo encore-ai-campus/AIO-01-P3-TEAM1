@@ -29,8 +29,9 @@ class RiskLimits:
 # 스윙은 종목당 비중 한도를 두지 않는다. 대신 자동 관리하는 포지션 전체에 총 금액 한도를 건다
 # (AccountContext.max_total_krw, .env의 MAX_TOTAL_INVEST_KRW). 한 종목의 크기는 건당 위험 한도가 정한다.
 # LONG_TERM의 비중 한도 100%는 손절 없는 장기 보유 매수 점검(assess_position)에 쓴다 (docs/DECISIONS.md 14-3, E-4).
+# 스윙 최소 손익비는 2.0이었다가 1.5로 낮췄다 (2026-10-07, 손절가를 코드가 정하게 바꾸면서 — docs/DESIGN.md "리스크 엔진").
 LIMITS = {
-    "SWING": RiskLimits(risk_per_trade=0.01, max_position=None, min_reward_risk=2.0,
+    "SWING": RiskLimits(risk_per_trade=0.01, max_position=None, min_reward_risk=1.5,
                         max_daily_loss=0.03),
     "LONG_TERM": RiskLimits(risk_per_trade=0.02, max_position=1.0, min_reward_risk=2.5,
                             max_daily_loss=0.03),

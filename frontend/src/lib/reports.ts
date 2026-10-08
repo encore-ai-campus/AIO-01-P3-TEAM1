@@ -207,6 +207,7 @@ const text = (v: unknown): string | null => (typeof v === "string" && v.trim() !
 const texts = (v: unknown, max: number): string[] =>
   Array.isArray(v) ? v.map(text).filter((x): x is string => x !== null).slice(0, max) : [];
 
+// 쉬운 PDF(backend/reports/easy_text.py)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
 /** AI 담당자(Worker)의 쉬운 이름 ("Agent" 대신). 모르는 id는 "AI 담당자". */
 export const WORKER_EASY_NAME: Record<string, string> = {
   market_agent: "시세를 보는 AI",
@@ -368,6 +369,7 @@ export const EXPERT_FAILURE_NOTE: Record<string, string> = {
 };
 export const EXPERT_FAILURE_FALLBACK = "재시도와 대체 모델로도 복구하지 못했습니다. 어느 모델이 실패했는지는 “진행 기록” 탭에서 볼 수 있습니다.";
 
+// 쉬운 PDF(backend/reports/easy_text.py recovery_sentences)도 같은 규칙·문장을 쓴다 — 바꾸면 둘 다 고친다
 /**
  * 자동 복구를 쉬운 문장으로 (신뢰 패널 둘째 줄·진행 표시, docs/tasks/04-autohealing.md T4-11).
  * 다른 모델로 바꿔 끝냈으면 "○○ AI가 늦어 다른 AI가 이어받았어요", 같은 모델로 다시 해서 끝냈으면 "한 번 더 시도해 끝냈어요",
@@ -445,6 +447,7 @@ export function oneLinerOf(r: Pick<ReportDetail, "status" | "oneLiner" | "state"
   return r.oneLiner ?? draftOf(r.state)?.oneLiner ?? null;
 }
 
+// 아래 근거·'틀리는 경우' 함수(splitSource ~ withoutPriceClause)는 쉬운 PDF(backend/reports/easy_text.py)가 그대로 옮겨 쓴다 — 바꾸면 둘 다 고친다
 const SOURCE_TAIL = /\s*[([（]\s*(?:출처|근거)\s*[:：]\s*([^)\]）]+?)\s*[)\]）]\s*$/;
 
 /** "… (출처: DART 반기보고서)"처럼 끝에 붙은 출처를 떼어 낸다. 없으면 source null. */
@@ -469,6 +472,25 @@ export function whenWrongOf(draft: Pick<DraftView, "risks">, opinion?: ReportOpi
 function tickOf(price: number, currency: Currency): number {
   if (currency === "USD") return 0.01;
   return price < 2_000 ? 1 : price < 5_000 ? 5 : price < 20_000 ? 10 : price < 50_000 ? 50 : price < 200_000 ? 100 : price < 500_000 ? 500 : 1_000;
+}
+
+/** 가격 하나를 호가 단위로 내린다 — 엔진 paper_engine/data/ticks.py round_price(up=False)와 같은 계산 (국내 가격대별 단위, 미국 1달러 이상 0.01·미만 0.0001). */
+function floorPrice(price: number, currency: Currency): number {
+  if (currency === "KRW") {
+    const tick = tickOf(price, currency);
+    return Math.floor(Number((price / tick).toFixed(6))) * tick;
+  }
+  const scale = price >= 1 ? 100 : 10_000;
+  return Math.floor(Number((price * scale).toFixed(6))) / scale;
+}
+
+/**
+ * 리포트가 제안한 사는·목표·손절 가격을 추천이 저장하는 값으로 (호가 단위 내림, 0 이하·없는 값은 그대로 — autotrade.sources.create와 같다).
+ * 추천이 아직 없을 때 쉬운 보기가 이 값으로 계획 판단·세 가지 경우·차트·'틀리는 경우'의 손절 문장을 그린다 — 쉬운 PDF(easy_text.tick_prices)와 같은 숫자.
+ */
+export function floorTargets(targets: ReportTargets, currency: Currency): ReportTargets {
+  const floor = (v: number | null) => (v !== null && v > 0 ? floorPrice(v, currency) : v);
+  return { ...targets, entry: floor(targets.entry), target: floor(targets.target), stop: floor(targets.stop) };
 }
 
 /**
@@ -564,6 +586,7 @@ export function scenarioOf(
   };
 }
 
+// 신뢰 패널(trustOf·dataTimeText)은 쉬운 PDF(backend/reports/easy_text.py trust_lines·data_time_text)도 같은 규칙·문장을 쓴다 — 바꾸면 둘 다 고친다
 /** 신뢰 패널 (docs/컨셉변경계획.md 5장): 검토 통과 · 인용 수 · 자료 기준 시각 / 자동 복구 문장. 점수·고쳐 쓴 횟수는 펼친 곳에. */
 export interface TrustInfo {
   reviewed: boolean; // 검토 AI가 PASS

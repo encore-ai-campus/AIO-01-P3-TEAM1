@@ -88,6 +88,7 @@ export const NOT_SUITABILITY = "법정 적합성 진단이 아니에요";
  * 알림 종은 모바일은 화면 머리·PC는 왼쪽 메뉴에 있다 (Layout).
  */
 export const REPORT_KEEPS_RUNNING = "이 화면을 닫아도 계속 만들어요. 만드는 동안 '리포트' 메뉴에 표시가 붙고, 완성되면 알림으로 알려 드려요";
+// 쉬운 PDF(backend/reports/easy_text.py)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
 export const AI_REVIEW_NOTE = "AI 검토는 사실을 보증하지 않아요";
 
 /** 화면 아래 공통 출처 줄 (docs/DECISIONS.md 14-1·17장). quoteProvider는 MarketStatus.quoteProvider. */
@@ -117,6 +118,7 @@ export interface OpinionText {
   tone: "positive" | "neutral" | "negative";
 }
 
+// 쉬운 PDF(backend/reports/easy_text.py OPINION_LINE, 배지는 text.py OPINION_LABEL)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
 export const OPINION_TEXT: Record<ReportOpinion, OpinionText> = {
   buy: { badge: "긍정적", label: "AI 의견: 긍정적", line: "오를 근거가 더 많다고 봤어요", expert: "매수", tone: "positive" },
   hold: { badge: "지켜보기", label: "AI 의견: 지켜보기", line: "아직 판단하기 이르다고 봤어요", expert: "보유", tone: "neutral" },
@@ -179,7 +181,7 @@ export function failureReasonOf(trace: TraceEvent[]): string | null {
 // ---------------------------------------------------------------- 실행 불가 사유 (RiskPreview.reasonCodes, 400 {detail, reasonCodes})
 
 export const REASON_TEXT: Record<ReasonCode, string> = {
-  reward_risk_low: "버는 돈에 비해 잃을 수 있는 돈이 커서 안전장치가 막았어요(손익비 기준 2.0 미만)",
+  reward_risk_low: "버는 돈에 비해 잃을 수 있는 돈이 커서 안전장치가 막았어요(손익비 기준 1.5 미만)",
   ev_negative: "비용까지 따지면 기대되는 결과가 0 이하라 안전장치가 막았어요",
   daily_loss_limit: "오늘은 손실 한도에 닿아 새로 시작할 수 없어요. 내일 다시 할 수 있어요",
   daily_trades_limit: "오늘 할 수 있는 주문 수를 다 썼어요. 내일 다시 할 수 있어요",

@@ -20,6 +20,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from trading import market
 
+from accounts.modes import beginner_mode_of
 from config.api import Rejected, page
 
 from . import quota, registry
@@ -30,6 +31,8 @@ from .pdf import ensure_report_file
 KST = ZoneInfo("Asia/Seoul")
 TEAM_CHOICE = "team은 stock_report 또는 stock_selection입니다."
 SOURCE_CHOICE = "source는 user 또는 auto입니다."
+VIEWS = ("easy", "expert")   # PDF 판 (화면의 ?view와 같은 값)
+VIEW_CHOICE = "view는 easy 또는 expert입니다."
 
 
 def choice(request, key: str, choices, message: str, default: str | None = None) -> str | None:
@@ -129,8 +132,11 @@ class PdfView(APIView):
         (양식이 바뀌어 판이 오르면 예전 파일 대신 새로 만든다 — pdf.TEMPLATE_VERSION).
         Chrome이 없으면 같은 내용의 HTML(text/html). 완성 전(completed가 아님)이면 409. 선정 실행(stock_selection)이면 404.
 
-        (Report.pdf_path 열이 생기면 고정 경로 대신 그 열을 쓴다 — docs/tasks/05-프론트.md T5-14)
+        ?view=easy|expert (화면의 ?view와 같은 값, 앞뒤 공백·대소문자 무시): easy는 주린이모드 쉬운 판 `<id>.v<판>.easy.pdf`,
+        expert는 자세한 판. 없으면 요청한 사람의 주린이모드(켬 → easy, docs/DECISIONS.md 20장). 그 밖의 값은 400 — 리포트를 찾기 전에 본다.
+        Report.pdf_path는 자동 리포트가 Discord로 보낸 파일(쉬운 판)이다 — PDF API는 그 열을 쓰지 않는다 (쓰면 ?view=expert에도 쉬운 판이 나간다).
         """
+        view = choice(request, "view", VIEWS, VIEW_CHOICE)
         report = Report.objects.filter(pk=pk).first()
         if report is None:
             raise NotFound("리포트를 찾을 수 없습니다.")
@@ -138,7 +144,8 @@ class PdfView(APIView):
             raise NotFound("선정 실행은 PDF가 없습니다.")
         if report.status != Report.COMPLETED:
             return Response({"detail": "리포트가 아직 완성되지 않았습니다."}, status=status.HTTP_409_CONFLICT)
-        path = ensure_report_file(report, list(report.trace_events.order_by("step")))
+        easy = beginner_mode_of(request.user) if view is None else view == "easy"
+        path = ensure_report_file(report, list(report.trace_events.order_by("step")), easy=easy)
         content_type = "application/pdf" if path.suffix == ".pdf" else "text/html; charset=utf-8"
         return FileResponse(open(path, "rb"), content_type=content_type)
 
