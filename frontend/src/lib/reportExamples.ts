@@ -167,7 +167,7 @@ export const SCENARIOS: ExampleScenario[] = [
         { results: { fundamental_agent: FUNDAMENTAL }, completedAgents: ["fundamental_agent"] },
       ],
       [ev("news_agent", "agent_failed", "failed", 2470, { errorType: "timeout", attempt: 2, injected: true, final: false }, 1200), {}],
-      [ev("news_agent", "agent_failover", "started", 2480, { from: "llama3.2", to: "gpt-4.1-mini", reason: "timeout" }, null, FALLBACK), {}],
+      [ev("news_agent", "agent_failover", "started", 2480, { from: "gemini-3.8-flash", to: "gpt-5.6-luna", reason: "timeout" }, null, FALLBACK), {}],
       [
         ev("market_agent", "agent_completed", "completed", 3520, { attempts: 1, recovered: false, recoveryMs: null, costUsd: 0.003, guarded: [] }, 3480),
         { results: { fundamental_agent: FUNDAMENTAL, market_agent: MARKET }, completedAgents: ["fundamental_agent", "market_agent"] },

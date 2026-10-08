@@ -274,7 +274,7 @@ describe("리포트 상세", () => {
     expect(within(node("재무·공시 Agent")).getByText("완료")).toBeTruthy();
     expect(within(node("뉴스·심리 Agent")).getByText("실패")).toBeTruthy();
     expect(within(node("시세·차트 Agent")).getByText("실행 중")).toBeTruthy();
-    expect(within(node("뉴스·심리 Agent")).getByText("llama3.2", { exact: false })).toBeTruthy();
+    expect(within(node("뉴스·심리 Agent")).getByText("gemini-3.8-flash", { exact: false })).toBeTruthy();
     expect(traceItems()).toHaveLength(6);
     tab("자세히");
     const state = region(/^Shared State/);
@@ -351,7 +351,7 @@ describe("리포트 상세", () => {
     for (let i = 0; i < 13; i++) click("다음 사건");
     expect(screen.getByText(/사건 22 \/ 22/)).toBeTruthy();
     const chips = within(within(news()).getByRole("list", { name: "시도 이력" })).getAllByRole("listitem");
-    expect(chips.map((c) => c.textContent)).toEqual(["llama3.2시간 초과", "llama3.2시간 초과", "gpt-4.1-mini성공"]);
+    expect(chips.map((c) => c.textContent)).toEqual(["gemini-3.8-flash시간 초과", "gemini-3.8-flash시간 초과", "gpt-5.6-luna성공"]);
     expect(within(news()).getByText("자동 복구")).toBeTruthy();
     expect(within(region("단계 리포트 작성")).getByText(/검토 뒤 다시 작성 1/)).toBeTruthy();
 
@@ -362,7 +362,7 @@ describe("리포트 상세", () => {
 
     // 주요 사건만: agent_started·join_completed는 빠진다
     expect(traceItems()).toHaveLength(14);
-    expect(screen.getByText("대체 모델 gpt-4.1-mini(으)로 전환 (← llama3.2)")).toBeTruthy();
+    expect(screen.getByText("대체 모델 gpt-5.6-luna(으)로 전환 (← gemini-3.8-flash)")).toBeTruthy();
     expect(screen.getByText("검토 → 리포트 작성 Agent 다시 작성 (1번째)")).toBeTruthy();
     const feedback = screen.getByRole("heading", { name: "Feedback Loop · 검토 후 재작성" }).closest("section") as HTMLElement;
     expect(within(feedback).getByText(/1번째 검토/)).toBeTruthy();
