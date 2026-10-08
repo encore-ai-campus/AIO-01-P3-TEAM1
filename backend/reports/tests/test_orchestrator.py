@@ -240,8 +240,9 @@ def test_step_timeout_with_fake_clock(user, clock, fake_llm):
     """필수 Worker의 호출이 단계 제한 시간(180초)을 다 쓰면 Join 앞이어도 timeout으로 끝난다."""
     report = make_report(user)
     market = FakeWorker("market_agent", llm=True, contract="MarketResult")
-    client = fake_llm({"gemini-3.8-flash": [{"__delay__": 999}, {"__delay__": 999}],
-                       "gpt-5.6-luna": [{"__delay__": 999}]}, sleep=clock["sleep"])
+    # 주 모델 60초 → 대체 모델 60초 → 대체 모델 한 번 더 60초 = 180초 (healing 7절)
+    client = fake_llm({"gemini-3.8-flash": [{"__delay__": 999}],
+                       "gpt-5.6-luna": [{"__delay__": 999}, {"__delay__": 999}]}, sleep=clock["sleep"])
     run(report, fake_team(market_agent=market), client)
 
     report.refresh_from_db()

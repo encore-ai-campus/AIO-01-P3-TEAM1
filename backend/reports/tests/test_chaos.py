@@ -124,12 +124,11 @@ def test_injected_primary_recovers_on_fallback(running, fake_llm, clock):
     client = fake_llm({FALLBACK: [ANSWER]}, cost=0.03)
     llm = healing.make_caller(running, WORKER, ALL, client, 2000.0)
     reply = llm("s", "u")
-    assert (reply.model, reply.attempts, reply.recovered, reply.cost_usd) == (FALLBACK, 3, True, 0.03)
+    assert (reply.model, reply.attempts, reply.recovered, reply.cost_usd) == (FALLBACK, 2, True, 0.03)
     assert [call[0] for call in client.calls] == [FALLBACK]  # 주입한 주 모델은 부르지 않았다 (비용 0)
     assert clock["t"] == 1000.0  # 주입한 timeout은 실제로 기다리지 않는다
+    # 주 모델 timeout은 같은 모델로 다시 하지 않고 바로 대체 모델 (2026-10-08)
     assert injected_trace(running) == [("agent_failed", PRIMARY, "timeout", True),
-                                       ("agent_retry", PRIMARY, None, None),
-                                       ("agent_failed", PRIMARY, "timeout", True),
                                        ("agent_failover", FALLBACK, None, None)]
 
 
@@ -154,11 +153,14 @@ def test_injected_server_error_takes_real_recovery_path(running, fake_llm, clock
 def test_injected_failures_count_in_report_breaker_only(running, user, fake_llm, clock):
     """주입한 실패도 Circuit Breaker가 세지만 그 리포트 안에서만 센다 (Worker끼리는 같이 쓴다)."""
     news = {**WORKER, "id": "news_agent", "outputContract": "NewsResult"}
-    healing.make_caller(running, WORKER, ALL, fake_llm({FALLBACK: [ANSWER]}), 2000.0)("s", "u")  # 주 모델 주입 실패 2번
+    # 주 모델 timeout은 호출마다 한 번만 실패한다 (바로 대체 모델) → 세 번째 호출의 실패에서 차단
+    healing.make_caller(running, WORKER, ALL, fake_llm({FALLBACK: [ANSWER]}), 2000.0)("s", "u")  # 주 모델 주입 실패 1번
     second = healing.make_caller(running, news, ALL, fake_llm({FALLBACK: [ANSWER]}), 2000.0)
     assert second.breaker is healing.breaker_for(running, ALL) is not healing.breaker
-    assert second("s", "u").attempts == 2  # 3번째 실패에서 차단 → 같은 모델 재시도 없이 대체 모델
-    assert second.breaker.is_open(PRIMARY, clock["t"])
+    assert second("s", "u").attempts == 2  # 2번째 실패 → 대체 모델
+    assert not second.breaker.is_open(PRIMARY, clock["t"])
+    assert healing.make_caller(running, WORKER, ALL, fake_llm({FALLBACK: [ANSWER]}), 2000.0)("s", "u").attempts == 2
+    assert second.breaker.is_open(PRIMARY, clock["t"])  # 3번째 실패에서 차단 (Worker끼리 같이 센다)
     third = healing.make_caller(running, WORKER, ALL, fake_llm({FALLBACK: [ANSWER]}), 2000.0)
     assert third("s", "u").attempts == 1  # 리포트 안에서는 차단돼 주 모델을 건너뛴다
     assert running.trace_events.filter(action="agent_failover", details__reason="circuit_open").count() == 1
@@ -235,9 +237,9 @@ def test_report_with_chaos_still_completes(user, fake_llm, clock, inline_workers
     report.refresh_from_db()
     assert report.status == Report.COMPLETED
     done = report.trace_events.get(actor="market_agent", action="agent_completed")
-    assert done.model == FALLBACK and done.details["recovered"] is True and done.details["attempts"] == 3
+    assert done.model == FALLBACK and done.details["recovered"] is True and done.details["attempts"] == 2
     failures = report.trace_events.filter(actor="market_agent", action="agent_failed")
-    assert [f.details["injected"] for f in failures] == [True, True]
+    assert [f.details["injected"] for f in failures] == [True]  # 주 모델 timeout 한 번 뒤 바로 대체 모델
 
 
 @pytest.mark.django_db

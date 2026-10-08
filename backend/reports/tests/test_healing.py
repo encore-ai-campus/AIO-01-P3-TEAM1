@@ -1,5 +1,5 @@
 """LLM 호출기 (docs/tasks/04-autohealing.md T4-3·T4-4·T4-5, docs/tasks/00-공통.md 7절):
-실패 분류, 같은 모델 재시도 1번(timeout 포함) → 대체 모델 하나(FALLBACK_POOL에서 고름), 전체 4번·deadline 안,
+실패 분류, 같은 모델 재시도 1번(주 모델 timeout은 바로 대체 모델 — 2026-10-08) → 대체 모델 하나(FALLBACK_POOL에서 고름), 전체 4번·deadline 안,
 Circuit Breaker, 복구 Trace(agent_failed final:false · agent_retry · agent_failover), 비용, 가짜 LLM(fake_llm)."""
 from types import SimpleNamespace
 
@@ -92,8 +92,7 @@ def test_yaml_fallbacks_are_not_used(running, fake_llm, clock):
 
 # --- 같은 모델 재시도 → 대체 모델 ---
 
-@pytest.mark.parametrize("item, error_type", [("timeout", "timeout"), ("server_error", "server_error"),
-                                              ("bad_output", "bad_output")])
+@pytest.mark.parametrize("item, error_type", [("server_error", "server_error"), ("bad_output", "bad_output")])
 def test_retry_same_model_once(running, fake_llm, clock, item, error_type):
     client = fake_llm({PRIMARY: [item, ANSWER]})
     reply = caller(running, client)("s", "u")
@@ -111,8 +110,38 @@ def test_server_error_waits_before_retry(running, fake_llm, clock):
 
 @pytest.mark.parametrize("item", ["timeout", "bad_output"])
 def test_no_wait_for_other_errors(running, fake_llm, clock, item):
-    caller(running, fake_llm({PRIMARY: [item, ANSWER]}))("s", "u")
+    caller(running, fake_llm({PRIMARY: [item, ANSWER], FALLBACK: [ANSWER]}))("s", "u")
     assert clock["slept"] == []
+
+
+# --- timeout (2026-10-08: 주 모델은 바로 대체 모델, 대체 모델은 한 번 더) ---
+
+def test_primary_timeout_goes_straight_to_fallback(running, fake_llm, clock):
+    client = fake_llm({PRIMARY: ["timeout"], FALLBACK: [ANSWER]})
+    reply = caller(running, client)("s", "u")
+    assert (reply.model, reply.attempts, reply.recovered) == (FALLBACK, 2, True)
+    assert [call[0] for call in client.calls] == [PRIMARY, FALLBACK]  # 주 모델을 다시 기다리지 않는다
+    assert trace(running) == [("agent_failed", PRIMARY, failed("timeout", 1)),
+                              ("agent_failover", FALLBACK, {"from": PRIMARY, "to": FALLBACK, "reason": "timeout"})]
+
+
+def test_fallback_timeout_is_retried_once(running, fake_llm, clock):
+    client = fake_llm({PRIMARY: ["timeout"], FALLBACK: ["timeout", ANSWER]})
+    reply = caller(running, client)("s", "u")
+    assert (reply.model, reply.attempts) == (FALLBACK, 3)
+    assert [call[0] for call in client.calls] == [PRIMARY, FALLBACK, FALLBACK]
+    assert trace(running)[2:] == [("agent_failed", FALLBACK, failed("timeout", 2)),
+                                  ("agent_retry", FALLBACK, {"attempt": 3, "reason": "timeout"})]
+
+
+def test_primary_timeout_is_retried_when_no_fallback_left(running, fake_llm, clock):
+    for model in healing.FALLBACK_POOL:
+        if model != PRIMARY:
+            open_breaker(model)
+    client = fake_llm({PRIMARY: ["timeout", ANSWER]})
+    reply = caller(running, client)("s", "u")
+    assert (reply.model, reply.attempts) == (PRIMARY, 2)  # 넘어갈 모델이 없으면 같은 모델로 한 번 더
+    assert [event[0] for event in trace(running)] == ["agent_failed", "agent_retry"]
 
 
 def test_bad_output_tells_the_problem(running, fake_llm, clock):
@@ -124,14 +153,14 @@ def test_bad_output_tells_the_problem(running, fake_llm, clock):
 
 
 def test_failover_after_two_failures(running, fake_llm, clock):
-    client = fake_llm({PRIMARY: ["timeout", "timeout"], FALLBACK: [ANSWER]}, cost=0.05)
+    client = fake_llm({PRIMARY: ["bad_output", "bad_output"], FALLBACK: [ANSWER]}, cost=0.05)
     reply = caller(running, client)("s", "u")
     assert (reply.model, reply.attempts, reply.recovered) == (FALLBACK, 3, True)
     assert trace(running) == [
-        ("agent_failed", PRIMARY, failed("timeout", 1)),
-        ("agent_retry", PRIMARY, {"attempt": 2, "reason": "timeout"}),
-        ("agent_failed", PRIMARY, failed("timeout", 2)),
-        ("agent_failover", FALLBACK, {"from": PRIMARY, "to": FALLBACK, "reason": "timeout"}),
+        ("agent_failed", PRIMARY, failed("bad_output", 1)),
+        ("agent_retry", PRIMARY, {"attempt": 2, "reason": "bad_output"}),
+        ("agent_failed", PRIMARY, failed("bad_output", 2)),
+        ("agent_failover", FALLBACK, {"from": PRIMARY, "to": FALLBACK, "reason": "bad_output"}),
     ]
 
 
@@ -151,7 +180,7 @@ def test_unknown_goes_straight_to_fallback(running, fake_llm, clock):
 
 
 def test_gives_up_after_four_attempts(running, fake_llm, clock):
-    client = fake_llm({PRIMARY: ["timeout", "timeout"], FALLBACK: ["server_error", "bad_output"]})
+    client = fake_llm({PRIMARY: ["bad_output", "bad_output"], FALLBACK: ["server_error", "bad_output"]})
     llm = caller(running, client)
     error = gave_up(llm, "s", "u")
     assert (error.error_type, error.attempts, error.last_model) == (ErrorType.BAD_OUTPUT, 4, FALLBACK)
@@ -225,19 +254,28 @@ def test_timeout_is_clamped_to_deadline(running, fake_llm, clock):
 
 
 def test_stops_at_deadline(running, clock):
-    """단계 제한 60초에 호출 제한 60초: timeout 한 번이면 시간이 없다 (그래서 단계 제한을 늘린다)."""
+    """단계 제한 60초에 호출 제한 60초: timeout 한 번이면 대체 모델로 넘어가도 부를 시간이 없다 (그래서 단계 제한을 늘린다)."""
     client = Client(clock, (60, "timeout"), (1, ANSWER))
     error = gave_up(caller(running, client, deadline=1060.0), "s", "u")
-    assert (error.error_type, error.attempts, error.last_model) == (ErrorType.TIMEOUT, 1, PRIMARY)
+    assert (error.error_type, error.attempts, error.last_model) == (ErrorType.TIMEOUT, 1, FALLBACK)
     assert client.calls == [(PRIMARY, 60)]
-    assert [event[0] for event in trace(running)] == ["agent_failed", "agent_retry"]
+    assert [event[0] for event in trace(running)] == ["agent_failed", "agent_failover"]
+
+
+def test_primary_hang_recovers_in_65_seconds(running, clock):
+    """주 모델이 계속 멈춰도 60초 뒤 바로 대체 모델 (같은 모델을 또 60초 기다리면 125초)."""
+    client = Client(clock, (60, "timeout"), (5, ANSWER))
+    reply = caller(running, client, deadline=1180.0)("s", "u")
+    assert (reply.model, reply.attempts, reply.latency_ms, reply.recovery_ms) == (FALLBACK, 2, 65000, 5000)
+    assert client.calls == [(PRIMARY, 60), (FALLBACK, 60)]
 
 
 def test_recovers_within_180_seconds(running, clock):
+    """주 모델 timeout → 대체 모델도 timeout → 대체 모델 한 번 더: 180초 안에 든다."""
     client = Client(clock, (60, "timeout"), (60, "timeout"), (5, ANSWER))
     reply = caller(running, client, deadline=1180.0)("s", "u")
     assert (reply.model, reply.attempts, reply.latency_ms, reply.recovery_ms) == (FALLBACK, 3, 125000, 65000)
-    assert client.calls == [(PRIMARY, 60), (PRIMARY, 60), (FALLBACK, 60)]
+    assert client.calls == [(PRIMARY, 60), (FALLBACK, 60), (FALLBACK, 60)]
 
 
 def test_last_call_gets_what_is_left(running, clock):

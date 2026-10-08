@@ -3,11 +3,12 @@
 Orchestrator가 Worker마다 `make_caller`로 호출기를 만들어 `ctx.llm`에 넣고, Worker는 `ctx.llm(system, user, contract=...)`로 부른다.
 Trace는 `state.record`로만 남긴다 (`add_result`·`add_error`·`finish`는 Orchestrator 몫).
 
-한 번의 `ctx.llm(...)` 안에서 (2026-10-07 결정 — 00-공통.md 7절):
+한 번의 `ctx.llm(...)` 안에서 (2026-10-07 결정, 2026-10-08 timeout 규칙 바뀜 — 00-공통.md 7절):
 - 주 모델(YAML `model`)을 부르고, 실패하면 종류를 나눈다(ErrorType). unknown이 아니면 **같은 모델로 한 번** 더 한다
-  (timeout도. server_error는 RETRY_BACKOFF_SEC 쉬고, bad_output은 문제를 user 끝에 붙여서).
+  (server_error는 RETRY_BACKOFF_SEC 쉬고, bad_output은 문제를 user 끝에 붙여서).
+  단 **주 모델의 timeout**은 이미 제한 시간을 다 기다렸으므로 다시 부르지 않고 바로 대체 모델로 간다 (넘어갈 대체 모델이 없을 때만 같은 모델로 한 번 더).
 - 그래도 실패하면 **대체 모델 하나**로 넘어간다: FALLBACK_POOL 순서에서 주 모델이 아니고 Circuit Breaker로 막히지 않은 첫 모델.
-  YAML의 `fallbacks`는 쓰지 않는다. 대체 모델도 같은 규칙으로 한 번 더 할 수 있다.
+  YAML의 `fallbacks`는 쓰지 않는다. 대체 모델은 timeout이어도 같은 모델로 한 번 더 할 수 있다.
 - 시도는 모델마다 MAX_ATTEMPTS_PER_MODEL, 전체 MAX_ATTEMPTS(첫 시도 + 재시도 3번), Worker `deadline` 안에서만. 넘으면 `LlmGaveUp`.
 - Circuit Breaker: 모델별 연속 실패 BREAKER_FAILURES번이면 BREAKER_OPEN_SEC 동안 그 모델을 건너뛴다 (이 프로세스 메모리).
   장애 주입을 켠 리포트는 그 리포트 전용 Breaker(`ReportBreaker`)에서 센다 — 일부러 낸 실패가 다른 리포트의 모델을 막지 않게.
@@ -213,6 +214,12 @@ class LlmCaller:
                               "final": False})
                 if attempts >= MAX_ATTEMPTS:
                     break
+                if error_type is ErrorType.TIMEOUT and model == primary:
+                    # 주 모델 timeout: 같은 모델을 또 기다리지 않고 대체 모델 먼저 (2026-10-08). 고를 모델이 없으면 아래 재시도로
+                    next_model = self._failover(model, error_type.value, tried)
+                    if next_model is not None:
+                        model, prompt, on_model = next_model, user, 0
+                        continue
                 if error_type in RETRY_SAME_MODEL and on_model < MAX_ATTEMPTS_PER_MODEL \
                         and not self.breaker.is_open(model, clock()):
                     if not self._wait_before_retry(error_type):
