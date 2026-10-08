@@ -42,12 +42,10 @@ def test_analysis_estimate_uses_kst_and_excludes_only_unstarted_failure(user):
     assert budget.used_usd(NOON - timedelta(hours=13)) == Decimal("0.3")
 
 
-def test_report_actual_cost_counts_all_users_and_failed(user, other, monkeypatch):
-    # cost_usd 열이 추가되기 전 DB에서도 동작하며, 추가된 뒤의 값을 흉내 낸다.
-    monkeypatch.setattr(Report, "cost_usd", property(lambda self: self.results.get("testCostUsd", 0)), raising=False)
-    make_report(user, created_at=NOON, status=Report.FAILED, results={"testCostUsd": "0.2"})
-    make_report(other, "AAPL", created_at=NOON, results={"testCostUsd": "0.35"})
-    make_report(user, created_at=NOON - timedelta(hours=13), results={"testCostUsd": "1"})
+def test_report_actual_cost_counts_all_users_and_failed(user, other):
+    make_report(user, created_at=NOON, status=Report.FAILED, cost_usd=Decimal("0.2"))
+    make_report(other, "AAPL", created_at=NOON, cost_usd=Decimal("0.35"))
+    make_report(user, created_at=NOON - timedelta(hours=13), cost_usd=Decimal("1"))
     assert budget.used_usd(NOON) == Decimal("0.55")
 
 

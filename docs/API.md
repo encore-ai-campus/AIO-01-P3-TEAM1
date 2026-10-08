@@ -491,6 +491,9 @@ interface AnalysisQuota {
 
 **2026-10-04 추가 (구현 전 계약)**: 장애 주입(`chaos`), 복구 요약(`recovery`), 자동 리포트(`source`), PDF, 복구 지표, 복구 Trace 사건.
 그중 PDF(`GET /api/reports/{id}/pdf`)와 선별 결과(`GET /api/reports/screening`)는 2026-10-04에 서버가 내기 시작했다 (표의 "구현" 표시).
+2026-10-07(담당 4, T4-1): `ReportSummary`의 `source`·`chaosEnabled`·`costUsd`·`hasPdf`, 자동 리포트의 `requestedBy` "자동", `ReportDetail`의 `chaos`·`recovery`를
+서버가 내기 시작했다 ("(구현)" 표시). `recovery`는 Trace 계산(T4-7) 전까지 장애 없음 고정값, `hasPdf`는 `pdf_path` 파일이 있을 때만 true(그 열을 채우는 것은 PDF 쪽 일),
+`chaos`는 장애 주입 신청(T4-6) 전까지 늘 null이다.
 담당별 할 일은 `docs/tasks/`, 셈법과 모듈 경계는 `docs/tasks/00-공통.md`. 아래에서 "(추가)"로 표시한 것은 아직 서버가 내지 않는다.
 
 **2026-10-08 워크플로우 결정**: 단계 `timeoutSec`가 전체 시간 상한이며 각 LLM 호출은 단계의 남은 시간까지만 기다린다. LLM timeout은 같은 모델을 재호출하지 않고 즉시 fallback으로 전환한다. 필수 Worker가 timeout되면 최종 `workflow_failed.details.reason`은 `"timeout"`, 시간 초과 외 결과 누락·계약 오류로 Join이 막히면 `"join_blocked"`다. 검토 Agent에는 최신 `report_agent` 초안과 성공한 조사 결과 전체를 전달한다.
@@ -589,11 +592,11 @@ interface ReportSummary {
   symbol: string; name: string; market: Market;
   status: SharedState["status"];
   currentStep: string | null;
-  source: "user" | "auto";      // (추가) 팀원 신청 / 자동 리포트(거래대금 상위 선별)
+  source: "user" | "auto";      // (구현) 팀원 신청 / 자동 리포트(거래대금 상위 선별)
   requestedBy: string;          // 신청한 팀원의 닉네임. 자동 리포트는 "자동"
-  chaosEnabled: boolean;        // (추가) 장애 주입을 켜고 신청했는지
-  costUsd: number | null;       // (추가) LLM 비용 (끝나기 전엔 지금까지의 합)
-  hasPdf: boolean;              // (추가) GET /api/reports/{id}/pdf 가 되는지
+  chaosEnabled: boolean;        // (구현) 장애 주입을 켜고 신청했는지
+  costUsd: number | null;       // (구현) LLM 비용 (끝나기 전엔 지금까지의 합)
+  hasPdf: boolean;              // (구현) GET /api/reports/{id}/pdf 가 되는지
   opinion: "buy" | "hold" | "avoid" | null;   // AI 의견 = results.report_agent.verdict. status가 completed일 때만, 그 밖은 null
                                               // (2026-10-04 합의, 컨셉 계획 B3 — 구현: 2026-10-05 (Claude). 2026-10-05: 담당 4 대신 Claude가 `payloads.summary`에 넣는다 — docs/DECISIONS.md 14-2)
   oneLiner: string | null;      // 한 줄 요약 = results.report_agent.oneLiner (80자). opinion과 같은 규칙 (2026-10-04 합의, 컨셉 계획 B3 — 구현: 2026-10-05 (Claude))
@@ -634,8 +637,8 @@ interface ReportDetail extends ReportSummary {   // Snapshot
   state: SharedState;
   trace: TraceEvent[];          // step 오름차순
   plan: ExecutionPlan;
-  chaos: ChaosConfig | null;    // (추가) 신청 때의 장애 주입 설정 (서버가 채운 기본값·seed 포함)
-  recovery: RecoverySummary;    // (추가)
+  chaos: ChaosConfig | null;    // (구현) 신청 때의 장애 주입 설정 (서버가 채운 기본값·seed 포함)
+  recovery: RecoverySummary;    // (구현, T4-7 전까지 고정값)
 }
 ```
 

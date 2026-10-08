@@ -3,6 +3,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from accounts.models import Profile
+from config import engine
 from rest_framework import status
 from rest_framework.exceptions import APIException
 
@@ -11,6 +12,7 @@ from .contracts import ONE_LINER_MAX, OPINIONS
 from .models import Report, TraceEvent
 
 KST = ZoneInfo("Asia/Seoul")
+AUTO_REQUESTER = "자동"               # 자동 리포트(신청자 없음)의 requestedBy
 
 
 class PlanBroken(APIException):
@@ -52,13 +54,36 @@ def conclusion(report: Report) -> dict:
             "oneLiner": (line.strip()[:ONE_LINER_MAX] or None) if isinstance(line, str) else None}
 
 
+def requester(report: Report, names: dict[int, str]) -> str:
+    """신청한 팀원의 닉네임 (없으면 아이디). 자동 리포트이거나 신청자가 없으면 "자동"."""
+    if report.source == Report.AUTO or report.user_id is None:
+        return AUTO_REQUESTER
+    return names.get(report.user_id) or report.user.get_username()
+
+
+def chaos_enabled(report: Report) -> bool:
+    """장애 주입을 켜고 신청했는지."""
+    return isinstance(report.chaos, dict) and report.chaos.get("enabled") is True
+
+
+def has_pdf(report: Report) -> bool:
+    """만든 PDF(Chrome이 없으면 HTML) 파일이 pdf_path에 있는지. pdf_path는 PAPER_ROOT 기준 상대 경로."""
+    return bool(report.pdf_path) and (engine.ROOT / report.pdf_path).is_file()
+
+
+def recovery(report: Report) -> dict:
+    """RecoverySummary. Trace로 계산하기 전(T4-7)까지는 장애 없음으로 채운 고정값."""
+    return {"failures": 0, "recovered": 0, "unrecovered": 0, "injected": 0, "recoveryMs": None, "models": {}}
+
+
 def summary(report: Report, names: dict[int, str] | None = None) -> dict:
     """ReportSummary. report.user를 쓰므로 목록은 select_related("user")로 읽는다."""
     names = nicknames() if names is None else names
     return {
         "id": report.id, "symbol": report.symbol, "name": report.name, "market": report.market,
         "status": report.status, "currentStep": report.current_step,
-        "requestedBy": names.get(report.user_id) or report.user.get_username(),
+        "source": report.source, "requestedBy": requester(report, names),
+        "chaosEnabled": chaos_enabled(report), "costUsd": report.cost_usd, "hasPdf": has_pdf(report),
         **conclusion(report),  # B3 opinion·oneLiner (Claude). 담당 4의 새 필드는 이 위에 더한다 (docs/DECISIONS.md 14-2)
         "createdAt": iso(report.created_at), "startedAt": iso(report.started_at), "finishedAt": iso(report.finished_at),
     }
@@ -87,4 +112,5 @@ def detail(report: Report) -> dict:
     return summary(report) | {
         "content": report.content, "state": shared_state(report),
         "trace": [trace_event(event) for event in report.trace_events.order_by("step")], "plan": plan(),
+        "chaos": report.chaos, "recovery": recovery(report),
     }

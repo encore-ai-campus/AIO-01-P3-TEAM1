@@ -138,6 +138,8 @@ class LlmCaller:
         models = self._models()
         if not models:
             raise LlmGaveUp(ErrorType.UNKNOWN, 0, None, f"{self.worker_id}: 모델이 정해지지 않았습니다.")
+        if self.deadline <= clock():
+            raise LlmGaveUp(ErrorType.TIMEOUT, 0, None, f"{self.worker_id}: 단계 제한 시간이 지났습니다.")
 
         started = clock()
         first_failure: float | None = None
@@ -147,7 +149,6 @@ class LlmCaller:
         last_model: str | None = None
 
         for index, model in enumerate(models):
-            last_model = model
             if breaker.is_open(model, clock()):
                 self._record("agent_failover", "started", model, None, {
                     "from": model,
@@ -166,6 +167,7 @@ class LlmCaller:
 
                 self.attempt += 1
                 on_model += 1
+                last_model = model
                 begun = clock()
                 try:
                     data, cost = self._once(model, system, prompt, limit, contract)
@@ -222,6 +224,9 @@ class LlmCaller:
                     "reason": last_type.value,
                 })
 
+        if self.attempt == 0 and last_model is None:
+            last_type = ErrorType.UNKNOWN
+            last_message = "사용 가능한 모델이 없습니다."
         raise LlmGaveUp(last_type, self.attempt, last_model, f"{self.worker_id}: {last_message}")
 
     def _models(self) -> list[str]:

@@ -12,7 +12,7 @@ WEB_SEARCH_MAX_USES = 5
 
 
 class LlmError(Exception):
-    cost = 0.0  # 응답을 받은 뒤 실패했으면 그 호출에서 이미 든 비용(USD)
+    cost = 0.0  # 응답을 받은 뒤 실패했으면(빈 응답·JSON 아님) 그 호출의 비용 (USD)
 
 
 class LlmTimeout(LlmError):
@@ -46,12 +46,16 @@ class LlmClient:
 
     def complete_json_once(self, model: str, system: str, user: str,
                            timeout: float = TIMEOUT_SEC) -> tuple[dict, float]:
-        """재시도 없이 한 번 부르고 (JSON 응답, 이번 호출 비용)을 반환한다."""
+        """재시도 없이 한 번 부른다. (응답 JSON, 이번 호출 비용)을 반환한다.
+
+        재시도·대체 모델은 부르는 쪽(backend/reports/healing.py)이 정한다. LlmTimeout·LlmError는 그대로 올린다
+        (응답을 받은 뒤의 실패에는 그 비용을 예외의 cost에 단다).
+        """
         message, cost = self._post(self._payload(model, system, user), timeout)
         try:
             return extract_json(message["content"]), cost
-        except LlmError as error:
-            error.cost = cost
+        except LlmError as e:
+            e.cost = cost
             raise
 
     def research_json(self, model: str, system: str, user: str,
@@ -90,6 +94,7 @@ class LlmClient:
         raise LlmError(f"{model}: {last_error}")
 
     def _post(self, payload: bytes, timeout: float) -> tuple[dict, float]:
+        """(응답 message, 이번 호출 비용). 비용은 누적 비용(self.cost)에도 더한다."""
         req = urllib.request.Request(
             self._base_url + "/chat/completions", data=payload, method="POST",
             headers={"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"})
