@@ -39,7 +39,7 @@ describe("로그인", () => {
 
   it("로그인 화면: 로고·이름·부제·풀이 한 줄, 아래 안심 줄은 '실제 주문은 나가지 않아요' (같은 말을 두 번 하지 않는다)", async () => {
     renderApp("/", null);
-    const name = await screen.findByRole("heading", { name: "종이배" });
+    const name = await screen.findByRole("heading", { name: "모매매" });
     const hero = name.parentElement!;
     // 로고 56px: 48px 이상이라 돛의 접힌 선까지 (타일·배·접힌 선), 이름 옆 장식이라 화면 읽기에서 숨는다
     const logo = hero.querySelector("svg")!;

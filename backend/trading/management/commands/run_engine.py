@@ -1,11 +1,13 @@
 """엔진 루프 (docs/DECISIONS.md 8-2·12장·14장): 모의 체결·청산 확인, 예약 실행, 일별 자산 기록, 분석 작업,
-추천 수집, 리포트 알림, 자동 추천(시연), 자동매매, 장기투자, 알림 발송 (이 순서).
+리포트 실행, 자동 리포트, 추천 수집, 리포트 알림, 자동 추천(시연), 자동매매, 장기투자, 알림 발송 (이 순서).
 
     python manage.py run_engine [--once] [--interval 5]
 
 한 단계의 오류는 콘솔에 한 줄로 남기고 다음 단계·다음 루프로 넘어간다. Ctrl+C로 끝난다.
 증권사 조회 키가 없으면 체결·예약·자산 기록·자동 추천·자동매매·장기투자는 건너뛰고
-분석 작업·추천 수집·리포트 알림·알림 발송만 돈다.
+분석 작업·리포트 실행·자동 리포트·추천 수집·리포트 알림·알림 발송만 돈다 (자동 리포트는 스스로 키·설정을 보고 쉰다).
+리포트 실행(reports.runner)은 requested 리포트 하나를 백그라운드 스레드에서 Agent 팀으로 돌린다 (동시에 하나).
+--once는 그 리포트가 끝날 때까지 기다렸다 끝낸다. 상주 루프는 시작할 때 이전 실행이 남긴 리포트를 정리하고, 끝낼 때 도는 리포트를 기다린다.
 리포트 알림(끝난 리포트 → 신청자 알림, reports.alerts)은 추천 수집 다음이라 같은 바퀴에서 만든 추천을 보고 판단한다.
 알림 발송은 늘 마지막이라 같은 바퀴에서 생긴 알림을 바로 보낸다.
 """
@@ -19,8 +21,8 @@ from trading import service
 
 
 class Command(BaseCommand):
-    help = ("모의 체결·청산 확인, 예약 실행, 일별 자산 기록, 분석 작업, 추천 수집, 리포트 알림, 자동 추천, 자동매매, 장기투자, "
-            "알림 발송을 반복한다")
+    help = ("모의 체결·청산 확인, 예약 실행, 일별 자산 기록, 분석 작업, 리포트 실행, 자동 리포트, 추천 수집, 리포트 알림, "
+            "자동 추천, 자동매매, 장기투자, 알림 발송을 반복한다")
 
     def add_arguments(self, parser):
         parser.add_argument("--once", action="store_true", help="한 번만 돌고 끝낸다")
@@ -28,24 +30,25 @@ class Command(BaseCommand):
 
     def handle(self, *args, once=False, interval=5.0, **options):
         from analysis import jobs  # analysis 앱 소유 (분석 작업 실행)
-        from reports import runner
+        from reports import runner  # reports 앱 소유 (AI 리포트 실행)
 
         if engine.broker_client() is None:
             self.log("증권사 조회 키가 없어 체결·예약·자산 기록·장기투자·자동 추천·자동매매를 건너뛰고 "
-                     "분석 작업·추천 수집·알림 발송만 돈다 (리포트 알림 포함)")
+                     "분석 작업·추천 수집·알림 발송만 돈다 (리포트 실행·자동 리포트·리포트 알림 포함)")
         if not once:  # 상주 루프는 하나만 돈다. 이전 실행이 남긴 실행 중 표시를 정리해야 분석 큐가 멈추지 않는다
             recovered = jobs.recover()
             if recovered:
                 self.log(f"이전 실행이 남긴 분석 작업 {recovered}개를 실패로 정리함")
-            recovered_reports = runner.recover()
-            if recovered_reports:
-                self.log(f"이전 실행이 남긴 리포트 {recovered_reports}개를 실패로 정리함")
+            recovered = runner.recover()
+            if recovered:
+                self.log(f"이전 실행이 남긴 AI 리포트 {recovered}개를 실패로 정리함 (engine_restarted)")
         try:
             while True:
                 if not once:  # 오래 도는 루프는 끊긴 DB 연결을 버리고 다시 붙는다 (한 번만 돌 때는 필요 없다)
                     close_old_connections()
                 self.tick()
                 if once:
+                    runner.wait()  # 이번에 시작한 리포트가 끝날 때까지 (프로세스가 끝나면 스레드도 죽는다)
                     break
                 time.sleep(max(interval, 0.1))
         except KeyboardInterrupt:
@@ -53,7 +56,7 @@ class Command(BaseCommand):
         finally:
             if not once:
                 jobs.shutdown()  # 돌고 있는 분석 하위 프로세스를 끝낸다
-                runner.shutdown()
+                runner.shutdown()  # 돌고 있는 리포트를 잠깐 기다린다 (못 끝나면 다음 시작의 recover가 정리)
 
     def tick(self) -> None:
         now = service.now()
@@ -63,7 +66,8 @@ class Command(BaseCommand):
             self.step("예약 실행", lambda: service.run_reservations(now, self.log))
             self.step("일별 자산 기록", lambda: service.record_equity(now, self.log))
         self.step("분석 작업", _analysis_tick)
-        self.step("AI 리포트", _report_tick)
+        self.step("리포트 실행", _report_tick)
+        self.step("자동 리포트", lambda: _auto_report_tick(now, self.log))  # 키·설정·시각을 스스로 확인한다 (broker 조건 밖)
         self.step("추천 수집", lambda: _collect_recommendations(now, self.log))
         self.step("리포트 알림", lambda: _report_alerts(now, self.log))
         if broker:  # 선별·시세·주문이 필요하다
@@ -91,9 +95,17 @@ def _analysis_tick() -> None:
 
 
 def _report_tick() -> None:
-    from reports import runner
+    from reports import runner  # reports 앱 소유 (requested 리포트를 Agent 팀으로 실행, 동시에 하나)
 
     runner.tick()
+
+
+def _auto_report_tick(now, log) -> None:
+    from reports import auto  # reports 앱 소유 (하루 한 번 선정 팀 → 종목 리포트. AUTO_REPORT=on일 때만)
+
+    tick = getattr(auto, "tick", None)  # 담당 1이 만들기 전에는 없다
+    if tick is not None:
+        tick(now, log)
 
 
 def _collect_recommendations(now, log) -> None:

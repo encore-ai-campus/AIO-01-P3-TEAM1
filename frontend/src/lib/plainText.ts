@@ -35,12 +35,12 @@ export interface Wording {
 // ---------------------------------------------------------------- 고정 문구
 
 /**
- * 서비스 이름 (docs/DECISIONS.md 15-7 — 2026-10-05에 바뀜, 전 이름은 D-5). 붙여 쓰고 꾸밈말을 붙이지 않는다('AI 종이배' 아님).
- * '종이'는 AI가 쓴 리포트(종이 위의 보고서)와 모의투자(paper trading — 실제가 아니라 종이 위에서 연습)를 함께 뜻한다.
- * 문구에 쓰지 않는 말: 배 은어(탑승·승선·선장·출항·순항), 띄우다·접다, 침몰·가라앉다·구조, '배(倍)' 말장난.
+ * 서비스 이름 (docs/DECISIONS.md 18장 — 2026-10-07에 바뀜. 전 이름은 '종이배'(15-7), 그 전은 D-5). 붙여 쓰고 꾸밈말을 붙이지 않는다('AI 모매매' 아님).
+ * 부제의 '종이 위에서'는 모의투자(paper trading — 실제가 아니라 종이 위에서 연습)를 뜻한다.
+ * 문구에 쓰지 않는 말: 배 은어(탑승·승선·선장·출항·순항), 띄우다·접다, 침몰·가라앉다·구조, '배(倍)' 말장난 — 로고가 종이배 모양이라 그대로 지킨다.
  * 로고는 components/BrandMark.tsx. 백엔드에도 같은 이름이 둘 있다 (notifications/service.py HEADER, reports/pdf.py SERVICE_NAME).
  */
-export const SERVICE_NAME = "종이배";
+export const SERVICE_NAME = "모매매";
 
 /** 부제: 이름 바로 아래 (로그인 첫 화면·발표 첫 장). */
 export const SERVICE_TAGLINE = "종이 위에서 연습하는 AI 리포트 모의투자";
@@ -88,6 +88,7 @@ export const NOT_SUITABILITY = "법정 적합성 진단이 아니에요";
  * 알림 종은 모바일은 화면 머리·PC는 왼쪽 메뉴에 있다 (Layout).
  */
 export const REPORT_KEEPS_RUNNING = "이 화면을 닫아도 계속 만들어요. 만드는 동안 '리포트' 메뉴에 표시가 붙고, 완성되면 알림으로 알려 드려요";
+// 쉬운 PDF(backend/reports/easy_text.py)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
 export const AI_REVIEW_NOTE = "AI 검토는 사실을 보증하지 않아요";
 
 /** 화면 아래 공통 출처 줄 (docs/DECISIONS.md 14-1·17장). quoteProvider는 MarketStatus.quoteProvider. */
@@ -117,6 +118,7 @@ export interface OpinionText {
   tone: "positive" | "neutral" | "negative";
 }
 
+// 쉬운 PDF(backend/reports/easy_text.py OPINION_LINE, 배지는 text.py OPINION_LABEL)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
 export const OPINION_TEXT: Record<ReportOpinion, OpinionText> = {
   buy: { badge: "긍정적", label: "AI 의견: 긍정적", line: "오를 근거가 더 많다고 봤어요", expert: "매수", tone: "positive" },
   hold: { badge: "지켜보기", label: "AI 의견: 지켜보기", line: "아직 판단하기 이르다고 봤어요", expert: "보유", tone: "neutral" },
@@ -134,6 +136,8 @@ export const REPORT_FAILURE_TEXT: Record<ReportFailureReason, string> = {
   engine_restarted: "서버가 다시 시작돼 중단됐어요",
   expired: "신청 후 24시간이 지나 리포트를 만들지 않았어요",
   exception: "예상하지 못한 오류로 멈췄어요",
+  agent_failed: "필요한 AI가 끝내 응답하지 않아 멈췄어요",
+  no_llm: "AI 연결 설정이 없어 리포트를 쓰지 못했어요",
 };
 
 export const REPORT_FAILURE_FALLBACK = "리포트를 만들지 못했어요. 다시 만들 수 있어요";
@@ -142,6 +146,27 @@ export function reportFailureSentence(reason: unknown): string {
   return typeof reason === "string" && reason in REPORT_FAILURE_TEXT
     ? REPORT_FAILURE_TEXT[reason as ReportFailureReason]
     : REPORT_FAILURE_FALLBACK;
+}
+
+/**
+ * 오늘의 선별을 규칙으로 고른 사유 (ScreeningResult.fallbackReason → 쉬운 문장). 코드는 리포트 실패 사유 + no_candidates.
+ * 리포트 문장 중 "리포트를 쓸 수 없었어요"처럼 리포트를 말하는 것만 선정에 맞게 바꾸고, 나머지는 같은 문장이다.
+ */
+export const SELECTION_FALLBACK_TEXT: Record<ReportFailureReason | "no_candidates", string> = {
+  ...REPORT_FAILURE_TEXT,
+  join_blocked: "후보를 조사하는 AI가 응답하지 않아 AI가 고르지 못했어요",
+  review_failed: "검토 AI가 근거와 맞지 않는 선정을 찾아 AI 선정안을 쓰지 않았어요",
+  no_llm: "AI 연결 설정이 없어 AI가 고르지 못했어요",
+  expired: "선정 실행이 오래 기다리다 실행되지 않아 AI가 고르지 못했어요",
+  no_candidates: "규칙 선별을 통과한 종목이 없었어요",
+};
+
+export const SELECTION_FALLBACK_FALLBACK = "AI 선정을 끝내지 못했어요";
+
+export function selectionFallbackSentence(reason: unknown): string {
+  return typeof reason === "string" && reason in SELECTION_FALLBACK_TEXT
+    ? SELECTION_FALLBACK_TEXT[reason as keyof typeof SELECTION_FALLBACK_TEXT]
+    : SELECTION_FALLBACK_FALLBACK;
 }
 
 /** Trace의 마지막 workflow_failed.details.reason (없으면 null). */
@@ -156,7 +181,7 @@ export function failureReasonOf(trace: TraceEvent[]): string | null {
 // ---------------------------------------------------------------- 실행 불가 사유 (RiskPreview.reasonCodes, 400 {detail, reasonCodes})
 
 export const REASON_TEXT: Record<ReasonCode, string> = {
-  reward_risk_low: "버는 돈에 비해 잃을 수 있는 돈이 커서 안전장치가 막았어요(손익비 기준 2.0 미만)",
+  reward_risk_low: "버는 돈에 비해 잃을 수 있는 돈이 커서 안전장치가 막았어요(손익비 기준 1.5 미만)",
   ev_negative: "비용까지 따지면 기대되는 결과가 0 이하라 안전장치가 막았어요",
   daily_loss_limit: "오늘은 손실 한도에 닿아 새로 시작할 수 없어요. 내일 다시 할 수 있어요",
   daily_trades_limit: "오늘 할 수 있는 주문 수를 다 썼어요. 내일 다시 할 수 있어요",

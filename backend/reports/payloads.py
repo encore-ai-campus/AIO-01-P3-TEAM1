@@ -25,10 +25,10 @@ def iso(value: datetime | None) -> str | None:
     return value.astimezone(KST).isoformat(timespec="seconds") if value else None
 
 
-def plan() -> dict:
-    """ExecutionPlan."""
+def plan(team: str = registry.TEAM) -> dict:
+    """팀의 ExecutionPlan (기본은 종목 리포트). 모르는 팀은 부르기 전에 막는다 (여기서는 설정 오류로 500)."""
     try:
-        return registry.execution_plan()
+        return registry.execution_plan(team)
     except registry.PlanError as e:
         raise PlanBroken(f"실행 계획이 잘못되었습니다: {e}") from None
 
@@ -77,12 +77,15 @@ def recovery(report: Report) -> dict:
 
 
 def summary(report: Report, names: dict[int, str] | None = None) -> dict:
-    """ReportSummary. report.user를 쓰므로 목록은 select_related("user")로 읽는다."""
+    """ReportSummary. report.user를 쓰므로 목록은 select_related("user")로 읽는다.
+
+    team은 "stock_report"(종목 리포트) | "stock_selection"(하루 한 번의 매매 종목 선정 실행 — opinion·oneLiner는 늘 None).
+    """
     names = nicknames() if names is None else names
     return {
         "id": report.id, "symbol": report.symbol, "name": report.name, "market": report.market,
         "status": report.status, "currentStep": report.current_step,
-        "source": report.source, "requestedBy": requester(report, names),
+        "source": report.source, "team": report.team, "requestedBy": requester(report, names),
         "chaosEnabled": chaos_enabled(report), "costUsd": report.cost_usd, "hasPdf": has_pdf(report),
         **conclusion(report),  # B3 opinion·oneLiner (Claude). 담당 4의 새 필드는 이 위에 더한다 (docs/DECISIONS.md 14-2)
         "createdAt": iso(report.created_at), "startedAt": iso(report.started_at), "finishedAt": iso(report.finished_at),
@@ -108,9 +111,9 @@ def trace_event(event: TraceEvent) -> dict:
 
 
 def detail(report: Report) -> dict:
-    """ReportDetail (Snapshot): 요약 + 본문 + Shared State + Trace(step 오름차순) + 실행 계획."""
+    """ReportDetail (Snapshot): 요약 + 본문 + Shared State + Trace(step 오름차순) + 그 리포트 팀의 실행 계획."""
     return summary(report) | {
         "content": report.content, "state": shared_state(report),
-        "trace": [trace_event(event) for event in report.trace_events.order_by("step")], "plan": plan(),
+        "trace": [trace_event(event) for event in report.trace_events.order_by("step")], "plan": plan(report.team),
         "chaos": report.chaos, "recovery": recovery(report),
     }

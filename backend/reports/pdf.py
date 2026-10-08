@@ -4,23 +4,28 @@
 가격 차트·점수 막대는 SVG·CSS를 문자열로 직접 만든다 (외부 라이브러리 없음). PDF 변환은 엔진의 `render_pdf`(Chrome headless).
 Agent가 아직 결과를 다 못 채웠어도(`Report.results`가 비어 있어도) 있는 만큼만 그리고 없는 칸은 "자료 없음"으로 둔다.
 
-서비스 이름은 "종이배"(D-5, 2026-10-05 바뀜 — docs/DECISIONS.md 15-7). 쪽 머리에 로고(8~10mm)와 이름,
+서비스 이름은 "모매매"(2026-10-07 바뀜 — docs/DECISIONS.md 18장, 로고 모양은 15-7). 쪽 머리에 로고(8~10mm)와 이름,
 오른쪽에 작은 글씨 "AI 리포트 · 모의투자 연습용"을 두고 가는 선을 긋는다 (면책 문장·날짜는 본문·꼬리말에 있어 머리에 다시 넣지 않는다).
 맨 위에 쉬운 요약 상자(`results.report_agent.plainSummary`, B1)와 통일 면책 문장을 두고, 꼬리말도 같은 면책 문장이다.
 가격은 장마감 기준이다: 차트는 완성 일봉(`trading.market.completed_candles` — 장중 미완성 봉 없음)으로 그리고
 범례에 "YYYY-MM-DD 종가 기준"을, 시세 지표 아래에 `market_agent`의 종가·`asOf`("… 장마감 기준")를 적는다.
 
-만든 파일은 `PAPER_ROOT/reports/<id>.v<TEMPLATE_VERSION>.pdf`(Chrome이 없으면 `.html`)로 두고 다시 쓴다. 양식을 바꾸면
-TEMPLATE_VERSION을 올린다 — 이름이 달라져 예전 양식 파일(판 번호 없는 `<id>.pdf` = 1판 포함)을 쓰지 않고 새로 만들며, 그때 예전 파일을 지운다.
+주린이모드 쉬운 판(`build_easy_report_html`, docs/DECISIONS.md 20장)은 웹 쉬운 보기와 같은 문장(easy_text.py)으로
+결론·신뢰 패널·쉬운 요약·매매 계획·근거와 위험·세 가지 경우·가격 흐름·조사 자료·용어 풀이를 싣는다. 검토 점수·확률·신뢰도·모델·비용은 싣지 않는다.
+
+만든 파일은 `PAPER_ROOT/reports/<id>.v<TEMPLATE_VERSION>.pdf`(Chrome이 없으면 `.html`)로 두고 다시 쓴다 (쉬운 판은 `<id>.v<판>.easy.pdf`).
+양식을 바꾸면 TEMPLATE_VERSION을 올린다 — 이름이 달라져 예전 양식 파일(판 번호 없는 `<id>.pdf` = 1판 포함)을 쓰지 않고 새로 만들며,
+그때 두 판(자세한·쉬운)의 예전 파일을 지운다.
 
 리포트 신청자의 로그인 아이디는 넣지 않는다 (아이디는 로그인 정보다). 비밀 값도 넣지 않는다.
 """
 import logging
 import math
 import os
+import re
 import uuid
 from collections import Counter
-from datetime import datetime
+from datetime import UTC, datetime
 from html import escape
 from pathlib import Path
 
@@ -30,17 +35,20 @@ from trading import market
 
 from config import engine
 
+from . import easy_text as ez
+from .contracts import ONE_LINER_MAX
 from .models import Report, TraceEvent
 from .payloads import KST, conclusion
+from .text import OPINION_LABEL, selection_fallback_sentence
 
 log = logging.getLogger(__name__)
 
-SERVICE_NAME = "종이배"  # 화면 frontend/src/lib/plainText.ts SERVICE_NAME과 같다
+SERVICE_NAME = "모매매"  # 화면 frontend/src/lib/plainText.ts SERVICE_NAME과 같다
 BRAND_NOTE = "AI 리포트 · 모의투자 연습용"  # 쪽 머리 오른쪽 작은 글씨
 DISCLAIMER = "이 리포트는 AI가 만든 참고 자료이며 투자 권유가 아닙니다. 모든 매매는 모의 계좌에서만 이뤄집니다."  # 통일 면책 문장
 # 양식 판. 양식을 바꾸면 올린다 (예전 판 파일은 다음 요청 때 새로 만든다).
-# 2: 2026-10 쉬운 요약·장마감 기준. 3: 2026-10-05 서비스 이름 종이배·로고 머리
-TEMPLATE_VERSION = 3
+# 2: 2026-10 쉬운 요약·장마감 기준. 3: 2026-10-05 서비스 이름 종이배·로고 머리. 4: 2026-10-07 서비스 이름 모매매
+TEMPLATE_VERSION = 4
 NO_DATA = "자료 없음"
 NO_VALUE = "–"
 CHART_DAYS = 60            # 차트에 그리는 최근 일봉 수
@@ -58,7 +66,7 @@ AGENT_LABEL = {"market_agent": "시세", "fundamental_agent": "재무", "news_ag
                "report_agent": "작성", "review_agent": "검토", "risk_agent": "리스크"}
 RISE, FALL, ACCENT = "#d2342f", "#2a62d2", "#e08a00"   # 상승 빨강·하락 파랑 (국내 관례), 이동평균 주황
 
-# 종이배 로고 (frontend/src/components/BrandMark.tsx와 같은 모양, 48px 이상 판 — 돛의 접힌 선 포함). brand 타일 + 흰 배.
+# 로고: 종이배 모양 (frontend/src/components/BrandMark.tsx와 같은 모양, 48px 이상 판 — 돛의 접힌 선 포함). brand 타일 + 흰 배.
 # 늘이기·그림자·물결·화살표를 더하지 않고, 배를 노란색으로 칠하지 않는다 (docs/DECISIONS.md 15-7).
 LOGO_SVG = ('<svg class="logo" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">'
             '<rect width="32" height="32" rx="8" fill="#3182F6"/>'
@@ -150,9 +158,10 @@ def _brand_head() -> str:
             f'<span class="note">{BRAND_NOTE}</span></header>')
 
 
-def _page(title: str, body: str) -> str:
+def _page(title: str, body: str, css: str = "") -> str:
+    """A4 한 문서. css는 공통 CSS 뒤에 더하는 판별 스타일 (쉬운 판 EASY_CSS — 자세한 판·표지는 더하지 않는다)."""
     return (f'<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>{_e(title)} · {SERVICE_NAME}</title>'
-            f"<style>{CSS}</style></head><body>{_brand_head()}{body}</body></html>")
+            f"<style>{CSS}{css}</style></head><body>{_brand_head()}{body}</body></html>")
 
 
 def _as_of(value, mkt: str) -> str | None:
@@ -191,21 +200,29 @@ def _moving_average(closes: list[float], window: int) -> list[float | None]:
     return [sum(closes[i - window + 1:i + 1]) / window if i >= window - 1 else None for i in range(len(closes))]
 
 
-def _chart_svg(candles: list[dict], targets: dict, mkt: str) -> str:
-    """최근 일봉 캔들 + 20일 이동평균 + 제안 진입·목표·손절 가로선. 일봉이 2개 미만이면 안내 문구."""
+LINE_NAMES = ("진입", "목표", "손절")  # 자세한 판의 가로선 이름 (쉬운 판은 사는 가격·목표 가격·손절 가격)
+
+
+def _chart_svg(candles: list[dict], targets: dict, mkt: str, *, average: bool = True,
+               names: tuple[str, str, str] = LINE_NAMES, right: int = 66, height: int = 250) -> str:
+    """최근 일봉 캔들 + 20일 이동평균 + 제안 진입·목표·손절 가로선. 일봉이 2개 미만이면 안내 문구.
+
+    쉬운 판은 이동평균을 빼고(average=False) 가로선 이름을 쉬운 말로(names — 진입·목표·손절 순서), 이름이 길어 오른쪽 칸(right)을
+    넓히고 조금 낮게(height) 그린다. 기본값은 자세한 판 그대로다 (같은 입력이면 같은 SVG).
+    """
     if len(candles) < 2:
         return '<p class="empty">시세 자료 없음</p>'
-    ma_all = _moving_average([c["close"] for c in candles], MA_WINDOW)
+    ma_all = _moving_average([c["close"] for c in candles], MA_WINDOW) if average else [None] * len(candles)
     shown, ma = candles[-CHART_DAYS:], ma_all[-CHART_DAYS:]
-    lines = [("진입", _num(targets.get("entry")), "#555"), ("목표", _num(targets.get("target")), RISE),
-             ("손절", _num(targets.get("stop")), FALL)]
+    lines = [(names[0], _num(targets.get("entry")), "#555"), (names[1], _num(targets.get("target")), RISE),
+             (names[2], _num(targets.get("stop")), FALL)]
     lines = [x for x in lines if x[1] is not None and x[1] > 0]
     values = [c["high"] for c in shown] + [c["low"] for c in shown] + [v for _, v, _ in lines] + \
         [m for m in ma if m is not None]
     lo, hi = min(values), max(values)
     pad = (hi - lo) * 0.06 or hi * 0.02 or 1.0
     lo, hi = lo - pad, hi + pad
-    width, height, left, right, top, bottom = 720, 250, 58, 66, 8, 20
+    width, left, top, bottom = 720, 58, 8, 20
     plot_w, plot_h = width - left - right, height - top - bottom
     step = plot_w / len(shown)
 
@@ -396,8 +413,14 @@ def _market_basis(mkt_res: dict, mkt: str) -> str:
     return f'<p class="legend">시세 지표: {_e(price)}{_e(as_of)}</p>'
 
 
-def build_report_html(report: Report, trace: list[TraceEvent], now: datetime | None = None) -> str:
-    """종목 리포트 한 쪽. report.results의 Worker 결과와 Trace로 만든다. 없는 칸은 "자료 없음"."""
+def build_report_html(report: Report, trace: list[TraceEvent], now: datetime | None = None, *,
+                      easy: bool = False) -> str:
+    """종목 리포트 한 쪽. report.results의 Worker 결과와 Trace로 만든다. 없는 칸은 "자료 없음".
+
+    easy면 주린이모드 쉬운 판(build_easy_report_html — docs/DECISIONS.md 20장). 기본은 자세한 판 (내용·양식은 4판 그대로).
+    """
+    if easy:
+        return build_easy_report_html(report, trace, now)
     now = now or timezone.now()
     results = _dict(report.results)
     mkt_res, fund_res = _dict(results.get("market_agent")), _dict(results.get("fundamental_agent"))
@@ -456,6 +479,357 @@ def build_report_html(report: Report, trace: list[TraceEvent], now: datetime | N
     return _page(f"{report.name} AI 리포트", body)
 
 
+# --- 쉬운 판 (주린이모드 — docs/DECISIONS.md 20장, 문장은 easy_text.py = 웹 쉬운 보기와 같은 문장) ---
+
+# 색은 화면 토큰(frontend/src/index.css 밝은 화면)을 옮겨 쓴다: 글자 ink·sub·mute, 바탕 fill·line, 의견 배지 brand·warn 바탕,
+# 세 가지 경우 up-soft·down-soft, 위험 메모 warn. 차트·가로선 색은 자세한 판과 같다 (RISE·FALL).
+EASY_CSS = """
+.ez { font-size: 9.5pt; line-height: 1.42; color: #191f28; }
+.ez h1 { font-size: 17pt; margin: 0; letter-spacing: -0.01em; }
+.ez .meta { color: #646e7a; margin: .3mm 0 0; }
+.ez h2 { font-size: 11pt; margin: 0 0 1.2mm; padding: 0; border: 0; }
+.ez h3 { font-size: 9pt; color: #4e5968; margin: 1.6mm 0 .6mm; }
+.ez .empty { color: #646e7a; padding: .3mm 0; }
+.ez .legend { color: #4e5968; margin-top: .6mm; }
+.ez p { margin: .6mm 0; }
+.sec { border: 1px solid #e5e8eb; border-radius: 2.5mm; padding: 2.2mm 3.5mm; margin-top: 2.2mm; break-inside: avoid; }
+.sec.long { break-inside: auto; }
+.riskbox { border: 1.5px solid #ff9f00; background: #fff6e5; border-radius: 2.5mm; padding: 2mm 3.5mm; margin-top: 2.2mm;
+           break-inside: avoid; }
+.riskbox h2 { color: #9a5b00; margin-bottom: .6mm; }
+.riskbox .lvl { font-weight: 700; color: #9a5b00; }
+.riskbox ul { padding-left: 4.5mm; }
+.op { display: inline-block; padding: .5mm 2.4mm; border-radius: 1.6mm; font-weight: 800; font-size: 11pt;
+      background: #f2f4f6; color: #4e5968; }
+.op.buy { background: #e8f3ff; color: #1b64da; } .op.avoid { background: #fff6e5; color: #9a5b00; }
+.ez .opline { color: #4e5968; margin: .8mm 0 0; }
+.ez .one { font-size: 12.5pt; line-height: 1.32; margin: 1.4mm 0 0; }
+.trust { background: #f2f4f6; border-radius: 2mm; padding: 1.6mm 2.6mm; margin-top: 2mm; }
+.ez .trust p { display: flex; gap: 1.5mm; align-items: flex-start; margin: .4mm 0; color: #4e5968; }
+.ez .trust .t1 { font-weight: 700; color: #191f28; }
+.ez .trust .tn { font-size: 8pt; }
+.ic { width: 3.4mm; height: 3.4mm; flex: none; margin-top: .5mm; }
+.ez .easy { margin-top: 2.2mm; padding: 2mm 3.5mm; break-inside: avoid; }
+.easy ol { list-style: none; margin: 0; padding: 0; }
+.easy ol li { display: flex; gap: 2mm; margin: .8mm 0; font-size: 10pt; }
+.easy .n { flex: none; width: 4.6mm; height: 4.6mm; margin-top: .4mm; border-radius: 50%; background: #191f28; color: #fff;
+           font-size: 7.5pt; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.ez .easy .notice { margin-top: 1mm; }
+.ez .plan .act { background: #e8f3ff; color: #1b64da; border-radius: 1.6mm; padding: 1.2mm 2.4mm; font-size: 8.5pt;
+                 margin-top: 1.2mm; }
+.dots { list-style: none; margin: 0; padding: 0; }
+.dots li { position: relative; padding-left: 3.2mm; margin: .5mm 0; }
+.dots li::before { content: ""; position: absolute; left: .3mm; top: 1.9mm; width: 1.4mm; height: 1.4mm; border-radius: 50%;
+                   background: #3182f6; }
+.dots.risk li::before { background: #ff9f00; }
+.src { display: block; font-size: 7.5pt; color: #646e7a; }
+.wrong { list-style: none; margin: 0; padding: 1.5mm 2.6mm; background: #f2f4f6; border-radius: 2mm; }
+.wrong li { margin: .4mm 0; }
+.cite, .note { font-size: 8pt; color: #4e5968; }
+.ez .cite { margin-top: 1.4mm; }
+.cases { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2mm; margin: 1.2mm 0; }
+.case { border-radius: 2mm; padding: 1.5mm 2.6mm; background: #f2f4f6; }
+.case.up { background: #ffeeee; } .case.down { background: #e8f3ff; }
+.ez .case p { margin: 0; }
+.ez .case .ct { font-weight: 700; color: #4e5968; font-size: 8.5pt; }
+.ez .case .cv { font-size: 14pt; font-weight: 800; margin: .3mm 0; }
+.case.up .cv { color: #f04452; } .case.down .cv { color: #3182f6; }
+.ez .case .cn { font-size: 8pt; color: #4e5968; line-height: 1.35; }
+.lines { list-style: none; display: flex; flex-wrap: wrap; gap: 1mm 5mm; margin: 1mm 0 0; padding: 0; font-size: 8.5pt;
+         color: #4e5968; }
+.lines li { display: flex; align-items: center; gap: 1.5mm; margin: 0; }
+.lines b { color: #191f28; }
+.sw { width: 5mm; border-top: 2px dashed #555; }
+.sw.target { border-color: #d2342f; } .sw.stop { border-color: #2a62d2; }
+.rsg { display: grid; grid-template-columns: repeat(var(--cols), 1fr); gap: 3.5mm; }
+.rs { min-width: 0; } .rs + .rs { border-left: 1px solid #e5e8eb; padding-left: 3.5mm; }
+.ez .rs h3 { margin-top: 0; }
+.close { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 1.5mm; }
+.close .k { font-size: 8pt; color: #4e5968; } .close b { font-size: 11.5pt; } .close .at { font-size: 8pt; color: #646e7a; }
+.mets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.2mm; margin: 1.2mm 0 0; }
+.mets.c2 { grid-template-columns: repeat(2, 1fr); }
+.mets div { background: #f2f4f6; border-radius: 1.6mm; padding: .6mm 1.8mm; min-width: 0; }
+.mets dt { font-size: 7.5pt; color: #646e7a; } .mets dd { margin: 0; font-weight: 700; font-size: 10pt; }
+.plain { list-style: none; margin: .6mm 0 0; padding: 0; font-size: 8.5pt; color: #4e5968; }
+.plain li { margin: .3mm 0; } .plain .d { color: #646e7a; }
+.terms { columns: 2; column-gap: 5mm; margin: 0; font-size: 8.5pt; line-height: 1.38; }
+.terms div { break-inside: avoid; margin: 0 0 1mm; } .terms dt { display: inline; font-weight: 700; margin-right: 1.2mm; }
+.terms dd { display: inline; margin: 0; color: #4e5968; }
+.ez .foot { margin-top: 3mm; }
+.ez .foot h2 { font-size: 9pt; color: #333; margin-bottom: .6mm; }
+.ez .foot p { margin: .3mm 0; }
+"""
+
+# 신뢰 패널 아이콘 (화면 TrustPanel의 check·alert·shield와 같은 뜻, 글자 없음)
+ICON_OK = ('<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="8" fill="#03a463"/>'
+           '<path d="M4.6 8.3l2.3 2.3 4.6-4.8" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" '
+           'stroke-linejoin="round"/></svg>')
+ICON_ALERT = ('<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="8" fill="#8b95a1"/>'
+              '<path d="M8 4v5" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>'
+              '<circle cx="8" cy="11.8" r="1.1" fill="#fff"/></svg>')
+ICON_SHIELD = ('<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 .8l6.2 2.4v4.3c0 3.7-2.6 6.5-6.2 7.7'
+               '-3.6-1.2-6.2-4-6.2-7.7V3.2z" fill="#03a463"/><path d="M5.2 8l2 2 3.8-4" fill="none" stroke="#fff" '
+               'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>')
+EASY_CHART = {"right": 96, "height": 190}   # 쉬운 판 차트: 가로선 이름("목표 가격 77,000")이 길어 오른쪽 칸을 넓히고 조금 낮게
+
+
+def _easy_risk(risk: dict) -> str:
+    """위험 점검 AI의 메모 — 결론 위 노란 상자 (컨셉 6장). 보일 것이 없으면 빈 문자열."""
+    level = RISK_LABEL.get(risk.get("level"))
+    summary = ez.clean(risk.get("summary"))
+    warnings = ez.texts(risk.get("warnings"), LIST_ITEMS)
+    if not (level or summary or warnings):
+        return ""
+    t = ez.RISK_TEXT
+    return (f'<section class="riskbox"><h2>{_e(t["title"])}</h2>'
+            + (f'<p class="lvl">{_e(t["level"].format(level=level))}</p>' if level else "")
+            + (f"<p>{_e(summary)}</p>" if summary else "")
+            + ("<ul>" + "".join(f"<li>{_e(w)}</li>" for w in warnings) + "</ul>" if warnings else "")
+            + "</section>")
+
+
+def _easy_trust(results: dict, trace: list[TraceEvent]) -> str:
+    """신뢰 패널 (TrustPanel): 첫 줄(검토 · 인용 · 자료 시각), 고쳐 쓴 줄, 자동 복구 문장, "AI 검토는 사실을 보증하지 않아요"."""
+    info = ez.trust_of(results, trace)
+    lines = ez.trust_lines(results, trace)
+    split = len(lines) - len(info["recovery"])
+    html = f'<p class="t1">{ICON_OK if info["reviewed"] else ICON_ALERT}<span>{_e(lines[0])}</span></p>'
+    html += "".join(f"<p>{_e(x)}</p>" for x in lines[1:split])
+    html += "".join(f"<p>{ICON_SHIELD}<span>{_e(x)}</span></p>" for x in lines[split:])
+    return f'<div class="trust">{html}<p class="tn">{_e(ez.AI_REVIEW_NOTE)}</p></div>'
+
+
+def _easy_conclusion(opinion: str | None, one_liner: str | None, results: dict, trace: list[TraceEvent]) -> str:
+    """결론: "AI 의견: 긍정적" 배지 + 한 줄 풀이(없으면 읽지 못했다는 문장), 한 줄 요약(있을 때만), 신뢰 패널."""
+    if opinion in ez.OPINION_LINE:
+        top = (f'<span class="op {opinion}">{_e(OPINION_LABEL[opinion])}</span>'
+               f'<p class="opline">{_e(ez.OPINION_LINE[opinion])}</p>')
+    else:
+        top = f'<p class="opline">{_e(ez.NO_OPINION)}</p>'
+    one = f'<p class="one">{_e(one_liner)}</p>' if one_liner else ""
+    return f'<section class="sec concl">{top}{one}{_easy_trust(results, trace)}</section>'
+
+
+def _easy_summary(draft: dict | None) -> str:
+    """쉬운 요약 번호 1~3 + 통일 면책 문장 (자세한 판 맨 위 상자와 같은 자리·같은 면책)."""
+    lines = draft["plainSummary"] if draft else []
+    body = ("<ol>" + "".join(f'<li><span class="n">{i}</span><span>{_e(x)}</span></li>' for i, x in enumerate(lines, 1))
+            + "</ol>") if lines else f'<p class="empty">{_e(ez.NO_SUMMARY)}</p>'
+    return f'<section class="easy"><h2>쉬운 요약</h2>{body}<p class="notice">{DISCLAIMER}</p></section>'
+
+
+def _easy_plan(opinion: str | None, prices: dict, currency: str) -> str:
+    """매매 계획 (말로 — 계좌 수량·금액 없이). 긍정적이고 가격이 맞으면 가격 한 줄과 웹에서 직접 시작해야 한다는 안내."""
+    body = "".join(f'<p class="act">{_e(x)}</p>' if x == ez.PLAN_ACTIVATE else f"<p>{_e(x)}</p>"
+                   for x in ez.plan_lines(opinion, prices, currency))
+    return f'<section class="sec plan"><h2>{_e(ez.PLAN_TITLE)}</h2>{body}</section>'
+
+
+def _easy_lines(lines: list[str], kind: str) -> str:
+    """근거·위험 목록. 끝에 붙은 "(출처: …)"는 떼어 줄 아래 작은 글씨로."""
+    items = []
+    for line in lines:
+        text, source = ez.split_source(line)
+        src = f'<span class="src">{_e(ez.REASONS_TEXT["source"].format(source=source))}</span>' if source else ""
+        items.append(f"<li>{_e(text)}{src}</li>")
+    return f'<ul class="dots {kind}">{"".join(items)}</ul>'
+
+
+def _easy_reasons(draft: dict, opinion: str | None, currency: str) -> str:
+    """근거와 위험 · 이 의견이 틀리는 경우 · 인용 자료 (ReasonsRisks). draft의 targets는 화면에 보일(호가로 내린) 값."""
+    t = ez.REASONS_TEXT
+    wrong, others = ez.when_wrong(draft, opinion, currency)
+    reasons = _easy_lines(draft["reasons"], "reason") if draft["reasons"] else f'<p class="empty">{_e(t["no_reasons"])}</p>'
+    risks = _easy_lines(others, "risk") if others else f'<p class="empty">{_e(t["no_risks"])}</p>'
+    cites = draft["citations"]
+    cite = (f'<p class="cite">{_e(t["citations"].format(n=len(cites), items=" · ".join(cites)))}</p>' if cites else "")
+    return (f'<section class="sec"><h2>{_e(t["title"])}</h2><div class="cols">'
+            f'<div><h3>{_e(t["reasons"])}</h3>{reasons}</div><div><h3>{_e(t["risks"])}</h3>{risks}</div></div>'
+            f'<h3>{_e(t["wrong"])}</h3><ul class="wrong">{"".join(f"<li>{_e(x)}</li>" for x in wrong)}</ul>{cite}</section>')
+
+
+def _easy_scenario(s: dict) -> str:
+    """세 가지 경우 (1주 기준 비율). 계좌 금액은 웹의 매매 계획 카드에 있다고 적는다."""
+    t = ez.SCENARIO_TEXT
+
+    def box(kind: str, title: str, value: str, note: str) -> str:
+        return (f'<div class="case {kind}"><p class="ct">{_e(title)}</p><p class="cv">{_e(value)}</p>'
+                f'<p class="cn">{_e(note)}</p></div>')
+    return (f'<section class="sec"><h2>{_e(t["title"])}</h2><p class="note">{_e(t["basis"])}</p><div class="cases">'
+            + box("up", t["gain_title"], s["gain"], t["gain_note"])
+            + box("down", t["loss_title"], s["loss"], t["loss_note"])
+            + box("time", t["time_title"], s["time"], t["time_note"])
+            + f'</div><p class="note">{_e(ez.SCENARIO_ACCOUNT_NOTE)}</p></section>')
+
+
+DATE_ONLY = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+
+
+def _easy_close_at(value, mkt: str) -> datetime | None:
+    """쉬운 판의 장마감 기준 시각(시세 AI의 asOf)을 그 시장 시간대로. 읽지 못하면 None.
+
+    화면(ResearchCards의 new Date(asOf), 한국 시간 브라우저)과 같게 읽는다: 시간대가 없으면 한국 시간, 날짜만이면 UTC 자정.
+    자세한 판 _as_of는 시간대가 없으면 None이다 (자세한 판은 바꾸지 않는다).
+    """
+    text = value.strip() if isinstance(value, str) else ""
+    try:
+        at = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if at.tzinfo is None:
+        at = at.replace(tzinfo=UTC if DATE_ONLY.fullmatch(text) else KST)
+    return at.astimezone(market.MARKET_TZ.get(mkt, KST))
+
+
+def _chart_close_at(candles: list[dict], close_at: datetime | None) -> datetime | None:
+    """차트 범례에 장마감 기준 시각을 적을 수 있으면 그 시각: asOf가 차트 마지막 봉과 같은 날일 때만 (리포트보다 뒤에 만든 PDF는 봉이 더 있다)."""
+    if close_at is None or len(candles) < 2:
+        return None
+    return close_at if close_at.date().isoformat() == candles[-CHART_DAYS:][-1]["date"] else None
+
+
+def _easy_chart(candles: list[dict], prices: dict, mkt: str, currency: str, close_at: datetime | None = None) -> str:
+    """가격 흐름: 완성 일봉(이동평균 없음) + 사는·목표·손절 가로선(prices가 있을 때 — 의견 긍정적이고 가격이 맞을 때만), 범례·기준 줄.
+
+    기준 줄은 close_at(_chart_close_at — 마지막 봉과 같은 날의 장마감 기준 시각)이 있으면 "… 장마감 기준", 없으면 마지막 봉 날짜의 "… 종가 기준".
+    """
+    t = ez.CHART_TEXT
+    if len(candles) < 2:
+        return f'<section class="sec"><h2>{_e(t["title"])}</h2><p class="empty">{_e(t["empty"])}</p></section>'
+    svg = _chart_svg(candles, prices, mkt, average=False, names=(t["entry"], t["target"], t["stop"]), **EASY_CHART)
+    lines = [(kind, _num(prices.get(kind))) for kind in ("target", "entry", "stop")]
+    lines = [(kind, v) for kind, v in lines if v is not None and v > 0]
+    legend = ('<ul class="lines">' + "".join(f'<li><span class="sw {kind}"></span>{_e(t[kind])} '
+                                             f'<b>{_e(ez.format_price(v, currency))}</b></li>' for kind, v in lines)
+              + "</ul>") if lines else ""
+    shown = candles[-CHART_DAYS:]
+    day = _as_of(close_at.isoformat(), mkt) if close_at else ez.CHART_DAY_BASIS.format(day=ez.day_label(shown[-1]["date"]))
+    basis = ez.CHART_BASIS.format(n=len(shown), basis=day)
+    tail = f'<p class="legend">{_e(t["lines"])}</p>' if lines else ""
+    return f'<section class="sec"><h2>{_e(t["title"])}</h2>{svg}{legend}<p class="legend">{_e(basis)}</p>{tail}</section>'
+
+
+def _easy_metrics(items: list[tuple[str, str]]) -> str:
+    cols = "" if len(items) == 3 else f" c{len(items)}"
+    return (f'<dl class="mets{cols}">' + "".join(f"<div><dt>{_e(k)}</dt><dd>{_e(v)}</dd></div>" for k, v in items)
+            + "</dl>")
+
+
+def _easy_research(research: dict, mkt: str, currency: str, close_at: datetime | None = None) -> str:
+    """조사 자료 요약 (ResearchCards): 시세(종가·장마감 기준 시각·RSI·하루 변동성) · 재무·공시 · 뉴스(제목·매체·날짜, 링크 없음).
+    close_at은 시세 AI asOf를 화면처럼 읽은 시각 (_easy_close_at — 시간대가 없으면 한국 시간)."""
+    m, f, n = research["market"], research["fundamental"], research["news"]
+    if not (m or f or n):
+        return ""
+    t = ez.RESEARCH_TEXT
+    parts = []
+    if m:
+        as_of = _as_of(close_at.isoformat(), mkt) if close_at else None
+        if as_of:  # 기준 시각을 모르면 그 가격이 종가인지 알 수 없어 가격을 보이지 않는다 (_market_basis와 같다)
+            price = (f'<span class="k">{_e(t["close"])}</span> <b>{_e(ez.format_price(m["price"], currency))}</b> '
+                     if m["price"] is not None and m["price"] > 0 else "")
+            basis = f'<p class="close">{price}<span class="at">{_e(as_of)}</span></p>'
+        else:
+            basis = f'<p class="close"><span class="at">{_e(t["no_basis"])}</span></p>'
+        parts.append(f'<div class="rs"><h3>{_e(t["market"])}</h3>{basis}'
+                     + (f"<p>{_e(m['summary'])}</p>" if m["summary"] else "")
+                     + _easy_metrics([(t["rsi"], ez.metric(m["rsi"])), (t["volatility"], ez.metric(m["volatilityPct"], "%"))])
+                     + "</div>")
+    if f:
+        filings = ("".join(f"<li>{_e(x['title'])}" + (f'<span class="d"> · {_e(x["date"])}</span>' if x["date"] else "")
+                           + "</li>" for x in f["filings"]))
+        parts.append(f'<div class="rs"><h3>{_e(t["fundamental"])}</h3>'
+                     + (f"<p>{_e(f['summary'])}</p>" if f["summary"] else "")
+                     + _easy_metrics([(t["per"], ez.metric(f["per"], "배")), (t["pbr"], ez.metric(f["pbr"], "배")),
+                                      (t["roe"], ez.metric(f["roe"], "%"))])
+                     + (f'<h3>{_e(t["filings"])}</h3><ul class="plain">{filings}</ul>' if filings else "") + "</div>")
+    if n:
+        heads = "".join(f"<li>{_e(x['title'])}<span class=\"d\">"
+                        + (f" — {_e(x['source'])}" if x["source"] else "") + (f" · {_e(x['date'])}" if x["date"] else "")
+                        + "</span></li>" for x in n["headlines"])
+        parts.append(f'<div class="rs"><h3>{_e(t["news"])}</h3>'
+                     + (f"<p>{_e(n['summary'])}</p>" if n["summary"] else "")
+                     + (f'<ul class="plain">{heads}</ul>' if heads else "")
+                     + f'<p class="note">{_e(t["news_source"])}</p></div>')
+    # 조사 칸은 나란히 (칸 수만큼 열) — 세로로 쌓으면 A4 두 쪽을 넘는다
+    return (f'<section class="sec long"><h2>{_e(t["title"])}</h2><div class="rsg" style="--cols:{len(parts)}">'
+            f'{"".join(parts)}</div></section>')
+
+
+def _easy_terms(plan: bool, chart: bool, research: dict, close_at: datetime | None, chart_close_at: datetime | None) -> list[str]:
+    """이 쪽에 실제로 나온 용어 (나오는 차례): 손절·목표 가격·보유 기간(계획·세 가지 경우),
+    장마감 기준(그 글자가 쪽에 있을 때 — 시세 칸의 기준 시각, 차트 범례의 장마감 기준 시각),
+    종가(그 글자가 쪽에 있을 때 — 시세 칸의 "종가" 가격, 차트 범례의 "… 종가 기준"),
+    RSI·변동성(시세 지표 값이 있을 때), PER·PBR·ROE(값이 있을 때)·공시(재무·공시 칸)."""
+    terms = ["손절", "목표 가격", "보유 기간"] if plan else []
+    m, f = research["market"], research["fundamental"]
+    market_basis = bool(m and close_at)   # 시세 칸에 "… 장마감 기준"이 보인다
+    if market_basis or chart_close_at is not None:
+        terms.append("장마감 기준")
+    if (chart and chart_close_at is None) or (market_basis and m["price"] is not None and m["price"] > 0):
+        terms.append("종가")
+    if m:
+        terms += [term for term, key in (("RSI", "rsi"), ("변동성", "volatilityPct")) if m[key] is not None]
+    if f:
+        terms += [term for term in ("PER", "PBR", "ROE") if f[term.lower()] is not None] + ["공시"]
+    return terms
+
+
+def _easy_glossary(terms: list[str]) -> str:
+    """용어 풀이 (종이에서는 눌러 볼 수 없어 쪽 끝에 — 화면 용어 사전 문장 그대로). 용어가 없으면 빈 문자열."""
+    if not terms:
+        return ""
+    items = "".join(f"<div><dt>{_e(term)}</dt><dd>{_e(ez.GLOSSARY[term])}</dd></div>" for term in terms)
+    return f'<section class="sec long"><h2>{_e(ez.GLOSSARY_TITLE)}</h2><dl class="terms">{items}</dl></section>'
+
+
+def _easy_footer(trace: list[TraceEvent], now: datetime) -> str:
+    """쉬운 꼬리말 "어떻게 만들었나요": 만든 방법 한 줄, 자동 복구 문장(있을 때), 만든 날, 통일 면책 문장 (모델·비용·오류 코드 없음)."""
+    t = ez.FOOTER_TEXT
+    made = now.astimezone(KST).strftime("%Y-%m-%d %H:%M")
+    return (f'<div class="foot"><h2>{_e(t["title"])}</h2><p>{_e(t["how"])}</p>'
+            + "".join(f"<p>{_e(x)}</p>" for x in ez.recovery_sentences(trace))
+            + f'<p>{_e(t["made"].format(at=made, service=SERVICE_NAME))}</p><p class="small">{DISCLAIMER}</p></div>')
+
+
+def build_easy_report_html(report: Report, trace: list[TraceEvent], now: datetime | None = None) -> str:
+    """주린이모드 쉬운 판 (웹 쉬운 보기와 같은 문장 — easy_text.py). 길어도 A4 두 쪽.
+
+    차례: 쪽 머리 → 종목·날짜 → (위험 점검 메모) → 결론·신뢰 패널 → 쉬운 요약 + 면책 → 매매 계획 → 근거와 위험 →
+    세 가지 경우(긍정적이고 가격이 맞을 때) → 가격 흐름 → 조사 자료 요약 → 용어 풀이 → 꼬리말 + 면책.
+    리포트 자료만 쓴다 (계좌·추천 API 값 없음 — 파일이 리포트당 하나라 누가 받아도 같아야 한다). 가격은 제안값을 호가 단위로 내린 값.
+    검토 점수·신뢰도·확률·모델 이름·제공자·비용·오류 코드·"Agent"라는 낱말·신청자는 싣지 않는다.
+    """
+    now = now or timezone.now()
+    trace = sorted(trace, key=lambda e: e.step)
+    results = _dict(report.results)
+    draft = ez.draft_of(results)
+    currency = market.CURRENCY.get(report.market, "KRW")
+    opinion = draft["verdict"] if draft else None
+    one_liner = draft["oneLiner"][:ONE_LINER_MAX] if draft and draft["oneLiner"] else None
+    prices = ez.tick_prices(draft["targets"], currency) if draft else {}
+    plan = opinion == "buy" and ez.valid_targets(prices)
+    when = (report.finished_at or report.created_at).astimezone(KST)
+    head = (f"<h1>{_e(report.name)}</h1><p class=\"meta\">{_e(report.symbol)} · "
+            f"{_e(ez.MARKET_NAME.get(report.market, report.market))} · "
+            f"{_e(ez.HEAD_DATE.format(year=when.year, month=when.month, day=when.day))}</p>")
+    candles = _load_candles(report.symbol)
+    research = ez.research_of(results)
+    close_at = _easy_close_at(research["market"]["asOf"], report.market) if research["market"] else None
+    chart_close_at = _chart_close_at(candles, close_at)
+    scenario = ez.scenario_of(prices) if plan else None
+    body = "".join((
+        head, _easy_risk(_dict(results.get("risk_agent"))), _easy_conclusion(opinion, one_liner, results, trace),
+        _easy_summary(draft), _easy_plan(opinion, prices, currency),
+        _easy_reasons({**draft, "targets": prices}, opinion, currency) if draft else "",
+        _easy_scenario(scenario) if scenario else "",
+        _easy_chart(candles, prices if plan else {}, report.market, currency, chart_close_at),
+        _easy_research(research, report.market, currency, close_at),
+        _easy_glossary(_easy_terms(plan, len(candles) >= 2, research, close_at, chart_close_at)),
+        _easy_footer(trace, now)))
+    return _page(f"{report.name} AI 리포트", f'<main class="ez">{body}</main>', EASY_CSS)
+
+
 # --- 선별 요약 표지 ---
 
 def _bars_svg(rows: list[tuple[str, float, str]], color: str) -> str:
@@ -480,6 +854,28 @@ def _reason_summary(items) -> str:
     if not counts:
         return f'<p class="empty">{NO_DATA}</p>'
     return "<ul>" + "".join(f"<li>{_e(r)} — {n}종목</li>" for r, n in counts.most_common(MAX_DROP_REASONS)) + "</ul>"
+
+
+# 선별 표지 꼬리말의 선정 방식 (ScreeningResult.selectedBy). 아직 선정 중(null)이거나 없으면 규칙 문장
+SELECTED_BY_AI = "AI 선정 팀이 순위를 매기고 안전장치(규칙 코드)가 거른 결과입니다"
+SELECTED_BY_RULE = "선별은 AI가 아니라 규칙 점수(결정론적 코드)로 한 것입니다"
+NO_CANDIDATES = "규칙 선별을 통과한 종목이 없었어요"   # fallbackReason "no_candidates"
+
+
+def _selection_note(s: dict) -> str:
+    """꼬리말 첫 문장들. ai면 AI 선정 + 안전장치, rule이면 규칙 문장 + Fallback 사유(fallbackReason의 쉬운 문장)."""
+    by = s.get("selectedBy")
+    if by == "ai":
+        return f"{SELECTED_BY_AI}."
+    if by != "rule":
+        return f"{SELECTED_BY_RULE}."
+    reason = s.get("fallbackReason")
+    if reason == "no_candidates":
+        return f"{SELECTED_BY_RULE}. {NO_CANDIDATES}."
+    sentence = selection_fallback_sentence(reason)  # 선정에 맞춘 문장 (모르는 코드는 사유 없이)
+    if sentence:
+        return f"{SELECTED_BY_RULE}. AI 선정 팀을 쓰지 못한 이유: {sentence}."
+    return f"{SELECTED_BY_RULE}."
 
 
 def build_screening_html(screening: dict, reports: list[Report]) -> str:
@@ -524,35 +920,41 @@ def build_screening_html(screening: dict, reports: list[Report]) -> str:
             f'<div class="cols"><div><h2>탈락 사유</h2>{_reason_summary(dropped)}</div>'
             f"<div><h2>제외 사유</h2>{_reason_summary(excluded)}</div></div>"
             f"<h2>이날의 리포트</h2>{reports_html}"
-            f'<p class="foot small">{SERVICE_NAME} · 선별은 AI가 아니라 규칙 점수(결정론적 코드)로 한 것입니다. {DISCLAIMER}</p>')
+            f'<p class="foot small">{SERVICE_NAME} · {_e(_selection_note(s))} {DISCLAIMER}</p>')
     return _page(title, body)
 
 
 # --- 파일 만들기 (API가 쓴다) ---
 
 def report_dir() -> Path:
-    """만든 파일을 두는 곳: PAPER_ROOT/reports. (나중에 Report.pdf_path 열이 생기면 그 열을 쓴다)"""
+    """만든 파일을 두는 곳: PAPER_ROOT/reports.
+
+    Report.pdf_path는 자동 리포트가 Discord로 보낸 파일(쉬운 판)이다 (auto._send_report). PDF API는 그 열을 쓰지 않고
+    ?view=에 맞는 판의 파일을 여기서 찾거나 만든다 (pdf_path를 주면 ?view=expert에도 쉬운 판이 나간다).
+    """
     return engine.ROOT / "reports"
 
 
-def _file_stem(report_id: int, version: int) -> str:
-    """양식 판별 파일 이름 (확장자 없이). 1판은 판 번호가 없던 예전 이름 `<id>`."""
-    return f"{report_id}" if version <= 1 else f"{report_id}.v{version}"
+def _file_stem(report_id: int, version: int, easy: bool = False) -> str:
+    """양식 판별 파일 이름 (확장자 없이). 1판은 판 번호가 없던 예전 이름 `<id>`. 쉬운 판은 끝에 `.easy` (`<id>.v4.easy`)."""
+    stem = f"{report_id}" if version <= 1 else f"{report_id}.v{version}"
+    return f"{stem}.easy" if easy else stem
 
 
-def ensure_report_file(report: Report, trace: list[TraceEvent]) -> Path:
+def ensure_report_file(report: Report, trace: list[TraceEvent], *, easy: bool = False) -> Path:
     """`PAPER_ROOT/reports/<id>.v<판>.pdf`(Chrome이 없으면 `.html`)가 있으면 그것을, 없으면 만들어 그 경로를 돌려준다.
 
-    지금 판(TEMPLATE_VERSION) 파일만 다시 쓴다 — 양식이 바뀌기 전에 만든 파일은 새로 만들고, 만든 뒤 예전 판 파일을 지운다.
+    easy면 쉬운 판 `<id>.v<판>.easy.pdf` (자세한 판과 따로 만들고 따로 다시 쓴다).
+    지금 판(TEMPLATE_VERSION) 파일만 다시 쓴다 — 양식이 바뀌기 전에 만든 파일은 새로 만들고, 만든 뒤 두 판의 예전 판 파일을 지운다.
     임시 이름으로 만든 뒤 이름을 바꿔 넣는다: 같은 리포트를 동시에 두 번 만들어도 반쯤 쓰인 파일이 노출되지 않는다.
     """
     folder = report_dir()
-    stem = _file_stem(report.id, TEMPLATE_VERSION)
+    stem = _file_stem(report.id, TEMPLATE_VERSION, easy)
     for suffix in (".pdf", ".html"):
         done = folder / f"{stem}{suffix}"
         if done.exists() and done.stat().st_size > 0:
             return done
-    html = build_report_html(report, trace)
+    html = build_report_html(report, trace, easy=easy)
     temp = folder / f"{stem}.{uuid.uuid4().hex}.pdf"   # render_pdf는 같은 이름의 .html도 쓴다
     made = render_pdf(html, temp, engine.engine_config().chrome_bin)
     final = folder / f"{stem}{made.suffix}"
@@ -561,7 +963,8 @@ def ensure_report_file(report: Report, trace: list[TraceEvent]) -> Path:
     finally:
         for left in (temp, temp.with_suffix(".html")):  # PDF가 되면 .html은 render_pdf가 지웠다. 실패한 찌꺼기만 남지 않게
             left.unlink(missing_ok=True)
-    for version in range(1, TEMPLATE_VERSION):  # 예전 판 파일 (다른 요청이 만드는 중인 임시 파일은 건드리지 않는다)
-        for suffix in (".pdf", ".html"):
-            (folder / f"{_file_stem(report.id, version)}{suffix}").unlink(missing_ok=True)
+    for version in range(1, TEMPLATE_VERSION):  # 두 판의 예전 판 파일 (다른 요청이 만드는 중인 임시 파일은 건드리지 않는다)
+        for variant in (False, True):
+            for suffix in (".pdf", ".html"):
+                (folder / f"{_file_stem(report.id, version, variant)}{suffix}").unlink(missing_ok=True)
     return final

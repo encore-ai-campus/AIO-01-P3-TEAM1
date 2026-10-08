@@ -50,6 +50,7 @@ export function RunSummary({
   costUsd,
   example,
   onShowReport,
+  showLabel = "리포트 완성 · 보기",
 }: {
   plan: ExecutionPlan;
   trace: TraceEvent[];
@@ -57,6 +58,7 @@ export function RunSummary({
   costUsd: number | null | undefined;
   example: boolean;
   onShowReport?: () => void; // 완성됐고 다른 탭을 보고 있을 때만
+  showLabel?: string; // 그 버튼 글자 (선정 실행은 "선정 완료 · 보기")
 }) {
   const s = summarize(trace);
   const step = plan.steps.find((x) => x.id === state.currentStep);
@@ -92,7 +94,7 @@ export function RunSummary({
             )}
           >
             <Icon name="doc" className="size-4" />
-            리포트 완성 · 보기
+            {showLabel}
           </button>
         )}
       </div>

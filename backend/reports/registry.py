@@ -12,11 +12,16 @@ from pathlib import Path
 
 import yaml
 
+from . import contracts
+
 HERE = Path(__file__).resolve().parent
 WORKERS_FILE, TEAMS_FILE = HERE / "worker_definitions.yaml", HERE / "team_definitions.yaml"
-TEAM = "stock_report"
+TEAM = "stock_report"                # 팀원이 신청하는 종목 리포트 (기본 팀)
+SELECTION_TEAM = "stock_selection"   # 하루 한 번 자동 리포트할 종목을 고르는 선정 팀 (docs/AI_AGENT_WORKFLOW.md)
+TEAMS = (TEAM, SELECTION_TEAM)
 # Agent·Orchestrator를 붙이면 True로 바꾼다 (화면이 SSE를 연다. DECISIONS 9-4)
-AGENTS_IMPLEMENTED = False
+AGENTS_IMPLEMENTED = True
+REVIEW_CONTRACT = "ReviewResult"     # retry(검토 반복)를 둘 수 있는 단계의 Worker 출력 계약
 
 FAILURE_POLICIES = ("fail_fast", "best_effort", "required_optional")
 MODES = ("parallel", "sequential")
@@ -32,24 +37,30 @@ class PlanError(ValueError):
     """실행 계획이 잘못됨. 메시지에 사유가 있다."""
 
 
-def execution_plan() -> dict:
-    """기본 팀의 ExecutionPlan. 캐시한 계획을 고쳐도 안 바뀌게 복사본을 준다."""
-    plan = copy.deepcopy(_cached_plan())
+def execution_plan(team: str = TEAM) -> dict:
+    """팀의 ExecutionPlan (기본은 종목 리포트). 캐시한 계획을 고쳐도 안 바뀌게 복사본을 준다. 모르는 팀이면 PlanError."""
+    plan = copy.deepcopy(_cached_plan(team))
     plan["implemented"] = AGENTS_IMPLEMENTED
     return plan
 
 
-def step_ids() -> list[str]:
-    return [step["id"] for step in _cached_plan()["steps"]]
+def step_ids(team: str = TEAM) -> list[str]:
+    return [step["id"] for step in _cached_plan(team)["steps"]]
 
 
-def worker_ids() -> list[str]:
-    return [worker["id"] for worker in _cached_plan()["workers"]]
+def worker_ids(team: str = TEAM) -> list[str]:
+    return [worker["id"] for worker in _cached_plan(team)["workers"]]
+
+
+def _cached_plan(team: str = TEAM) -> dict:
+    if team not in TEAMS:
+        raise PlanError(f"모르는 팀: {team}")
+    return _plan_of(team)
 
 
 @cache
-def _cached_plan() -> dict:
-    return build_plan()
+def _plan_of(team: str) -> dict:
+    return build_plan(team)
 
 
 def build_plan(team: str = TEAM, workers_file: Path = WORKERS_FILE, teams_file: Path = TEAMS_FILE) -> dict:
@@ -150,8 +161,15 @@ def _worker(wid, spec) -> dict:
         "id": wid, "title": _text(spec.get("title"), f"{where}의 title"), "goal": _text(spec.get("goal"), f"{where}의 goal"),
         "provider": _optional_text(spec.get("provider"), f"{where}의 provider"),
         "model": model, "fallbacks": fallbacks,
-        "outputContract": _text(spec.get("output_contract"), f"{where}의 output_contract"),
+        "outputContract": _contract(spec.get("output_contract"), where),
     }
+
+
+def _contract(value, where: str) -> str:
+    name = _text(value, f"{where}의 output_contract")
+    if name not in contracts.NAMES:  # 오타면 호출기가 bad_output으로 재시도·대체 모델까지 가므로 여기서 막는다
+        raise PlanError(f"{where}: 모르는 output_contract: {name}")
+    return name
 
 
 def _step(raw, definitions: dict) -> dict:
@@ -189,8 +207,9 @@ def _step(raw, definitions: dict) -> dict:
     if timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, Real) or timeout <= 0):
         raise PlanError(f"{where}: timeout은 0보다 큰 초 단위 숫자여야 합니다.")
     retry = _retry(raw.get("retry"), where)
-    if retry is not None and (mode != "sequential" or "review_agent" not in workers):
-        raise PlanError(f"{where}: retry는 review_agent가 있는 순차 review 단계에서만 허용됩니다.")
+    if retry is not None and (mode != "sequential" or len(workers) != 1
+                              or definitions[workers[0]]["outputContract"] != REVIEW_CONTRACT):
+        raise PlanError(f"{where}: retry는 검토 Worker({REVIEW_CONTRACT}) 하나만 있는 순차 단계에서만 허용됩니다.")
     return {"id": sid, "title": _text(raw.get("title"), f"{where}의 title"), "mode": mode, "workers": workers,
             "required": required, "optional": optional, "dependsOn": depends_on, "join": join, "timeoutSec": timeout,
             "retry": retry}

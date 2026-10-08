@@ -1,175 +1,144 @@
-"""리포트 워크플로우의 입력·단계 연결을 검사하는 Guard.
+"""AI 리포트 Guard (docs/tasks/00-공통.md 8절, 03-orchestrator.md T3-5·T3-7·T3-8).
 
-현재는 외부 뉴스·공시 문자열을 LLM 프롬프트에 넣기 전에 정리하는
-``clean_text``를 제공한다. Join/Handoff Guard는 Orchestrator 단계에서 추가한다.
+- 입력 Guard `clean_text`: 뉴스·공시 같은 외부 글을 프롬프트에 넣기 전에 지시문·비밀 값 모양을 지우고 길이를 줄인다.
+  Worker가 부르고, 지운 사유가 있으면 결과에 `_guarded: [사유, ...]`로 붙인다 (Orchestrator가 Trace `details.guarded`로 남긴다).
+- Join Guard `join`: `join: true` 단계 앞에서 앞 단계의 필수 결과가 있고 계약을 통과했는지 보고, 다음 Worker에 줄 입력을 고른다.
+  판정을 Trace(`join_completed`·`join_blocked`)로 남긴다. 막히면 Orchestrator가 리포트를 `join_blocked`로 끝낸다.
+- Handoff Guard `handoff`: 검토 Worker가 다른 Worker에게 책임을 넘기기 전에 경로·Hop 수·요청자·비밀 값을 확인한다 (판정만, 기록은 Orchestrator).
 """
-
-from __future__ import annotations
-
+import json
 import re
-import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-from . import contracts
+from . import contracts, state
 
-MAX_EXTERNAL_TEXT_LENGTH = 2_000
+TEXT_MAX = 2000  # 외부 글 하나의 길이 상한 (넘으면 자른다)
 
-# 외부 자료가 모델의 역할이나 지시를 바꾸려는 문구만 제거한다. 일반적인 기사
-# 문장까지 넓게 지우지 않도록, 비밀 이름 자체보다 지시·출력 요구가 있는 표현을
-# 우선 구체적으로 잡는다.
-_INSTRUCTION_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (
-        re.compile(r"(?:이전|앞선|위의)\s*(?:모든\s*)?(?:지시|지침|명령)(?:사항)?(?:을|를)?\s*무시(?:하(?:고|라|세요)?)?", re.IGNORECASE),
-        "이전 지시 무시 문구 제거",
-    ),
-    (
-        re.compile(r"ignore\s+(?:all\s+)?(?:previous|prior|above)\s+(?:instructions?|prompts?|commands?)", re.IGNORECASE),
-        "이전 지시 무시 문구 제거",
-    ),
-    (
-        re.compile(r"(?:system\s*prompt|시스템\s*프롬프트)", re.IGNORECASE),
-        "시스템 프롬프트 요구 제거",
-    ),
-    (
-        re.compile(r"(?:API\s*키|api\s*keys?)\s*(?:를|을|:|=)?\s*(?:출력|공개|보여\s*줘|말해\s*줘|print|show|reveal|expose)?", re.IGNORECASE),
-        "API 키 요구 제거",
-    ),
-    (
-        re.compile(r"(?:비밀번호|암호|passwords?)\s*(?:를|을)?\s*(?:출력|공개|보여\s*줘|말해\s*줘|print|show|reveal|expose)", re.IGNORECASE),
-        "비밀번호 요구 제거",
-    ),
+# 사유 코드 (Trace details.guarded에 그대로 남는다)
+INSTRUCTION, SECRET, TOO_LONG = "instruction", "secret", "too_long"
+
+_INSTRUCTIONS = re.compile(
+    r"(이전|위의?|앞의?|모든)\s*(지시|명령|규칙|지침)[을를은는이가]?\s*(모두\s*)?(무시|잊어|따르지\s*마)\S*"
+    r"|시스템\s*프롬프트|system\s*prompt"
+    r"|ignore\s+(all\s+)?(the\s+)?(previous|prior|above)\s+(instructions|prompts?|rules)"
+    r"|disregard\s+(all\s+)?(the\s+)?(previous|prior|above)\s+(instructions|prompts?|rules)"
+    r"|(api|API)\s*(키|key)[를을]?\s*(출력|알려|보여|print|reveal|show)\S*"
+    r"|(비밀\s*번호|비밀번호|password|토큰|token)[를을]?\s*(출력|알려|보여|print|reveal|show)\S*"
+    r"|you\s+are\s+now\s+|act\s+as\s+(an?\s+)?(admin|developer|system)",
+    re.IGNORECASE,
 )
+_SECRETS = re.compile(r"sk-[A-Za-z0-9_\-]{20,}|(?<![A-Za-z0-9])[A-Za-z0-9_\-]{40,}(?![A-Za-z0-9])")
 
-_SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"(?<![A-Za-z0-9])sk-[A-Za-z0-9]{20,}(?![A-Za-z0-9])"), "비밀 키 형식 제거"),
-    (
-        re.compile(r"(?<![A-Za-z0-9_\-])[A-Za-z0-9_\-]{40,}(?![A-Za-z0-9_\-])"),
-        "긴 토큰 형식 제거",
-    ),
-)
+
+def clean_text(text: str | None, limit: int = TEXT_MAX) -> tuple[str, list[str]]:
+    """(정리된 글, 지운 사유 코드 목록). 사유는 INSTRUCTION·SECRET·TOO_LONG 중 하나씩, 나온 순서대로 중복 없이.
+
+    지시문은 "[지시문 삭제]", 비밀 값 모양은 "[비밀 값 삭제]"로 바꾼다. None·문자열이 아닌 값은 빈 글로 본다.
+    """
+    if not isinstance(text, str):
+        return "", []
+    reasons: list[str] = []
+    cleaned, count = _INSTRUCTIONS.subn("[지시문 삭제]", text)
+    if count:
+        reasons.append(INSTRUCTION)
+    cleaned, count = _SECRETS.subn("[비밀 값 삭제]", cleaned)
+    if count:
+        reasons.append(SECRET)
+    if len(cleaned) > limit:
+        cleaned = cleaned[:limit]
+        reasons.append(TOO_LONG)
+    return cleaned, reasons
+
+
+def merge_reasons(*groups: list[str]) -> list[str]:
+    """여러 clean_text 사유 목록을 순서를 지키며 중복 없이 합친다 (Worker의 `_guarded` 값)."""
+    return list(dict.fromkeys(reason for group in groups for reason in group))
+
+
+JOIN_GUARD = "join_guard"  # Join Guard 사건의 actor
 
 
 @dataclass(frozen=True)
 class JoinDecision:
+    """Join Guard 판정. inputs = 다음 Worker에 줄 앞 단계 결과 {Worker id: 결과} (막히면 빈 dict)."""
     ok: bool
-    inputs: dict[str, dict]
-    missing: list[str]
-    reason: str | None
+    inputs: dict[str, dict] = field(default_factory=dict)
+    required: list[str] = field(default_factory=list)
+    missing: list[str] = field(default_factory=list)
+    reason: str | None = None   # 막은 이유 (사람이 읽는 문장). 통과면 None
 
 
 @dataclass(frozen=True)
 class HandoffDecision:
     ok: bool
-    payload: dict | None
-    reason: str | None
+    reason: str | None = None   # 거절 이유 (사람이 읽는 문장). 허용이면 None
 
 
-def handoff(report, plan: dict, source: str, target: str, message: str,
-            *, hop_count: int = 0, attempt: int = 1) -> HandoffDecision:
-    """계획된 경로와 전달 내용만 리스크 Worker에 넘긴다."""
-    route = next((item for item in plan.get("handoffs", [])
-                  if item["from"] == source and item["to"] == target), None)
-    if route is None:
-        return HandoffDecision(False, None, "route_not_allowed")
-    if hop_count >= route["maxHops"]:
-        return HandoffDecision(False, None, "max_hops")
-    if report.user_id is None:
-        return HandoffDecision(False, None, "user_missing")
-    if not isinstance(message, str) or not message.strip():
-        return HandoffDecision(False, None, "empty_message")
-    cleaned, reasons = clean_text(message)
-    if reasons or not cleaned:
-        return HandoffDecision(False, None, "unsafe_content")
-    refs = [key for key in ("market_agent", "fundamental_agent", "news_agent", "report_agent")
-            if key in report.results]
-    payload = {
-        "task_id": f"report-{report.pk}", "trace_id": f"report-{report.pk}",
-        "from_agent": source, "to_agent": target, "objective": cleaned,
-        "inputs": {"memory_refs": refs}, "constraints": [route["responsibility"]],
-        "expected_output": "RiskResult", "attempt": attempt,
-        "user_id": report.user_id, "hop_count": hop_count + 1,
-    }
-    return HandoffDecision(True, payload, None)
+def upstream_workers(plan: dict, step: dict) -> list[str]:
+    """step의 앞 단계 전부(depends_on을 거슬러 올라간 모든 단계)의 Worker id. 실행 계획의 단계 순서대로."""
+    steps = {item["id"]: item for item in plan["steps"]}
+    seen: set[str] = set()
+    pending = list(step["dependsOn"])
+    while pending:
+        sid = pending.pop()
+        if sid not in seen:
+            seen.add(sid)
+            pending.extend(steps[sid]["dependsOn"])
+    return [wid for item in plan["steps"] if item["id"] in seen for wid in item["workers"]]
 
 
 def join(report, step: dict, plan: dict) -> JoinDecision:
-    """앞 단계의 성공 결과만 골라 Worker 입력으로 전달한다.
+    """`join: true` 단계 앞의 Join Guard. 판정을 Trace(actor join_guard)로 남기고 돌려준다.
 
-    의존 단계의 모든 조상을 보므로 review 단계는 YAML의 ``join`` 표기와 무관하게
-    최신 초안과 성공한 조사 결과 전체를 받는다(Q4).
+    - required = 바로 앞 단계(depends_on)들의 필수 Worker. 계획의 failurePolicy가 fail_fast면 선택 Worker도 필수로 본다.
+    - inputs = 앞 단계 전부의 결과 중 출력 계약을 다시 통과한 것 (결과가 없거나 계약 위반이면 뺀다).
+    - missing = inputs에 없는 required. 비어 있으면 통과. best_effort는 바로 앞 단계 결과가 하나라도 있으면 통과.
     """
     steps = {item["id"]: item for item in plan["steps"]}
-    worker_specs = {item["id"]: item for item in plan["workers"]}
-    dependency_steps = _dependency_closure(step, steps)
-    candidate_ids = [
-        worker_id
-        for dependency in dependency_steps
-        for worker_id in dependency["workers"]
-    ]
-    candidate_ids = list(dict.fromkeys(candidate_ids))
-    required_ids = {
-        worker_id
-        for dependency in dependency_steps
-        for worker_id in dependency.get("required", [])
-    }
-
+    contract_of = {worker["id"]: worker["outputContract"] for worker in plan["workers"]}
+    direct = [steps[sid] for sid in step["dependsOn"]]
+    key = "workers" if plan["failurePolicy"] == "fail_fast" else "required"
+    required = [wid for item in direct for wid in item[key]]
     inputs: dict[str, dict] = {}
-    for worker_id in candidate_ids:
-        result = report.results.get(worker_id)
-        if result is None or worker_id in report.failed_agents:
+    for wid in upstream_workers(plan, step):
+        result = (report.results or {}).get(wid)
+        if result is None:
             continue
         try:
-            contract = worker_specs[worker_id]["outputContract"]
-            inputs[worker_id] = contracts.validate(contract, result)
-        except (KeyError, contracts.ContractError):
-            continue
-
-    missing = [worker_id for worker_id in candidate_ids if worker_id in required_ids and worker_id not in inputs]
-    reason = "join_blocked" if missing else None
-    return JoinDecision(ok=not missing, inputs=inputs, missing=missing, reason=reason)
-
-
-def _dependency_closure(step: dict, steps: dict[str, dict]) -> list[dict]:
-    ordered: list[dict] = []
-    seen: set[str] = set()
-
-    def visit(step_id: str) -> None:
-        if step_id in seen:
-            return
-        dependency = steps[step_id]
-        for parent in dependency.get("dependsOn", []):
-            visit(parent)
-        seen.add(step_id)
-        ordered.append(dependency)
-
-    for dependency_id in step.get("dependsOn", []):
-        visit(dependency_id)
-    return ordered
+            inputs[wid] = contracts.validate(contract_of[wid], result)
+        except (contracts.ContractError, KeyError):
+            continue  # 계약 위반 결과는 다음 Worker에 넘기지 않는다
+    missing = [wid for wid in required if wid not in inputs]
+    if plan["failurePolicy"] == "best_effort":
+        ok = any(wid in inputs for item in direct for wid in item["workers"])
+    else:
+        ok = not missing
+    state.record(report, JOIN_GUARD, "join_completed" if ok else "join_blocked", "completed" if ok else "blocked",
+                 details={"step": step["id"], "required": required, "missing": missing, "inputs": list(inputs)})
+    if ok:
+        return JoinDecision(True, inputs, required, missing)
+    reason = f"필수 결과가 없습니다: {', '.join(missing)}" if missing else "앞 단계 결과가 하나도 없습니다."
+    return JoinDecision(False, {}, required, missing, reason)
 
 
-def clean_text(text: str) -> tuple[str, list[str]]:
-    """외부 문자열에서 지시문·비밀 값 모양을 지우고 길이를 제한한다.
+def handoff(report, plan: dict, frm: str, to: str, payload, hop_count: int) -> HandoffDecision:
+    """Handoff Guard. hop_count는 이 실행에서 이미 넘긴 횟수 (첫 Handoff면 0).
 
-    반환하는 사유는 발견 순서대로 한 번씩만 들어간다. 호출자는 이 목록을
-    ``_guarded`` 결과와 Trace에 남겨 어떤 입력이 바뀌었는지 설명할 수 있다.
+    허용 조건: 실행 계획(plan.handoffs)에 frm → to 경로가 있고, hop_count < 그 경로의 maxHops,
+    전달 데이터의 user_id가 리포트 요청자(팀원 id, 자동 리포트는 "auto")와 같고, 전달 데이터에 비밀 값 모양이 없다.
     """
-    if not isinstance(text, str):
-        raise TypeError("clean_text의 text는 문자열이어야 합니다.")
-
-    cleaned = unicodedata.normalize("NFKC", text)
-    reasons: list[str] = []
-
-    for pattern, reason in (*_INSTRUCTION_PATTERNS, *_SECRET_PATTERNS):
-        cleaned, count = pattern.subn(" ", cleaned)
-        if count:
-            reasons.append(reason)
-
-    # 제거한 문구 양옆의 공백만 정리하되 기사 제목의 줄 구조는 보존한다.
-    cleaned = re.sub(r"[ \t]+", " ", cleaned)
-    cleaned = re.sub(r" *\n *", "\n", cleaned).strip()
-
-    if len(cleaned) > MAX_EXTERNAL_TEXT_LENGTH:
-        cleaned = cleaned[:MAX_EXTERNAL_TEXT_LENGTH].rstrip()
-        reasons.append(f"본문 {MAX_EXTERNAL_TEXT_LENGTH:,}자로 자름")
-
-    return cleaned, list(dict.fromkeys(reasons))
+    route = next((item for item in plan.get("handoffs") or [] if item["from"] == frm and item["to"] == to), None)
+    if route is None:
+        return HandoffDecision(False, f"실행 계획에 없는 경로입니다: {frm} → {to}")
+    if hop_count >= route["maxHops"]:
+        return HandoffDecision(False, f"최대 Hop 수({route['maxHops']})를 넘습니다.")
+    if not isinstance(payload, dict):
+        return HandoffDecision(False, "전달 데이터가 객체가 아닙니다.")
+    user_id = payload.get("user_id")
+    if user_id is None or not str(user_id).strip():
+        return HandoffDecision(False, "전달 데이터에 요청자(user_id)가 없습니다.")
+    if str(user_id) != str(report.user_id or "auto"):
+        return HandoffDecision(False, "전달 데이터의 요청자(user_id)가 리포트 요청자와 다릅니다.")
+    if _SECRETS.search(json.dumps(payload, ensure_ascii=False, default=str)):
+        return HandoffDecision(False, "전달 데이터에 비밀 값 모양이 있습니다.")
+    return HandoffDecision(True)

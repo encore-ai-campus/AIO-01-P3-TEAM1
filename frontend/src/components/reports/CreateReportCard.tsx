@@ -16,8 +16,10 @@ import { errorSentence, reportStatusText } from "../../lib/plainText";
 import { todayReport } from "../../lib/reports";
 import { useDebounced } from "../../lib/useDebounced";
 import { Icon } from "../Icon";
+import { ErrorPanel } from "../errors/ErrorPanel";
+import { errorKindOf } from "../errors/errorTypes";
 import { Collapse } from "../motion/Collapse";
-import { Card, ErrorState, Notice, Skeleton, Spinner } from "../ui";
+import { Card, Skeleton, Spinner } from "../ui";
 import { ChaosForm } from "./ChaosForm";
 import { QuotaLine } from "./QuotaLine";
 
@@ -95,7 +97,7 @@ export function CreateReportCard({ plan, expert, dockRef }: { plan: ExecutionPla
       {/* 결과는 버튼 아래로 펼치고(240ms) 고르면 접는다 — 버튼이 첫 화면 밖으로 밀리지 않게 */}
       <Collapse open={showList} id={resultsId} className="mt-2">
         {isError ? (
-          <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} retrying={isFetching} compact />
+          <ErrorPanel kind={errorKindOf(error)} detail={errorMessage(error)} onRetry={() => void refetch()} retrying={isFetching} secondary={null} compact />
         ) : isFetching && !data ? (
           <div aria-busy="true" aria-label="검색하는 중" className="divide-y divide-line">
             {[0, 1].map((i) => (
@@ -204,9 +206,15 @@ export function CreateReportCard({ plan, expert, dockRef }: { plan: ExecutionPla
         )}
         <QuotaLine className="mt-2 text-center" />
         {request.isError && (
-          <Notice tone="error" className="mt-3">
-            {expert ? errorMessage(request.error) : errorSentence(request.error)}
-          </Notice>
+          <ErrorPanel
+            kind={errorKindOf(request.error)}
+            detail={expert ? errorMessage(request.error) : errorSentence(request.error)}
+            onRetry={create}
+            retrying={request.isPending}
+            secondary={null}
+            compact
+            className="mt-3 bg-fill"
+          />
         )}
       </div>
     </Card>

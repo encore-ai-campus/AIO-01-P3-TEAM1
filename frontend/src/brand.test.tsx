@@ -1,4 +1,4 @@
-// 종이배 로고(components/BrandMark.tsx, docs/DECISIONS.md 15-7): 크기 단계(48px 이상만 돛의 접힌 선), 읽기(장식·그림 하나),
+// 로고(종이배 모양 — components/BrandMark.tsx, docs/DECISIONS.md 15-7·18장): 크기 단계(48px 이상만 돛의 접힌 선), 읽기(장식·그림 하나),
 // 색은 토큰 유틸만(다크에서 타일이 저절로 밝은 파랑), 가로 잠금 규칙(사이 = 마크의 1/4, 이름 800·자간 -0.02em).
 // 쓰는 곳(왼쪽 메뉴·모바일 홈 머리·로그인·부팅 뼈대)은 foundation·shell·App 테스트가 본다.
 import { render, screen } from "@testing-library/react";
@@ -38,7 +38,7 @@ describe("로고 (BrandMark)", () => {
 
   it("label을 주면 그림 하나(role=img)로 읽힌다 — 마크 혼자 링크가 될 때", () => {
     render(<BrandMark label={SERVICE_NAME} />);
-    expect(screen.getByRole("img", { name: "종이배" }).getAttribute("aria-hidden")).toBeNull();
+    expect(screen.getByRole("img", { name: "모매매" }).getAttribute("aria-hidden")).toBeNull();
   });
 
   it("색 값을 쓰지 않는다 (hex·rgb·fill 속성 없음 — 토큰 유틸만). 고대비에서도 브랜드 색을 지킨다", () => {
@@ -67,7 +67,7 @@ describe("가로 잠금 (BrandLockup)", () => {
 
 describe("이름 문구", () => {
   it("이름은 붙여 쓰고 꾸밈말이 없다. 부제·풀이 한 줄에 쓰지 않는 말(배 은어·띄우다·접다·침몰…)이 없다", () => {
-    expect(SERVICE_NAME).toBe("종이배");
+    expect(SERVICE_NAME).toBe("모매매");
     expect(SERVICE_TAGLINE).toBe("종이 위에서 연습하는 AI 리포트 모의투자");
     for (const text of [SERVICE_TAGLINE, SERVICE_INTRO]) {
       expect(text).not.toMatch(/탑승|승선|선장|출항|순항|띄우|접[어었다]|침몰|가라앉|구조|\d+배/);

@@ -1,6 +1,6 @@
 """리포트 새 열과 응답 필드 (docs/tasks/04-autohealing.md T4-1, docs/tasks/00-공통.md 3절):
-user null 허용(자동 리포트)·source·chaos·cost_usd·pdf_path → ReportSummary의 source·requestedBy·chaosEnabled·costUsd·hasPdf,
-ReportDetail의 chaos·recovery."""
+user null 허용(자동 리포트)·source·team·chaos·cost_usd·pdf_path → ReportSummary의 source·team·requestedBy·chaosEnabled·
+costUsd·hasPdf, ReportDetail의 chaos·recovery."""
 import json
 
 import pytest
@@ -29,7 +29,9 @@ def test_new_report_defaults(api, stocks):
     assert (body["source"], body["chaosEnabled"], body["costUsd"], body["hasPdf"]) == ("user", False, 0, False)
     assert body["chaos"] is None and body["recovery"] == NO_RECOVERY
     report = Report.objects.get()
-    assert (report.source, report.chaos, report.cost_usd, report.pdf_path) == ("user", None, 0, None)
+    assert (report.source, report.team, report.chaos, report.cost_usd, report.pdf_path) == (
+        "user", "stock_report", None, 0, None)
+    assert body["team"] == "stock_report"
 
 
 def test_auto_report_without_user(api, user):
@@ -77,7 +79,7 @@ def test_has_pdf_only_when_file_exists(api, user, tmp_path, monkeypatch):
 
 
 def test_db_defaults_for_old_code(user):
-    """새 열을 모르는 옛 코드가 INSERT해도 DB가 source·cost_usd를 채운다 (공유 개발 DB)."""
+    """새 열을 모르는 옛 코드가 INSERT해도 DB가 source·team·cost_usd를 채운다 (공유 개발 DB)."""
     now = timezone.now()
     with connection.cursor() as cursor:
         cursor.execute(
@@ -86,4 +88,5 @@ def test_db_defaults_for_old_code(user):
             [user.id, "005930", "삼성전자", "KR", "requested", json.dumps({}), json.dumps({}), json.dumps([]),
              json.dumps([]), now])
     report = Report.objects.get()
-    assert (report.source, report.cost_usd, report.chaos, report.pdf_path) == ("user", 0, None, None)
+    assert (report.source, report.team, report.cost_usd, report.chaos, report.pdf_path) == (
+        "user", "stock_report", 0, None, None)

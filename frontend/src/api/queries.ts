@@ -20,6 +20,7 @@ import type {
   Recommendation,
   RecommendationSource,
   ReportSummary,
+  ReportTeam,
   Reservation,
   RiskPreview,
   StockDetail,
@@ -79,6 +80,7 @@ export interface AnalysisParams {
 export interface ReportParams {
   symbol?: string;
   source?: "user" | "auto";
+  team?: ReportTeam; // 없으면 서버 기본(stock_report). stock_selection은 하루 한 번 도는 선정 실행 목록
   mine?: boolean; // 내가 신청한 리포트만 (?mine=1)
   limit?: number;
 }
@@ -278,7 +280,7 @@ export function useReports(params: ReportParams = {}, opts: ListOptions = {}) {
     queryKey: keys.reports(params),
     queryFn: () =>
       api.get<Page<ReportSummary>>(
-        `/api/reports${qs({ symbol: params.symbol, source: params.source, mine: params.mine ? 1 : null, limit: params.limit ?? 50 })}`,
+        `/api/reports${qs({ symbol: params.symbol, source: params.source, team: params.team, mine: params.mine ? 1 : null, limit: params.limit ?? 50 })}`,
       ),
     ...live(POLL.reports),
     ...keepIf(opts.keepPrevious),

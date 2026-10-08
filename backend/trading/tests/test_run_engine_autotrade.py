@@ -7,15 +7,16 @@ from autotrade import auto, executor, sources
 from django.core.management import call_command
 from longterm import jobs as longterm_jobs
 from notifications import dispatch
-from reports import alerts
+from reports import alerts, runner
+from reports import auto as reports_auto
 
 from trading import service
 
 pytestmark = pytest.mark.django_db
 
-ALL = ["체결 확인", "예약 실행", "일별 자산 기록", "분석 작업", "추천 수집", "리포트 알림", "자동 추천", "자동매매", "장기투자",
-       "알림 발송"]
-WITHOUT_BROKER = ["분석 작업", "추천 수집", "리포트 알림", "알림 발송"]
+ALL = ["체결 확인", "예약 실행", "일별 자산 기록", "분석 작업", "리포트 실행", "자동 리포트", "추천 수집", "리포트 알림", "자동 추천",
+       "자동매매", "장기투자", "알림 발송"]
+WITHOUT_BROKER = ["분석 작업", "리포트 실행", "자동 리포트", "추천 수집", "리포트 알림", "알림 발송"]
 
 
 @pytest.fixture
@@ -33,6 +34,7 @@ def steps(monkeypatch):
 
     for target, name, label in ((service, "sync_accounts", "체결 확인"), (service, "run_reservations", "예약 실행"),
                                 (service, "record_equity", "일별 자산 기록"), (jobs, "tick", "분석 작업"),
+                                (runner, "tick", "리포트 실행"), (reports_auto, "tick", "자동 리포트"),
                                 (sources, "collect", "추천 수집"), (alerts, "sweep_finished", "리포트 알림"),
                                 (auto, "tick", "자동 추천"), (executor, "tick", "자동매매"),
                                 (longterm_jobs, "tick", "장기투자"), (dispatch, "tick", "알림 발송")):

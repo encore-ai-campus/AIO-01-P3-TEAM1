@@ -439,17 +439,50 @@ export interface RecoveryStats {
   }[];
 }
 
+/** 선별 결과의 AI 선정안 한 줄 (선정 Guard 전 원문, SelectionDraft.picks). */
+export interface ScreeningAiPick {
+  symbol: string;
+  rank: number;
+  reason: string;
+  evidence: string[];
+}
+
+/** 선정 Guard가 뺀 종목. stage: 후보 밖 · 투자유의 · 공시 위험 · 같은 테마가 이미 둘. */
+export interface ScreeningFiltered {
+  symbol: string;
+  name: string | null;
+  reason: string;
+  stage: "candidates" | "warnings" | "filing" | "theme";
+}
+
+/**
+ * 오늘의 선별 결과 (RUNS_DIR/screening/<날짜>-<시장>.json 그대로). 아래 "선정 팀" 키는 2026-10-07에 더했다 —
+ * 그 전 파일(또는 자동 리포트를 끈 날)에는 없으므로 모두 선택이다.
+ */
 export interface ScreeningResult {
   market: Market;
   at: string;
   rankCount: number;
   eligibleCount: number;
   checked: number;
-  picks: Record<string, unknown>[]; // 점수 순. symbol · name · score · tradingAmountRank 등
+  /**
+   * 최종 종목 (최대 3). symbol · name · score · tradingAmountRank 등 점수·RSI는 늘 코드 값.
+   * 선정 팀이 끝나면 aiRank · aiReason · theme · filledByRule(규칙 점수로 채운 종목)이 붙는다.
+   * 다시 시도로 더한 종목은 retryRound(1|2)가 붙는다 (picks = 그날 리포트한 종목 전부).
+   */
+  picks: Record<string, unknown>[];
   dropped: Record<string, unknown>[];
   excluded: Record<string, unknown>[];
   reportIds: number[];
   recommendationIds?: number[]; // 그날 만든 자동 추천 (AUTO_RECOMMEND=demo). 서버가 아직 안 낼 수 있다
+  candidates?: Record<string, unknown>[]; // 규칙을 통과한 후보 전부 (점수 순, 최대 30). picks와 같은 모양
+  selection?: { reportId: number | null; status: "running" | "done" } | null; // 선정 팀 실행 (team=stock_selection 리포트)
+  selectedBy?: "ai" | "rule" | null; // null = 아직 선정 중 (picks는 그때까지 규칙 상위)
+  fallbackReason?: string | null; // selectedBy가 rule일 때 사유 코드 (ReportFailureReason + no_candidates)
+  aiPicks?: ScreeningAiPick[]; // AI 선정안 원문 (Guard 전). 없으면 []
+  filtered?: ScreeningFiltered[]; // 선정 Guard가 뺀 종목
+  coverSent?: boolean; // 하루 묶음 표지를 보냈는지
+  retries?: number; // 다시 시도한 횟수 0~2 (손익비 기준을 넘는 추천이 없어 다음 종목으로 다시 냄)
 }
 
 export interface Handoff {
@@ -461,14 +494,17 @@ export interface Handoff {
 
 export type FailurePolicy = "fail_fast" | "best_effort" | "required_optional";
 
+/** 리포트 팀: 종목 리포트(기본) · 매매 종목 선정 (하루 한 번, 자동). */
+export type ReportTeam = "stock_report" | "stock_selection";
+
 export interface ExecutionPlan {
-  team: string;
+  team: ReportTeam;
   title: string;
   failurePolicy: FailurePolicy;
   steps: PlanStep[]; // 실행 순서대로
   workers: Worker[]; // steps와 handoffs에 나오는 모든 Worker
   handoffs: Handoff[];
-  implemented: boolean; // Agent 실행이 구현됐는지. 지금은 false
+  implemented: boolean; // Agent 실행이 구현됐는지
 }
 
 export interface ReportSummary {
@@ -479,6 +515,7 @@ export interface ReportSummary {
   status: ReportStatus;
   currentStep: string | null;
   requestedBy: string; // 신청한 팀원의 닉네임. 자동 리포트는 "자동"
+  team?: ReportTeam; // 없으면 stock_report (예전 서버). stock_selection은 목록에 ?team=stock_selection일 때만 온다
   // 아래 넷은 docs/API.md "(추가)" 항목: 서버가 아직 안 낼 수 있다
   source?: "user" | "auto";
   chaosEnabled?: boolean;
@@ -503,7 +540,15 @@ export interface ReportQuota {
 }
 
 /** 리포트 실패 사유 코드 (Trace의 마지막 workflow_failed.details.reason). 모르는 값도 올 수 있다. */
-export type ReportFailureReason = "join_blocked" | "review_failed" | "timeout" | "engine_restarted" | "expired" | "exception";
+export type ReportFailureReason =
+  | "join_blocked"
+  | "review_failed"
+  | "timeout"
+  | "engine_restarted"
+  | "exception"
+  | "agent_failed"
+  | "no_llm"
+  | "expired";
 
 export interface ReportDetail extends ReportSummary {
   // Snapshot
