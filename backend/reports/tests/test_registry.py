@@ -92,13 +92,14 @@ def test_selection_team_plan_shape():
 
 @pytest.mark.parametrize("team", registry.TEAMS)
 def test_yaml_fallbacks_are_the_model_healing_picks(team):
-    """화면의 YAML 모델 순서가 실제 호출기에 전달되는 순서와 같다."""
+    """화면에 보이는 대체 모델(YAML fallbacks)은 호출기가 실제로 고르는 대체 모델 하나다 (차단이 없을 때 — 00-공통 4·7절).
+    healing.FALLBACK_POOL이나 주 모델을 바꾸면 YAML fallbacks도 같이 고친다."""
     from reports import healing
 
     healing.breaker.reset()
     for worker in registry.execution_plan(team)["workers"]:
-        caller = healing.LlmCaller(None, worker, None, None, float("inf"))
-        assert caller._models() == [worker["model"], *worker["fallbacks"]], worker["id"]
+        picked = healing.fallback_for(worker["model"], 0.0, {worker["model"]})
+        assert worker["fallbacks"] == [picked], worker["id"]
 
 
 def test_plan_is_cached_and_copied(monkeypatch):
