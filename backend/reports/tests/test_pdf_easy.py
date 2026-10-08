@@ -725,7 +725,7 @@ def names(folder) -> list[str]:
 
 def test_file_stem_has_easy_variant():
     assert pdf._file_stem(7, 4, easy=True) == "7.v4.easy" and pdf._file_stem(7, 4) == "7.v4"
-    assert pdf._file_stem(7, 1, easy=True) == "7.easy" and pdf.TEMPLATE_VERSION == 4
+    assert pdf._file_stem(7, 1, easy=True) == "7.easy" and pdf.TEMPLATE_VERSION == 5
 
 
 @pytest.mark.parametrize("view, easy", [("easy", True), ("expert", False), (" EASY ", True), ("Expert", False)])
@@ -733,7 +733,7 @@ def test_pdf_view_param_picks_variant(api, user, files, candles, renders, view, 
     report, _ = easy_report(user)
     response = api.get(url(report.id, view))
     assert response.status_code == 200 and b"".join(response.streaming_content) == b"%PDF-fake"
-    name = f"{report.id}.v4.easy.pdf" if easy else f"{report.id}.v4.pdf"
+    name = f"{report.id}.v{pdf.TEMPLATE_VERSION}.easy.pdf" if easy else f"{report.id}.v{pdf.TEMPLATE_VERSION}.pdf"
     assert names(files / "reports") == [name]
     made = renders[0][0]
     assert ("어떻게 만들었나요" in made) is easy and ("만든 Agent · 자동 복구" in made) is not easy
@@ -747,7 +747,7 @@ def test_pdf_without_view_follows_beginner_mode(api, user, files, candles, rende
     report, _ = easy_report(user)
     for view in (None, ""):
         assert api.get(url(report.id, view)).status_code == 200
-    assert names(files / "reports") == [f"{report.id}.v4.easy.pdf" if easy else f"{report.id}.v4.pdf"]
+    assert names(files / "reports") == [f"{report.id}.v{pdf.TEMPLATE_VERSION}.easy.pdf" if easy else f"{report.id}.v{pdf.TEMPLATE_VERSION}.pdf"]
     assert len(renders) == 1   # 두 번째는 만든 파일을 쓴다
 
 
@@ -765,7 +765,7 @@ def test_pdf_variants_are_cached_separately(api, user, files, candles, renders):
     report, _ = easy_report(user)
     for view in ("easy", "expert", "easy", "expert"):
         assert api.get(url(report.id, view)).status_code == 200
-    assert len(renders) == 2 and names(files / "reports") == [f"{report.id}.v4.easy.pdf", f"{report.id}.v4.pdf"]
+    assert len(renders) == 2 and names(files / "reports") == [f"{report.id}.v{pdf.TEMPLATE_VERSION}.easy.pdf", f"{report.id}.v{pdf.TEMPLATE_VERSION}.pdf"]
 
 
 def test_pdf_older_template_cleanup_removes_both_variants(api, user, files, candles, renders):
@@ -774,13 +774,13 @@ def test_pdf_older_template_cleanup_removes_both_variants(api, user, files, cand
     folder = files / "reports"
     folder.mkdir()
     old = [f"{report.id}.pdf", f"{report.id}.easy.pdf", f"{report.id}.v2.pdf", f"{report.id}.v2.easy.pdf",
-           f"{report.id}.v3.easy.html", f"{report.id}.v3.html"]
-    keep = [f"{report.id}.v4.pdf", f"{report.id + 1}.v3.easy.pdf"]
+           f"{report.id}.v3.easy.html", f"{report.id}.v3.html", f"{report.id}.v4.pdf"]
+    keep = [f"{report.id}.v{pdf.TEMPLATE_VERSION}.pdf", f"{report.id + 1}.v3.easy.pdf"]
     for name in old + keep:
         (folder / name).write_bytes(b"%PDF-old")
     response = api.get(url(report.id, "easy"))
     assert response.status_code == 200 and b"".join(response.streaming_content) == b"%PDF-fake"
-    assert names(folder) == sorted([f"{report.id}.v4.easy.pdf", *keep])
+    assert names(folder) == sorted([f"{report.id}.v{pdf.TEMPLATE_VERSION}.easy.pdf", *keep])
 
 
 def test_pdf_easy_without_chrome_serves_html(api, user, files, candles, monkeypatch):
@@ -791,4 +791,4 @@ def test_pdf_easy_without_chrome_serves_html(api, user, files, candles, monkeypa
     response = api.get(url(report.id, "easy"))
     assert response.status_code == 200 and response["Content-Type"].startswith("text/html")
     assert "어떻게 만들었나요" in b"".join(response.streaming_content).decode()
-    assert names(files / "reports") == [f"{report.id}.v4.easy.html"]
+    assert names(files / "reports") == [f"{report.id}.v{pdf.TEMPLATE_VERSION}.easy.html"]

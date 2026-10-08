@@ -19,7 +19,7 @@ export function DemoPreviewCard() {
           </p>
         </div>
       </div>
-      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+      <div className="mt-4 grid gap-2 sm:grid-cols-3">
         <Link to="/ui/workflows" className="press flex min-h-12 items-center justify-center gap-1.5 rounded-xl bg-ink px-4 text-[14px] font-semibold text-on-ink hover:bg-sub">
           <Icon name="play" className="size-4" />
           Agent Workflow 시나리오
@@ -27,6 +27,10 @@ export function DemoPreviewCard() {
         <Link to="/ui/errors" className="press flex min-h-12 items-center justify-center gap-1.5 rounded-xl bg-card px-4 text-[14px] font-semibold text-brand-ink ring-1 ring-line hover:bg-fill">
           <Icon name="alert" className="size-4" />
           로딩·오류 상태
+        </Link>
+        <Link to="/ui/brand" className="press flex min-h-12 items-center justify-center gap-1.5 rounded-xl bg-card px-4 text-[14px] font-semibold text-brand-ink ring-1 ring-line hover:bg-fill">
+          <Icon name="play" className="size-4" />
+          로고·인트로
         </Link>
       </div>
       <p className="mt-2 text-[12px] font-semibold text-warn-ink">예시 데이터 · 실제 실행 및 비용 발생 없음</p>

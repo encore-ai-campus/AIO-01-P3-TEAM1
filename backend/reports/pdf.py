@@ -48,8 +48,9 @@ SERVICE_NAME = "모매매"  # 화면 frontend/src/lib/plainText.ts SERVICE_NAME�
 BRAND_NOTE = "AI 리포트 · 모의투자 연습용"  # 쪽 머리 오른쪽 작은 글씨
 DISCLAIMER = "이 리포트는 AI가 만든 참고 자료이며 투자 권유가 아닙니다. 모든 매매는 모의 계좌에서만 이뤄집니다."  # 통일 면책 문장
 # 양식 판. 양식을 바꾸면 올린다 (예전 판 파일은 다음 요청 때 새로 만든다).
-# 2: 2026-10 쉬운 요약·장마감 기준. 3: 2026-10-05 서비스 이름 종이배·로고 머리. 4: 2026-10-07 서비스 이름 모매매
-TEMPLATE_VERSION = 4
+# 2: 2026-10 쉬운 요약·장마감 기준. 3: 2026-10-05 서비스 이름 종이배·로고 머리. 4: 2026-10-07 서비스 이름 모매매.
+# 5: 2026-10-08 로고 ㅁ 블록 셋 (docs/DECISIONS.md 27장)
+TEMPLATE_VERSION = 5
 NO_DATA = "자료 없음"
 NO_VALUE = "–"
 CHART_DAYS = 60            # 차트에 그리는 최근 일봉 수
@@ -67,15 +68,16 @@ AGENT_LABEL = {"market_agent": "시세", "fundamental_agent": "재무", "news_ag
                "report_agent": "작성", "review_agent": "검토", "risk_agent": "리스크"}
 RISE, FALL, ACCENT = "#d2342f", "#2a62d2", "#e08a00"   # 상승 빨강·하락 파랑 (국내 관례), 이동평균 주황
 
-# 로고: 종이배 모양 (frontend/src/components/BrandMark.tsx와 같은 모양, 48px 이상 판 — 돛의 접힌 선 포함). brand 타일 + 흰 배.
-# 늘이기·그림자·물결·화살표를 더하지 않고, 배를 노란색으로 칠하지 않는다 (docs/DECISIONS.md 15-7).
+# 로고: brand 타일 + 흰 ㅁ 블록 셋의 오르는 계단 (frontend/src/components/BrandMark.tsx의 32px 이상 판 — 속이 빈 ㅁ).
+# 도형 값은 frontend/src/lib/brandShapes.ts(MU_PATH·ICON_BLOCKS·ICON_BLOCK_SCALE)와 같다 — 바꾸면 둘 다 고친다.
+# 늘이기·그림자·그라데이션을 더하지 않고, 블록 색을 바꾸지 않는다 (docs/DECISIONS.md 27장).
+MU_PATH = "M0 0H104V88L0 96Z M32 28V60L72 57V28Z"
+ICON_BLOCKS = ((4.5, 18), (12.5, 13), (20.5, 8))
+ICON_BLOCK_SCALE = 0.0673
 LOGO_SVG = ('<svg class="logo" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">'
-            '<rect width="32" height="32" rx="8" fill="#3182F6"/>'
-            '<path fill="#FFFFFF" d="M4.8 17.29A0.8 0.8 0 0 1 5.43 16L9.31 16A0.5 0.5 0 0 0 9.74 15.75L14.71 7.3A1.5 1.5 0 0 1 '
-            '17.29 7.3L22.26 15.75A0.5 0.5 0 0 0 22.69 16L26.57 16A0.8 0.8 0 0 1 27.2 17.29L22.45 23.42A1.5 1.5 0 0 1 21.26 24'
-            'L10.74 24A1.5 1.5 0 0 1 9.55 23.42Z"/>'
-            '<path fill="#3182F6" d="M16.11 7.79A0.04 0.04 0 0 1 16.19 7.77L19.53 15.47A0.45 0.45 0 0 1 19.11 16.1L17.98 16.1'
-            'A0.45 0.45 0 0 1 17.53 15.73Z"/></svg>')
+            '<rect width="32" height="32" rx="8" fill="#3182F6"/><g fill="#FFFFFF" fill-rule="evenodd">'
+            + "".join(f'<path transform="translate({x} {y}) scale({ICON_BLOCK_SCALE})" d="{MU_PATH}"/>' for x, y in ICON_BLOCKS)
+            + "</g></svg>")
 
 CSS = """
 @page { size: A4; margin: 12mm }
