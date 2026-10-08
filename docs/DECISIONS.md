@@ -302,7 +302,8 @@ API 계약은 `docs/API.md`. 아래는 그 배경 결정이다. 앞 장과 다�
   (종목 하나 = 행 하나, 대표 시나리오와 판정 요약, 실행 기록 경로) 목록·상세 API로 내준다. 엔진 CLI·전략이 만든 기록도 같이 보인다.
 - 웹에서 요청한 분석은 엔진 CLI를 하위 프로세스로 돌린다: `python -m paper_engine analyze <종목> --by <아이디> --equity <초기 자금>`
   (`--buy`는 주지 않는다. 엔진 계좌에 자동 매수하지 않는다). 한도는 횟수로 건다: 팀원별 하루 `AI_DAILY_ANALYSES_PER_USER`(기본 5),
-  전체 하루 `AI_DAILY_BUDGET_USD ÷ 0.3`(기본 33회).
+  전체 하루 `AI_DAILY_BUDGET_USD ÷ 0.3`(기본 33회). 2026-10-08부터 팀 전체 몫은 리포트와 같은 예산이다: 오늘 쓴 분석 예상 비용과 리포트 실제 비용을
+  뺀 나머지 ÷ 0.3 (`reports/budget.py` `used_usd`, `analysis/quota.py` `team_left`). 리포트 비용이 없으면 전과 같다.
 
 ### 8-5. 프론트엔드
 

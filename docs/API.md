@@ -356,7 +356,7 @@ interface Job {
 interface AnalysisQuota {
   usedToday: number;           // 내가 오늘(KST) 요청한 수
   limitPerUser: number;        // AI_DAILY_ANALYSES_PER_USER (기본 5)
-  remaining: number;           // 내 한도와 전체 예산 중 작은 쪽의 남은 횟수
+  remaining: number;           // 내 한도와 팀 전체 예산 중 작은 쪽의 남은 횟수 (팀 예산 = (AI_DAILY_BUDGET_USD − 오늘 쓴 분석 예상 비용 − 리포트 실제 비용) ÷ 0.3 — 2026-10-08부터 리포트 비용도 뺀다)
   estimatedCostUsd: number;    // 종목당 예상 비용 0.3
   enabled: boolean;            // AI 키(DEVPASS_APIKEY, ANALYSTS)가 있어 분석을 요청할 수 있는지
 }
@@ -484,7 +484,9 @@ interface AnalysisQuota {
 | `GET /api/jobs/{id}` | – | `200 Job` · 남의 작업 `404` |
 
 - 분석은 몇 분 걸린다. 프론트는 `POST` 뒤 `GET /api/jobs/{id}`를 5초 간격으로 확인하고, `DONE`이면 `result.analysisIds[0]`로 간다.
-- 한도(팀원별 하루 횟수, 전체 하루 횟수)는 **엔진이 실제로 시작한 작업을 실패해도 센다** (실패는 대부분 AI 비용을 쓴 뒤에 난다).
+- 한도(팀원별 하루 횟수, 팀 전체 하루 AI 비용 예산)는 **엔진이 실제로 시작한 작업을 실패해도 센다** (실패는 대부분 AI 비용을 쓴 뒤에 난다).
+  팀 전체 예산 `AI_DAILY_BUDGET_USD`는 리포트와 같이 쓴다 (2026-10-08 — 전에는 분석 수만 셌다): 분석 예상 비용(0.3/종목) + 리포트 실제 `cost_usd`(자동 리포트 포함)를 뺀 나머지로
+  분석 하나를 더 못 하면 `429 {"detail": "오늘 팀 전체 AI 비용 예산($10, 분석·리포트 합)을 다 썼습니다."}`. 셈은 `reports/budget.py`의 `used_usd`와 같다.
 - 분석 결과는 팀 전체가 같이 본다 (요청자 표시). 지금 종가·등락률은 프론트가 `/api/quotes`로 따로 받는다 (장마감 기준).
 - 분석 상세의 가격은 `priceAtAnalysis`(분석 시각 가격)이고, 지표·일봉의 기준일은 `dataAsOf`다. 뉴스는 `newsItems`(제목·매체·시각)와 출처 표기 `newsProvider`로 보인다.
 - 리포트 탭의 "교차검증 분석" 묶음과 종목 상세의 보조 버튼 "AI 교차검증 분석"이 이 API를 쓴다 (`docs/DECISIONS.md` 13-1 D-1).
@@ -731,7 +733,8 @@ SSE 형식 (실행 Event를 발생 즉시 한 방향으로 전달):
   `chaos` 열이 생기기 전에는 장애 주입 여부를 알 수 없으므로 failed는 모두 빼고 센다 (열이 생기면 `chaos.enabled`가 참인 failed만 센다).
 - 같은 종목의 진행 중 리포트를 돌려주는 `200` 경로는 새로 세지 않는다. 자동 리포트(`source: "auto"`)·선정 실행(`team: "stock_selection"`)은 신청자가 없어 세지 않는다.
 - 비용 합산 한도(분석 + 리포트 $, `AI_DAILY_BUDGET_USD`)는 팀원(2) 몫이다 — 팀 파일 `backend/reports/budget.py`의 `check(now)`를 `ReportsView.post`에서 횟수 한도 바로 뒤에 부른다
-  (구현: 2026-10-08 `dy` — 팀 전체 오늘(KST) 분석 예상 비용 + 리포트 실제 `cost_usd`(실패·자동 리포트 포함)가 한도 이상이면 `429 {"detail": "오늘 AI 비용 예산을 다 썼어요. 내일 0시에 다시 신청할 수 있어요."}`. 자동 리포트 실행은 막지 않는다)
+  (구현: 2026-10-08 `dy` — 팀 전체 오늘(KST) 분석 예상 비용 + 리포트 실제 `cost_usd`(실패·자동 리포트 포함)가 한도 이상이면 `429 {"detail": "오늘 AI 비용 예산을 다 썼어요. 내일 0시에 다시 신청할 수 있어요."}`. 자동 리포트 실행은 막지 않는다.
+  본문에 `limit`·`used`가 없는 것이 횟수 한도 `429`와 다르다 — 프론트는 이것으로 둘을 나눠 문구를 고른다(2026-10-08). 분석 요청(`POST /api/analyses`)도 같은 예산을 본다)
   (넘으면 `429`, 본문 형식은 2가 이 절에 적는다). `quota.py`(횟수, Claude)와 파일을 나눈다 (`docs/tasks/00-공통.md` 2절).
 
 ---

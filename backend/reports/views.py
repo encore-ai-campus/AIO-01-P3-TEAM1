@@ -190,7 +190,7 @@ class RecoveryStatsView(APIView):
         from . import stats  # 셈법은 stats.py (docs/tasks/00-공통.md 9절)
 
         text = (request.query_params.get("days") or "7").strip()
-        days = int(text) if text.isdigit() else 0
+        days = int(text) if text.isdecimal() else 0  # isdigit은 '²'도 참이라 int()가 실패한다
         if not 1 <= days <= stats.MAX_DAYS:
             raise Rejected(f"days는 1~{stats.MAX_DAYS} 사이의 정수입니다.")
         return Response(stats.recovery_stats(days))

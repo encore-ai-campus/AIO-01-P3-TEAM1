@@ -14,6 +14,7 @@ import { useReportQuota, useRequestReport } from "../api/reports";
 import { addRecentStock, useSymbolTrading } from "../api/trading";
 import type { AnalysisSummary, ChaosRequest, StockDetail } from "../api/types";
 import { AnalysisRequest } from "../components/AnalysisRequest";
+import { isCountLimit } from "../components/errors/errorTypes";
 import { Icon } from "../components/Icon";
 import { FundamentalsPanel } from "../components/longterm/FundamentalsPanel";
 import { Collapse } from "../components/motion/Collapse";
@@ -121,7 +122,8 @@ function ReportCta({ stock, easy }: { stock: StockDetail; easy: boolean }) {
   const spent = quota?.remaining === 0;
   const chaosOn = !easy && chaos !== null;
   const create = () => request.mutate({ symbol: stock.symbol, chaos: chaosOn ? chaos : null }, { onSuccess: (r) => navigate(`/reports/${r.id}`) });
-  const limitError = request.error instanceof ApiError && request.error.status === 429;
+  // 429는 둘: 내 하루 횟수 한도(본문에 limit)면 한도 문장, 팀 비용 예산이면 서버 문장 (사람마다 한도가 남아 있어도 막힌다)
+  const limitError = request.error instanceof ApiError && isCountLimit(request.error);
   const errorText = request.isError ? (limitError ? "오늘은 다 만들었어요. 내일 0시에 다시 만들 수 있어요" : errorMessage(request.error)) : null;
   const shownError = useLast(errorText);
   const chaosLabel = chaosOn ? " · 장애 주입" : "";

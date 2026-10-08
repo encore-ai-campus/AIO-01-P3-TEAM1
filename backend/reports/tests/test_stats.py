@@ -244,7 +244,7 @@ def test_api_recovery_stats(api, user):
     assert api.get("/api/reports/recovery-stats?days=90").json()["days"] == 90
 
 
-@pytest.mark.parametrize("days", ["0", "91", "abc", "-3", "1.5"])
+@pytest.mark.parametrize("days", ["0", "91", "abc", "-3", "1.5", "²"])  # "²"는 isdigit이 참이지만 정수가 아니다
 def test_api_recovery_stats_bad_days(api, days):
     response = api.get(f"/api/reports/recovery-stats?days={days}")
     assert response.status_code == 400 and response.json() == {"detail": "days는 1~90 사이의 정수입니다."}

@@ -8,6 +8,7 @@
 .env
 .env.docker
 .env.team
+env.team
 *.pem
 *.key
 /deploy/.deployed_tag

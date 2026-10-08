@@ -126,6 +126,17 @@ describe("종목 상세: 실시간 시세와 AI 리포트 만들기", () => {
     expect((screen.getByRole("button", { name: "AI 리포트 만들기" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("팀 AI 비용 예산 429(본문에 limit 없음)는 한도 문장 대신 서버 문장", async () => {
+    freezeTime(TUE_MORNING);
+    const budget = "오늘 AI 비용 예산을 다 썼어요. 내일 0시에 다시 신청할 수 있어요.";
+    server.use(http.post("*/api/reports", () => HttpResponse.json({ detail: budget }, { status: 429 })));
+    renderApp("/stocks/005380");
+    await screen.findByText("오늘 2번 더 만들 수 있어요");
+    fireEvent.click(screen.getByRole("button", { name: "AI 리포트 만들기" }));
+    expect(await screen.findByText(budget)).toBeTruthy();
+    expect(screen.queryByText("오늘은 다 만들었어요. 내일 0시에 다시 만들 수 있어요")).toBeNull();
+  });
+
   it("교차검증 분석 요청은 보조 버튼에서 → 끝나면 분석 상세", async () => {
     renderApp("/stocks/005380");
     const btn = await screen.findByRole("button", { name: "AI 교차검증 분석" });
