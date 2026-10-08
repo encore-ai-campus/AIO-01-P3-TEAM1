@@ -23,7 +23,7 @@ from trading import market
 from accounts.modes import beginner_mode_of
 from config.api import Rejected, page
 
-from . import quota, registry
+from . import budget, chaos, quota, registry
 from .models import Report
 from .payloads import detail, iso, nicknames, plan, summary
 from .pdf import ensure_report_file
@@ -87,7 +87,7 @@ class ReportsView(APIView):
         item = market.stock_item(symbol)  # 증권사 조회 불가면 Unavailable(503)
         if item is None:
             raise Rejected("종목을 찾을 수 없습니다.")
-        # ← 4: 장애 주입 설정 검사 chaos.parse(request.data) 자리 (잘못되면 400)
+        chaos_config = chaos.parse(request.data.get("chaos"))  # 4: 장애 주입 설정 (잘못되면 400, 없거나 꺼져 있으면 None)
         with transaction.atomic():
             # 같은 사용자의 동시 신청(두 번 누름)을 줄 세운다 — 한도 검사도 이 잠금 안에서 한다
             get_user_model().objects.select_for_update().filter(pk=request.user.pk).first()
@@ -100,9 +100,10 @@ class ReportsView(APIView):
                 quota.check(request.user, now)  # Claude: 하루 리포트 횟수 한도 (D-7)
             except quota.Exceeded as e:  # 본문에 limit·used가 있어 Response를 직접 (config.api는 detail 외 필드를 버린다)
                 return Response(e.body(), status=e.status_code)
-            # ← 2: 비용 예산 budget.check(now) 자리 (횟수 한도 바로 뒤)
+            budget.check(now)  # 팀 전체 AI 비용 예산
             report = Report.objects.create(user=request.user, team=Report.STOCK_REPORT, symbol=item["symbol"],
-                                           name=item["name"], market=item["market"], created_at=now)
+                                           name=item["name"], market=item["market"], chaos=chaos_config,
+                                           created_at=now)
         return Response(detail(report), status=status.HTTP_201_CREATED)
 
 
@@ -168,3 +169,16 @@ class ScreeningView(APIView):
         if result is None:
             raise NotFound(f"{day} {market_} 선별 결과가 없습니다.")
         return Response(result)
+
+
+class RecoveryStatsView(APIView):
+    @extend_schema(operation_id="reports_recovery_stats", responses=OpenApiTypes.OBJECT)
+    def get(self, request):
+        """RecoveryStats: 최근 days일(기본 7, 1~90, 오늘 포함) 리포트의 호출 장애 자동 복구 지표 (담당 4, T4-7)."""
+        from . import stats  # 셈법은 stats.py (docs/tasks/00-공통.md 9절)
+
+        text = (request.query_params.get("days") or "7").strip()
+        days = int(text) if text.isdigit() else 0
+        if not 1 <= days <= stats.MAX_DAYS:
+            raise Rejected(f"days는 1~{stats.MAX_DAYS} 사이의 정수입니다.")
+        return Response(stats.recovery_stats(days))

@@ -1,6 +1,7 @@
 # 04. AutoHealing 백엔드 (담당 4)
 
 > **2026-10-07 — 4의 호출기(T4-2~T4-5) 위에 Orchestrator·Worker를 Claude가 붙였다** (`docs/DECISIONS.md` 19장). `healing.py`는 고치지 않았다. 4에게 남는 것은 그대로: **T4-6 장애 주입(`chaos.py`)·T4-7 복구 지표(`stats.py`, `recovery-stats` API — 화면이 이미 부른다)**, T4-8~T4-11.
+> (2026-10-08: T4-6은 PR #5로 합쳤다. 주입 리포트는 리포트 전용 Circuit Breaker를 쓴다 — `00-공통.md` 5절. T4-7(`stats.py`·`recovery-stats`)도 `feat/4-stats`로 합쳤다.)
 
 > **할 일 (2026-10-05 단순화 — `TEAM_DEV_PLAN.md` 11장)**: ① 추천 워크플로우: 재시도·대체 모델·Circuit Breaker·장애 주입·복구 지표·`reports` 마이그레이션 0002 · ② UI/UX: 자동 복구 문장·지표 화면 · ③ 추가 기능 논의: ~~키움 실시간(단타 b) 도입 조건~~(2026-10-06 단타 폐기) · ④ 테스트: 장애 주입 시험 결과표(DR).
 > 그 밖의 확정된 변경은 Claude가 구현한다(`docs/DECISIONS.md` 14장). 아래 세부 표는 워크플로우 개발의 약속·참고로 남긴다.
@@ -83,5 +84,7 @@
 - 호출기는 `state.record`만 부른다. `add_result`·`add_error`·`finish`는 Orchestrator 몫.
 - `agent_failed`에 `final: false`를 **꼭** 넣는다 (화면·지표가 포기(`final: true`)와 구분한다).
 - Circuit Breaker 상태는 웹 프로세스에서 보이지 않는다 (엔진 프로세스 메모리). 지표 화면에는 Trace의 `circuit_open` 사유로만 나타난다.
+  장애 주입 리포트는 그 리포트 전용 Breaker에서 센다 (2026-10-08, `00-공통.md` 5절) — 주입한 실패가 다른 리포트의 모델을 막지 않는다.
+- 주입한 timeout은 기다리지 않아 그 `agent_failed`의 `latencyMs`·복구 시간이 거의 0이다. T4-7 지표·장애 복구 보고서에서는 주입 건의 복구 시간을 따로 보거나 주석을 단다.
 - 비용 기록: `LlmReply.cost_usd`는 게이트웨이가 준 값. 주입으로 실패한 시도는 비용 0.
 - `views.py`의 `ReportsView.post`는 2(한도)도 고친다. 4가 먼저(chaos), 2가 그 뒤에 한도를 넣는다.

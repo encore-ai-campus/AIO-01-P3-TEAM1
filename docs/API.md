@@ -505,6 +505,11 @@ interface AnalysisQuota {
 2026-10-07(담당 4, T4-1): `ReportSummary`의 `source`·`chaosEnabled`·`costUsd`·`hasPdf`, 자동 리포트의 `requestedBy` "자동", `ReportDetail`의 `chaos`·`recovery`를
 서버가 내기 시작했다 ("(구현)" 표시). `recovery`는 Trace 계산(T4-7) 전까지 장애 없음 고정값, `hasPdf`는 `pdf_path` 파일이 있을 때만 true(그 열을 채우는 것은 PDF 쪽 일),
 `chaos`는 장애 주입 신청(T4-6) 전까지 늘 null이다.
+2026-10-07(담당 4, T4-6): `POST /api/reports`의 `chaos`를 받는다 (`reports/chaos.py`). `enabled: false`면 저장하지 않아 `chaos`는 null,
+켜면 기본값·seed를 채워 저장한다. 주입한 timeout은 실제로 기다리지 않고 바로 실패로 처리한다 (시험 시간을 줄인다).
+2026-10-08: 신청에서 직접 주는 `seed`는 0 이상 2^53 미만 정수만 받는다 (그 밖은 `400`).
+2026-10-07(담당 4, T4-7): `recovery`를 Trace로 계산하고(`reports/stats.py`, 셈법 `docs/tasks/00-공통.md` 9절 — 화면 `frontend/src/lib/recovery.ts`와 같다), `GET /api/reports/recovery-stats`를 낸다.
+아직 끝나지 않은 실행의 장애는 `failures`에만 들고 `recovered`·`unrecovered`에는 들지 않는다.
 담당별 할 일은 `docs/tasks/`, 셈법과 모듈 경계는 `docs/tasks/00-공통.md`. 아래에서 "(추가)"로 표시한 것은 아직 서버가 내지 않는다.
 
 ## 타입
@@ -570,16 +575,16 @@ interface PlanStep {
   retry: { target: string; maxRounds: number } | null;   // (추가) 검토 단계: RETRY 판정이면 target Worker를 다시 실행 (maxRounds는 1~3)
 }
 
-interface ChaosConfig {           // (추가) 장애 주입 설정 (docs/tasks/00-공통.md 5절). 리포트 워크플로우에만 적용된다
+interface ChaosConfig {           // (구현) 장애 주입 설정 (docs/tasks/00-공통.md 5절). 리포트 워크플로우에만 적용된다
   enabled: boolean;
   probability: number;          // 0~1. 호출 하나가 실패할 확률
   errorTypes: ErrorType[];      // 일으킬 실패 종류 (unknown 제외)
   workers: string[] | null;     // 대상 Worker (null이면 전부)
   scope: "primary" | "all";     // primary: 주 모델 호출만 실패 (대체 모델로 복구를 보인다) · all: 대체 모델까지 실패
-  seed: number;                 // 같은 시험을 다시 돌릴 수 있게 서버가 정해 저장한다
+  seed: number;                 // 같은 시험을 다시 돌릴 수 있게 서버가 정해 저장한다 (신청에서 직접 주면 0 이상 2^53 미만 정수)
 }
 
-interface RecoverySummary {       // (추가) 이 리포트의 장애·복구 요약 (Trace에서 계산. 셈법은 00-공통.md 9절)
+interface RecoverySummary {       // (구현) 이 리포트의 장애·복구 요약 (Trace에서 계산. 셈법은 00-공통.md 9절)
   failures: number;             // 장애 건수 (Worker 실행마다 첫 실패를 1건으로)
   recovered: number;            // 자동 복구된 건수
   unrecovered: number;          // 포기한 건수
@@ -617,7 +622,7 @@ interface ReportSummary {
   createdAt: string; startedAt: string | null; finishedAt: string | null;
 }
 
-interface RecoveryStats {         // (추가) GET /api/reports/recovery-stats
+interface RecoveryStats {         // (구현) GET /api/reports/recovery-stats
   from: string; to: string; days: number;
   reports: number; reportsWithFailures: number;
   failures: number; recovered: number; unrecovered: number; injected: number;
@@ -664,7 +669,7 @@ interface ReportDetail extends ReportSummary {   // Snapshot
   trace: TraceEvent[];          // step 오름차순
   plan: ExecutionPlan;          // 그 리포트 팀(team)의 실행 계획 (구현: 2026-10-07)
   chaos: ChaosConfig | null;    // (구현) 신청 때의 장애 주입 설정 (서버가 채운 기본값·seed 포함)
-  recovery: RecoverySummary;    // (구현, T4-7 전까지 고정값)
+  recovery: RecoverySummary;    // (구현) Trace로 계산 (reports/stats.py)
 }
 ```
 
@@ -680,7 +685,7 @@ interface ReportDetail extends ReportSummary {   // Snapshot
 | `GET /api/reports/{id}` | – | `200 ReportDetail` · `404` (**Snapshot API**: 새로고침·연결 복구에 쓴다) |
 | `GET /api/reports/{id}/events` | 헤더 `Last-Event-ID` 또는 `?after=<step>` | `200 text/event-stream` (**SSE**) · 미로그인 `401` JSON · `404` |
 | `GET /api/reports/{id}/pdf?view=` | `view`: `easy`(쉬운 판) \| `expert`(자세한 판). 없으면 요청한 사람의 주린이모드(켬 → `easy`) — 2026-10-07 구현, `docs/DECISIONS.md` 20장 | 잘못된 `view` `400 {"detail": "view는 easy 또는 expert입니다."}` · `200 application/pdf` (A4. 처음 부르면 만들어 `PAPER_ROOT/reports/<id>.v<양식 판>.pdf`(Chrome이 없으면 `.html`)에 저장하고 다음부터 그 파일. `pdf_path` 열은 자동 리포트가 Discord로 보낸 파일(2026-10-07부터 쉬운 판)이고 이 API는 쓰지 않는다. 2026-10-05 구현: 양식 판 `TEMPLATE_VERSION`(`backend/reports/pdf.py`, 지금 4 — 2: 쉬운 요약·장마감 기준, 3: 이름 종이배·로고 머리, 4: 이름 모매매)을 파일 이름에 넣어, 양식이 바뀌면 판 번호 없는 예전 `<id>.pdf`(1판)·이전 판 파일을 쓰지 않고 새로 만든 뒤 지운다. 2026-10-07: 쉬운 판은 따로 `<id>.v<판>.easy.pdf` — 웹 쉬운 보기와 같은 문장으로 결론·신뢰·쉬운 요약·매매 계획(말로)·근거와 위험·이 의견이 틀리는 경우·세 가지 경우(1주 기준 %)·가격 흐름·조사 자료·용어 풀이를 싣고, 검토 점수·확률·신뢰도·모델 이름·비용은 싣지 않는다. 계좌마다 다른 값(수량·금액)은 넣지 않는다 — 파일이 리포트당 판마다 하나) · 완성 전 `409 {"detail"}` · `404` (선정 실행 `team: "stock_selection"`도 `404` — 2026-10-07) · Chrome이 없으면 `200 text/html`(같은 내용) — 2026-10-04 구현 |
-| (추가) `GET /api/reports/recovery-stats?days=7` | `days` 1~90, 기본 7 | `200 RecoveryStats` |
+| `GET /api/reports/recovery-stats?days=7` | `days` 1~90, 기본 7 | `200 RecoveryStats` (기간 = 오늘(KST) 포함 최근 `days`일 안에 만든 리포트, 모든 팀) · 잘못된 `days` `400 {"detail": "days는 1~90 사이의 정수입니다."}` — 2026-10-07 구현 (담당 4, T4-7) |
 | `GET /api/reports/screening?market=KR&date=` | `date` 기본 오늘(KST) | `200 ScreeningResult` · 그날 선별이 없으면 `404` · 잘못된 `market`·`date` `400` — 2026-10-04 구현 (`reports/auto.py`가 남긴 파일을 읽는다. 2026-10-07부터 선정 팀 결과 키가 더해진다) |
 
 SSE 형식 (실행 Event를 발생 즉시 한 방향으로 전달):
@@ -714,7 +719,8 @@ SSE 형식 (실행 Event를 발생 즉시 한 방향으로 전달):
 - 세는 것: 오늘 내가 신청한 리포트에서 **장애 주입 없이 `failed`로 끝난 것을 뺀** 수. 장애 주입을 켠 리포트는 실패해도 센다.
   `chaos` 열이 생기기 전에는 장애 주입 여부를 알 수 없으므로 failed는 모두 빼고 센다 (열이 생기면 `chaos.enabled`가 참인 failed만 센다).
 - 같은 종목의 진행 중 리포트를 돌려주는 `200` 경로는 새로 세지 않는다. 자동 리포트(`source: "auto"`)·선정 실행(`team: "stock_selection"`)은 신청자가 없어 세지 않는다.
-- 비용 합산 한도(분석 + 리포트 $, `AI_DAILY_BUDGET_USD`)는 `cost_usd` 열이 생긴 뒤 팀원(2) 몫이다 — 팀 파일 `backend/reports/budget.py`의 `check(now)`를 `ReportsView.post`에서 횟수 한도 바로 뒤에 부른다
+- 비용 합산 한도(분석 + 리포트 $, `AI_DAILY_BUDGET_USD`)는 팀원(2) 몫이다 — 팀 파일 `backend/reports/budget.py`의 `check(now)`를 `ReportsView.post`에서 횟수 한도 바로 뒤에 부른다
+  (구현: 2026-10-08 `dy` — 팀 전체 오늘(KST) 분석 예상 비용 + 리포트 실제 `cost_usd`(실패·자동 리포트 포함)가 한도 이상이면 `429 {"detail": "오늘 AI 비용 예산을 다 썼어요. 내일 0시에 다시 신청할 수 있어요."}`. 자동 리포트 실행은 막지 않는다)
   (넘으면 `429`, 본문 형식은 2가 이 절에 적는다). `quota.py`(횟수, Claude)와 파일을 나눈다 (`docs/tasks/00-공통.md` 2절).
 
 ---

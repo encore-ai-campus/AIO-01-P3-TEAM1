@@ -779,4 +779,3 @@ def test_pdf_easy_without_chrome_serves_html(api, user, files, candles, monkeypa
     assert response.status_code == 200 and response["Content-Type"].startswith("text/html")
     assert "어떻게 만들었나요" in b"".join(response.streaming_content).decode()
     assert names(files / "reports") == [f"{report.id}.v4.easy.html"]
-
