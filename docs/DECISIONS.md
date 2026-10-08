@@ -1049,3 +1049,17 @@ AI는 목표를 가깝게(+6~9%), 손절을 멀게(−5~−19%) 잡았다. 그�
 - 같은 날 독립 리뷰(P0 0 · P1 1 · P2 12) 뒤 고친 것: 위 두 줄, 블로그·링크·연도 오탐, `blockedBy`에 `halted`, 장 시작 전 기한은 앞 거래일 장 마감으로, 첫 주문 대기(`active`) 토스트.
   고치지 않은 것: 미국 종목 today_fill은 원화 환산에 지금 환율을 써 환율 차이만큼 손익이 생긴다(운영은 지금 국내만), Webhook 없이 openclaw만 있는 환경의 알림 설정 문구, '15:40' 고정 표기(수능일·미국 조기 폐장일은 다르다).
 
+## 24. Discord 알림을 끈다 (2026-10-08, 사용자 결정)
+
+- **서비스가 Discord로 아무것도 보내지 않는다.** 웹 알림(알림함)은 그대로다. 끈 것: 계획·체결·청산·리포트 끝 알림의 Discord 글, 자동 리포트의 표지·PDF 글,
+  엔진 CLI의 팀 채널 알림 (12-4의 Discord 쪽 전부).
+- **방법: 코드 두 곳을 주석 처리했다** (설정 값을 지우지 않아도 꺼진다).
+  - `engine/paper_engine/notify.py`의 `make_notifier` — Webhook·openclaw 분기를 주석 처리해 늘 `ConsoleNotifier`(콘솔 출력)를 돌려준다.
+    모든 Discord 전송(`config.engine.notifier()` → 알림 발송 `dispatch.tick`, 자동 리포트 `reports/auto.py`)이 이 함수를 거친다.
+  - `backend/notifications/service.py`의 `webhook_configured` — 늘 false. 화면(My Page 알림 설정)은 Discord 묶음(받기 스위치·사용자 ID·테스트 알림)을 접고
+    "지금은 웹 알림으로만 와요"를 보인다. 테스트 알림 API는 `discord: "not_configured"`.
+- 끈 동안 생기는 Discord 글은 편지함(`notification_outbox`)에 `skipped`로 남고 엔진 콘솔에만 찍힌다 (보내지 않음). `DISCORD_WEBHOOK_URL`은 남겨 둬도 된다.
+- **바뀌지 않는 것**: GitHub Actions의 배포 결과 Discord 알림(`deploy.yml`의 `notify` 작업)은 서비스 기능이 아니라 그대로 둔다 (저장소 비밀 값 `DISCORD_WEBHOOK_URL`로 보낸다).
+- **다시 켜려면**: 위 두 곳의 주석을 풀고 `return ConsoleNotifier()` / `return False` 줄을 지운다. 테스트 `engine/tests/test_notify.py`,
+  `backend/notifications/tests/test_service.py`·`test_notifications_api.py`의 "disabled" 테스트를 예전 기대값(각 테스트 docstring에 적었다)으로 되돌린다.
+

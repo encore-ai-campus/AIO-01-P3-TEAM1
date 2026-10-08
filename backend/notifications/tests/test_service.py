@@ -168,14 +168,17 @@ def test_notify_trims_long_embed(webhook, alice):
     assert len(m.embed["description"]) == 4096
 
 
-def test_notify_with_openclaw_only_is_pending(alice, monkeypatch):
+def test_notify_is_web_only_while_discord_disabled(alice, monkeypatch):
+    """Discord 알림을 끈 동안(DECISIONS 24장)은 Webhook·openclaw 설정이 있어도 편지함을 skipped로만 남긴다 (보내지 않음).
+    켜면 예전 기대값: openclaw만 있으면 discord_configured()이고 pending (엔진 루프가 openclaw로 보낸다)."""
     from paper_engine.config import Config
 
     from config import engine
-    monkeypatch.setattr(engine, "engine_config", lambda: Config(None, None, None, openclaw_target="channel:1"))
-    assert not service.webhook_configured() and service.discord_configured()
-    service.notify(alice, "system", "제목", "본문")
-    assert OutboxMessage.objects.get().status == "pending"  # 엔진 루프가 openclaw로 보낸다
+    monkeypatch.setattr(engine, "engine_config", lambda: Config(None, None, None, openclaw_target="channel:1",
+                                                                  discord_webhook_url="https://discord.com/api/webhooks/1/x"))
+    assert not service.webhook_configured() and not service.discord_configured()
+    (n,) = service.notify(alice, "system", "제목", "본문")
+    assert n.title == "제목" and OutboxMessage.objects.get().status == "skipped"
 
 
 # --- 알림 문장 (B6) ---

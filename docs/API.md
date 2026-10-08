@@ -869,6 +869,7 @@ interface NotificationSettings {
   discordUserId: string | null;   // Discord 사용자 ID (숫자 17~20자리). 있으면 Discord 알림에 @멘션한다
   discordEnabled: boolean;        // 내 알림을 Discord로도 보낼지 (기본 true). 웹 알림은 항상 남는다
   webhookConfigured: boolean;     // 서버에 DISCORD_WEBHOOK_URL이 있는지 (없으면 Discord로는 아무것도 가지 않는다)
+                                  // 2026-10-08부터 늘 false — Discord 알림을 꺼 두었다 (docs/DECISIONS.md 24장. 테스트 알림은 "not_configured")
 }
 ```
 

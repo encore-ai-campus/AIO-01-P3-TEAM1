@@ -59,7 +59,7 @@ engine/paper_engine/   매매 엔진 (선별, AI 교차검증, 리스크 엔진,
 backend/               Django: config/(설정, engine.py 엔진 접점, api.py 공통), accounts/(로그인·프로필·팀 계정),
                        trading/(팀원별 계좌·주문·시세·랭킹·run_engine), analysis/(AI 분석 색인·작업),
                        reports/(AI 리포트: YAML Registry·Shared State·Trace·SSE·A4 PDF, orchestrator·guards·runner, agents/ Worker 11개, 선정 Guard·하루 파이프라인(auto, AUTO_REPORT)),
-                       autotrade/(AI 추천·리스크 미리 보기·계획 활성화·자동매매 진행), notifications/(웹 알림·Discord Webhook 보낼 편지함),
+                       autotrade/(AI 추천·리스크 미리 보기·계획 활성화·자동매매 진행), notifications/(웹 알림·Discord Webhook 보낼 편지함 — Discord 발송은 2026-10-08부터 꺼 둠, `docs/DECISIONS.md` 24장),
                        longterm/(장기투자: 오늘의 내 종목 뉴스·산 이유와 펀더멘털 점검).
                        accounts/에 투자자 프로필·주린이모드, reports/에 리포트 끝 알림(alerts)·하루 한도(quota). 테스트는 backend/<앱>/tests/
 frontend/              React + TypeScript + Vite + Tailwind CSS (하단 탭 홈·종목·리포트·모의투자·마이, 주린이모드 쉬운 보기, AI 교차검증 분석, 랭킹,

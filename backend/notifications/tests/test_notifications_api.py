@@ -88,7 +88,8 @@ def test_settings_default_and_webhook_flag(client, config):
         "discordUserId": None, "discordEnabled": True, "webhookConfigured": False}
     config("https://discord.com/api/webhooks/1/" + SECRET)
     response = client.get("/api/notification-settings")
-    assert response.json()["webhookConfigured"] is True and SECRET not in response.content.decode()
+    # Discord 알림을 끈 동안(DECISIONS 24장)은 Webhook이 있어도 false — 화면이 Discord 묶음을 접는다 (켜면 True)
+    assert response.json()["webhookConfigured"] is False and SECRET not in response.content.decode()
 
 
 def test_settings_patch_validates_discord_user_id(client, alice):
@@ -148,11 +149,14 @@ def test_settings_test_endpoint_is_limited_per_user(client, alice, bob):
     assert post(client, "/api/notification-settings/test").status_code == 202
 
 
-def test_settings_test_endpoint_uses_openclaw(client, monkeypatch):
+def test_settings_test_endpoint_not_configured_while_discord_disabled(client, monkeypatch):
+    """Discord 알림을 끈 동안(DECISIONS 24장)은 openclaw·Webhook 설정이 있어도 "not_configured" — 웹 알림만 남는다.
+    켜면 예전 기대값: openclaw만 있으면 "queued", 편지함은 pending."""
     from paper_engine.config import Config
 
     from config import engine
-    monkeypatch.setattr(engine, "engine_config", lambda: Config(None, None, None, openclaw_target="channel:1"))
+    monkeypatch.setattr(engine, "engine_config", lambda: Config(None, None, None, openclaw_target="channel:1",
+                                                                  discord_webhook_url="https://discord.com/api/webhooks/1/x"))
     response = post(client, "/api/notification-settings/test")
-    assert response.json()["discord"] == "queued" and OutboxMessage.objects.get().status == "pending"
-    assert client.get("/api/notification-settings").json()["webhookConfigured"] is False  # 뜻은 그대로 (Webhook 여부)
+    assert response.json()["discord"] == "not_configured" and not OutboxMessage.objects.exists()
+    assert client.get("/api/notification-settings").json()["webhookConfigured"] is False
