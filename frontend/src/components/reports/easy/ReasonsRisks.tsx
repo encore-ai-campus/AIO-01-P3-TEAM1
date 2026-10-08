@@ -3,9 +3,10 @@
 // "틀리는 경우": 손절 가격 조건은 코드가 만든 손절 문장이 맡고(화면 숫자는 코드가 만든다), AI 문장이 그 손절 가격만 말하면 숨기고
 // 앞에 그 가격 조건이 붙어 있으면 떼어 다른 조건만 보인다 — 같은 뜻을 두 번 말하지 않게. 손절 가격과 다른 금액(환율·매출·다른 가격)은
 // 다른 조건이라 원문 그대로 보인다. 긍정적이 아닌 의견에는 손절 가격이 없으므로 '손절'이 든 위험을 옮기지 않는다.
+// 쉬운 PDF(backend/reports/easy_text.py·pdf.py 쉬운 판)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
 import type { Currency, ReportOpinion } from "../../../api/types";
 import { formatPrice } from "../../../lib/format";
-import { type DraftView, priceOnlyRisk, splitSource, validTargets, whenWrongOf, withoutPriceClause } from "../../../lib/reports";
+import { type DraftView, type ReportTargets, priceOnlyRisk, splitSource, validTargets, whenWrongOf, withoutPriceClause } from "../../../lib/reports";
 import { Term } from "../../Term";
 import { Card } from "../../ui";
 
@@ -29,9 +30,24 @@ function Lines({ label, lines, tone }: { label: string; lines: string[]; tone: "
   );
 }
 
-export function ReasonsRisks({ draft, opinion, currency }: { draft: DraftView; opinion: ReportOpinion | null; currency: Currency }) {
+/**
+ * targets: 손절 문장·가격 판단에 쓸 가격 (주지 않으면 draft.targets). 쉬운 보기는 매매 계획·세 가지 경우·차트와 같은 값
+ * (추천 가격, 없으면 호가 단위로 내린 제안값 — lib/reports.ts floorTargets)을 넘긴다 — 한 화면에 손절 가격이 둘이 되지 않게.
+ */
+export function ReasonsRisks({
+  draft,
+  opinion,
+  currency,
+  targets,
+}: {
+  draft: DraftView;
+  opinion: ReportOpinion | null;
+  currency: Currency;
+  targets?: ReportTargets;
+}) {
   const { risk, others } = whenWrongOf(draft, opinion);
-  const stopLine = opinion === "buy" && validTargets(draft.targets) ? draft.targets.stop : null;
+  const prices = targets ?? draft.targets;
+  const stopLine = opinion === "buy" && validTargets(prices) ? prices.stop : null;
   const riskText = risk === null ? null : splitSource(risk).text;
   // 손절 문장이 있으면 그 손절 가격만 말하는 AI 문장은 같은 뜻이라 숨긴다 (다른 금액·다른 조건이면 그대로 — 위험 목록에서 이미 옮겨 왔으므로 지우지 않는다)
   const wrong = riskText !== null && !(stopLine !== null && priceOnlyRisk(riskText, stopLine, currency)) ? riskText : null;

@@ -14,6 +14,7 @@ SCORE_RUBRIC = """점수 기준 (0~100, 이 매매를 실행할 가치):
 
 DATA_GUIDE = """종목 데이터 읽는 법:
 - 지표(indicators)와 recentCandles는 정규장이 끝난 일봉 기준이고, lastPrice만 실시간 값이다.
+- stopRule.price는 코드가 정한 손절가다 (stopRule.rule이 정하는 법). 시나리오의 stopPrice는 늘 이 값이다.
 - fundamentals(재무)와 disclosures(공시 제목)는 국내는 DART, 미국은 SEC 자료다. 없는 종목도 있다.
 - fundamentals의 ttm은 최근 12개월 실적, perShare는 공시된 주당 값, ratios는 이미 계산된 값이다.
   금액 단위는 fundamentals.currency이고 비율은 소수다 (0.26은 26%).

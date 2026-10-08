@@ -452,14 +452,15 @@ class DartClient:
         result["report"] = report_info(latest, interim or annual)
         return result
 
-    def disclosures(self, symbol: str, today: date, days: int = 30) -> dict | None:
+    def disclosures(self, symbol: str, today: date, days: int = 30, limit: int = 15) -> dict | None:
+        """최근 days일 공시 (최신순, 내부자 지분 보고 뺀 limit개 — summarize_disclosures). 고유번호가 없으면 None."""
         corp_code = self.corp_code(symbol)
         if not corp_code:
             return None
         rows = self._get_json("list.json", {
             "corp_code": corp_code, "bgn_de": f"{today - timedelta(days=days):%Y%m%d}",
             "end_de": f"{today:%Y%m%d}", "page_count": 100})
-        return summarize_disclosures(rows)
+        return summarize_disclosures(rows, limit=limit)
 
     def periodic_filings(self, day: date) -> list[dict]:
         """그날(day) 접수된 정기공시(사업·반기·분기보고서, pblntf_ty=A) 전체를 마지막 쪽까지 (summarize_filings 형식).

@@ -73,7 +73,8 @@ def test_each_contract_accepts_valid_output(name, value):
 
 
 def test_names_and_descriptions_cover_all_contracts():
-    assert set(NAMES) == {"MarketResult", "FundamentalResult", "NewsResult", "ReportDraft", "ReviewResult", "RiskResult"}
+    assert set(NAMES) == {"MarketResult", "FundamentalResult", "NewsResult", "ReportDraft", "ReviewResult", "RiskResult",
+                          "CandidateNewsResult", "FilingCheckResult", "FlowResult", "SelectionDraft"}
     assert all(describe(name) for name in NAMES)
     assert "positive/negative/neutral" in describe("FundamentalResult")
     assert "1~20" in describe("ReportDraft") and "0~1" in describe("ReportDraft")

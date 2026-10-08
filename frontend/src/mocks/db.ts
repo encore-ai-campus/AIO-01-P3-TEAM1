@@ -43,7 +43,9 @@ import type {
   ChaosRequest,
   ReportDetail,
   ReportSummary,
+  ReportTeam,
   Reservation,
+  ScreeningResult,
   StockDetail,
   StockItem,
 } from "../api/types";
@@ -63,7 +65,8 @@ import {
 } from "./clock";
 import { answersError, assess, cleanAnswers } from "./investor";
 import { FUNDAMENTALS_CAPTION, FUNDAMENTALS_SOURCE, dailyMoveOf, judgeRows, metricsOf, overallOf } from "./longterm";
-import { finishSample, sampleTargets, type SampleKind } from "./sampleReports";
+import { sampleScreening } from "../lib/reportSamples";
+import { finishSample, sampleTargets, selectionSample, type SampleKind } from "./sampleReports";
 import {
   type MockStock,
   type MockUser,
@@ -219,7 +222,10 @@ function freshState(): State {
   seedReports();
   seedAutotrade();
   seedTheses();
-  if (options.sampleReports) addSampleReports();
+  if (options.sampleReports) {
+    addSampleReports();
+    addSampleSelection();
+  }
   return state;
 }
 
@@ -1045,11 +1051,15 @@ function conclusionOf(r: ReportDetail): Pick<ReportSummary, "opinion" | "oneLine
   };
 }
 
+const teamOf = (r: Pick<ReportSummary, "team">): ReportTeam => r.team ?? "stock_report";
+const TEAMS: readonly string[] = ["stock_report", "stock_selection"];
+
 function toReportSummary(r: MockReport): ReportSummary {
   const { id, symbol, name, market, status, currentStep, requestedBy, createdAt, startedAt, finishedAt } = r;
   const { source, chaosEnabled, costUsd, hasPdf } = r;
   return {
     id,
+    team: teamOf(r),
     symbol,
     name,
     market,
@@ -1067,11 +1077,16 @@ function toReportSummary(r: MockReport): ReportSummary {
   };
 }
 
+/** 리포트 목록. team이 없으면 종목 리포트만 (서버와 같다 — 선정 실행은 ?team=stock_selection일 때만). 모르는 team·source는 400. */
 export function listReports(
   symbol: string | null,
-  q: { source?: string | null; mineUserId?: number | null } = {},
+  q: { source?: string | null; mineUserId?: number | null; team?: string | null } = {},
 ): ReportSummary[] {
+  const team = q.team || "stock_report";
+  if (!TEAMS.includes(team)) throw new MockError(400, "team은 stock_report 또는 stock_selection이어야 합니다.");
+  if (q.source && q.source !== "user" && q.source !== "auto") throw new MockError(400, "source는 user 또는 auto여야 합니다.");
   return state.reports
+    .filter((r) => teamOf(r) === team)
     .filter((r) => !symbol || r.symbol === symbol.toUpperCase())
     .filter((r) => !q.source || (r.source ?? "user") === q.source)
     .filter((r) => !q.mineUserId || (r.userId === q.mineUserId && (r.source ?? "user") === "user"))
@@ -1106,6 +1121,7 @@ function newReport(id: number, user: MockUser, s: MockStock, createdAt: string, 
     status: "requested",
     currentStep: null,
     requestedBy: user.nickname,
+    team: "stock_report",
     source: "user",
     chaosEnabled: filled !== null,
     costUsd: null,
@@ -1164,12 +1180,12 @@ export function requestReport(user: MockUser, symbol: string, chaos?: ChaosReque
 }
 
 // ---------------------------------------------------------------- AI 추천 · 매매 계획 · 자동매매 · 알림
-// 리스크 엔진(judge/risk.py)의 계산을 단순하게 흉내 낸다: 건당 위험 1%, 최소 손익비 2.0, 매수 가능 금액, 총 금액 한도, 예산.
+// 리스크 엔진(judge/risk.py)의 계산을 단순하게 흉내 낸다: 건당 위험 1%, 최소 손익비 1.5(스윙), 매수 가능 금액, 총 금액 한도, 예산.
 // 가격은 장마감 기준(종가), 활성화는 정규장이면 장중 확인 가격으로 한 번 더 본다.
 // 계획은 시연용으로 시간이 지나면 저절로 진행한다 (주문 접수 → planStepMs 뒤 진입가 체결 → planStepMs 뒤 목표가 청산).
 
 const RISK_PER_TRADE = 0.01;
-const MIN_REWARD_RISK = 2.0;
+const MIN_REWARD_RISK = 1.5;
 const STOP_SLIPPAGE = 0.01;
 const DEMO_PER_USER = 5;
 const DEMO_SYMBOLS = ["035420", "005380", "068270", "105560", "035720"];
@@ -1987,6 +2003,21 @@ export function addSampleReports() {
       validUntil: kstIso(new Date(Date.now() + 3 * 86_400_000)),
     }),
   );
+}
+
+/** 끝난 예시 선정 실행 하나 (자동, 오늘 08:00쯤). 오늘의 선별(screening)이 이 실행 번호로 'AI 선정 과정 보기'를 잇는다. */
+export function addSampleSelection(): number {
+  // 오늘 08:00 (그 전이면 1분 전)
+  const at = kstIso(new Date(Math.min(kstDayStartMs(kstDay()) + 8 * 3_600_000, Date.now() - 60_000)));
+  const r: MockReport = { ...selectionSample(nextId(), at), userId: 0 };
+  state.reports.push(r);
+  return r.id;
+}
+
+/** 오늘의 선별 (AI 선정 예시). 끝난 선정 실행이 있으면 그 번호를 잇는다 (없으면 null — 과정 보기 링크가 없다). */
+export function screening(): ScreeningResult {
+  const run = [...state.reports].reverse().find((r) => teamOf(r) === "stock_selection" && r.status === "completed");
+  return { ...sampleScreening(), selection: { reportId: run?.id ?? null, status: "done" } };
 }
 
 /** 추천 4개(리포트·분석·시연, 하나는 만료)와 앨리스의 끝난 계획 하나, 알림 몇 개. */

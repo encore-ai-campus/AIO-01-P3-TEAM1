@@ -12,9 +12,9 @@ import {
   FAILURE_NEXT,
   FAILURE_NEXT_FALLBACK,
   PROGRESS_STATE_TEXT,
-  PROGRESS_STEPS,
   type ProgressState,
   progressOf,
+  progressStepsOf,
   stoppedStepIndex,
 } from "../../../lib/reports";
 import { Icon, type IconName } from "../../Icon";
@@ -54,8 +54,9 @@ function rowLook(state: ProgressState, here: boolean): RowLook {
 
 /** 다섯 단계 중 멈춘 곳(강조)과, 단계마다 실제로 끝났는지·못 했는지·건너뛰었는지·하지 않았는지. */
 function StoppedSteps({ r, reason }: { r: ReportDetail; reason: string | null }) {
-  const steps = progressOf(r.trace);
-  const stop = stoppedStepIndex(steps, reason);
+  const defs = progressStepsOf(r.team);
+  const steps = progressOf(r.trace, r.team);
+  const stop = stoppedStepIndex(steps, reason, r.trace);
   return (
     // aria-label이 진행 화면의 '진행 단계'와 다르다 (같은 화면에 둘이 함께 있지 않지만 이름으로 구별되게)
     <ol aria-label="멈춘 단계" className="space-y-1.5">
@@ -72,7 +73,7 @@ function StoppedSteps({ r, reason }: { r: ReportDetail; reason: string | null })
             <span className={cn("grid size-6 shrink-0 place-items-center rounded-full", look.dot)}>
               <Icon name={look.icon} className="size-3.5" />
             </span>
-            <span className={cn("min-w-0 flex-1 text-[14px] font-semibold", look.dim && "text-mute")}>{PROGRESS_STEPS[i].noun}</span>
+            <span className={cn("min-w-0 flex-1 text-[14px] font-semibold", look.dim && "text-mute")}>{defs[i].noun}</span>
             <span className={cn("shrink-0 text-[13px] font-semibold", look.tone)}>{look.text}</span>
           </li>
         );

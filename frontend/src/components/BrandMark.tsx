@@ -1,4 +1,4 @@
-// 종이배 로고 (docs/DECISIONS.md 15-7): brand 둥근 타일 + 흰 종이배 정면 실루엣. 원본은 브랜드 작업의 mark-tile-vars.svg (viewBox 32, 모서리 rx 8 = 25%).
+// 모매매 로고 (docs/DECISIONS.md 15-7 — 이름은 18장에서 바뀌고 모양은 그대로): brand 둥근 타일 + 흰 종이배 정면 실루엣. 원본은 브랜드 작업의 mark-tile-vars.svg (viewBox 32, 모서리 rx 8 = 25%).
 // 색은 토큰만: 타일 --color-brand(다크에서 저절로 밝은 파랑), 배 --color-on-brand(두 테마 모두 흰색). fill-* 유틸로 칠한다.
 // 크기 단계: 48px 이상에서만 돛에 접힌 선(종이를 접은 자국)을 그린다 — 더 작으면 1배율에서 얼룩이 된다. 16px 파비콘은 public/favicon.svg(전용 모양).
 // 하지 않는 것: 늘이기·돌리기·기울이기, 그림자·그라데이션, 물결·화살표 덧그리기, 노란색 배.

@@ -18,9 +18,16 @@ CFG = Config("id", "secret", None, analysts=parse_analysts("mid-a:medium,mid-b:m
              researchers=("web-a", "web-b"), approver="boss")
 
 
+def candles(*lows):
+    return [{"date": f"2026-09-{20 + i}", "open": 100_000.0, "high": 101_000.0, "low": low, "close": 100_000.0,
+             "volume": 1_000.0} for i, low in enumerate(lows)]
+
+
 def snapshot():
+    # 코드 손절가: 최근 저점 97,000 − ATR 4,000 × 0.5 = 95,000 (현재가 − ATR 1~2배 = 92,000~96,000 안)
     return {"symbol": "005930", "name": "삼성전자", "market": "KOSPI", "currency": "KRW",
-            "lastPrice": 100_000.0, "indicators": {"rsi14": 54.21}, "warnings": [], "news": []}
+            "lastPrice": 100_000.0, "indicators": {"rsi14": 54.21, "atr14": 4_000.0},
+            "recentCandles": candles(98_000.0, 97_000.0, 99_000.0), "warnings": [], "news": []}
 
 
 def raw_scenario(**kw):
@@ -315,11 +322,38 @@ def test_prompts_are_swing_only():
         assert "손익비" not in system  # 리스크 엔진의 최소 손익비는 알려주지 않는다
 
 
-@pytest.mark.parametrize("change", [{"stopPrice": 101_000}, {"score": None}, {"horizon": "WEEKLY"}])
+@pytest.mark.parametrize("change", [{"targetPrice": 99_000}, {"score": None}, {"horizon": "WEEKLY"}])
 def test_invalid_scenario_shape_is_rejected(change):
     llm = FakeLlm({"mid-a": [raw_scenario(**change)]}, {}, APPROVE)
     (c,) = run(llm).candidates
     assert c.scenario is None and c.fact_errors
+
+
+def test_code_stop_replaces_proposed_stop():
+    llm = FakeLlm({"mid-a": [raw_scenario(stopPrice=50_000)]},
+                  {"mid-b": review(70, 0.5), "small": review(40, 0.3)}, APPROVE)
+    (c,) = run(llm).candidates
+    assert c.scenario.stop_price == 95_000 and c.raw["stopPrice"] == 95_000
+    # 제안 AI는 손절가를 미리 받고, 검증 AI는 바뀐 손절가를 본다
+    propose_context = next(u for r, _, u in llm.calls if r == "propose")
+    assert '"stopRule": {"price": 95000.0, "basis": "lastPrice"' in propose_context
+    assert all('"stopPrice": 95000' in u for r, _, u in llm.calls if r == "review")
+
+
+def test_entry_at_or_below_code_stop_is_rejected():
+    # 저점 99,500 − 1,000 = 98,500 → 현재가 − ATR 2,000 = 98,000으로 맞춤. 진입가 97,000은 손절가 아래
+    near = {**snapshot(), "indicators": {"rsi14": 54.21, "atr14": 2_000.0}, "recentCandles": candles(99_500.0)}
+    llm = FakeLlm({"mid-a": [raw_scenario(entryPrice=97_000)]}, {}, APPROVE)
+    (c,) = analyze(llm, CFG, near, ACCOUNT, TODAY).candidates
+    assert c.fact_errors == ["진입가 97000가 코드가 정한 손절가 98000 이하"]
+
+
+@pytest.mark.parametrize("change", [{"indicators": {"rsi14": 54.21}}, {"recentCandles": []}])
+def test_no_stop_without_candles_or_atr(change):
+    llm = FakeLlm({"mid-a": [raw_scenario()]}, {}, APPROVE)
+    (c,) = analyze(llm, CFG, {**snapshot(), **change}, ACCOUNT, TODAY).candidates
+    assert c.scenario is None and c.fact_errors == ["손절가를 정할 자료(완성 일봉·ATR14)가 모자람"]
+    assert llm.count("review") == 0
 
 
 def test_risk_engine_failure_blocks_approval():

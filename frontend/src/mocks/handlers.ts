@@ -3,8 +3,8 @@
 import { delay, http, HttpResponse, type DefaultBodyType, type StrictRequest } from "msw";
 import type { ChaosRequest, OrderRequest } from "../api/types";
 import * as db from "./db";
-import { sampleRecoveryStats, sampleScreening } from "../lib/reportSamples";
-import { reportPlan, type MockUser } from "./seed";
+import { sampleRecoveryStats } from "../lib/reportSamples";
+import { reportPlan, selectionPlan, type MockUser } from "./seed";
 
 const CSRF = "mock-csrf-token";
 
@@ -213,7 +213,12 @@ export const handlers = [
   // AI 리포트 (SSE는 흉내 내지 않는다: 가짜 리포트는 모두 실행 전이라 화면이 SSE를 열지 않는다)
   http.get(
     "*/api/reports/plan",
-    route(() => reportPlan()),
+    route((_u, ctx) => {
+      const team = urlOf(ctx).searchParams.get("team") || "stock_report";
+      if (team === "stock_report") return reportPlan();
+      if (team === "stock_selection") return selectionPlan();
+      throw new db.MockError(400, "team은 stock_report 또는 stock_selection이어야 합니다.");
+    }),
   ),
   http.get(
     "*/api/reports/recovery-stats",
@@ -221,7 +226,7 @@ export const handlers = [
   ),
   http.get(
     "*/api/reports/screening",
-    route(() => sampleScreening()),
+    route(() => db.screening()),
   ),
   http.get(
     "*/api/reports/quota",
@@ -233,7 +238,7 @@ export const handlers = [
       const sp = urlOf(ctx).searchParams;
       return page(
         urlOf(ctx),
-        db.listReports(sp.get("symbol"), { source: sp.get("source"), mineUserId: sp.get("mine") === "1" ? u.id : null }),
+        db.listReports(sp.get("symbol"), { source: sp.get("source"), team: sp.get("team"), mineUserId: sp.get("mine") === "1" ? u.id : null }),
       );
     }),
   ),

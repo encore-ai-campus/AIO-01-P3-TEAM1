@@ -21,6 +21,14 @@ MIN_HOLDING_DAYS = 1
 MAX_HOLDING_DAYS = 20
 OPINIONS = ("buy", "hold", "avoid")
 RISK_LEVELS = ("low", "medium", "high")
+# 매매 종목 선정 팀 (docs/AI_AGENT_WORKFLOW.md 2장)
+SENTIMENTS = ("positive", "negative", "neutral")
+FILING_SEVERITIES = ("none", "low", "high")
+FLOW_SIGNALS = ("accumulating", "mixed", "distributing")
+MAX_CANDIDATES = 40   # 선정 팀 조사 결과의 항목 상한 (규칙 후보는 30개)
+MAX_SELECTION = 5     # selector_agent가 내는 순위 수 상한
+SYMBOL_MAX = 20
+THEME_MAX = 30
 
 
 def _error(path: str, message: str) -> ContractError:
@@ -139,6 +147,7 @@ def _market(data: dict[str, Any]) -> dict[str, Any]:
         "volumeRank": _integer(_required(data, "volumeRank"), "volumeRank", nullable=True),
         "support": _number(_required(data, "support"), "support", nullable=True),
         "resistance": _number(_required(data, "resistance"), "resistance", nullable=True),
+        "stop": _number(data.get("stop"), "stop", nullable=True),  # 코드가 정한 손절 가격 (LLM은 쓰지 않아도 된다)
         "signals": _strings(_required(data, "signals"), "signals", maximum=5),
         "evidence": _strings(_required(data, "evidence"), "evidence", maximum=8),
     }
@@ -265,6 +274,100 @@ def _risk(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _symbol(data: dict[str, Any], path: str) -> str:
+    return _required_string(_required(data, "symbol", path), f"{path}.symbol", limit=SYMBOL_MAX)
+
+
+def _unique_symbols(items: list[dict[str, Any]], path: str) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    for index, item in enumerate(items):
+        if item["symbol"] in seen:
+            raise _error(f"{path}[{index}].symbol", f"가 중복됐습니다: {item['symbol']}")
+        seen.add(item["symbol"])
+    return items
+
+
+def _candidate_news_item(data: dict[str, Any], path: str) -> dict[str, Any]:
+    return {
+        "symbol": _symbol(data, path),
+        "sentiment": _enum(_required(data, "sentiment", path), f"{path}.sentiment", SENTIMENTS),
+        "materials": _strings(_required(data, "materials", path), f"{path}.materials", maximum=MAX_ITEMS),
+        "concerns": _strings(_required(data, "concerns", path), f"{path}.concerns", maximum=MAX_ITEMS),
+        "theme": _theme(_required(data, "theme", path), f"{path}.theme"),
+        "evidence": _strings(_required(data, "evidence", path), f"{path}.evidence", maximum=MAX_ITEMS),
+    }
+
+
+def _theme(value: Any, path: str) -> str | None:
+    theme = _string(value, path, limit=THEME_MAX, nullable=True)
+    return (theme or "").strip() or None
+
+
+def _candidate_news(data: dict[str, Any]) -> dict[str, Any]:
+    items = _records(_required(data, "items"), "items", maximum=MAX_CANDIDATES, validator=_candidate_news_item)
+    return {
+        "summary": _required_string(_required(data, "summary"), "summary", limit=SUMMARY_MAX),
+        "items": _unique_symbols(items, "items"),
+    }
+
+
+def _filing_check_item(data: dict[str, Any], path: str) -> dict[str, Any]:
+    return {
+        "symbol": _symbol(data, path),
+        "severity": _enum(_required(data, "severity", path), f"{path}.severity", FILING_SEVERITIES),
+        "signals": _strings(_required(data, "signals", path), f"{path}.signals", maximum=MAX_ITEMS),
+        "evidence": _strings(_required(data, "evidence", path), f"{path}.evidence", maximum=MAX_ITEMS),
+    }
+
+
+def _filing_check(data: dict[str, Any]) -> dict[str, Any]:
+    items = _records(_required(data, "items"), "items", maximum=MAX_CANDIDATES, validator=_filing_check_item)
+    return {
+        "summary": _required_string(_required(data, "summary"), "summary", limit=SUMMARY_MAX),
+        "items": _unique_symbols(items, "items"),
+    }
+
+
+def _flow_item(data: dict[str, Any], path: str) -> dict[str, Any]:
+    return {
+        "symbol": _symbol(data, path),
+        "signal": _enum(_required(data, "signal", path), f"{path}.signal", FLOW_SIGNALS),
+        "note": _string(_required(data, "note", path), f"{path}.note", nullable=True),
+    }
+
+
+def _flow(data: dict[str, Any]) -> dict[str, Any]:
+    items = _records(_required(data, "items"), "items", maximum=MAX_CANDIDATES, validator=_flow_item)
+    return {
+        "summary": _required_string(_required(data, "summary"), "summary", limit=SUMMARY_MAX),
+        "items": _unique_symbols(items, "items"),
+    }
+
+
+def _selection_pick(data: dict[str, Any], path: str) -> dict[str, Any]:
+    return {
+        "symbol": _symbol(data, path),
+        "rank": _integer(_required(data, "rank", path), f"{path}.rank", minimum=1, maximum=MAX_SELECTION),
+        "reason": _required_string(_required(data, "reason", path), f"{path}.reason"),
+        "evidence": _strings(_required(data, "evidence", path), f"{path}.evidence", maximum=MAX_ITEMS),
+    }
+
+
+def _selection(data: dict[str, Any]) -> dict[str, Any]:
+    """선정안: 순위 1~5개와 근거. 가격은 받지 않는다 (진입·목표·손절은 종목 리포트가 정한다)."""
+    picks = _records(_required(data, "picks"), "picks", maximum=MAX_SELECTION, validator=_selection_pick)
+    if not picks:
+        raise _error("picks", "는 항목이 1개 이상이어야 합니다.")
+    _unique_symbols(picks, "picks")
+    ranks = [pick["rank"] for pick in picks]
+    if len(set(ranks)) != len(ranks):
+        raise _error("picks", f"의 rank가 중복됐습니다: {ranks}")
+    return {
+        "summary": _required_string(_required(data, "summary"), "summary", limit=SUMMARY_MAX),
+        "picks": sorted(picks, key=lambda pick: pick["rank"]),
+    }
+
+
 _VALIDATORS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "MarketResult": _market,
     "FundamentalResult": _fundamental,
@@ -272,58 +375,38 @@ _VALIDATORS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "ReportDraft": _report,
     "ReviewResult": _review,
     "RiskResult": _risk,
+    "CandidateNewsResult": _candidate_news,
+    "FilingCheckResult": _filing_check,
+    "FlowResult": _flow,
+    "SelectionDraft": _selection,
 }
 
 NAMES = tuple(_VALIDATORS)
 
-_CONTRACT_FIELDS = {
-    "MarketResult": (
-        ("trend", "up/down/sideways 중 하나"), ("summary", "문자열"),
-        ("price", "키 필수, 숫자 또는 null"), ("changePct", "키 필수, 숫자 또는 null"),
-        ("asOf", "ISO 문자열 또는 null, 생략하면 null"), ("rsi", "키 필수, 숫자 또는 null"),
-        ("volatilityPct", "키 필수, 숫자 또는 null"), ("volumeRank", "정수 또는 null"),
-        ("support", "키 필수, 숫자 또는 null"), ("resistance", "키 필수, 숫자 또는 null"),
-        ("signals", "문자열 목록, 최대 5개"), ("evidence", "문자열 목록, 최대 8개"),
-    ),
-    "FundamentalResult": (
-        ("summary", "문자열"),
-        ("metrics", "null 또는 per/pbr/roe/revenueGrowthPct/opMarginPct 객체, 각 값은 숫자 또는 null"),
-        ("recentFilings", "date/title/impact 객체 목록, 최대 5개"),
-        ("recentFilings[].impact", "positive/negative/neutral 중 하나"),
-        ("evidence", "문자열 목록, 최대 8개"),
-    ),
-    "NewsResult": (
-        ("sentiment", "positive/negative/neutral 중 하나"), ("score", "null 또는 -1~1"),
-        ("summary", "문자열"),
-        ("headlines", "date/title/source/impact 객체 목록, 최대 5개; date와 source는 null 가능"),
-        ("evidence", "문자열 목록, 최대 8개"),
-    ),
-    "ReportDraft": (
-        ("title", "문자열"), ("verdict", "buy/hold/avoid 중 하나"), ("oneLiner", "최대 80자"),
-        ("plainSummary", "1~3개 문자열, 항목당 100자, 숫자와 권유 표현 금지"), ("markdown", "문자열"),
-        ("reasons", "문자열 목록, 최대 3개"), ("risks", "문자열 목록, 최대 3개"),
-        ("targets.entry/target/stop", "키 필수, 숫자 또는 null"),
-        ("targets.holdingDays", "null 또는 1~20 정수"), ("targets.probability", "null 또는 0~1"),
-        ("confidence", "null 또는 0~100"), ("citations", "문자열 목록, 최대 10개"),
-    ),
-    "ReviewResult": (
-        ("verdict", "PASS/RETRY/FAIL 중 하나"), ("score", "null 또는 0~100"),
-        ("issues", "claim/problem/fix 객체 목록, 최대 10개"),
-        ("instructions", "문자열 또는 null, verdict가 RETRY이면 비어 있지 않은 문자열 필수"),
-        ("handoff", "null 또는 to=risk_agent와 reason 객체"),
-    ),
-    "RiskResult": (
-        ("level", "low/medium/high 중 하나"), ("flags", "문자열 목록, 최대 10개"),
-        ("warnings", "문자열 목록, 최대 5개"), ("summary", "문자열"),
-    ),
+_DESCRIPTIONS = {
+    "MarketResult": "trend(up/down/sideways), summary, price·changePct·asOf·rsi·volatilityPct·volumeRank·support·"
+                    "resistance(키 필수, 값 null 가능; volumeRank는 정수), signals(최대 5), evidence(최대 8)",
+    "FundamentalResult": "summary, metrics(null 가능 또는 per/pbr/roe/revenueGrowthPct/opMarginPct; 각 값 null 가능), "
+                         "recentFilings(date/title/impact[positive/negative/neutral]; 최대 5), evidence(최대 8)",
+    "NewsResult": "sentiment(positive/negative/neutral), score(null 또는 -1~1), summary, "
+                  "headlines(date[null 가능]/title/source[null 가능]/impact; 최대 5), evidence(최대 8)",
+    "ReportDraft": "title, verdict(buy/hold/avoid), oneLiner(80자), plainSummary(1~3개, 항목당 100자, 숫자 금지), "
+                   "markdown, reasons(최대 3), risks(최대 3), targets(entry/target/stop[null 가능], "
+                   "holdingDays[null 또는 1~20 정수], probability[null 또는 0~1]), confidence(null 또는 0~100), "
+                   "citations(최대 10)",
+    "ReviewResult": "verdict(PASS/RETRY/FAIL), score(null 또는 0~100), issues(claim/problem/fix; 최대 10), "
+                    "instructions(RETRY이면 필수), handoff(null 또는 risk_agent와 reason)",
+    "RiskResult": "level(low/medium/high), flags(최대 10), warnings(최대 5), summary",
+    "CandidateNewsResult": "summary, items(후보마다 하나, 최대 40; symbol, sentiment(positive/negative/neutral), "
+                           "materials(재료 최대 3), concerns(악재 최대 3), theme(짧은 테마 이름 또는 null), "
+                           "evidence(뉴스 제목·매체·날짜 최대 3)). symbol은 중복 없이",
+    "FilingCheckResult": "summary, items(후보마다 하나, 최대 40; symbol, severity(none/low/high), "
+                         "signals(위험 신호 최대 3), evidence(공시 제목·날짜 최대 3)). symbol은 중복 없이",
+    "FlowResult": "summary, items(후보마다 하나, 최대 40; symbol, signal(accumulating/mixed/distributing), "
+                  "note(한 줄 해석 또는 null)). symbol은 중복 없이",
+    "SelectionDraft": "summary, picks(1~5개; symbol, rank(1~5 정수, 중복 없이), reason(고른 이유), "
+                      "evidence(조사 결과에서 가져온 근거 최대 3)). 가격·목표가·손절가는 쓰지 않는다",
 }
-
-
-def _description(fields: tuple[tuple[str, str], ...]) -> str:
-    return "; ".join(f"{field}는 {rule}" for field, rule in fields)
-
-
-_DESCRIPTIONS = {name: _description(_CONTRACT_FIELDS[name]) for name in NAMES}
 
 
 def validate(name: str, data: Any) -> dict[str, Any]:

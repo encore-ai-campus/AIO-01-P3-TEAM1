@@ -78,8 +78,10 @@ def run(market_: str, top: int, now: datetime, log) -> int:
             continue
         ids.append(rec.id)
         log(f"[자동 추천] {rec.name}({rec.symbol}) → 시연 추천 #{rec.id}")
-    result["recommendationIds"] = [*(result.get("recommendationIds") or []), *ids]
-    screening.save(result)
+    with screening.locked():  # 자동 리포트(reports.auto)도 같은 파일을 고친다 — 최신 파일에 더한다
+        latest = screening.load(market_, day) or result
+        latest["recommendationIds"] = [*(latest.get("recommendationIds") or []), *ids]
+        screening.save(latest)
     _mark(market_, day, status="done", startedAt=now.isoformat(), recommendationIds=ids)
-    log(f"[자동 추천] {day} {market_} 선별 {len(result.get('picks') or [])}종목 → 시연 추천 {len(ids)}개")
+    log(f"[자동 추천] {day} {market_} 선별 {len(latest.get('picks') or [])}종목 → 시연 추천 {len(ids)}개")
     return len(ids)

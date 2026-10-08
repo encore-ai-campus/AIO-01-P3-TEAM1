@@ -31,7 +31,7 @@ from .models import Notification, NotificationSetting, OutboxMessage
 
 DEFAULT_PUBLIC_BASE_URL = "http://localhost:5173"
 DEFAULT_LINK_LABEL = "웹에서 보기"
-HEADER = "[종이배 · 모의투자]"  # Discord 글의 맨 앞: 서비스 이름(D-5, 2026-10-05 바뀜 — DECISIONS 15-7) + 실제 매매로 읽히지 않게
+HEADER = "[모매매 · 모의투자]"  # Discord 글의 맨 앞: 서비스 이름(D-5 → 15-7 → 2026-10-07 바뀜 — DECISIONS 18장) + 실제 매매로 읽히지 않게
 WEB_ONLY_KINDS = frozenset({"daily_move", "thesis_check"})  # Discord로 보내지 않는 kind
 TITLE_MAX_LEN = 200
 NO_WEBHOOK = "Discord 설정(DISCORD_WEBHOOK_URL·OPENCLAW_TARGET)이 없어 Discord로 보내지 않음"
@@ -168,7 +168,7 @@ def _enqueue(recipients: list, broadcast: bool, kind: str, title: str, body: str
              link_label: str | None, embed: dict | None, numbers: str | None = None) -> OutboxMessage | None:
     """Discord 메시지 하나를 편지함에 넣는다. 받는 사람이 모두 Discord를 껐으면 넣지 않는다.
 
-    글: "[종이배 · 모의투자] **제목**" → 받는 사람 멘션 줄 → 쉬운 본문 → 숫자 한 줄 → 링크 줄.
+    글: "[모매매 · 모의투자] **제목**" → 받는 사람 멘션 줄 → 쉬운 본문 → 숫자 한 줄 → 링크 줄.
     """
     settings = {s.user_id: s for s in NotificationSetting.objects.filter(user__in=[u.pk for u in recipients])}
     enabled = [u for u in recipients if u.pk not in settings or settings[u.pk].discord_enabled]

@@ -3,6 +3,7 @@
 출처마다 추천은 하나다. 판정이 buy/BUY이고 0 < 손절 < 진입 < 목표일 때만 만든다. 만들면 신청한 팀원(없으면 팀 전체)에게 알린다.
 priceAtCreation은 출처와 무관하게 만들 때의 직전 정규장 종가다 (장마감 기준, docs/DECISIONS.md 14-1).
 엔진 루프의 "추천 수집" 단계가 collect를 부른다 (끝난 리포트·분석을 추천으로, 기한 지난 추천을 만료로).
+리포트는 종목 리포트(team "stock_report")만 본다 — 매매 종목 선정 실행(stock_selection)에는 report_agent 결과가 없다.
 """
 import math
 from datetime import datetime, timedelta
@@ -123,8 +124,10 @@ def create(source: str, *, symbol: str, name: str, market_: str, entry, target, 
 # --- 출처별 ---
 
 def from_report(report: Report, now: datetime | None = None) -> Recommendation | None:
-    """끝난 리포트의 report_agent 결과(ReportDraft)가 buy이고 목표가가 맞으면 추천. 아니면(이미 있으면) None."""
-    if report.status != Report.COMPLETED or Recommendation.objects.filter(report=report).exists():
+    """끝난 종목 리포트의 report_agent 결과(ReportDraft)가 buy이고 목표가가 맞으면 추천. 아니면(이미 있으면·선정 실행이면) None."""
+    if report.status != Report.COMPLETED or report.team != Report.STOCK_REPORT:
+        return None
+    if Recommendation.objects.filter(report=report).exists():
         return None
     results = report.results if isinstance(report.results, dict) else {}
     draft = results.get("report_agent")
@@ -179,14 +182,14 @@ def expire(now: datetime) -> int:
 
 
 def collect(now: datetime, log) -> int:
-    """최근 7일 안에 끝난 리포트·최근 3일 BUY 분석 중 추천이 없는 것을 추천으로 만들고 기한 지난 추천을 만료한다.
+    """최근 7일 안에 끝난 종목 리포트·최근 3일 BUY 분석 중 추천이 없는 것을 추천으로 만들고 기한 지난 추천을 만료한다.
 
     만든 추천 수를 돌려준다. 한 건의 오류가 나머지를 막지 않는다.
     """
     made = 0
     since = now - REPORT_LOOKBACK
     reports = (Report.objects.filter(Q(finished_at__gte=since) | Q(finished_at__isnull=True, created_at__gte=since),
-                                     status=Report.COMPLETED, recommendations__isnull=True)
+                                     team=Report.STOCK_REPORT, status=Report.COMPLETED, recommendations__isnull=True)
                .select_related("user").order_by("id"))
     runs = AnalysisRun.objects.filter(verdict=AnalysisRun.BUY, analyzed_at__gte=now - ANALYSIS_LOOKBACK,
                                       recommendations__isnull=True).order_by("id")

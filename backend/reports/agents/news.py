@@ -1,158 +1,166 @@
-"""뉴스·증권사 리포트 헤드라인을 Guard로 정리하는 심리 Worker."""
+"""뉴스·심리 Worker `news_agent` (docs/tasks/02-worker.md T2-6).
 
-from __future__ import annotations
-
-import time
-from collections.abc import Callable
-from typing import Any
+자료: Google 뉴스 RSS 제목(`paper_engine.data.news.fetch_news`, 최근 7일)과 증권사 목표주가 헤드라인
+(`broker_reports.stock_reports`, 최근 30일). 키가 필요 없고, 받지 못하면 "자료 없음"으로 LLM을 그대로 부른다 (선택 Worker).
+제목·매체 이름은 모두 `guards.clean_text`를 거쳐 넣고, 지운 사유가 있으면 결과에 `_guarded`를 붙인다.
+headlines는 받은 제목에 있는 것만 남기고(날짜·매체·제목은 자료 값), 자료가 하나도 없으면 sentiment는 neutral·score는 null이다.
+"""
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from paper_engine.data import broker_reports
-from paper_engine.data.news import fetch_news
+from paper_engine.data.news import LOCALE, fetch_news
 
-from reports.contracts import validate
+from .. import healing
+from ..guards import clean_text, merge_reasons
+from .base import WorkerContext
+from .prompts import NO_DATA, system_prompt, user_prompt
 
-from .base import WorkerContext, WorkerError
-from .prompts import news_user_prompt, system_prompt
+KST = ZoneInfo("Asia/Seoul")
 
-NEWS_LIMIT = 15
-REPORT_LIMIT = 10
+NEWS_DAYS, NEWS_LIMIT = 7, 10
+REPORT_DAYS, REPORT_LIMIT = 30, 10
+TITLE_MAX = 300          # 제목·매체 이름 하나의 길이 상한
+MAX_HEADLINES = 5        # NewsResult.headlines 상한
+MAX_EVIDENCE = 8
+MIN_MATCH = 6            # 제목 일부로 맞출 때 짧은 쪽 제목의 최소 글자 수 (공백 뺀)
+FETCH_SEC = 15           # 뉴스 검색 한 번의 제한 시간 (엔진 fetch_news의 timeout)
+LLM_RESERVE_SEC = 100    # 단계 제한 시간 중 LLM 호출(재시도·대체 모델 포함)에 남겨 둘 시간
+NO_SOURCE = "이 시장은 뉴스 검색을 지원하지 않아요"
+NEWS_FAILED = "뉴스를 받지 못했어요"
+NO_NEWS = "최근 뉴스가 없어요"
+NO_REPORTS = "최근 증권사 목표주가 헤드라인이 없어요"
+TOO_SLOW = "시간이 모자라 뉴스를 받지 않았어요"
 
-
-def _deadline(ctx: WorkerContext) -> float:
-    remaining = ctx.deadline - time.monotonic()
-    if remaining <= 0:
-        raise WorkerError("뉴스·심리 분석 제한 시간을 넘었습니다.")
-    return remaining
-
-
-def _guard() -> Callable[[str], tuple[str, list[str]]]:
-    try:
-        from reports.guards import clean_text
-    except ImportError as exc:
-        raise WorkerError("입력 Guard가 준비되지 않아 외부 뉴스 자료를 사용할 수 없습니다.") from exc
-    return clean_text
-
-
-def _clean_item(
-    item: dict[str, Any], fields: tuple[str, ...], clean_text: Callable[[str], tuple[str, list[str]]], path: str,
-) -> tuple[dict[str, Any], list[str]]:
-    cleaned = dict(item)
-    guarded = []
-    for field in fields:
-        value = item.get(field)
-        if not isinstance(value, str):
-            continue
-        text, reasons = clean_text(value)
-        cleaned[field] = text
-        guarded.extend(f"{path}.{field}: {reason}" for reason in reasons)
-    return cleaned, guarded
+ROLE = ("너는 모의투자 서비스 '모매매'의 AI 리포트 팀에서 뉴스·심리를 맡은 조사 AI다. "
+        "최근 뉴스 제목과 증권사 목표주가 헤드라인으로 호재·악재와 시장 분위기를 정리한다.")
+RULES = """- 자료는 기사 제목뿐이다 (본문 없음). 제목에서 확인되는 것만 쓰고 기사 내용을 짐작하지 않는다.
+- headlines는 자료에 있는 제목만 최대 5개다. 제목·날짜·매체는 자료 그대로 옮기고, impact에는 호재·악재·중립과 짧은 이유를 쓴다.
+- sentiment는 전체 분위기(positive·negative·neutral), score는 -1(매우 부정)~1(매우 긍정)이다. 자료가 없으면 neutral·null.
+- 증권사 목표주가는 그 증권사의 의견일 뿐이다. 있으면 summary에 그렇게 밝힌다.
+- 매수·매도 의견은 내지 않는다 (의견은 작성 AI가 낸다).
+- evidence에는 근거가 된 기사 제목과 매체·날짜를 적는다."""
 
 
-def _collect(ctx: WorkerContext) -> tuple[dict[str, Any], list[str]]:
-    market = ctx.market.upper()
-    if market not in ("KR", "US"):
-        return {"availability": f"지원하지 않는 뉴스 시장입니다: {market}", "news": [], "brokerReports": []}, []
-
-    query = ctx.name if market == "KR" else f"{ctx.name} {ctx.symbol} stock"
-    errors = []
-    try:
-        news = fetch_news(query, market, limit=NEWS_LIMIT)
-    except Exception as exc:
-        news = []
-        errors.append(f"뉴스 조회 실패: {type(exc).__name__}")
-    _deadline(ctx)
-    reports = broker_reports.stock_reports(ctx.name, ctx.symbol, market, limit=REPORT_LIMIT)
-    _deadline(ctx)
-
-    if not news and not reports:
-        reason = "; ".join(errors) or "조회된 뉴스와 증권사 리포트가 없습니다."
-        return {"availability": reason, "news": [], "brokerReports": []}, []
-
-    clean_text = _guard()
-    cleaned_news, cleaned_reports, guarded = [], [], []
-    for index, item in enumerate(news):
-        cleaned, reasons = _clean_item(item, ("title", "source"), clean_text, f"news[{index}]")
-        if cleaned.get("title"):
-            cleaned_news.append(cleaned)
-        guarded.extend(reasons)
-    for index, item in enumerate(reports):
-        cleaned, reasons = _clean_item(
-            item, ("title", "source", "broker"), clean_text, f"brokerReports[{index}]",
-        )
-        if cleaned.get("title"):
-            cleaned_reports.append(cleaned)
-        guarded.extend(reasons)
-    return {
-        "availability": "; ".join(errors) or "자료 조회 완료",
-        "news": cleaned_news,
-        "brokerReports": cleaned_reports,
-    }, list(dict.fromkeys(guarded))
-
-
-def _source_headlines(materials: dict[str, Any]) -> list[dict[str, Any]]:
-    rows = []
-    for item in materials["news"][:5]:
-        published = item.get("publishedAt")
-        rows.append({
-            "date": str(published)[:10] if published else None,
-            "title": item["title"],
-            "source": item.get("source") or None,
-        })
-    return rows
-
-
-def _verified_headlines(llm_rows: Any, source_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    if not isinstance(llm_rows, list):
-        return []
-    allowed = {(row["date"], row["title"]): row for row in source_rows}
-    verified = []
-    for row in llm_rows:
-        if not isinstance(row, dict):
-            continue
-        source = allowed.get((row.get("date"), row.get("title")))
-        if source:
-            verified.append({**source, "impact": row.get("impact")})
-    return verified
-
-
-def _evidence(materials: dict[str, Any]) -> list[str]:
-    evidence = [
-        f"뉴스 {str(item.get('publishedAt') or '')[:10]} · {item['title']}"
-        + (f" · {item['source']}" if item.get("source") else "")
-        for item in materials["news"]
-    ]
-    evidence.extend(
-        f"증권사 리포트 {str(item.get('publishedAt') or '')[:10]} · {item['title']}"
-        for item in materials["brokerReports"]
-    )
-    if not evidence:
-        evidence.append(f"뉴스·증권사 리포트 자료 없음 ({materials['availability']})")
-    return evidence[:8]
-
-
-class NewsWorker:
+class NewsAgent:
     id = "news_agent"
     output_contract = "NewsResult"
 
     def run(self, ctx: WorkerContext) -> dict:
-        _deadline(ctx)
-        materials, guarded = _collect(ctx)
-        source_headlines = _source_headlines(materials)
-        reply = ctx.llm(
-            system_prompt(self.id),
-            news_user_prompt(symbol=ctx.symbol, name=ctx.name, market=ctx.market, data=materials),
-            contract=self.output_contract,
-            timeout=_deadline(ctx),
-        )
-        result = dict(reply.data)
-        result.update({
-            "headlines": _verified_headlines(result.get("headlines"), source_headlines),
-            "evidence": _evidence(materials),
+        data = gather(ctx)
+        prompt = user_prompt({
+            "종목": {"symbol": ctx.symbol, "name": ctx.name, "market": ctx.market},
+            f"뉴스 제목 (최근 {NEWS_DAYS}일, 최신순)": data["news"] or f"{NO_DATA} ({data['newsNote']})",
+            f"증권사 목표주가 헤드라인 (최근 {REPORT_DAYS}일)": data["reports"] or f"{NO_DATA} ({data['reportsNote']})",
         })
-        validated = validate(self.output_contract, result)
-        if guarded:
-            validated["_guarded"] = guarded
-        return validated
+        reply = ctx.llm(system_prompt(ROLE, self.output_contract, RULES), prompt, contract=self.output_contract)
+        return finish(reply.data, data)
 
 
-WORKER = NewsWorker()
+def gather(ctx: WorkerContext) -> dict:
+    """정리한 뉴스·헤드라인 목록과 없을 때의 이유, 거른 사유(guarded). 실패는 이유로만 남긴다."""
+    data = {"news": [], "reports": [], "newsNote": None, "reportsNote": None, "guarded": []}
+    reasons: list[list[str]] = []
+    if ctx.market not in LOCALE:
+        data["newsNote"] = data["reportsNote"] = NO_SOURCE
+        return data
+    if _time_left(ctx) - LLM_RESERVE_SEC < FETCH_SEC:
+        data["newsNote"] = data["reportsNote"] = TOO_SLOW
+        return data
+    try:
+        raw = fetch_news(f'"{ctx.name}"', ctx.market, days=NEWS_DAYS, limit=NEWS_LIMIT)
+    except Exception:  # 네트워크·RSS 오류. 뉴스는 선택 자료다
+        raw, data["newsNote"] = [], NEWS_FAILED
+    data["news"] = _clean([{"date": _day(h.get("publishedAt")), "source": h.get("source"), "title": h.get("title")}
+                           for h in raw], reasons)
+    data["newsNote"] = data["newsNote"] or (None if data["news"] else NO_NEWS)
+    if _time_left(ctx) - LLM_RESERVE_SEC < FETCH_SEC:
+        data["reportsNote"] = TOO_SLOW
+    else:  # stock_reports는 오류를 삼키고 []를 준다
+        found = broker_reports.stock_reports(ctx.name, ctx.symbol, ctx.market, days=REPORT_DAYS,
+                                             limit=REPORT_LIMIT, fetch=fetch_news)
+        data["reports"] = _clean([{"date": _day(h.get("publishedAt")), "source": h.get("source"),
+                                   "title": h.get("title"), "broker": h.get("broker"),
+                                   "targetPrice": h.get("targetPrice"), "direction": h.get("direction")}
+                                  for h in found], reasons)
+        data["reportsNote"] = None if data["reports"] else NO_REPORTS
+    data["guarded"] = merge_reasons(*reasons)
+    return data
+
+
+def finish(answer: dict, data: dict) -> dict:
+    """headlines를 받은 제목에 있는 것만으로(날짜·매체·제목은 자료 값), 자료가 없으면 neutral·null, evidence 앞에 출처."""
+    result = dict(answer)
+    known = data["news"] + data["reports"]
+    result["headlines"] = match_headlines(result.get("headlines") or [], known)
+    if not known:
+        result["sentiment"], result["score"] = "neutral", None
+    source = [f"뉴스 제목 {len(data['news'])}건 (Google 뉴스, 최근 {NEWS_DAYS}일)" if data["news"]
+              else f"뉴스 없음: {data['newsNote']}"]
+    if data["reports"]:
+        source.append(f"증권사 목표주가 헤드라인 {len(data['reports'])}건 (최근 {REPORT_DAYS}일)")
+    result["evidence"] = [*source, *[e for e in result.get("evidence") or [] if e not in source]][:MAX_EVIDENCE]
+    if data["guarded"]:
+        result["_guarded"] = data["guarded"]
+    return result
+
+
+def match_headlines(items: list[dict], known: list[dict]) -> list[dict]:
+    """LLM이 고른 헤드라인 중 자료에 있는 것만 (같은 제목, 또는 한쪽 제목이 다른 쪽을 품을 때). 날짜·매체·제목은 자료 값."""
+    out, used = [], set()
+    for item in items:
+        title = _squash(item.get("title"))
+        for index, row in enumerate(known):
+            row_title = _squash(row["title"])
+            if index not in used and title and (title == row_title or _contains(title, row_title)):
+                used.add(index)
+                out.append({"date": row["date"], "title": row["title"], "source": row["source"],
+                            "impact": item["impact"]})
+                break
+    return out[:MAX_HEADLINES]
+
+
+def _clean(rows: list[dict], reasons: list[list[str]]) -> list[dict]:
+    """제목·매체·증권사 이름을 clean_text로 거른다 (지운 사유는 reasons에). 제목이 비면 뺀다."""
+    out = []
+    for row in rows:
+        title, why = clean_text(row.get("title"), TITLE_MAX)
+        reasons.append(why)
+        if not title.strip():
+            continue
+        cleaned = {**row, "title": title.strip()}
+        for key in ("source", "broker"):
+            if key in row:
+                text, why = clean_text(row.get(key), TITLE_MAX)
+                reasons.append(why)
+                cleaned[key] = text.strip() or None
+        out.append(cleaned)
+    return out
+
+
+def _contains(a: str, b: str) -> bool:
+    short, long = sorted((a, b), key=len)
+    return len(short) >= MIN_MATCH and short in long
+
+
+def _time_left(ctx: WorkerContext) -> float:
+    return ctx.deadline - healing.clock()
+
+
+def _day(value) -> str | None:
+    return kst_day(value)
+
+
+def kst_day(value) -> str | None:
+    """기사 시각(ISO, RSS는 GMT) → KST 날짜 "YYYY-MM-DD". 한국 아침 9시 전 기사가 전날로 찍히지 않게. 시간대가 없으면 앞 10자."""
+    if not isinstance(value, str) or len(value) < 10:
+        return None
+    try:
+        moment = datetime.fromisoformat(value)
+    except ValueError:
+        return value[:10]
+    return moment.astimezone(KST).date().isoformat() if moment.tzinfo else value[:10]
+
+
+def _squash(text) -> str:
+    return "".join(str(text or "").split())

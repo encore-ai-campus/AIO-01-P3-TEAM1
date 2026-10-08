@@ -13,8 +13,18 @@ class Report(models.Model):
     STATUSES = [(s, s) for s in (REQUESTED, RUNNING, COMPLETED, FAILED)]
     ACTIVE, FINISHED = (REQUESTED, RUNNING), (COMPLETED, FAILED)
     MARKETS = [("KR", "KR"), ("US", "US")]
+    USER, AUTO = "user", "auto"
+    SOURCES = [(USER, USER), (AUTO, AUTO)]
+    # 어느 팀(team_definitions.yaml)이 실행하나: 종목 리포트 / 하루 한 번의 매매 종목 선정 (docs/AI_AGENT_WORKFLOW.md)
+    STOCK_REPORT, STOCK_SELECTION = "stock_report", "stock_selection"
+    TEAMS = [(STOCK_REPORT, STOCK_REPORT), (STOCK_SELECTION, STOCK_SELECTION)]
 
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="reports")
+    # 자동 리포트(source "auto")는 신청자가 없어 user가 null이다 (docs/tasks/00-공통.md 3절)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="reports",
+                             null=True, blank=True)
+    source = models.CharField(max_length=8, choices=SOURCES, default=USER, db_default=USER)  # 누가 만들었나
+    team = models.CharField(max_length=32, choices=TEAMS, default=STOCK_REPORT, db_default=STOCK_REPORT)
+    # 종목 리포트면 종목 코드. 선정 실행(team stock_selection)이면 시장 코드("KR")
     symbol = models.CharField(max_length=20)
     name = models.CharField(max_length=200)
     market = models.CharField(max_length=2, choices=MARKETS)
@@ -25,6 +35,9 @@ class Report(models.Model):
     completed_agents = models.JSONField(default=list, blank=True)
     failed_agents = models.JSONField(default=list, blank=True)
     content = models.TextField(null=True, blank=True)                      # 리포트 본문 (Markdown)
+    chaos = models.JSONField(null=True, blank=True)                        # 장애 주입 설정 (ChaosConfig). null이면 끄기
+    cost_usd = models.FloatField(default=0, db_default=0)                  # 이 리포트의 LLM 비용 합
+    pdf_path = models.CharField(max_length=500, null=True, blank=True)     # 만든 PDF 경로 (PAPER_ROOT 기준 상대 경로)
     created_at = models.DateTimeField(default=timezone.now)
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
@@ -32,7 +45,7 @@ class Report(models.Model):
     class Meta:
         db_table = "reports"
         indexes = [models.Index(fields=["created_at"]), models.Index(fields=["symbol", "created_at"]),
-                   models.Index(fields=["status", "created_at"])]
+                   models.Index(fields=["status", "created_at"]), models.Index(fields=["source", "created_at"]), models.Index(fields=["team", "created_at"])]
 
     def __str__(self) -> str:
         return f"#{self.id} {self.name}({self.symbol}) {self.status}"

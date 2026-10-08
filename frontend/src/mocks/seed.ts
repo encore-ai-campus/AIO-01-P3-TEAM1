@@ -234,16 +234,19 @@ export function makeAnalysis(
   };
 }
 
+const planWorker = (id: string, title: string, goal: string, outputContract: string) => ({
+  id,
+  title,
+  goal,
+  provider: null,
+  model: null,
+  fallbacks: [],
+  outputContract,
+});
+
 /** AI 리포트 실행 계획. 서버의 YAML Registry(backend/reports/*_definitions.yaml)와 같은 내용으로 맞춰 둔다. */
 export function reportPlan(): ExecutionPlan {
-  const worker = (id: string, title: string, goal: string, outputContract: string) => ({
-    id,
-    title,
-    goal,
-    provider: null,
-    model: null,
-    outputContract,
-  });
+  const worker = planWorker;
   return {
     team: "stock_report",
     title: "종목 리포트",
@@ -259,6 +262,7 @@ export function reportPlan(): ExecutionPlan {
         dependsOn: [],
         join: false,
         timeoutSec: 60,
+        retry: null,
       },
       {
         id: "compose",
@@ -270,6 +274,7 @@ export function reportPlan(): ExecutionPlan {
         dependsOn: ["parallel_research"],
         join: true,
         timeoutSec: 90,
+        retry: null,
       },
       {
         id: "review",
@@ -281,6 +286,7 @@ export function reportPlan(): ExecutionPlan {
         dependsOn: ["compose"],
         join: false,
         timeoutSec: 60,
+        retry: { target: "report_agent", maxRounds: 2 },
       },
     ],
     workers: [
@@ -299,6 +305,63 @@ export function reportPlan(): ExecutionPlan {
         maxHops: 1,
       },
     ],
+    implemented: false,
+  };
+}
+
+/** 매매 종목 선정 팀 실행 계획 (YAML의 stock_selection). 하루 한 번 자동으로 돌고 Handoff는 없다. implemented는 reportPlan과 같게 둔다. */
+export function selectionPlan(): ExecutionPlan {
+  const worker = planWorker;
+  return {
+    team: "stock_selection",
+    title: "매매 종목 선정",
+    failurePolicy: "required_optional",
+    steps: [
+      {
+        id: "candidate_research",
+        title: "후보 조사",
+        mode: "parallel",
+        workers: ["news_screen_agent", "filing_screen_agent", "flow_agent"],
+        required: ["news_screen_agent", "filing_screen_agent"],
+        optional: ["flow_agent"],
+        dependsOn: [],
+        join: false,
+        timeoutSec: 180,
+        retry: null,
+      },
+      {
+        id: "select",
+        title: "종목 선정",
+        mode: "sequential",
+        workers: ["selector_agent"],
+        required: ["selector_agent"],
+        optional: [],
+        dependsOn: ["candidate_research"],
+        join: true,
+        timeoutSec: 180,
+        retry: null,
+      },
+      {
+        id: "select_review",
+        title: "선정 검토",
+        mode: "sequential",
+        workers: ["selection_review_agent"],
+        required: ["selection_review_agent"],
+        optional: [],
+        dependsOn: ["select"],
+        join: false,
+        timeoutSec: 180,
+        retry: { target: "selector_agent", maxRounds: 2 },
+      },
+    ],
+    workers: [
+      worker("news_screen_agent", "후보 뉴스 점검 Agent", "후보 종목마다 최근 뉴스에서 재료와 악재를 찾아 출처와 함께 정리하고 테마 이름을 붙인다", "CandidateNewsResult"),
+      worker("filing_screen_agent", "후보 공시 점검 Agent", "후보 종목마다 최근 30일 공시에서 위험 신호를 찾아 위험 정도(none·low·high)를 매긴다", "FilingCheckResult"),
+      worker("flow_agent", "수급 해석 Agent", "코드가 합한 외국인·기관 순매수로 후보마다 매집·이탈을 해석한다", "FlowResult"),
+      worker("selector_agent", "종목 선정 Agent", "후보 표와 조사 결과를 보고 스윙 매매로 살펴볼 종목 5개의 순위와 근거를 낸다 (가격은 내지 않는다)", "SelectionDraft"),
+      worker("selection_review_agent", "선정 검토 Agent", "선정안의 근거가 조사 결과와 맞는지, 후보 밖 종목이나 근거 없는 주장이 없는지 검토한다", "ReviewResult"),
+    ],
+    handoffs: [],
     implemented: false,
   };
 }

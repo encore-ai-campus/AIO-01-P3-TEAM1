@@ -1,9 +1,10 @@
-# 종이배 — 팀 모의투자 웹 서비스
+# 모매매 — 팀 모의투자 웹 서비스
 
-작성 2026-10-06(화). 기준 커밋 `main` `d3325f2`(2026-10-05 UI/UX 개선·서비스 이름 "종이배").
+작성 2026-10-06(화). 기준 커밋 `main` `d3325f2`(2026-10-05 UI/UX 개선·서비스 이름 "종이배"). 1장은 2026-10-07에 다시 맞췄다.
+**"지금 상태"는 이 문서 1장이 원본이다** — `README.md`의 요약 표, `TEAM_DEV_PLAN.md` 3장, `docs/결정필요사항.md` 0장은 여기를 가리킨다.
 지금 상태를 확정했고, 앞으로는 3장의 네 가지(핵심 AI Agent 워크플로우·프론트엔드 개선·기능 개선·테스트 후 완성도 다듬기)만 한다. 배포·운영(EC2·키움 키·GitHub 배포 설정·운영 `.env`·Discord 채널)은 팀장(담당 1)이 따로 맡는다(`docs/DEPLOY.md`).
 옛 판(2026-10-01 "토스 → 키움 전환 계획")은 `git show d3325f2:docs/TEAM_PAPER_TRADING_PLAN.md`로 본다. `docs/DECISIONS.md`·`docs/KIWOOM.md`·`docs/DESIGN.md`의 "계획서 n장·단계 n"은 그 판을 가리킨다.
-결정의 역사는 `docs/DECISIONS.md`, 남은 결정·확인(U1~U22)은 `docs/결정필요사항.md`에 있다.
+결정의 역사는 `docs/DECISIONS.md`, 남은 결정·확인(U1~U24)은 `docs/결정필요사항.md`에 있다.
 근거는 파일:줄이나 문서 절로 단다. 실행해서 본 사실은 확인 방법을 붙인다. 코드·로그에서 미루어 본 것은 "추측", 문서에 없는 제안은 "제안"이라고 적는다.
 
 ---
@@ -12,8 +13,8 @@
 
 ### 1-1. 한 문장 소개
 
-**종이배(가칭)**는 주식이 처음인 사람도 AI 리포트를 만들고·검토하고·모의 자동매매로 실행해 보는 팀 모의투자 웹 서비스다. 시세는 증권사 조회 API로만 받고, 매매는 팀원별 가상 현금 계좌에서만 체결한다(**실주문 코드 0건**).
-부제는 "종이 위에서 연습하는 AI 리포트 모의투자"다(`frontend/src/lib/plainText.ts:41-46`). 컨셉은 `docs/DECISIONS.md` 13장, 이름은 15-7.
+**모매매**(2026-10-07 이름 바뀜 — 전 이름 "종이배", `docs/DECISIONS.md` 18장)는 주식이 처음인 사람도 AI 리포트를 만들고·검토하고·모의 자동매매로 실행해 보는 팀 모의투자 웹 서비스다. 시세는 증권사 조회 API로만 받고, 매매는 팀원별 가상 현금 계좌에서만 체결한다(**실주문 코드 0건**).
+부제는 "종이 위에서 연습하는 AI 리포트 모의투자"다(`frontend/src/lib/plainText.ts:41-46`). 컨셉은 `docs/DECISIONS.md` 13장, 이름은 18장(로고는 15-7).
 
 ### 1-2. 기능별 상태
 
@@ -25,8 +26,8 @@
 | 장마감 기준 | 화면 숫자는 직전 정규장 종가(KR은 거래일 15:40에 넘어간다), 체결·청산만 장중 확인 가격 | 동작 | 14-1, `backend/trading/market.py:1-12` |
 | 종목·차트 | 검색, 완성 일봉, 매수 유의, 펀더멘털 신호등(로컬은 `MARKETS=KR`) | 동작 | 14-3 |
 | AI 교차검증 분석 | 웹 요청 → `run_engine`이 엔진 `analyze` 하위 프로세스를 돌린다. 팀원별 하루 5회, 팀 하루 $10 | 실제 LLM 실행은 CLI smoke-test 1건(10/2, $0.30)뿐. 웹 경로는 가짜 테스트로만 확인(분석 작업 0건) | 8-4 |
-| AI 리포트 | 신청·하루 3회 한도, YAML Registry, State·Trace, Snapshot·SSE, 선별 API, A4 PDF, 쉬운 보기, 끝 알림 | **구조만**: Agent·Orchestrator·AutoHealing 0줄(`backend/reports/registry.py:18` `AGENTS_IMPLEMENTED = False`). 신청은 `requested`로 남고, 흐름은 예시 Trace 재생으로만 보인다 | 9-1 |
-| 추천 → 활성화 → 모의 자동매매 → 알림 | 출처 report·analysis·demo, 리스크 엔진(건당 1%·손익비 2.0), 진입 지정가·3일 재주문·목표·손절·기한 청산, 단계별 사건·알림 | 시연판: demo 규칙 추천만 있고 report 출처는 0건. 장중 체결·청산은 가짜 시세 테스트만(U8) | 12장, `docs/tasks/06-추천·자동매매.md:64-73` |
+| AI 리포트 | 신청·하루 3회 한도, YAML Registry, State·Trace, Snapshot·SSE, 선별 API, A4 PDF, 쉬운 보기, 끝 알림 | **동작 (2026-10-07, Claude — `docs/DECISIONS.md` 19장)**: Orchestrator·Guard·runner·Worker 11개(종목 리포트 6 + 매매 종목 선정 5), 선정 Guard·하루 파이프라인(`AUTO_REPORT`, 기본 off). 가짜 LLM 테스트로 확인했고 실제 모델 실행(T2-10·T3-10)은 아직. 장애 주입(T4-6)·복구 지표(T4-7)·비용 예산은 없다(팀 몫). 하루 넘게 기다린 `requested`는 실행하지 않고 `expired`로 끝낸다 | 9-1 |
+| 추천 → 활성화 → 모의 자동매매 → 알림 | 출처 report·analysis·demo, 리스크 엔진(건당 1%·손익비 1.5, 손절가는 코드가 정함), 진입 지정가·3일 재주문·목표·손절·기한 청산, 단계별 사건·알림 | 시연판: demo 규칙 추천만 있고 report 출처는 0건. 장중 체결·청산은 가짜 시세 테스트만(U8) | 12장, `docs/tasks/06-추천·자동매매.md:64-73` |
 | 장기투자 | 장기 보유, "왜 샀나요?", 오늘의 내 종목 뉴스(16:30), 펀더멘털 점검(18:00), 웹 알림 | 동작(10/5 격리 환경). 실제 시각 실행은 아직(U15) | 14-3 |
 | ~~단타 연습~~ | – | **폐기 (2026-10-06, 사용자 결정)**. 코드·API·화면에서 모두 지웠다 | 16장 |
 | 주린이모드·화면 | 계정 저장, 7문항 진단, 홈 3단계 안내, 쉬운 보기, 실행 확인 체크리스트, 하단 탭 다섯, 다크 모드, 로고 | 동작. 쉬운 보기는 가짜 API(`VITE_MOCK=1`)로만 끝까지 봤다. 실기기 확인 전 | 14-7·15장 |
@@ -36,17 +37,17 @@
 
 ### 1-3. 비어 있는 것·막힌 것
 
-- **핵심 AI Agent 워크플로우가 0줄이다.** `backend/reports`에 contracts·agents·orchestrator·guards·runner·healing·chaos·stats·budget과 마이그레이션 0002가 없다. 원격 브랜치는 `main`뿐이고 PR은 0건이다(`git branch -r`·`gh pr list`). 10/5 오전 뼈대 PR 5개(`docs/tasks/00-공통.md` 13절)도 없다. 과제 주제(에러 자가 치유)의 핵심이고, 산출물 3종·`docs/개선이력.md`·장애 시험 결과표도 아직 없다.
+- **핵심 AI Agent 워크플로우는 뼈대만 들어왔다 (10/7).** 출력 계약 6종·Worker 인터페이스(`contracts.py`·`agents/base.py`, `acdb038` — 리뷰 지적은 모두 미수정: `docs/works/todo/feat-2-worker_리뷰_Worker계약_2026-10-07.md`)와 Registry의 `fallbacks`·`retry`(T3-1, `78778e9`·`fcf4d5a`), 담당 4의 T4-1~T4-5(마이그레이션 0002, LLM 호출기 `healing.py` — 재시도·대체 모델·Circuit Breaker, PR #1·#2)가 들어왔다. Worker 구현(`agents.WORKERS`는 비어 있다)·orchestrator·guards·runner·chaos·stats·budget은 없다. 원격 브랜치는 팀원별로 생겼다(`git branch -r` 10/7: Hwanseok·dy·feat/2-worker·feat/4-healing·inhye·ju·yubeen). 과제 주제(에러 자가 치유)의 핵심이고, 산출물 3종·`docs/개선이력.md`·장애 시험 결과표도 아직 없다.
 - **공유 개발 DB의 리포트 3건(10/2~10/5 신청)이 모두 `requested`다.** runner를 켜면 이 3건이 먼저 돈다(3-1 Q5).
 - **10/6 개장 시험(U8·U15)은 시작하지 못했다.** 시험 계정이 없다. 호스트 PC(노트북)가 09:48~12:34에 절전과 짧은 깨어남을 되풀이했고, 그사이 토스 조회는 DNS 오류·403으로 실패했다(12:36부터 정상). 시각별 기록은 `docs/결정필요사항.md` U8.
 - **토스 client를 원본 개인 프로젝트(실주문)와 같이 쓴다.** 한쪽이 토큰을 새로 받으면 다른 쪽 토큰이 무효가 된다. 10/6에도 되풀이된다(엔진 로그 13:02 `token-revoked`, `.cache/toss_token.json`을 13시대에 여러 번 다시 씀). `AGENTS.md:26-27`과 어긋난다(U4 → U19).
-- **운영 전제는 팀장 몫으로 남았다.** 키움 키(U9)·`DATA_GOKR_API`(U14)·EC2·배포 설정이 없다. 운영 구성의 PDF는 HTML로 나간다(U22).
+- **운영 전제는 팀장 몫으로 남았다.** EC2는 2026-10-06에 연결해 `main` push마다 자동 배포된다(`docs/DEPLOY.md` 0장). 하지만 보안 그룹 HTTP 80이 닫혀 있어 밖에서는 접속되지 않고, 키움 키(U9)가 없어 서버도 토스 조회를 임시로 쓴다. `DATA_GOKR_API`(U14)·Discord Webhook은 비어 있다. 운영 구성의 PDF는 HTML로 나간다(U22).
 - **알려진 한계(U16, 고칠지 미정)**: ① 가격 상한이 없다 — `/api/orders`는 목표 1e308 같은 값을 201로 저장한다(10/6 테스트 DB에서 재현. 같은 값에 500이 나던 단타 미리 보기는 단타 폐기로 없어졌다) ②·③ 분봉 한계(수능일·토스 15:30 봉)는 분봉 삭제(2026-10-06)로 없어졌다 ④ 장기투자 뉴스가 `DAILY_MOVE_MODEL` 없이 `APPROVER`를 쓴다(종목당 약 $0.02).
 - **약관**: Vite(`0.0.0.0:5173`)로 팀원에게 토스 시세를 보이는 지금 방식은 토스 FAQ의 제3자 배포 금지에 걸린다(U13). 키움 교육용 다중 표시 문의가 남았다(U10·U12).
 
 ### 1-4. 품질
 
-- **테스트**(10/6 로컬): Python 1,629개(engine 754 + backend 875, SQLite 메모리 DB)·backtest 12개·ruff, 프론트 vitest 603개(27파일)·eslint·tsc가 통과한다.
+- **테스트**(10/7 로컬, `main`의 healing을 합친 뒤): Python 1,555개(engine 733 + backend 822, SQLite 메모리 DB)·backtest 12개·ruff·`makemigrations --check`, 프론트 vitest 561개(27파일)·eslint·tsc·build가 통과한다. (10/6의 1,629개·603개와 다른 것은 단타 삭제 `fae25fe`에서 테스트 212개를 지우고, 그 뒤 계약·Registry·healing 테스트가 더해졌기 때문이다.)
 - **CI**(`d3325f2`, Deploy 실행 37316655698 성공): ruff → 실주문 코드 검사 → pytest → backtest → `makemigrations --check` → PostgreSQL 16 backend 875개 · eslint → tsc → vitest → build · 이미지 3개 → compose → `smoke_test.sh`(엔진 PDF 포함).
 - **안전 검사**: CI가 실주문 문자열과 `orders.py`를 막고(`.github/workflows/ci.yml:55-66`), 루트 `conftest.py`가 증권사·Discord 키를 비운다.
 
@@ -68,7 +69,7 @@ nginx ─┬─ /, /assets    → React 빌드 파일 (SPA)
        └─ /api, /admin  → web: Django + DRF (gunicorn 워커 1 · 스레드 16)
 web · engine · migrate ─▶ db: PostgreSQL 16 (혼자 개발할 때는 SQLite). migrate가 먼저 성공해야 web·engine이 뜬다
 engine = python manage.py run_engine (5초 루프, 단계마다 오류 격리)
-  체결 확인 → 예약 실행 → 일별 자산 → 분석 작업 → 추천 수집 → 리포트 알림 → 자동 추천 → 자동매매 → 장기투자 → 알림 발송
+  체결 확인 → 예약 실행 → 일별 자산 → 분석 작업 → 리포트 실행 → 자동 리포트 → 추천 수집 → 리포트 알림 → 자동 추천 → 자동매매 → 장기투자 → 알림 발송
 redis 7 = compose가 띄운다. 엔진 CLI(serve·장 밖 예약·info·daily-report·backup)만 쓰고 web·run_engine은 쓰지 않는다
 외부 ─▶ 키움 REST(운영) · 토스(로컬 전용) · DART · data.go.kr · Google 뉴스 RSS · DevPass LLM Gateway
 알림 ─▶ 웹 알림(DB) + Discord Webhook 보낼 편지함 (engine이 보낸다. 지금 꺼짐)
@@ -83,13 +84,13 @@ CI/CD: push ─▶ ci.yml 검사 ─▶ [DEPLOY_ENABLED] GHCR 이미지 3개 ─
 |---|---|---|---|
 | 언어·도구 | Python, uv 작업 공간(engine·backend), pytest·pytest-django·ruff | 3.12, uv 0.8(이미지), 9.1.1·4.14.0·0.16.10 | 잠금 패키지 29개(작업 공간 3개 포함). ruff E·F·W, line-length 120(E501은 끔) |
 | 엔진 | `engine/paper_engine` | 의존성 0 | 표준 라이브러리만. Redis RESP2·LLM HTTP·PDF(Chrome headless)를 직접 구현 |
-| 백엔드 | Django·DRF·drf-spectacular·psycopg[binary]·gunicorn·PyYAML | 5.2.17·3.18.1·0.30.0·3.3.6·26.2.0·6.0.3 | 앱 8개, 세션 인증 + CSRF, OpenAPI `/api/schema/` |
+| 백엔드 | Django·DRF·drf-spectacular·psycopg[binary]·gunicorn·PyYAML | 5.2.17·3.18.1·0.30.0·3.3.6·26.2.0·6.0.3 | 앱 7개, 세션 인증 + CSRF, OpenAPI `/api/schema/` |
 | DB | SQLite / PostgreSQL | 16 | `POSTGRES_HOST`로 고른다. PostgreSQL 전용 기능 금지 |
 | 캐시·실시간 | LocMemCache, TanStack Query 폴링, 리포트만 SSE | – | WebSocket 없음. 폴링 간격은 `frontend/src/api/queries.ts:39-51` |
 | 프론트 | React·react-router·TanStack Query·Tailwind CSS·lightweight-charts·react-markdown·Pretendard | 19.3.0·8.4.0·5.104.0·4.3.3·5.2.1·10.1.0·1.3.9 | Vite SPA. 타입은 `docs/API.md`를 보고 손으로 쓴다 |
 | 프론트 도구 | TypeScript·Vite·Vitest·jsdom·Testing Library·MSW·ESLint | 6.0.3·8.3.2·4.1.11·29.1.1·16.3.3·2.15.0·10.11.0 | Node 22(CI). `VITE_MOCK=1`이면 브라우저 안 가짜 API |
 | 컨테이너 | nginx-unprivileged·python:3.12-slim-bookworm·node:22-alpine(빌드)·postgres·redis·Chromium | nginx 1.27·python 3.12·uv 0.8은 메이저.마이너, node 22·postgres 16·redis 7은 메이저 태그 | 다이제스트 고정 없음. read_only, cap_drop ALL, uid 10001. Chromium은 engine 이미지에만 |
-| CI/CD·서버 | GitHub Actions·GHCR·SSH 배포·되돌리기. 운영은 AWS EC2 Ubuntu `t3.medium`(메모리 4GB: Chrome PDF·PostgreSQL·엔진을 한 서버에서)·디스크 30GB 이상(계획) | Actions 실행기 ubuntu-24.04, EC2 OS 버전 미정 | `DEPLOY_ENABLED` 꺼짐, EC2 없음(`docs/DEPLOY.md` 4장) |
+| CI/CD·서버 | GitHub Actions·GHCR·SSH 배포·되돌리기. 운영은 AWS EC2 Ubuntu `t3.medium`(메모리 4GB: Chrome PDF·PostgreSQL·엔진을 한 서버에서)·디스크 30GB 이상(계획) | Actions 실행기 ubuntu-24.04, EC2 Ubuntu 26.04 LTS | `DEPLOY_ENABLED=true`, EC2 연결됨(2026-10-06 첫 배포 성공, 보안 그룹 80은 남음 — `docs/DEPLOY.md` 0장) |
 | AI | DevPass LLM Gateway(OpenAI 호환, 웹 검색 도구) | – | 분석 모델은 `.env`, 리포트 Worker 모델은 `worker_definitions.yaml`(지금 null) |
 | 외부 데이터 | 키움 REST(운영)·토스(로컬)·DART·data.go.kr·SEC EDGAR·Google 뉴스 RSS | – | 조회만. 계좌·주문 TR 없음 |
 
@@ -133,7 +134,7 @@ macOS·Linux·WSL2에서만 돈다. 공유 개발 DB는 `.env`에 `POSTGRES_HOST
 
 1. **실주문 코드 0건.** 키움은 조회 TR만. `orders.py`·`create_order`·`LIVE_TRADING`·`--live`·`--bypass`는 코드에 나오면 안 된다(CI가 막는다). `tossinvest`는 `engine/paper_engine/data/toss.py` 한 곳에만.
 2. **토스 조회는 로컬 개발 전용**(토큰 발급 말고 GET만), 운영은 키움만. 원본 `toss_trading`에 영향을 주지 않는다 — Redis 키는 `paper:`만, 토스 client는 따로(U19).
-3. **AI는 제안만 한다.** 수량·한도·활성화는 리스크 엔진, 주문·체결은 `trading.service`와 모의 체결기. 최소 손익비 2.0은 프롬프트에 넣지 않는다.
+3. **AI는 제안만 한다.** 수량·한도·활성화는 리스크 엔진, 주문·체결은 `trading.service`와 모의 체결기. 최소 손익비(스윙 1.5)는 프롬프트에 넣지 않는다. 손절가는 AI가 아니라 코드가 정한다 (`judge/stops.py`).
 4. **엔진은 표준 라이브러리만**, 외부 패키지는 `backend/`에만. 키움 응답 → 내부(토스) 형식 변환은 `data/kiwoom.py` 안에서만.
 5. **DB**: 같은 모델·마이그레이션을 SQLite·PostgreSQL에 쓴다(PostgreSQL 전용 기능 금지).
 6. **계약을 먼저 고친다**: 웹 API는 `docs/API.md`, 워크플로우 약속은 `00-공통.md`. State·Trace는 `backend/reports/state.py` 함수로만. "Claude" 파일(`00-공통.md` 2절)은 팀원이 고치지 않고 팀장에게 알린다.
@@ -146,8 +147,8 @@ macOS·Linux·WSL2에서만 돈다. 공유 개발 DB는 `.env`에 `POSTGRES_HOST
 |---|---|
 | `AGENTS.md` · `SETUP_PROMPT.md` | 작업 규칙·실행 명령의 원본 · 클론 직후 설치 절차 |
 | `TEAM_DEV_PLAN.md` | 워크플로우·AutoHealing 설계(4~5장), 장애 시험(8장), 산출물(9장), 역할(11장), 개발 환경(12장). 3장은 10/2 기준 |
-| `docs/결정필요사항.md` | 남은 결정·확인(U1~U22)과 다음 세션 시작점 |
-| `docs/DECISIONS.md` · `docs/API.md` | 공통 결정 1~16장 · 웹 API 계약(AI 리포트 469줄~, 추천·자동매매 663줄~, 장기투자 917줄~) |
+| `docs/결정필요사항.md` | 남은 결정·확인(U1~U24)과 다음 세션 시작점 |
+| `docs/DECISIONS.md` · `docs/API.md` | 공통 결정 1~18장 · 웹 API 계약(AI 리포트 469줄~, 추천·자동매매 663줄~, 장기투자 917줄~) |
 | `docs/tasks/00~06` | 00 공통 약속(파일 소유·서명·Trace·출력 계약·사유 코드), 01~05 담당별 할 일, 06 추천·자동매매 |
 | `docs/DESIGN.md` · `docs/KIWOOM.md` · `docs/DEPLOY.md` | 엔진 설계 · 키움 TR · CI/CD·서버 준비 |
 | `docs/컨셉변경계획.md` · `docs/투자서비스확장계획.md` · `docs/화면배치.md` | 컨셉·계약 변경 B(8장)·사용성 시험(12장) · 장기·스윙 확장(단타·선물은 폐기) · 화면 배치 |
@@ -185,9 +186,9 @@ macOS·Linux·WSL2에서만 돈다. 공유 개발 DB는 `.env`에 `POSTGRES_HOST
 |---|---|---|---|
 | Q1 | timeout 규칙 | `00-공통.md` 7절·T4-4는 "다음 모델로", `TEAM_DEV_PLAN.md` 5-1·DR-LLM-01·예시 재생 ③은 "같은 모델 1회 → 대체 모델"이다. 하나로 정하고 다른 쪽을 고친다 | 4(5와) · T4-4 전 |
 | Q2 | 제한 시간 | 호출 제한 90초(`engine/paper_engine/llm.py:10`)가 단계 `timeout` 60초(`team_definitions.yaml`)보다 길어 시간 초과 뒤 대체 모델로 넘어갈 시간이 없다(추측). 검토 재작성·Handoff에는 제한 시간이 없다. 버린 Worker 스레드가 `finish` 뒤에 기록하면 `StateError`다(`03-orchestrator.md` 주의) | 4·3 · T4-4·T3-5 전 |
-| Q3 | 필수 Worker 시간 초과의 사유 코드 | `join_blocked`인지 `timeout`인지(9절 표) | 3 · T3-5 |
+| Q3 | 필수 Worker 시간 초과의 사유 코드 (**2026-10-07 정함**: 단계 제한 시간 초과면 `timeout`, 00-공통 9절) | `join_blocked`인지 `timeout`인지(9절 표) | 3 · T3-5 |
 | Q4 | 검토 단계 입력 | 문서는 "Join Guard가 초안·조사 결과를 검토에 넘긴다", YAML `review`에는 join이 없다 | 3 · T3-5 전 |
-| Q5 | runner를 켜는 시점 | 묵은 `requested` 3건이 켜는 순간 실제 비용으로 돌고 끝 알림이 간다(같은 사람·종목 신청에는 이 행이 200으로 온다). 처리(끝내기·나이 제한·실행)를 정한다. 통합 전에는 별도 설정 키로 `runner.tick`을 막는다(제안 — `AGENTS_IMPLEMENTED`는 화면 SSE 깃발, `registry.py:17-18`) | 3·1 · ⑤ 전(오늘) |
+| Q5 | runner를 켜는 시점 (**2026-10-07 정함**: 24시간 넘게 기다린 `requested`는 실행하지 않고 실패 사유 `expired`로 끝낸다 — DECISIONS 19장) | 묵은 `requested` 3건이 켜는 순간 실제 비용으로 돌고 끝 알림이 간다(같은 사람·종목 신청에는 이 행이 200으로 온다). 처리(끝내기·나이 제한·실행)를 정한다. 통합 전에는 별도 설정 키로 `runner.tick`을 막는다(제안 — `AGENTS_IMPLEMENTED`는 화면 SSE 깃발, `registry.py:17-18`) | 3·1 · ⑤ 전(오늘) |
 | Q6 | 시험 수단 | `errorTypes` 셋으로는 DR-CRT-01·02·DR-SEC-01을 못 만든다. Circuit Breaker(모델별·프로세스 전역 5분, T4-5)가 시나리오끼리 간섭한다 → 사이에 5분 대기나 재시작(제안). 리포트 한도 3건 → 시험 한도를 올리거나 계정을 나눈다(제안) | 4·1 · T4-6·T4-10 전 |
 | Q7 | 장애 분류·셈법 | `LlmError`에 상태 코드가 없어 server_error·bad_output을 나누기 어렵다 → 구조화된 오류(제안). LLM 실패 없는 실패(Worker 오류·단계 시간 초과)를 장애로 셀지 정한다 | 4 · T4-2·T4-7 전 |
 | Q8 | 그 밖 | `attempt`의 두 뜻, `chaos.parse` 인자, 권유 표현을 계약 검증에 넣을지(넣으면 재요청 = 장애 1건), 0002 새 열의 `db_default`(제안 — 옛 코드가 도는 공유 DB 대비, 본보기 `trading/migrations/0002_order_style.py`), 산출물 위치(`docs/deliverables/` 대 `docs/설계서.md`·`장애복구보고서.md`·`파이프라인보고서.md`) | 2·3·4·1 · 0002 전, 산출물은 10/8 전 |

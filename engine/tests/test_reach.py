@@ -102,8 +102,10 @@ def snapshot(atr14):
     indicators = {"rsi14": 54.21}
     if atr14 is not ...:
         indicators["atr14"] = atr14
+    candles = [{"date": "2026-09-26", "open": 100_000.0, "high": 101_000.0, "low": 97_000.0,
+                "close": 100_000.0, "volume": 1_000.0}]
     return {"symbol": "005930", "name": "삼성전자", "market": "KOSPI", "currency": "KRW",
-            "lastPrice": 100_000.0, "indicators": indicators, "warnings": [], "news": []}
+            "lastPrice": 100_000.0, "indicators": indicators, "recentCandles": candles, "warnings": [], "news": []}
 
 
 def raw_scenario():
@@ -142,12 +144,12 @@ def test_pipeline_fills_reach(atr14, hard):
 
 
 @pytest.mark.parametrize("atr14", [..., None, "잘못된 값"])
-def test_pipeline_without_atr_still_analyzes(atr14):
+def test_pipeline_without_atr_cannot_set_stop(atr14):
+    # ATR이 없으면 코드가 손절가를 정할 수 없어 시나리오를 거른다 (judge/stops.py). 분석은 오류 없이 끝난다
     result = run(atr14)
     (c,) = result.candidates
-    assert c.selected and result.errors == []
-    assert c.reach.ratio is None and not c.reach.hard
-    assert c.reach.note.startswith("목표 도달 점검 못 함")
+    assert not c.selected and c.scenario is None and c.reach is None and result.errors == []
+    assert c.fact_errors == ["손절가를 정할 자료(완성 일봉·ATR14)가 모자람"]
 
 
 # --- 검증자와 승인자에게 점검 결과 전달 ---

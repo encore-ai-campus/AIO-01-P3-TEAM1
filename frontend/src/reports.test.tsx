@@ -592,13 +592,15 @@ describe("리포트 상세", () => {
     expect(within(summary).queryByText(/장애 없음/)).toBeNull();
   });
 
-  it("완성 리포트(전문가): 본문 제목은 카드 제목 아래 단계(h3), PDF는 '보기'(새 창), 완성된 리포트에는 미구현 안내가 없다", async () => {
+  it("완성 리포트(전문가): 본문 제목은 카드 제목 아래 단계(h3), PDF는 '보기'(새 창·전문가 판), 완성된 리포트에는 미구현 안내가 없다", async () => {
     db.addSampleReports();
     const buy = db.listReports("035420")[0];
     renderApp(`/reports/${buy.id}?tab=report`);
     expect(await screen.findByRole("heading", { name: "NAVER 종목 리포트", level: 3 }, { timeout: 5000 })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "리포트 본문", level: 2 })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "PDF로 보기" }).getAttribute("target")).toBe("_blank");
+    const pdf = screen.getByRole("link", { name: "PDF로 보기" });
+    expect(pdf.getAttribute("target")).toBe("_blank");
+    expect(pdf.getAttribute("href")).toBe(`/api/reports/${buy.id}/pdf?view=expert`); // 전문가 보기는 전문가 판 PDF
     expect(screen.queryByText(/Agent 실행은 아직 구현되지 않았습니다/)).toBeNull();
   });
 

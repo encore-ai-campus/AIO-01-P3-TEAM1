@@ -7,6 +7,8 @@
 // 탭 줄은 모바일에서 화면 머리 아래에 붙어 긴 본문·타임라인을 보는 중에도 탭을 바꿀 수 있다 (예시 재생 중이면 그 안에 재생 미니 줄).
 // '리포트' 탭은 실패 카드 → 이 리포트의 AI 추천(증권사 리포트 첫 장의 투자의견 상자) → 본문 순서. PC는 본문 왼쪽, 추천은 오른쪽 열에 붙어 따라온다.
 // '진행 기록'은 구조(그래프) → 사건(타임라인), '자세히'는 빈도 순(예시 재생 → State → 정책 → 개념 문서).
+// 매매 종목 선정 실행(team stock_selection, 오늘의 선별에서 'AI 선정 과정 보기')은 주린이모드여도 늘 이 전문가 화면이다 —
+// 종목 리포트가 아니라 쉬운 보기·AI 의견·PDF·이 리포트의 AI 추천·다시 신청·예시 재생(종목 리포트 예시)이 없다. 첫 탭 이름은 '선정 결과'.
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { ApiError, errorMessage } from "../api/client";
@@ -14,6 +16,8 @@ import { useRecommendations } from "../api/queries";
 import { type Delivery, isFinished, useReportLive, useRequestReport } from "../api/reports";
 import type { ReportDetail, SharedState, TraceEvent } from "../api/types";
 import { SourceRecommendations } from "../components/autotrade/SourceRecommendations";
+import { ErrorPanel } from "../components/errors/ErrorPanel";
+import { errorKindOf } from "../components/errors/errorTypes";
 import { Icon } from "../components/Icon";
 import { EduDocSection } from "../components/reports/EduDocSection";
 import { PlanGraph } from "../components/reports/PlanGraph";
@@ -25,15 +29,24 @@ import { AutoBadge, DeliveryBadge, ExampleTag, InjectedBadge, ReportStatusBadge 
 import { TraceTimeline } from "../components/reports/TraceTimeline";
 import { ViewToggle } from "../components/reports/ViewToggle";
 import { EasyReport } from "../components/reports/easy/EasyReport";
-import { Card, EmptyState, ErrorState, Notice, PageHeader, PillTabs, Skeleton, SkeletonCard, Spinner } from "../components/ui";
+import { Card, EmptyState, Notice, PageHeader, PillTabs, Skeleton, SkeletonCard, Spinner } from "../components/ui";
 import { type ViewModeState, useViewMode } from "../hooks/useBeginnerMode";
 import { useChanged, useRevealAfterLoading } from "../hooks/useMotionState";
 import { cn } from "../lib/cn";
 import { formatDateTime } from "../lib/format";
 import { prefersReducedMotion } from "../lib/motion";
 import { useReplay } from "../lib/reportExamples";
-import { DISCLAIMER, reportFailureSentence } from "../lib/plainText";
-import { ERROR_LABEL, EXPERT_FAILURE_FALLBACK, EXPERT_FAILURE_NOTE, NOT_IMPLEMENTED, actorLabel, opinionOf, policyName } from "../lib/reports";
+import { DISCLAIMER, reportFailureSentence, selectionFallbackSentence } from "../lib/plainText";
+import {
+  ERROR_LABEL,
+  EXPERT_FAILURE_FALLBACK,
+  EXPERT_FAILURE_NOTE,
+  NOT_IMPLEMENTED,
+  actorLabel,
+  isSelection,
+  opinionOf,
+  policyName,
+} from "../lib/reports";
 
 const Markdown = lazy(() => import("../components/reports/Markdown").then((m) => ({ default: m.Markdown })));
 
@@ -43,6 +56,8 @@ const TABS: { value: Tab; label: string }[] = [
   { value: "run", label: "진행 기록" }, // Trace (사용자 용어 "실행 준비·실행 확인"과 겹치지 않게 — docs/컨셉변경계획.md 4-3)
   { value: "more", label: "자세히" },
 ];
+/** 선정 실행의 탭: 첫 탭은 리포트가 아니라 선정 결과 (값은 같다 — ?tab=report). */
+const SELECTION_TABS = TABS.map((t) => (t.value === "report" ? { ...t, label: "선정 결과" } : t));
 const isTab = (v: string | null): v is Tab => TABS.some((t) => t.value === v);
 
 function CardTitle({ id, title, sub, example }: { id: string; title: string; sub?: string; example?: boolean }) {
@@ -57,10 +72,14 @@ function CardTitle({ id, title, sub, example }: { id: string; title: string; sub
   );
 }
 
-/** 실패한 리포트: 사유 문장(쉬운 말) + 사유 코드 + 사유에 맞는 둘째 문장 + 다시 신청 (같은 종목, 같은 장애 주입 설정). */
+/**
+ * 실패한 리포트: 사유 문장(쉬운 말) + 사유 코드 + 사유에 맞는 둘째 문장 + 다시 신청 (같은 종목, 같은 장애 주입 설정).
+ * 선정 실행은 사람이 다시 신청하지 않는다 (하루 한 번 자동) — 그날 종목은 규칙 점수로 고른다(Fallback)는 문장을 대신 둔다.
+ */
 function FailureCard({ r, trace, state }: { r: ReportDetail; trace: TraceEvent[]; state: SharedState }) {
   const navigate = useNavigate();
   const request = useRequestReport();
+  const selection = isSelection(r);
   const last = [...trace].reverse().find((e) => e.action === "workflow_failed");
   const reason = typeof last?.details.reason === "string" ? last.details.reason : "";
   const errors = Object.entries(state.errors);
@@ -68,11 +87,11 @@ function FailureCard({ r, trace, state }: { r: ReportDetail; trace: TraceEvent[]
     <Card aria-labelledby="failure-title" className="border-2 border-up/40">
       <h2 id="failure-title" className="flex items-center gap-1.5 text-[17px] font-bold text-up-ink">
         <Icon name="alert" className="size-5" />
-        리포트를 만들지 못했습니다
+        {selection ? "AI 선정을 끝내지 못했습니다" : "리포트를 만들지 못했습니다"}
       </h2>
       {reason && (
         <p className="mt-1.5 text-[14px] leading-snug text-ink">
-          {reportFailureSentence(reason)}{" "}
+          {selection ? selectionFallbackSentence(reason) : reportFailureSentence(reason)}{" "}
           <code className="rounded bg-fill px-1 py-0.5 font-mono text-[12px] text-sub">({reason})</code>
         </p>
       )}
@@ -86,19 +105,29 @@ function FailureCard({ r, trace, state }: { r: ReportDetail; trace: TraceEvent[]
         </ul>
       )}
       <p className="mt-2 text-[13px] leading-snug text-sub">{EXPERT_FAILURE_NOTE[reason] ?? EXPERT_FAILURE_FALLBACK}</p>
-      <button
-        type="button"
-        disabled={request.isPending}
-        onClick={() => request.mutate({ symbol: r.symbol, chaos: r.chaos }, { onSuccess: (n) => navigate(`/reports/${n.id}`) })}
-        className="press mt-3 flex h-11 items-center gap-1.5 rounded-xl bg-brand px-4 text-[15px] font-semibold text-white hover:bg-brand-dark disabled:opacity-40"
-      >
-        {request.isPending ? <Spinner /> : <Icon name="restart" className="size-4" />}
-        다시 신청{r.chaos?.enabled ? " (같은 장애 주입 설정)" : ""}
-      </button>
+      {selection ? (
+        <p className="mt-2 text-[13px] leading-snug text-sub">이날 종목은 규칙 점수 순으로 고릅니다 (Fallback). 결과는 리포트 목록의 &lsquo;오늘의 선별 결과&rsquo;에 있습니다.</p>
+      ) : (
+        <button
+          type="button"
+          disabled={request.isPending}
+          onClick={() => request.mutate({ symbol: r.symbol, chaos: r.chaos }, { onSuccess: (n) => navigate(`/reports/${n.id}`) })}
+          className="press mt-3 flex h-11 items-center gap-1.5 rounded-xl bg-brand px-4 text-[15px] font-semibold text-white hover:bg-brand-dark disabled:opacity-40"
+        >
+          {request.isPending ? <Spinner /> : <Icon name="restart" className="size-4" />}
+          다시 신청{r.chaos?.enabled ? " (같은 장애 주입 설정)" : ""}
+        </button>
+      )}
       {request.isError && (
-        <Notice tone="error" className="mt-3">
-          {errorMessage(request.error)}
-        </Notice>
+        <ErrorPanel
+          kind={errorKindOf(request.error)}
+          detail={errorMessage(request.error)}
+          onRetry={() => request.mutate({ symbol: r.symbol, chaos: r.chaos }, { onSuccess: (n) => navigate(`/reports/${n.id}`) })}
+          retrying={request.isPending}
+          secondary={null}
+          compact
+          className="mt-3 bg-fill"
+        />
       )}
     </Card>
   );
@@ -151,14 +180,13 @@ export function ReportPage() {
     return (
       <>
         <PageHeader title="AI 리포트" back />
-        <Card>
-          <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} retrying={isFetching} />
-        </Card>
+        <ErrorPanel kind={errorKindOf(error)} onRetry={() => void refetch()} retrying={isFetching} />
       </>
     );
   }
 
-  if (view.easy) {
+  // 선정 실행은 쉬운 보기가 없다 (종목 리포트 화면이 아니다) — 주린이모드여도 과정 화면
+  if (view.easy && !isSelection(r)) {
     return (
       <>
         <PageHeader title={`${r.name} AI 리포트`} back />
@@ -236,6 +264,7 @@ function RecsSkeleton() {
 /** 전문가 보기 (주린이모드 끔 또는 ?view=expert). */
 function ExpertReport({ r, delivery, view }: { r: ReportDetail; delivery: Delivery; view: ViewModeState }) {
   const rid = r.id;
+  const selection = isSelection(r);
   const [params, setParams] = useSearchParams();
   const [first, setFirst] = useState<{ id: number; tab: Tab } | null>(null);
   const replay = useReplay(r.state.taskId || `report-${rid}`);
@@ -244,9 +273,10 @@ function ExpertReport({ r, delivery, view }: { r: ReportDetail; delivery: Delive
   const [jump, setJump] = useState(0);
   // 이 리포트의 추천이 있는지 (SourceRecommendations와 같은 캐시) — PC에서 본문 옆 열을 둘지 정한다.
   // 받는 동안은 추천이 생기는 리포트(긍정적 완성)면 자리를 미리 잡아 둔다 — 받은 뒤에 한 열 → 두 열로 바뀌며 본문이 다시 흐르지 않게 (모바일은 본문이 덜 밀리게)
-  const recs = useRecommendations({ status: "all", source: "report", sourceId: rid }, Number.isFinite(rid));
-  const recsPending = recs.isPending && r.status === "completed" && opinionOf(r) === "buy";
-  const hasRecs = recsPending || (recs.data?.results.length ?? 0) > 0;
+  // 선정 실행에는 추천이 없다 (추천은 종목 리포트에서만 생긴다)
+  const recs = useRecommendations({ status: "all", source: "report", sourceId: rid }, Number.isFinite(rid) && !selection);
+  const recsPending = !selection && recs.isPending && r.status === "completed" && opinionOf(r) === "buy";
+  const hasRecs = !selection && (recsPending || (recs.data?.results.length ?? 0) > 0);
   const recsReveal = useRevealAfterLoading(recsPending);
 
   // 예시 재생 중이면 그래프·타임라인·요약·State에 예시 사건을 보인다 (작업 계획은 실제 Registry 그대로)
@@ -307,15 +337,16 @@ function ExpertReport({ r, delivery, view }: { r: ReportDetail; delivery: Delive
 
   return (
     <>
-      <PageHeader title={`${r.name} AI 리포트`} back />
+      <PageHeader title={selection ? r.name : `${r.name} AI 리포트`} back />
       <div className="space-y-3 lg:space-y-4">
         {/* 머리 카드: 보기 전환은 쉬운 보기와 같은 자리(오른쪽 위) — 되돌아가는 버튼을 찾지 않게 */}
         <Card aria-label="리포트 머리" className="py-4">
           <div className="flex items-start justify-between gap-2">
             <p className="min-w-0 pt-1.5 text-[13px] text-mute">
-              {r.symbol} · {r.market === "KR" ? "국내" : "미국"} · 리포트 #{r.id}
+              {selection ? `${r.market === "KR" ? "국내" : "미국"} · AI 종목 선정 #${r.id}` : `${r.symbol} · ${r.market === "KR" ? "국내" : "미국"} · 리포트 #${r.id}`}
             </p>
-            <ViewToggle view={view} />
+            {/* 선정 실행은 이 화면 하나라 보기를 바꿀 곳이 없다 */}
+            {!selection && <ViewToggle view={view} />}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
             <p className="mr-0.5 text-[22px] font-bold tracking-tight">{r.name}</p>
@@ -334,7 +365,8 @@ function ExpertReport({ r, delivery, view }: { r: ReportDetail; delivery: Delive
           {/* 미구현 안내는 끝나지 않은 리포트에만 (완성된 리포트에는 소용없는 말) */}
           {!finished && !r.plan.implemented && (
             <Notice tone="warn" className="mt-3">
-              {NOT_IMPLEMENTED} &ldquo;예시 Trace 재생&rdquo;으로 흐름을 확인할 수 있습니다.
+              {NOT_IMPLEMENTED}
+              {!selection && <> &ldquo;예시 Trace 재생&rdquo;으로 흐름을 확인할 수 있습니다.</>}
             </Notice>
           )}
         </Card>
@@ -346,12 +378,13 @@ function ExpertReport({ r, delivery, view }: { r: ReportDetail; delivery: Delive
           costUsd={r.costUsd}
           example={ex}
           onShowReport={!ex && r.status === "completed" && tab !== "report" ? () => setTab("report") : undefined}
+          showLabel={selection ? "선정 완료 · 보기" : undefined}
         />
 
         {/* 탭 줄: 모바일은 화면 머리(56px) 아래에 붙는다. 바탕은 불투명(뒤 글자가 비치지 않게), PC는 제자리.
             붙어 있는 동안 포커스가 그 밑에 숨지 않게 키보드 포커스 위 여백을 이 높이만큼 늘린다(useStickyTabsPadding) */}
         <div ref={setTabRow} className="sticky top-14 z-(--z-header) -mx-4 bg-bg px-4 py-2 lg:static lg:mx-0 lg:p-0">
-          <PillTabs label="리포트 화면" value={tab} options={TABS} onChange={setTab} stretch />
+          <PillTabs label="리포트 화면" value={tab} options={selection ? SELECTION_TABS : TABS} onChange={setTab} stretch />
           {showMini && <ReplayMini replay={replay} />}
         </div>
 
@@ -382,11 +415,13 @@ function ExpertReport({ r, delivery, view }: { r: ReportDetail; delivery: Delive
             )}
             <Card aria-labelledby="content-title" className={cn(hasRecs && "lg:col-start-1", hasRecs && (r.status === "failed" ? "lg:row-start-2" : "lg:row-start-1"))}>
               <div className="flex flex-wrap items-start justify-between gap-2">
-                <CardTitle id="content-title" title="리포트 본문" />
-                {(r.hasPdf || r.status === "completed") && (
-                  // 서버가 PDF를 새 창에 바로 보여 준다(inline) — 쉬운 보기와 같은 이름·아이콘
+                <CardTitle id="content-title" title={selection ? "선정 결과" : "리포트 본문"} />
+                {/* 선정 실행은 PDF가 없다 (서버도 404) */}
+                {!selection && (r.hasPdf || r.status === "completed") && (
+                  // 서버가 PDF를 새 창에 바로 보여 준다(inline) — 쉬운 보기와 같은 이름·아이콘.
+                  // 전문가 판(?view=expert): 주린이모드여도 '이 화면만 자세히 보기'로 이 화면을 보면 전문가 판을 연다
                   <a
-                    href={`/api/reports/${r.id}/pdf`}
+                    href={`/api/reports/${r.id}/pdf?view=expert`}
                     target="_blank"
                     rel="noreferrer"
                     className="press flex h-10 items-center gap-1 rounded-xl bg-fill px-3 text-[14px] font-semibold text-ink hover:bg-line"
@@ -404,7 +439,13 @@ function ExpertReport({ r, delivery, view }: { r: ReportDetail; delivery: Delive
               ) : (
                 <div className="rounded-xl bg-fill px-4 py-6 text-center">
                   <p className="text-[15px] text-mute">
-                    {r.plan.implemented ? (finished ? "본문이 없습니다." : "리포트를 쓰는 중입니다.") : "리포트 본문은 Agent 구현 뒤에 표시됩니다 (미구현)"}
+                    {r.plan.implemented
+                      ? finished
+                        ? "본문이 없습니다."
+                        : selection
+                          ? "AI가 종목을 고르는 중입니다."
+                          : "리포트를 쓰는 중입니다."
+                      : "리포트 본문은 Agent 구현 뒤에 표시됩니다 (미구현)"}
                   </p>
                   <button
                     type="button"
@@ -432,6 +473,8 @@ function ExpertReport({ r, delivery, view }: { r: ReportDetail; delivery: Delive
             {ex ? (
               <ReplayBar replay={replay} ref={setBarEl} />
             ) : (
+              // 예시 재생은 종목 리포트 예시라 선정 실행에는 두지 않는다
+              !selection &&
               r.trace.length === 0 && (
                 <Card aria-label="예시 Trace 재생">
                   <ScenarioPicker replay={replay} onStart={startExample} />
@@ -457,9 +500,11 @@ function ExpertReport({ r, delivery, view }: { r: ReportDetail; delivery: Delive
             aria-labelledby="tab-more"
             className={cn("space-y-3 lg:space-y-4", tabChanged && "reveal-fade")}
           >
-            <Card aria-label="예시 Trace 재생">
-              <ScenarioPicker replay={replay} onStart={startExample} />
-            </Card>
+            {!selection && (
+              <Card aria-label="예시 Trace 재생">
+                <ScenarioPicker replay={replay} onStart={startExample} />
+              </Card>
+            )}
             <Card aria-labelledby="state-title">
               <CardTitle id="state-title" title="Shared State" example={ex} />
               <SharedStatePanel state={state} plan={r.plan} />

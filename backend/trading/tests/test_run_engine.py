@@ -151,3 +151,42 @@ def test_store_is_scoped_to_one_account(api, fake, django_user_model):
     assert row["status"] == "EXIT_WATCHING" and row["created_at"].endswith("+09:00")
     assert mine.paper_today(f"{timezone.localdate()}") == (1, 0.0)
     assert mine.last_fx_rate("USD") is None
+
+
+def test_loop_recovers_and_shuts_down_report_runner(monkeypatch):
+    """상주 루프: 시작할 때 이전 실행의 리포트를 정리하고(runner.recover), 끝낼 때(Ctrl+C) 도는 리포트를 기다린다(runner.shutdown)."""
+    from types import SimpleNamespace
+
+    from reports import runner
+
+    from trading.management.commands import run_engine
+
+    called = []
+
+    def stop(seconds):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(jobs, "recover", lambda: 0)
+    monkeypatch.setattr(jobs, "shutdown", lambda: None)
+    monkeypatch.setattr(runner, "recover", lambda: called.append("recover") or 2)
+    monkeypatch.setattr(runner, "shutdown", lambda: called.append("shutdown"))
+    monkeypatch.setattr(runner, "wait", lambda: called.append("wait"))
+    monkeypatch.setattr(run_engine, "close_old_connections", lambda: None)
+    monkeypatch.setattr(run_engine, "time", SimpleNamespace(sleep=stop))
+    out, err = StringIO(), StringIO()
+    call_command("run_engine", stdout=out, stderr=err)
+    assert called == ["recover", "shutdown"]
+    assert "AI 리포트 2개를 실패로 정리함" in out.getvalue() and err.getvalue() == ""
+
+
+def test_once_waits_for_started_report(monkeypatch):
+    """--once: 이번 바퀴에 시작한 리포트가 끝날 때까지 기다린다. recover·shutdown은 부르지 않는다."""
+    from reports import runner
+
+    called = []
+    monkeypatch.setattr(runner, "tick", lambda: called.append("tick") or 1)
+    monkeypatch.setattr(runner, "wait", lambda: called.append("wait"))
+    monkeypatch.setattr(runner, "recover", lambda: called.append("recover") or 0)
+    monkeypatch.setattr(runner, "shutdown", lambda: called.append("shutdown"))
+    _, err = run_once()
+    assert called == ["tick", "wait"] and err == ""

@@ -375,6 +375,7 @@ interface AnalysisQuota {
 
 - 주린이모드는 **계정(서버)에 저장**한다. 기기를 바꿔도 같고, 웹 알림 문장이 같은 모드를 따른다. 진단 전 기본값은 **켬**(`true`).
   리포트 상세의 "이 화면만 자세히 보기"(`?view=expert`)는 화면만 바꾸고 이 값을 바꾸지 않는다 (서버 변경 없음).
+  리포트 PDF도 같은 값을 따른다 (2026-10-07): 쉬운 보기의 "PDF로 보기"는 `?view=easy`, 자세히 보기는 `?view=expert`를 붙이고, 붙이지 않으면 이 값으로 고른다 (`GET /api/reports/{id}/pdf`).
 - 진단 제출(`PUT`)은 결과만 계산해 저장한다. 화면이 "진단 결과: 초급 · 위험중립형 → 주린이모드 켬 추천"을 보이고, 사용자가 추천을 받아들이면 `PATCH {beginnerMode}`를 부른다.
 - 점수 계산은 **결정론적 코드**다 (LLM 아님). 점수표는 이 절과 코드에 같이 두고, 바꾸면 이 절을 먼저 고친다 (E-2: 이 값으로 시작해 사용성 시험 뒤 조정).
 - **법정 적합성 진단이 아니다** (모의 투자 연습 도구라 권유·판매가 없다). 화면에 그렇게 적는다. 진단 결과는 본인만 본다 (랭킹·다른 팀원에게 내지 않는다).
@@ -486,11 +487,16 @@ interface AnalysisQuota {
 
 작성 2026-10-02. 종목별로 AI 리포트를 신청하고, 여러 Agent가 협업하는 과정(Trace)을 화면에서 본다. 배경은 `docs/DECISIONS.md` 9장,
 개념은 `docs/교육용문서.md`(04 Distributed Collaboration)를 그대로 따른다.
-**Agent와 Orchestrator 실행 코드는 아직 없다** (`ExecutionPlan.implemented = false`). 지금은 신청·실행 계획·Shared State·Trace를
-담고 보여 주는 구조만 있다. 신청한 리포트는 `requested` 상태로 남는다.
+**2026-10-07 구현 (Claude, 사용자 요청 — `docs/AI_AGENT_WORKFLOW.md`, `docs/DECISIONS.md` 19장)**: Agent·Orchestrator가 돈다 (`ExecutionPlan.implemented = true`).
+엔진 루프(`run_engine`)의 "리포트 실행" 단계가 `requested` 리포트를 하나씩 잡아 실행 계획대로 Worker를 돌리고 Shared State·Trace를 남긴다 (`reports/runner.py` → `orchestrator.py`).
+팀(`team`)은 둘이다: **`stock_report`**(종목 리포트 — 팀원 신청과 자동 리포트)와 **`stock_selection`**(하루 한 번 자동 리포트할 종목을 고르는 매매 종목 선정 —
+`symbol`은 시장 코드 `"KR"`, `source: "auto"`). 선정 실행은 리포트 목록에 기본으로 나오지 않는다 (`?team=stock_selection`으로 본다).
 
 **2026-10-04 추가 (구현 전 계약)**: 장애 주입(`chaos`), 복구 요약(`recovery`), 자동 리포트(`source`), PDF, 복구 지표, 복구 Trace 사건.
 그중 PDF(`GET /api/reports/{id}/pdf`)와 선별 결과(`GET /api/reports/screening`)는 2026-10-04에 서버가 내기 시작했다 (표의 "구현" 표시).
+2026-10-07(담당 4, T4-1): `ReportSummary`의 `source`·`chaosEnabled`·`costUsd`·`hasPdf`, 자동 리포트의 `requestedBy` "자동", `ReportDetail`의 `chaos`·`recovery`를
+서버가 내기 시작했다 ("(구현)" 표시). `recovery`는 Trace 계산(T4-7) 전까지 장애 없음 고정값, `hasPdf`는 `pdf_path` 파일이 있을 때만 true(그 열을 채우는 것은 PDF 쪽 일),
+`chaos`는 장애 주입 신청(T4-6) 전까지 늘 null이다.
 담당별 할 일은 `docs/tasks/`, 셈법과 모듈 경계는 `docs/tasks/00-공통.md`. 아래에서 "(추가)"로 표시한 것은 아직 서버가 내지 않는다.
 
 ## 타입
@@ -504,6 +510,11 @@ type TraceStatus = "started" | "completed" | "failed" | "blocked" | "skipped";
 //   review_retry                  (추가: 검토 RETRY → 다시 작성)                   actor "orchestrator"
 //   join_completed · join_blocked                                                actor "join_guard", details.step
 //   handoff_started · handoff_completed · handoff_blocked                        actor "handoff_guard", details.to
+// workflow_failed.details.reason (실패 사유 코드, 00-공통.md 9절): join_blocked · review_failed · timeout · engine_restarted · exception ·
+//   agent_failed (2026-10-07 추가: Join이 없는 단계의 필수 Worker가 끝내 실패) · no_llm (2026-10-07 추가: AI 연결 키 없음) ·
+//   expired (2026-10-07 추가: 24시간 넘게 기다린 신청을 실행하지 않고 끝냄)
+// agent_skipped.details.reason: join_blocked · fail_fast · review_failed, 그 밖에는 workflow_failed의 사유 코드 (timeout·agent_failed 등)
+// review_retry.details: {round, target, issues: ["주장 — 문제", ...], instructions}
 // agent_failed는 두 가지다: details.final = false 는 LLM 호출 한 번의 실패(재시도·전환으로 이어진다),
 // details.final = true 는 그 Worker를 포기한 것. details.injected = true 는 장애 주입으로 일으킨 실패.
 type ErrorType = "timeout" | "server_error" | "bad_output" | "unknown";
@@ -524,7 +535,7 @@ interface TraceEvent {            // 구조화된 Trace의 사건 하나
 interface SharedState {           // Orchestrator만 갱신한다
   taskId: string;               // "report-<id>"
   status: "requested" | "running" | "completed" | "failed";
-  currentStep: string | null;   // 실행 계획의 step id (예: "parallel_research")
+  currentStep: string | null;   // 실행 계획의 step id (예: "parallel_research". 선정 실행은 "candidate_research" 등)
   results: Record<string, unknown>;   // 출력 계약을 통과한 Worker 결과만
   errors: Record<string, string>;     // Worker id → 오류
   completedAgents: string[];
@@ -547,7 +558,7 @@ interface PlanStep {
   dependsOn: string[];          // 먼저 끝나야 하는 step id
   join: boolean;                // 앞 단계 결과를 Join Guard로 확인한 뒤 실행하는지
   timeoutSec: number | null;
-  retry: { target: string; maxRounds: number } | null;   // (추가) 검토 단계: RETRY 판정이면 target Worker를 다시 실행 (최대 maxRounds번)
+  retry: { target: string; maxRounds: number } | null;   // (추가) 검토 단계: RETRY 판정이면 target Worker를 다시 실행 (maxRounds는 1~3)
 }
 
 interface ChaosConfig {           // (추가) 장애 주입 설정 (docs/tasks/00-공통.md 5절). 리포트 워크플로우에만 적용된다
@@ -571,12 +582,12 @@ interface RecoverySummary {       // (추가) 이 리포트의 장애·복구 �
 interface Handoff { from: string; to: string; responsibility: string; maxHops: number; }
 
 interface ExecutionPlan {
-  team: string; title: string;
+  team: "stock_report" | "stock_selection"; title: string;   // 2026-10-07: 팀 둘 (GET /api/reports/plan?team=)
   failurePolicy: "fail_fast" | "best_effort" | "required_optional";
   steps: PlanStep[];            // 실행 순서대로
   workers: Worker[];            // steps와 handoffs에 나오는 모든 Worker
   handoffs: Handoff[];
-  implemented: boolean;         // Agent 실행이 구현됐는지. 지금은 false
+  implemented: boolean;         // Agent 실행이 구현됐는지. 2026-10-07부터 true
 }
 
 interface ReportSummary {
@@ -584,11 +595,12 @@ interface ReportSummary {
   symbol: string; name: string; market: Market;
   status: SharedState["status"];
   currentStep: string | null;
-  source: "user" | "auto";      // (추가) 팀원 신청 / 자동 리포트(거래대금 상위 선별)
+  team: "stock_report" | "stock_selection";   // (구현: 2026-10-07) 어느 팀의 실행인지. 선정 실행은 symbol이 시장 코드("KR"), opinion·oneLiner는 null
+  source: "user" | "auto";      // (구현) 팀원 신청 / 자동 리포트(거래대금 상위 선별)
   requestedBy: string;          // 신청한 팀원의 닉네임. 자동 리포트는 "자동"
-  chaosEnabled: boolean;        // (추가) 장애 주입을 켜고 신청했는지
-  costUsd: number | null;       // (추가) LLM 비용 (끝나기 전엔 지금까지의 합)
-  hasPdf: boolean;              // (추가) GET /api/reports/{id}/pdf 가 되는지
+  chaosEnabled: boolean;        // (구현) 장애 주입을 켜고 신청했는지
+  costUsd: number | null;       // (구현) LLM 비용 (끝나기 전엔 지금까지의 합)
+  hasPdf: boolean;              // (구현) GET /api/reports/{id}/pdf 가 되는지
   opinion: "buy" | "hold" | "avoid" | null;   // AI 의견 = results.report_agent.verdict. status가 completed일 때만, 그 밖은 null
                                               // (2026-10-04 합의, 컨셉 계획 B3 — 구현: 2026-10-05 (Claude). 2026-10-05: 담당 4 대신 Claude가 `payloads.summary`에 넣는다 — docs/DECISIONS.md 14-2)
   oneLiner: string | null;      // 한 줄 요약 = results.report_agent.oneLiner (80자). opinion과 같은 규칙 (2026-10-04 합의, 컨셉 계획 B3 — 구현: 2026-10-05 (Claude))
@@ -608,14 +620,27 @@ interface RecoveryStats {         // (추가) GET /api/reports/recovery-stats
             recovered: boolean; recoveryMs: number | null; at: string }[];   // 최근 20건, 최신순
 }
 
-interface ScreeningResult {       // (추가) 자동 리포트의 그날 선별 결과 (엔진 screen_market 결과를 그대로)
+interface ScreeningResult {       // 자동 리포트의 그날 선별 결과 (엔진 screen_market 결과 + 선정 팀 결과. 파일을 그대로 낸다)
   market: Market; at: string; rankCount: number; eligibleCount: number; checked: number;
-  picks: Record<string, unknown>[];     // 점수 순. symbol · name · score · tradingAmountRank 등
+  picks: Record<string, unknown>[];     // 최종 종목 (선정 전에는 규칙 점수 상위). symbol · name · score · rsi · tradingAmountRank 등은 늘 코드 값
+                                        // (구현: 2026-10-07) 선정 뒤에는 + aiRank(number|null) · aiReason(string|null) · theme(string|null) · filledByRule(boolean)
+                                        // (구현: 2026-10-08) 다시 시도로 더한 종목은 + retryRound(1|2). picks는 그날 리포트한 종목 전부다 (아래 retries)
   dropped: Record<string, unknown>[];   // 규칙에서 떨어진 종목과 사유
   excluded: Record<string, unknown>[];  // ETF 등 제외 종목과 사유
-  reportIds: number[];                  // 그날 만든 리포트 (자동 리포트 신청 T1-4가 채운다)
-  recommendationIds: number[];          // 그날 만든 자동 추천 (AUTO_RECOMMEND=demo — 아래 "AI 추천" 절)
+  reportIds: number[];                  // 그날 만든 자동 리포트 (선정 뒤 auto.request가 채운다)
+  recommendationIds: number[];          // 그날 만든 자동 추천 (자동 리포트의 AI 추천, 또는 AUTO_RECOMMEND=demo의 시연 추천 — 아래 "AI 추천" 절)
+  // (구현: 2026-10-07, AUTO_REPORT=on — docs/AI_AGENT_WORKFLOW.md 1·4·5장) 예전 파일에는 없을 수 있다
+  candidates?: Record<string, unknown>[];   // 규칙을 통과한 후보 전부 (점수 순, 최대 30) — 선정 팀이 보는 후보 표
+  selection?: { reportId: number | null; status: "running" | "done"; top: number };   // 선정 실행 (Report team "stock_selection"). top = 고를 종목 수 (AUTO_REPORT_TOP)
+  selectedBy?: "ai" | "rule" | null;        // ai: 선정 팀이 고르고 선정 Guard가 거름 · rule: Fallback(규칙 점수 상위 → 선정 Guard) · null: 선정 중
+  fallbackReason?: string | null;           // rule일 때 사유 코드 (실패 사유 코드 + "no_candidates")
+  aiPicks?: { symbol: string; rank: number; reason: string; evidence: string[] }[];   // 선정 팀 원안 (Guard 전)
+  filtered?: { symbol: string; name: string | null; reason: string; stage: "candidates" | "warnings" | "filing" | "theme" }[];  // 선정 Guard가 뺀 종목 (후보 밖이면 name null)
+  coverSent?: boolean;                      // 그날 표지(선별 요약)를 Discord로 보냈는지
+  retries?: number;                         // (구현: 2026-10-08) 다시 시도한 횟수 0~2: 그날 리포트가 모두 끝났는데 손익비가 스윙 기준(1.5) 이상인
+                                            // 추천이 없으면 아직 리포트하지 않은 다음 종목 top개를 선정 Guard로 골라 다시 낸다 (docs/DECISIONS.md 22장)
 }
+// 같은 폴더의 곁 파일: <날짜>-<시장>.skip.json (증권사 조회 불가로 그날 건너뜀 — 다시 하지 않는다), <날짜>-<시장>.cover.html (표지)
 
 interface ReportQuota {           // GET /api/reports/quota — 하루 리포트 한도 (D-7, 2026-10-04 합의 — 구현: 2026-10-05 (Claude))
   limit: number;                // 팀원별 하루 한도 AI_DAILY_REPORTS_PER_USER (기본 3)
@@ -628,9 +653,9 @@ interface ReportDetail extends ReportSummary {   // Snapshot
   content: string | null;       // 리포트 본문 (Markdown). Agent 구현 전에는 null
   state: SharedState;
   trace: TraceEvent[];          // step 오름차순
-  plan: ExecutionPlan;
-  chaos: ChaosConfig | null;    // (추가) 신청 때의 장애 주입 설정 (서버가 채운 기본값·seed 포함)
-  recovery: RecoverySummary;    // (추가)
+  plan: ExecutionPlan;          // 그 리포트 팀(team)의 실행 계획 (구현: 2026-10-07)
+  chaos: ChaosConfig | null;    // (구현) 신청 때의 장애 주입 설정 (서버가 채운 기본값·seed 포함)
+  recovery: RecoverySummary;    // (구현, T4-7 전까지 고정값)
 }
 ```
 
@@ -638,16 +663,16 @@ interface ReportDetail extends ReportSummary {   // Snapshot
 
 | 메서드·경로 | 요청 | 응답 |
 |---|---|---|
-| `GET /api/reports/plan` | – | `200 ExecutionPlan` (YAML Registry에서 읽은 실행 계획) |
-| `GET /api/reports?symbol=` | 페이지, `symbol` 선택 | `200 {"count", "results": ReportSummary[]}` (팀 전체 공용, 최신순) |
+| `GET /api/reports/plan?team=` | `team` 기본 `stock_report` | `200 ExecutionPlan` (YAML Registry에서 읽은 실행 계획) · 모르는 `team` `400` (구현: 2026-10-07) |
+| `GET /api/reports?symbol=&team=` | 페이지, `symbol` 선택, `team` 기본 `stock_report` (`stock_selection`이면 선정 실행 목록) | `200 {"count", "results": ReportSummary[]}` (팀 전체 공용, 최신순) · 잘못된 `team` `400` (구현: 2026-10-07) |
 | `POST /api/reports` | `{"symbol", "chaos"?: {"enabled", "probability"?, "errorTypes"?, "workers"?, "scope"?, "seed"?}}` | `201 ReportDetail` · 같은 사람이 같은 종목으로 신청해 아직 끝나지 않은 리포트가 있으면 그것을 `200`으로 (한도를 넘었어도 돌려준다) · 없는 종목·잘못된 `chaos` `400` · 하루 한도 초과 `429 {"detail": string, "limit": number, "used": number}` (`detail` 예: "오늘 리포트 한도(3개)를 다 썼어요. 내일 0시에 다시 만들 수 있어요." — D-7, 구현: 2026-10-05 (Claude)) · (추가) AI 설정 없음 `503` · 증권사 조회 불가 `503` |
 | `GET /api/reports/quota` | – | `200 ReportQuota` (D-7 — 구현: 2026-10-05 (Claude)) |
-| `GET /api/reports?symbol=&source=&mine=` | 페이지, `symbol`·`source`(`user`\|`auto`)·`mine`(`1`이면 내가 신청한 것만) 선택, 같이 쓸 수 있다 | (추가 `source`) · `mine=1` (2026-10-04 합의, 컨셉 계획 B8 — 구현: 2026-10-05 (Claude): `ReportsView.get` 한 줄. 자동 리포트는 신청자가 없어 빠진다) |
+| `GET /api/reports?symbol=&source=&mine=` | 페이지, `symbol`·`source`(`user`\|`auto`)·`mine`(`1`이면 내가 신청한 것만) 선택, 같이 쓸 수 있다 | `source` (구현: 2026-10-07, 잘못된 값 `400`) · `mine=1` (2026-10-04 합의, 컨셉 계획 B8 — 구현: 2026-10-05 (Claude): `ReportsView.get` 한 줄. 자동 리포트는 신청자가 없어 빠진다) |
 | `GET /api/reports/{id}` | – | `200 ReportDetail` · `404` (**Snapshot API**: 새로고침·연결 복구에 쓴다) |
 | `GET /api/reports/{id}/events` | 헤더 `Last-Event-ID` 또는 `?after=<step>` | `200 text/event-stream` (**SSE**) · 미로그인 `401` JSON · `404` |
-| `GET /api/reports/{id}/pdf` | – | `200 application/pdf` (A4. 처음 부르면 만들어 `PAPER_ROOT/reports/<id>.v<양식 판>.pdf`(Chrome이 없으면 `.html`)에 저장하고 다음부터 그 파일. `pdf_path` 열이 생기면 그 열로. 2026-10-05 구현: 양식 판 `TEMPLATE_VERSION`(`backend/reports/pdf.py`, 지금 2 — 쉬운 요약·장마감 기준)을 파일 이름에 넣어, 양식이 바뀌면 판 번호 없는 예전 `<id>.pdf`(1판)·이전 판 파일을 쓰지 않고 새로 만든 뒤 지운다) · 완성 전 `409 {"detail"}` · `404` · Chrome이 없으면 `200 text/html`(같은 내용) — 2026-10-04 구현 |
+| `GET /api/reports/{id}/pdf?view=` | `view`: `easy`(쉬운 판) \| `expert`(자세한 판). 없으면 요청한 사람의 주린이모드(켬 → `easy`) — 2026-10-07 구현, `docs/DECISIONS.md` 20장 | 잘못된 `view` `400 {"detail": "view는 easy 또는 expert입니다."}` · `200 application/pdf` (A4. 처음 부르면 만들어 `PAPER_ROOT/reports/<id>.v<양식 판>.pdf`(Chrome이 없으면 `.html`)에 저장하고 다음부터 그 파일. `pdf_path` 열은 자동 리포트가 Discord로 보낸 파일(2026-10-07부터 쉬운 판)이고 이 API는 쓰지 않는다. 2026-10-05 구현: 양식 판 `TEMPLATE_VERSION`(`backend/reports/pdf.py`, 지금 4 — 2: 쉬운 요약·장마감 기준, 3: 이름 종이배·로고 머리, 4: 이름 모매매)을 파일 이름에 넣어, 양식이 바뀌면 판 번호 없는 예전 `<id>.pdf`(1판)·이전 판 파일을 쓰지 않고 새로 만든 뒤 지운다. 2026-10-07: 쉬운 판은 따로 `<id>.v<판>.easy.pdf` — 웹 쉬운 보기와 같은 문장으로 결론·신뢰·쉬운 요약·매매 계획(말로)·근거와 위험·이 의견이 틀리는 경우·세 가지 경우(1주 기준 %)·가격 흐름·조사 자료·용어 풀이를 싣고, 검토 점수·확률·신뢰도·모델 이름·비용은 싣지 않는다. 계좌마다 다른 값(수량·금액)은 넣지 않는다 — 파일이 리포트당 판마다 하나) · 완성 전 `409 {"detail"}` · `404` (선정 실행 `team: "stock_selection"`도 `404` — 2026-10-07) · Chrome이 없으면 `200 text/html`(같은 내용) — 2026-10-04 구현 |
 | (추가) `GET /api/reports/recovery-stats?days=7` | `days` 1~90, 기본 7 | `200 RecoveryStats` |
-| `GET /api/reports/screening?market=KR&date=` | `date` 기본 오늘(KST) | `200 ScreeningResult` · 그날 선별이 없으면 `404` · 잘못된 `market`·`date` `400` — 2026-10-04 구현 (`reports/auto.py`가 남긴 파일을 읽는다) |
+| `GET /api/reports/screening?market=KR&date=` | `date` 기본 오늘(KST) | `200 ScreeningResult` · 그날 선별이 없으면 `404` · 잘못된 `market`·`date` `400` — 2026-10-04 구현 (`reports/auto.py`가 남긴 파일을 읽는다. 2026-10-07부터 선정 팀 결과 키가 더해진다) |
 
 SSE 형식 (실행 Event를 발생 즉시 한 방향으로 전달):
 - `event: trace` / `id: <step>` / `data: <TraceEvent JSON>` — `after`(또는 `Last-Event-ID`)보다 큰 step만, 순서대로.
@@ -670,7 +695,7 @@ SSE 형식 (실행 Event를 발생 즉시 한 방향으로 전달):
 - 팀원마다 오늘(KST) 한도에 세는 리포트 수가 `AI_DAILY_REPORTS_PER_USER`(기본 3)에 닿으면 `POST /api/reports`가 새 리포트를 만들지 않고 `429 {"detail", "limit", "used"}`를 돌려준다.
 - 세는 것: 오늘 내가 신청한 리포트에서 **장애 주입 없이 `failed`로 끝난 것을 뺀** 수. 장애 주입을 켠 리포트는 실패해도 센다.
   `chaos` 열이 생기기 전에는 장애 주입 여부를 알 수 없으므로 failed는 모두 빼고 센다 (열이 생기면 `chaos.enabled`가 참인 failed만 센다).
-- 같은 종목의 진행 중 리포트를 돌려주는 `200` 경로는 새로 세지 않는다. 자동 리포트(`source: "auto"`)는 신청자가 없어 세지 않는다.
+- 같은 종목의 진행 중 리포트를 돌려주는 `200` 경로는 새로 세지 않는다. 자동 리포트(`source: "auto"`)·선정 실행(`team: "stock_selection"`)은 신청자가 없어 세지 않는다.
 - 비용 합산 한도(분석 + 리포트 $, `AI_DAILY_BUDGET_USD`)는 `cost_usd` 열이 생긴 뒤 팀원(2) 몫이다 — 팀 파일 `backend/reports/budget.py`의 `check(now)`를 `ReportsView.post`에서 횟수 한도 바로 뒤에 부른다
   (넘으면 `429`, 본문 형식은 2가 이 절에 적는다). `quota.py`(횟수, Claude)와 파일을 나눈다 (`docs/tasks/00-공통.md` 2절).
 
@@ -683,7 +708,7 @@ SSE 형식 (실행 Event를 발생 즉시 한 방향으로 전달):
 배경과 결정은 `docs/DECISIONS.md` 12장, 담당과 남은 일은 `docs/tasks/06-추천·자동매매.md`.
 
 - **AI는 제안만 한다.** 수량·한도·활성화 가능 여부·체결은 결정론적 코드(엔진 리스크 엔진 `judge/risk.py`, 모의 체결기)가 정한다.
-  최소 손익비 기준(2.0)은 AI 프롬프트에 넣지 않는다 (리스크 엔진이 거른다).
+  최소 손익비 기준(스윙 1.5)은 AI 프롬프트에 넣지 않는다 (리스크 엔진이 거른다). 손절 가격(`targets.stop`)은 코드가 정한다 — 시세 조사 `market_agent`의 `stop` (2026-10-07, `docs/DECISIONS.md` 21장).
 - 추천의 출처는 셋이다: `report`(AI 리포트 Agent 워크플로우의 `report_agent` 결과 — 추천 워크플로우 팀이 구현), `analysis`(지금 있는 AI 교차검증 분석의
   BUY 판정), `demo`(**시연용 규칙 추천, AI 아님** — 일봉 ATR로 목표·손절을 정한다. 화면에 "연습용 예시 계획 (AI 아님)"을 표시한다).
 - 추천은 팀 전체가 같이 보고, **활성화는 팀원마다 자기 모의 계좌에** 한다 (같은 추천을 여러 명이 각자 활성화할 수 있다).
@@ -867,10 +892,10 @@ interface NotificationSettings {
 - **알림 문장** (2026-10-04 합의, 컨셉 계획 B6 — 구현: 2026-10-05 (Claude)): 웹 알림의 `title`·`body`는 **받는 사람의 주린이모드**를 따른다.
   켬(진단 전 기본)이면 쉬운 문장("모의 계좌에서 삼성전자를 70,600원에 3주 샀어요. 77,000원이 되면 팔고, 67,700원 아래로 내려가면 손실이 더 커지지 않게 팔아요."),
   끔이면 전문가 문장(2026-10-04 전 문장 — 이미 "모의 주문 #…"이 들어 있다). 문장은 `backend/autotrade/text.py`에 모은다. Discord(팀 공용 채널 하나)는 받는 사람과 무관하게
-  쉬운 문장 + 숫자 한 줄로 하나만 보내고 맨 앞에 **`[종이배 · 모의투자]`**를 붙인다(2026-10-05 서비스 이름을 "종이배"로 바꿈 — 전에는 `[AI 리포트 데스크 · 모의투자]`). `PlanEvent.message`·`failureReason`은 원래 용어 그대로다 (전문가 보기).
+  쉬운 문장 + 숫자 한 줄로 하나만 보내고 맨 앞에 **`[모매매 · 모의투자]`**를 붙인다(2026-10-07 서비스 이름을 "모매매"로 바꿈 — 전에는 `[종이배 · 모의투자]`, 그 전은 `[AI 리포트 데스크 · 모의투자]`). `PlanEvent.message`·`failureReason`은 원래 용어 그대로다 (전문가 보기).
   - **주문·체결·청산·예약·계획 활성화를 말하는 쉬운 문장에는 "모의"를 꼭 넣는다** ("모의 계좌에서 …", "모의 자동매매 …") — 공용 채널·초보 화면에서 실제 매매로 읽히지 않게.
     테스트(`autotrade/tests`): `text.py`의 쉬운 문장 중 그 kind(`plan_activated`·`order_placed`·`order_requeued`·`filled`·`closed`·`cancelled`·`expired`·`failed`)마다 "모의"가 들어 있고,
-    Discord 글이 `[종이배 · 모의투자]`로 시작한다.
+    Discord 글이 `[모매매 · 모의투자]`로 시작한다.
   - 권유 표현은 쓰지 않는다 — 공통 규칙 "금지 표현"의 `PERSUASION` (`forbidden_phrases(text)`가 빈 목록인지 쉬운 문장·전문가 문장 전부 테스트).
 - **Discord로 보내지 않는 알림** (웹 알림만): `daily_move`·`thesis_check`(사용자별 묶음이라 팀 채널 하나에 사람 수만큼 쌓이고, 등락 설명이 공개 채널에서 권유로 읽힐 수 있다). 구현: 2026-10-05 (Claude).
 - 프론트 폴링: 알림 개수 15초, 진행 중 계획 5초, 추천 목록 30초.
@@ -894,7 +919,7 @@ interface NotificationSettings {
 
 | 코드 | 조건 (지금 `reasons` 원문을 내는 곳) |
 |---|---|
-| `reward_risk_low` | 손익비가 최소 기준(2.0)보다 낮음 (리스크 엔진 `assess`) |
+| `reward_risk_low` | 손익비가 최소 기준(스윙 1.5)보다 낮음 (리스크 엔진 `assess`) |
 | `ev_negative` | 비용을 반영한 기대값이 0 이하 (`assess`) |
 | `daily_loss_limit` | 일일 손실 한도 도달 (`assess`. SWING 한도(AI 추천 계획)는 style swing 주문의 손실만 센다 — 2026-10-05 구현, 장기 보유 손실은 어느 한도에도 세지 않는다) |
 | `daily_trades_limit` | 일일 매매 건수 한도 도달 (`assess`. SWING에는 건수 한도가 없어 지금은 나오지 않는다 — 2026-10-06 단타 폐기로 하루 10건 한도(DAY)가 없어졌다) |
@@ -913,17 +938,17 @@ interface NotificationSettings {
 ### 리포트 끝 알림 (2026-10-04 합의, 컨셉 계획 B7 — 2026-10-04 규칙 바뀜, 구현: 2026-10-05 (Claude))
 
 리포트 하나가 끝나면 신청자에게 알림이 **한 번만** 간다 (웹 알림 + Discord, `notifications.service.notify`). **알림은 모두 새 파일 `backend/reports/alerts.py`(Claude 담당)가 보낸다** —
-팀원의 runner·healing은 사용자 알림을 보내지 않아도 된다 (`docs/DECISIONS.md` 14-5, `docs/tasks/00-공통.md` 8절). `backend/reports/auto.py`는 팀 파일(자동 리포트 B9)이라 Claude는 고치지 않는다.
+팀원의 runner·healing은 사용자 알림을 보내지 않아도 된다 (`docs/DECISIONS.md` 14-5, `docs/tasks/00-공통.md` 8절). `backend/reports/auto.py`(자동 리포트 B9)는 2026-10-07 사용자 요청으로 Claude가 구현했다 (`docs/DECISIONS.md` 19장).
 - **보내는 자리 둘** (어느 쪽이 먼저 처리해도 한 번):
   - `alerts.notify_finished(report) -> None` — 끝난 리포트 하나를 바로 처리한다. 예외를 밖으로 내지 않는다. 팀 코드(runner 또는 팀의 `auto.after_finish`)가 리포트를 끝낸 뒤 불러도 되고 부르지 않아도 된다.
   - `alerts.sweep_finished(now, log) -> int` — `run_engine`의 "리포트 알림" 단계(추천 수집 다음)가 매 바퀴 부른다. 최근 24시간 안에 끝난 리포트 중 아직 알림이 없는 것을 처리하고 보낸 수를 돌려준다.
     그래서 팀 코드가 `notify_finished`를 부르지 않아도 엔진 루프 한 바퀴 안에 간다.
-- **대상**: 팀원 신청 리포트만. 자동 리포트(`source: "auto"`. 열이 없으면 `"user"`로 본다)는 건너뛴다 — 자동 리포트의 PDF·Discord 발송은 추천 워크플로우 팀 몫이다
+- **대상**: 팀원 신청 종목 리포트만 (`team: "stock_report"`). 선정 실행(`stock_selection`)과 자동 리포트(`source: "auto"`. 열이 없으면 `"user"`로 본다)는 건너뛴다 — 자동 리포트의 PDF·Discord 발송은 추천 워크플로우 팀 몫이다
   (B9, 01 T1-5의 자동 리포트 부분 — 팀 파일 `auto.py`의 `auto.after_finish(report)`, runner가 끝난 리포트마다 부른다. `00-공통.md` 8절).
 - **완성** (`completed`): 이 리포트로 추천이 있으면(`verdict` buy이고 `0 < stop < entry < target` — `00-공통.md` 10절) `report_completed`를 보내지 않는다 —
   추천 알림(`recommendation`)의 본문 첫 줄 "리포트가 완성됐어요"가 그 역할이다. 판단 전에 추천을 만들 수 있으면 먼저 만든다(`autotrade.sources.from_report`, 이미 있으면 그대로).
   추천이 없으면(지켜보기·부정적·가격 조건이 맞지 않음) `report_completed` 하나 (`link`: `/reports/{id}`).
-- **실패** (`failed`, 엔진 재시작 정리 포함): `report_failed` 하나 (`link`: `/reports/{id}`). 본문은 실패 사유 코드(`00-공통.md` 9절의 `join_blocked`·`review_failed`·`timeout`·`engine_restarted`·`exception`)의
+- **실패** (`failed`, 엔진 재시작 정리 포함): `report_failed` 하나 (`link`: `/reports/{id}`). 본문은 실패 사유 코드(`00-공통.md` 9절의 `join_blocked`·`review_failed`·`timeout`·`engine_restarted`·`exception`·`agent_failed`·`no_llm`·`expired`)의
   쉬운 문장 (`backend/reports/text.py`). 사유는 Trace의 마지막 `workflow_failed.details.reason`이고, 없거나 모르는 코드면 "리포트를 만들지 못했어요. 다시 만들 수 있어요".
 - **중복 방지**: 같은 사용자에게 같은 kind·같은 `link`의 알림이 이미 있으면 보내지 않는다 (두 경로가 겹치거나 엔진이 다시 떠도 한 번).
 - 예전 계획의 `system` kind와 `healing.notify_failure`의 사용자 알림은 쓰지 않는다.
