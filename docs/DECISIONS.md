@@ -1059,7 +1059,9 @@ AI는 목표를 가깝게(+6~9%), 손절을 멀게(−5~−19%) 잡았다. 그�
   - `backend/notifications/service.py`의 `webhook_configured` — 늘 false. 화면(My Page 알림 설정)은 Discord 묶음(받기 스위치·사용자 ID·테스트 알림)을 접고
     "지금은 웹 알림으로만 와요"를 보인다. 테스트 알림 API는 `discord: "not_configured"`.
 - 끈 동안 생기는 Discord 글은 편지함(`notification_outbox`)에 `skipped`로 남고 엔진 콘솔에만 찍힌다 (보내지 않음). `DISCORD_WEBHOOK_URL`은 남겨 둬도 된다.
-- **바뀌지 않는 것**: GitHub Actions의 배포 결과 Discord 알림(`deploy.yml`의 `notify` 작업)은 서비스 기능이 아니라 그대로 둔다 (저장소 비밀 값 `DISCORD_WEBHOOK_URL`로 보낸다).
+- **배포 파이프라인의 Discord 알림도 없앴다** (2026-10-08 사용자 결정 "디스코드 알림은 구현 안 함"): `deploy.yml`의 `notify` 작업을 지웠다.
+  (처음에는 서비스 기능이 아니라며 남겨 두었지만, 저장소 비밀 값 `DISCORD_WEBHOOK_URL`을 넣은 적이 없어 늘 건너뛰기만 했다.)
+  배포 결과는 Actions 실행 결과(실행한 사람에게 GitHub 기본 실패 알림)와 관리 서버의 배포 기록(`record` 작업 — success·rolled_back·rollback_failed·failed·blocked)으로 본다.
 - **다시 켜려면**: 위 두 곳의 주석을 풀고 `return ConsoleNotifier()` / `return False` 줄을 지운다. 테스트 `engine/tests/test_notify.py`,
   `backend/notifications/tests/test_service.py`·`test_notifications_api.py`의 "disabled" 테스트를 예전 기대값(각 테스트 docstring에 적었다)으로 되돌린다.
 

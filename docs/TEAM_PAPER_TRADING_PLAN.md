@@ -73,7 +73,7 @@ engine = python manage.py run_engine (5초 루프, 단계마다 오류 격리)
 redis 7 = compose가 띄운다. 엔진 CLI(serve·장 밖 예약·info·daily-report·backup)만 쓰고 web·run_engine은 쓰지 않는다
 외부 ─▶ 키움 REST(운영) · 토스(로컬 전용) · DART · data.go.kr · Google 뉴스 RSS · DevPass LLM Gateway
 알림 ─▶ 웹 알림(DB) + Discord Webhook 보낼 편지함 (engine이 보낸다. 지금 꺼짐)
-CI/CD: push ─▶ ci.yml 검사 ─▶ [DEPLOY_ENABLED] GHCR 이미지 3개 ─▶ SSH 배포·되돌리기 ─▶ Discord 알림 (배포 단계는 아직 skipped)
+CI/CD: push ─▶ ci.yml 검사 ─▶ [DEPLOY_ENABLED] GHCR 이미지 3개 ─▶ SSH 배포·되돌리기 ─▶ 관리 서버 배포 기록
 ```
 
 근거: `deploy/docker-compose.yml:1-12`, `backend/trading/management/commands/run_engine.py:53-67`, `docs/DECISIONS.md` 8-2·8-4·11장. Redis를 여는 곳은 엔진 CLI(`engine/paper_engine/__main__.py:135-136·586-588·1064`)뿐이다(`backend`에는 redis 참조가 없다 — 코드 검색).

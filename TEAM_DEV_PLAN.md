@@ -333,7 +333,7 @@ Trace에 남길 사건 (`docs/API.md`와 `docs/tasks/00-공통.md` 9절에 확�
 | 1 | **컨테이너** | 됨 | `deploy/docker-compose.yml`: nginx(프론트 + 프록시), web(Django), engine(`run_engine`, Chromium·한글 글꼴), migrate, db(PostgreSQL), redis. 상태 확인으로 기동 순서를 건다. root가 아닌 사용자·읽기 전용. 이 PC에서 띄워 `deploy/smoke_test.sh` 통과 |
 | 2 | **CI** (`.github/workflows/ci.yml`) | 됨 | 커밋 → 린트 → 실주문 코드 0건 → 테스트(SQLite) → 백테스트 → 마이그레이션 확인 → 백엔드 테스트(PostgreSQL) → 프론트 검사·빌드 → 이미지 빌드 → 스택 기동 확인. 비밀 값 없이 돈다 |
 | 3 | **CD** (`deploy.yml`) | 됨 (2026-10-06 서버 연결) | `main` push: 검사 통과 시에만 이미지를 올리고(GHCR, 태그 = 커밋 해시) 서버에서 받아 띄운다 → 상태 확인 → 실패하면 직전 버전으로 되돌린다. 되돌리기는 로컬 레지스트리로 확인했다 |
-| 4 | **알림** | 코드 됨 | 성공·검사 실패(배포 차단)·배포 실패를 Discord로 보낸다. 비밀 값 `DISCORD_WEBHOOK_URL`을 넣으면 켜진다 (6-4의 Webhook과 같은 채널). 실패 시 누가 볼지(담당자)를 정한다 |
+| 4 | **알림** | 바뀜 (2026-10-08 사용자 결정) | Discord 알림은 두지 않는다 (`deploy.yml`의 `notify` 작업을 지움, `docs/DECISIONS.md` 24장). 결과는 Actions 실행 결과(실행한 사람에게 GitHub 기본 실패 알림)와 관리 서버 배포 기록(`blocked`·`rolled_back` 등)으로 본다 |
 | 5 | **서버 준비와 첫 배포** | 됨 (2026-10-06, 첫 배포 성공 — `docs/DEPLOY.md` 0장). 남음: 보안 그룹 HTTP 80, 키움 키·IP 등록, 운영 계정 | EC2 만들기, Docker 설치, 배포용 SSH 키, 서버의 `.env.docker`, GitHub 변수·비밀 값, `DEPLOY_ENABLED=true` (`docs/DEPLOY.md` 4~5장). 운영은 `DJANGO_DEBUG=off`와 키움 키 (토스 조회는 개발 전용이라 꺼진다) |
 | 6 | **통합 테스트 추가** | 할 일 (4·5장과 같이) | 협업 흐름과 장애 복구(가짜 LLM으로 정상·재시도·대체 모델·Join 차단)를 `backend/reports/tests/`에 넣는다. 넣으면 CI가 알아서 돌린다 (워크플로를 고칠 필요 없다) |
 | 7 | **배포 차단 확인** | 할 일 | 테스트를 일부러 실패시켜 **배포가 멈추는 것**을 한 번 실행해 기록한다 (`docs/DEPLOY.md` 8장, DR-CI-01) |
@@ -370,7 +370,7 @@ Trace에 남길 사건 (`docs/API.md`와 `docs/tasks/00-공통.md` 9절에 확�
 | DR-SEC-01 | 뉴스 본문에 "지시를 무시하라" 문구 | 그 자료를 빼고 진행, 차단 기록 |
 | DR-NET-01 | 브라우저의 실시간 연결을 끊음 | Snapshot 폴링으로 전환, 화면 계속 갱신 |
 | DR-NOTI-01 | Discord 전송 실패 | 재시도, 글만 보내기 |
-| DR-CI-01 | 실패하는 테스트를 넣고 push | 배포 차단, 알림 |
+| DR-CI-01 | 실패하는 테스트를 넣고 push | 배포 차단, 관리 서버 배포 기록 `blocked` |
 
 시험마다 기록할 것 (가이드의 표 그대로): Scenario ID · 주입 장애 · 기대 동작 · **실제 동작** · **복구 시간** · **수동 개입(있음/없음)** · 판정(PASS/FAIL) · 증빙(Trace 화면 캡처, 로그, 링크).
 
@@ -401,7 +401,7 @@ Trace에 남길 사건 (`docs/API.md`와 `docs/tasks/00-공통.md` 9절에 확�
 3. **장애 주입을 켜고 신청** → 모델 실패가 일어난다.
 4. Trace에서 실패 감지 → 재시도 → **대체 모델 전환**을 따라간다.
 5. 복구 뒤 리포트 본문이 나오고 **Discord에 A4 PDF**가 도착한다.
-6. 파이프라인 실행 기록과, 테스트 실패 시 배포가 막히고 알림이 온 기록.
+6. 파이프라인 실행 기록과, 테스트 실패 시 배포가 막히고 관리 서버에 `blocked`로 남은 기록.
 7. 복구 지표 화면: 자동 복구율, 평균 복구시간, 실패 사례와 개선.
 8. AI 추천 → 리포트 검토 → 계획 활성화 → 모의 자동매매 → 알림 (`docs/tasks/06-추천·자동매매.md` "시연 순서").
 
