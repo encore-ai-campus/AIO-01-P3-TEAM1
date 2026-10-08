@@ -27,6 +27,7 @@ import { Term } from "../../Term";
 import { useToast } from "../../toast";
 import { AsOf, Card, ErrorState, Skeleton } from "../../ui";
 import { OpinionBadge } from "../OpinionBadge";
+import { PdfOpenButton } from "../PdfOpenButton";
 import { ViewToggle } from "../ViewToggle";
 import { EasyFailure } from "./EasyFailure";
 import { EasyProgress } from "./EasyProgress";
@@ -252,17 +253,7 @@ export function EasyReport({ r, view }: { r: ReportDetail; view: ViewModeState }
       )}
 
       <Card as="div" className="space-y-2">
-        {completed && (
-          <a
-            href={`/api/reports/${r.id}/pdf`}
-            target="_blank"
-            rel="noreferrer"
-            className="press flex h-11 items-center justify-center gap-1.5 rounded-xl bg-fill text-[15px] font-semibold text-ink hover:bg-line"
-          >
-            <Icon name="doc" className="size-4" />
-            PDF로 보기
-          </a>
-        )}
+        {completed && <PdfOpenButton reportId={r.id} />}
         {/* 면책 문장은 꼭 읽어야 하는 문장이라 보조 글자색 (흐린 글자보다 진하게) */}
         <p className="text-[12px] leading-snug text-sub">{DISCLAIMER}</p>
       </Card>

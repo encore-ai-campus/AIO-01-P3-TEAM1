@@ -14,6 +14,7 @@ import { AnalysisCard, AnalysisCardSkeleton } from "../components/AnalysisCard";
 import { AssetCard } from "../components/AssetCard";
 import { HomePlans, HomeRecommendations } from "../components/autotrade/HomeSummaries";
 import { GuideCard } from "../components/home/GuideCard";
+import { DemoPreviewCard } from "../components/home/DemoPreviewCard";
 import { DAILY_MOVE_ANCHOR, kstDay, readGuideClosed, writeGuideClosed } from "../components/home/homeData";
 import { useFailedCount } from "../components/home/homeHooks";
 import { EmptyRow, SectionError } from "../components/home/HomeStates";
@@ -323,6 +324,7 @@ export function HomePage() {
         }
       />
       <FailedNotice />
+      <DemoPreviewCard />
       {view.easy && me ? <EasyHome userId={me.id} view={view} focusKey={focusKey} /> : <ExpertHome view={view} focusKey={focusKey} />}
     </div>
   );

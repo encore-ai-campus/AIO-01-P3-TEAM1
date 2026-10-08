@@ -9,7 +9,7 @@ export interface ExampleFrame {
   state: Partial<SharedState>; // 이 사건 뒤 Orchestrator가 바꾼 State 항목
 }
 
-export type ScenarioId = "normal" | "required_fail" | "recovery";
+export type ScenarioId = "normal" | "required_fail" | "recovery" | "bad_output" | "review_limit" | "prompt_guard";
 
 export interface ExampleScenario {
   id: ScenarioId;
@@ -25,11 +25,11 @@ const BASE = Date.parse("2026-10-02T10:00:00+09:00");
 const at = (ms: number) => `${new Date(BASE + ms + 9 * 3_600_000).toISOString().slice(0, 23)}+09:00`;
 
 const LLM: Record<string, { provider: string; model: string }> = {
-  market_agent: { provider: "gemini", model: "gemini-3.5-flash" },
-  fundamental_agent: { provider: "openai", model: "gpt-4.1-mini" },
-  news_agent: { provider: "ollama", model: "llama3.2" },
-  report_agent: { provider: "gemma", model: "gemma3:4b" },
-  review_agent: { provider: "openai", model: "gpt-4.1-mini" },
+  market_agent: { provider: "devpass", model: "gemini-3.8-flash" },
+  fundamental_agent: { provider: "devpass", model: "gemini-3.8-flash" },
+  news_agent: { provider: "devpass", model: "gemini-3.8-flash" },
+  report_agent: { provider: "devpass", model: "gpt-5.6-luna" },
+  review_agent: { provider: "devpass", model: "claude-opus-5-5" },
 };
 
 /** 사건 하나. step은 목록 순서로 붙인다. */
@@ -58,7 +58,7 @@ const REVIEW = { verdict: "통과", issues: [] };
 const REPORT_FULL = { sections: ["요약", "가격 흐름", "재무·공시", "뉴스·심리", "리스크"], excluded: [] };
 const ALL3 = { fundamental_agent: FUNDAMENTAL, market_agent: MARKET, news_agent: NEWS };
 /** 뉴스 Agent의 대체 모델 (예시 ③). */
-const FALLBACK = { provider: "openai", model: "gpt-4.1-mini" };
+const FALLBACK = { provider: "devpass", model: "gpt-5.6-luna" };
 
 export const SCENARIOS: ExampleScenario[] = [
   {
@@ -224,6 +224,46 @@ export const SCENARIOS: ExampleScenario[] = [
         ev("orchestrator", "workflow_completed", "completed", 17610, { reason: "completed", costUsd: 0.043, durationMs: 17610 }),
         { status: "completed", currentStep: null },
       ],
+    ]),
+  },
+  {
+    id: "bad_output",
+    title: "④ 형식 오류 → 다시 요청",
+    description: "DR-LLM-02 · Worker 응답 계약이 깨짐 → 문제를 알려 같은 Agent에 다시 요청 → 정상 결과로 완료",
+    frames: numbered([
+      [ev("orchestrator", "workflow_started", "started", 0, { team: "stock_report", policy: "required_optional" }), { status: "running", currentStep: "parallel_research" }],
+      [ev("market_agent", "agent_started", "started", 40, { attempt: 1, step: "parallel_research" }), {}],
+      [ev("market_agent", "agent_failed", "failed", 1100, { errorType: "bad_output", attempt: 1, injected: true, final: false, reason: "출력 계약 불일치" }, 1060), {}],
+      [ev("market_agent", "agent_retry", "started", 1110, { attempt: 2, reason: "bad_output" }), {}],
+      [ev("market_agent", "agent_completed", "completed", 2600, { attempts: 2, recovered: true, recoveryMs: 1500 }, 1490), { results: { market_agent: MARKET }, completedAgents: ["market_agent"] }],
+      [ev("orchestrator", "workflow_completed", "completed", 2610, { reason: "형식 오류를 바로잡아 완료" }), { status: "completed", currentStep: null }],
+    ]),
+  },
+  {
+    id: "review_limit",
+    title: "⑤ Feedback Loop 최대 횟수 종료",
+    description: "DR-CRT-02 · 검토가 계속 RETRY → 정해진 최대 횟수에서 중단 → 무한 실행 없이 실패 종료",
+    frames: numbered([
+      [ev("orchestrator", "workflow_started", "started", 0, { team: "stock_report" }), { status: "running", currentStep: "review" }],
+      [ev("report_agent", "agent_completed", "completed", 1200, { contract: "통과" }, 1200), { results: { report_agent: REPORT_FULL }, completedAgents: ["report_agent"] }],
+      [ev("review_agent", "agent_completed", "completed", 2100, { verdict: "RETRY" }, 900), {}],
+      [ev("orchestrator", "review_retry", "started", 2110, { round: 1, target: "report_agent", issues: ["근거가 조사 결과와 맞지 않음"], instructions: "조사 결과에 있는 근거만 사용해 다시 작성" }), { currentStep: "compose" }],
+      [ev("report_agent", "agent_completed", "completed", 3300, { contract: "통과" }, 1190), {}],
+      [ev("review_agent", "agent_completed", "completed", 4200, { verdict: "RETRY" }, 900), {}],
+      [ev("orchestrator", "review_retry", "started", 4210, { round: 2, target: "report_agent", issues: ["수정 후에도 근거 불일치"], instructions: "근거 없는 문장을 제거" }), { currentStep: "review" }],
+      [ev("orchestrator", "workflow_failed", "failed", 4220, { reason: "review_failed" }), { status: "failed", currentStep: null, errors: { review_agent: "검토 최대 횟수 초과" }, failedAgents: ["review_agent"] }],
+    ]),
+  },
+  {
+    id: "prompt_guard",
+    title: "⑥ 악성 지시 자료 차단",
+    description: "DR-SEC-01 · 뉴스 본문의 프롬프트 공격 감지 → 해당 자료 제외 기록 → 안전한 자료만으로 계속",
+    frames: numbered([
+      [ev("orchestrator", "workflow_started", "started", 0, { team: "stock_report" }), { status: "running", currentStep: "parallel_research" }],
+      [ev("news_agent", "agent_started", "started", 40, { step: "parallel_research" }), {}],
+      [ev("news_agent", "agent_completed", "completed", 1800, { guarded: ["prompt_injection"], excludedSources: 1, note: "악성 지시가 있는 뉴스 자료를 제외함" }, 1760), { results: { news_agent: NEWS }, completedAgents: ["news_agent"] }],
+      [ev("join_guard", "join_completed", "completed", 1810, { step: "compose", reason: "차단한 자료를 제외하고 계속" }), { currentStep: "compose" }],
+      [ev("orchestrator", "workflow_completed", "completed", 1820, { reason: "안전한 자료만 사용해 완료" }), { status: "completed", currentStep: null }],
     ]),
   },
 ];

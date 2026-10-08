@@ -190,7 +190,7 @@ describe("선정 실행 상세", () => {
     const report = screen.getByRole("tabpanel", { name: "선정 결과" });
     expect(await within(report).findByRole("heading", { name: "오늘의 매매 종목 선정", level: 3 })).toBeTruthy();
     expect(within(report).getByRole("cell", { name: /SK하이닉스 \(000660\)/ })).toBeTruthy();
-    expect(within(report).queryByRole("link", { name: "PDF로 보기" })).toBeNull();
+    expect(within(report).queryByRole("button", { name: "PDF로 보기" })).toBeNull();
     expect(within(report).queryByText(/이 리포트의 AI 추천/)).toBeNull();
 
     fireEvent.click(screen.getByRole("tab", { name: "진행 기록" }));

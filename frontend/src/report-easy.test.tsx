@@ -345,7 +345,7 @@ describe("쉬운 보기 — 리포트 상세", () => {
     expect(screen.getByRole("tooltip").textContent).toContain("1주당 1년 순이익"); // 풀이 상자는 body에 뜬다
     expect(within(research).getByText("뉴스 제목: Google 뉴스 검색 결과(각 언론사)")).toBeTruthy();
 
-    expect(screen.getByRole("link", { name: "PDF로 보기" }).getAttribute("href")).toBe(`/api/reports/${buy.id}/pdf`);
+    expect(screen.getByRole("button", { name: "PDF로 보기" })).toBeTruthy();
     expect(screen.getByText(DISCLAIMER)).toBeTruthy();
     // 다크에서도 읽히게: 반전 번호 원은 text-on-ink (흰 글자 고정이면 다크의 밝은 원 위에서 사라진다)
     const num = within(screen.getByRole("list", { name: "쉬운 요약 세 줄" })).getByText("1");
