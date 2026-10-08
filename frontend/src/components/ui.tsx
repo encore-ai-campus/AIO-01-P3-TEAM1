@@ -578,6 +578,7 @@ export function PillTabs<T extends string>({
 
 /**
  * 켬·끔 스위치: <input type="checkbox" role="switch"> (접근성 이름·상태는 그대로) + 트랙 48×28·손잡이.
+ * 보이는 크기는 48×28 그대로이고, 누를 수 있는 영역(input)만 위아래로 8px씩 늘려 높이 44px다 (UX-18). 포커스 표시는 눈에 보이는 트랙에 건다.
  * 꺼짐 트랙은 mute-weak(두 테마 모두 3:1 이상), 켜짐은 brand. 손잡이는 200ms로 옮겨 간다.
  * label을 주면 줄 전체가 <label>이라 글자를 눌러도 바뀐다. 글자가 없으면 aria-label이나 바깥 <label htmlFor={id}>.
  * onChange(checked, e): e.currentTarget은 트랙을 덮는 input이다 (원형 전환 시작점 = 스위치 가운데).
@@ -615,12 +616,12 @@ export function Switch({
         aria-describedby={describedBy}
         aria-busy={busy || undefined}
         onChange={(e) => onChange(e.target.checked, e)}
-        className="peer absolute inset-0 z-10 m-0 size-full cursor-pointer appearance-none rounded-full disabled:cursor-not-allowed"
+        className="peer absolute -top-2 left-0 z-10 m-0 h-11 w-full cursor-pointer appearance-none focus-visible:outline-none disabled:cursor-not-allowed"
       />
       <span
         aria-hidden="true"
         // 고대비(forced-colors)는 작성자 색을 바탕색(Canvas)으로 덮어 트랙·손잡이가 사라진다 → 시스템 색(덮지 않음)으로 테두리·켬 바탕을 따로 칠한다
-        className="pointer-events-none absolute inset-0 rounded-full bg-mute-weak transition-colors duration-200 ease-standard peer-checked:bg-brand peer-disabled:opacity-50 forced-colors:border-2 forced-colors:border-[color:ButtonText] forced-colors:peer-checked:border-[color:Highlight] forced-colors:peer-checked:bg-[color:Highlight]"
+        className="pointer-events-none absolute inset-0 rounded-full bg-mute-weak transition-colors duration-200 ease-standard peer-checked:bg-brand peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-brand peer-disabled:opacity-50 forced-colors:border-2 forced-colors:border-[color:ButtonText] forced-colors:peer-checked:border-[color:Highlight] forced-colors:peer-checked:bg-[color:Highlight]"
       />
       <span
         aria-hidden="true"

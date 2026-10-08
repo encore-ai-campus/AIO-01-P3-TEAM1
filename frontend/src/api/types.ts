@@ -157,7 +157,15 @@ export interface Position {
   stopPrice: number | null;
   expireDate: string | null;
   filledAt: string;
+  /**
+   * 평가에 쓴 가격 (docs/API.md "장마감 기준", 2026-10-08 DECISIONS 23장). 없으면 "close"로 본다.
+   * close: 직전 장마감 종가 · today_fill: 장마감 기준 시각 뒤에 산 보유(오늘 산 종목)라 체결가로 평가(손익 0, 장 마감 뒤 종가로 바뀜)
+   * · fill: 종가를 받지 못해 체결가로 평가
+   */
+  priceBasis?: PositionPriceBasis;
 }
+
+export type PositionPriceBasis = "close" | "today_fill" | "fill";
 
 export interface AccountSummary {
   initialCapitalKrw: number;
@@ -521,6 +529,8 @@ export interface ReportSummary {
   chaosEnabled?: boolean;
   costUsd?: number | null;
   hasPdf?: boolean;
+  /** 내가 신청했고 끝난(completed·failed) 종목 리포트면 true → DELETE /api/reports/{id} (2026-10-08, DECISIONS 25장). 자동 리포트·선정 실행·남의 것은 false */
+  canDelete: boolean;
   opinion: ReportOpinion | null; // AI 의견 = results.report_agent.verdict. status가 completed일 때만, 그 밖은 null
   oneLiner: string | null; // 한 줄 요약 = results.report_agent.oneLiner (80자). opinion과 같은 규칙
   createdAt: string;
@@ -533,9 +543,9 @@ export type ReportOpinion = "buy" | "hold" | "avoid";
 
 /** GET /api/reports/quota — 하루 리포트 한도 (D-7). */
 export interface ReportQuota {
-  limit: number; // AI_DAILY_REPORTS_PER_USER (기본 3)
+  limit: number | null; // AI_DAILY_REPORTS_PER_USER (기본 null = 무제한, 2026-10-08)
   used: number; // 오늘(KST) 신청한 리포트 중 한도에 세는 수 (장애 주입 없이 failed로 끝난 것은 빼고)
-  remaining: number; // max(limit − used, 0). 0이면 POST /api/reports가 429 {detail, limit, used}
+  remaining: number | null; // max(limit − used, 0), 무제한이면 null. 0이면 POST /api/reports가 429 {detail, limit, used}
   resetsAt: string; // 다음 날 00:00 KST
 }
 
@@ -564,6 +574,7 @@ export interface ReportDetail extends ReportSummary {
 
 export type RecommendationSource = "report" | "analysis" | "demo";
 export type RecommendationStatus = "open" | "expired"; // open: validUntil 전이라 활성화할 수 있음
+export type RecommendationExpiredReason = "deadline" | "below_stop" | "above_target";
 export type RiskLevel = "low" | "medium" | "high";
 
 export interface Recommendation {
@@ -592,10 +603,19 @@ export interface Recommendation {
   risks: string[];
   riskLevel: RiskLevel | null;
   status: RecommendationStatus;
+  /** status가 expired인 까닭: 기한 지남 / 가격이 이미 손절가 이하 / 이미 목표가 이상 (2026-10-08, DECISIONS 25장). open이면 null */
+  expiredReason: RecommendationExpiredReason | null;
   validUntil: string; // 활성화 기한 = 계획의 진입 기한
   createdAt: string;
   myPlan: { id: number; status: TradePlanStatus } | null;
   planCount: number;
+  /**
+   * 계좌와 무관하게 지금 이 추천의 시작(활성화)을 막는 사유 코드 (reward_risk_low · ev_negative · expired · halted 중, 2026-10-08 DECISIONS 23장).
+   * 비어 있어도 내 계좌 사정(현금·한도·같은 종목)으로 막힐 수 있다 — 최종 판단은 RiskPreview. 없으면 []로 본다.
+   */
+  blockedBy?: ReasonCode[];
+  /** 내가 만든(requestedBy가 나) 제안이면 true → DELETE /api/recommendations/{id} (2026-10-08, DECISIONS 25장). 자동·남의 것은 false */
+  canDelete: boolean;
 }
 
 /**

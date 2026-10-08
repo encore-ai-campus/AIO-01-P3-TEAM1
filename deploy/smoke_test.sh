@@ -3,7 +3,7 @@
 #
 #   cd deploy && docker compose --env-file .env.docker up -d && ./smoke_test.sh
 #
-# 확인하는 것: 상태 확인 주소, 화면(SPA)과 정적 파일, 로그인 없이는 401, CSRF + 로그인 + 내 정보 + 추천·계획·알림 표 + 로그아웃,
+# 확인하는 것: 상태 확인 주소, 화면(SPA)과 정적 파일, gzip 압축·보안 헤더, 로그인 없이는 401, CSRF + 로그인 + 내 정보 + 추천·계획·알림 표 + 로그아웃,
 # 엔진 컨테이너의 리포트 PDF 생성(Chromium). 증권사·AI 키가 없어도 통과한다 (외부 호출을 하지 않는다).
 # 시험용 계정을 하나 만들었다가 끝나면 지운다.
 set -euo pipefail
@@ -45,6 +45,24 @@ asset="$(curl -s -m 10 "$BASE/" | grep -o '/assets/[^"]*\.js' | head -1)"
 [ -n "$asset" ] || fail "화면에 빌드된 스크립트가 없다"
 expect "빌드 파일 $asset" 200 "$BASE$asset"
 expect "관리자 화면 정적 파일" 200 "$BASE/static/admin/css/base.css"
+
+# 압축과 보안 헤더 (nginx가 직접 내주는 화면·빌드 파일). API 응답은 Django가 같은 헤더를 붙이므로 한 번만 나와야 한다
+header() { curl -s -o /dev/null -m 10 -D - "$@" | tr -d '\r'; }
+has_header() { # 설명, 헤더 이름: 값, curl 인자...
+  local what="$1" want="$2" out; shift 2
+  out="$(header "$@")"
+  printf '%s\n' "$out" | grep -qix "$want" || fail "$what: '$want' 헤더가 없다"
+  echo "통과: $what ($want)"
+}
+has_header "빌드 파일 gzip 압축" "content-encoding: gzip" -H 'Accept-Encoding: gzip' "$BASE$asset"
+for h in "x-frame-options: DENY" "x-content-type-options: nosniff" "referrer-policy: same-origin" \
+         "permissions-policy: camera=(), microphone=(), geolocation=()"; do
+  has_header "화면 / 보안 헤더" "$h" "$BASE/"
+  has_header "빌드 파일 보안 헤더" "$h" "$BASE$asset"
+done
+count="$(header "$BASE/api/auth/me" | grep -ci '^x-frame-options:' || true)"
+[ "$count" = 1 ] || fail "API 응답의 X-Frame-Options가 $count번 나온다 (1번이어야 한다)"
+echo "통과: API 응답 X-Frame-Options 1번"
 expect "로그인 없이 /api/auth/me" 401 "$BASE/api/auth/me"
 expect "로그인 없이 /api/account" 401 "$BASE/api/account"
 expect "로그인 없이 /api/recommendations" 401 "$BASE/api/recommendations"

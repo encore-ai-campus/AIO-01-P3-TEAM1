@@ -131,12 +131,23 @@ def _order_line(plan: TradePlan, quantity: float) -> str:
     return f"{plan.name} {qty_text(quantity)} {money(plan.entry_price, plan.currency)} 지정가 매수"
 
 
-def order_placed(plan: TradePlan, order_id: int, quantity: float) -> Notice:
-    entry, _, _ = _plan_prices(plan)
+def order_placed(plan: TradePlan, order_id: int, quantity: float, started: bool = False) -> Notice:
+    """order_placed. started: 활성화 요청 안에서 낸 첫 주문이라 시작 알림과 합친 하나다 (docs/API.md "알림 합치기") — 시작 안내를 함께 쓴다."""
+    entry, target, stop = _plan_prices(plan)
     qty = qty_text(quantity)
+    deadline = day_time(plan.entry_deadline)
+    if started:
+        return Notice(
+            title=f"{plan.name} 모의 자동매매를 시작하고 매수 주문을 냈어요",
+            body=(f"모의 계좌에 {plan.name} {qty}를 {entry} 이하에 사는 주문을 냈어요. 산 뒤에는 {_exit_rule(target, stop)} "
+                  f"{deadline}까지 사지 못하면 사지 않고 끝나요."),
+            expert_title=f"{plan.name} 자동매매 계획 활성화 · 진입 주문 접수",
+            expert_body=(f"{_order_line(plan, quantity)} 주문 접수 (모의 주문 #{order_id}). 목표 {target} · 손절 {stop} · "
+                         f"진입 기한 {when(plan.entry_deadline)}"),
+            numbers=f"{qty} · 지정가 {entry} · 목표 {target} · 손절 {stop} · 모의 주문 #{order_id}")
     return Notice(
         title=f"{plan.name} 모의 매수 주문을 냈어요",
-        body=f"모의 계좌에 {plan.name} {qty}를 {entry} 이하에 사는 주문을 냈어요. {day_time(plan.entry_deadline)}까지 기다려요.",
+        body=f"모의 계좌에 {plan.name} {qty}를 {entry} 이하에 사는 주문을 냈어요. {deadline}까지 기다려요.",
         expert_title=f"{plan.name} 진입 주문 접수",
         expert_body=f"{_order_line(plan, quantity)} 주문 접수 (모의 주문 #{order_id}). 진입 기한 {when(plan.entry_deadline)}",
         numbers=f"{qty} · 지정가 {entry} · 모의 주문 #{order_id}")
@@ -159,15 +170,18 @@ def order_requeued(plan: TradePlan, order_id: int, quantity: float, previous_qua
         numbers=f"{qty} · 지정가 {entry} · 모의 주문 #{order_id}")
 
 
-def filled(plan: TradePlan, fill_price: float, quantity: float) -> Notice:
+def filled(plan: TradePlan, fill_price: float, quantity: float, started: bool = False) -> Notice:
+    """filled. started: 활성화 요청 안에서 바로 체결돼 시작·주문 알림과 합친 하나다 (docs/API.md "알림 합치기")."""
     c = plan.currency
     _, target, stop = _plan_prices(plan)
     fill, qty = money(fill_price, c), qty_text(quantity)
+    lead = "모의 자동매매를 시작하자마자 " if started else ""
     return Notice(
         title=f"{plan.name} 모의 계좌에서 샀어요",
-        body=f"모의 계좌에서 {plan.name} {qty}를 {fill}에 샀어요. {_exit_rule(target, stop)}",
+        body=f"{lead}모의 계좌에서 {plan.name} {qty}를 {fill}에 샀어요. {_exit_rule(target, stop)}",
         expert_title=f"{plan.name} 진입 체결",
-        expert_body=f"{fill} × {qty}. 목표 {target} / 손절 {stop} 자동 감시",
+        expert_body=(f"{'자동매매 계획 활성화 뒤 바로 ' if started else ''}{fill} × {qty}. "
+                     f"목표 {target} / 손절 {stop} 자동 감시"),
         numbers=f"체결 {fill} × {qty} · 목표 {target} · 손절 {stop}")
 
 

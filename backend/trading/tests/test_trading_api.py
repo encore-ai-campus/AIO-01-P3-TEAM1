@@ -2,6 +2,8 @@
 
 가짜 장 달력은 지금 정규장이 열려 있거나(1시간 전 ~ 1시간 뒤) 곧 열린다 → 장마감 기준일은 늘 어제(KST)이고,
 평가·랭킹은 어제 봉의 종가 = 현재가 × 0.98 (CLOSE), 그 전 종가 = 현재가 × 0.97이다. 체결은 현재가(장중)로 한다.
+방금 산 보유는 어제 종가 뒤에 산 것이라 체결가로 평가되므로(오늘 산 종목 — test_today_fill_e2efix.py) 종가 평가를 볼 때는
+체결 시각을 앞당긴다 (conftest.backdate_fills).
 시세(Quote)는 실시간이다: 가격 = 현재가, prevClose = 어제 종가 (오늘이 거래일). 자세한 날짜별 규칙은 test_live_quotes.py.
 """
 from datetime import datetime, timedelta
@@ -16,7 +18,7 @@ from config import engine
 from trading import market, service
 from trading.models import PaperAccount, PaperOrder, Reservation
 
-from .conftest import login, set_price, switch
+from .conftest import backdate_fills, login, set_price, switch
 
 pytestmark = pytest.mark.django_db
 
@@ -24,7 +26,8 @@ ORDER_KEYS = {"id", "symbol", "name", "market", "currency", "orderType", "limitP
               "entryPrice", "fillPrice", "filledAt", "targetPrice", "stopPrice", "expireDate", "exitPrice",
               "exitReason", "closedAt", "pnlKrw", "note", "createdAt", "style"}
 POSITION_KEYS = {"orderId", "symbol", "name", "market", "currency", "style", "quantity", "avgPrice", "lastPrice",
-                 "costKrw", "valueKrw", "profitKrw", "profitRate", "targetPrice", "stopPrice", "expireDate", "filledAt"}
+                 "costKrw", "valueKrw", "profitKrw", "profitRate", "targetPrice", "stopPrice", "expireDate", "filledAt",
+                 "priceBasis"}
 SUMMARY_KEYS = {"initialCapitalKrw", "cashKrw", "holdingsValueKrw", "equityKrw", "investedKrw", "profitKrw",
                 "profitRate", "pendingKrw", "buyingPowerKrw", "positions", "notes", "pricesAsOf", "asOf"}
 RESERVATION_KEYS = {"id", "kind", "symbol", "name", "market", "quantity", "orderId", "targetPrice", "stopPrice",
@@ -70,7 +73,8 @@ def test_market_buy_price_move_and_sell(api, fake):
     assert order["style"] == "long" and order["expireDate"] is None  # 목표·손절·기한이 없으면 장기 보유
     assert order["fillPrice"] == 70000 and order["quantity"] == 10 and order["filledAt"].endswith("+09:00")
 
-    # 체결은 장중 확인 가격(70,000), 평가는 직전 장마감 종가(68,600)
+    # 체결은 장중 확인 가격(70,000), 평가는 직전 장마감 종가(68,600) — 그 종가보다 먼저 산 보유로 만든다
+    backdate_fills()
     cost = 700_000 * 1.001
     close = 70000 * CLOSE
     body = api.get("/api/account").json()
@@ -83,7 +87,7 @@ def test_market_buy_price_move_and_sell(api, fake):
     position = body["positions"][0]
     assert set(position) == POSITION_KEYS
     assert position["orderId"] == order["id"] and position["avgPrice"] == 70000 and position["style"] == "long"
-    assert position["lastPrice"] == pytest.approx(close)
+    assert position["lastPrice"] == pytest.approx(close) and position["priceBasis"] == "close"
     assert position["costKrw"] == pytest.approx(700_000) and position["profitKrw"] == pytest.approx(10 * close - 700_000)
 
     set_price(fake, "005930", 75000)
@@ -300,6 +304,7 @@ def test_ranking(fake, django_user_model):
     buy(clients["bob"], symbol="000660", quantity=1)            # 000660 1주 @200,000
     buy(clients["carol"], symbol="005935", quantity=100)        # 005935 100주 @60,000
     clients["erin"].get("/api/account")                         # 계좌만 있음 (수익률 0)
+    backdate_fills()                                            # 직전 종가보다 먼저 산 보유 (종가로 평가)
     set_price(fake, "005930", 80000)
     set_price(fake, "000660", 150000)
     set_price(fake, "005935", 90000)

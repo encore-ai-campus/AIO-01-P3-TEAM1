@@ -4,7 +4,7 @@
 체결·계좌 계산 규칙은 엔진 것(PaperExecutor, records.account)을 그대로 쓰고 여기서 새로 쓰지 않는다.
 정규장 밖 시장가 매수·전량 매도는 DB 예약(Reservation)으로 넣고 run_engine이 다음 정규장 시작에 실행한다.
 
-화면에 보이는 평가(계좌·랭킹·일별 자산)는 **장마감 기준**(직전 정규장 종가, market.closes)이고, 체결·청산·예약 실행·
+화면에 보이는 평가(계좌·랭킹·일별 자산)는 **장마감 기준**(직전 정규장 종가, market.closes — 그 종가 뒤에 산 보유는 체결가, _today_fills)이고, 체결·청산·예약 실행·
 목표·손절 순서 점검은 지금처럼 장중 확인 가격(market.confirmed_prices·last_price)을 쓴다 (docs/API.md 공통 규칙 "장마감 기준").
 직접 주문의 시장가 장기 보유 점검 가격은 실시간 시세와 같은 현재가다 (market.quote_price, 2026-10-06).
 주문의 보유 방식(style: swing·long)은 docs/API.md "보유 방식"을 따른다.
@@ -351,19 +351,51 @@ def _as_of(closes: dict[str, dict], markets: dict[str, str]) -> dict[str, str]:
     return out
 
 
+def _today_fills(rows: list[tuple], closes: dict[str, dict]) -> dict[int, dict[str, float]]:
+    """오늘 산 종목 (docs/API.md "장마감 기준"의 "오늘 산 종목"): 체결 시각이 그 종목 평가 종가의 asOf보다 뒤인 보유.
+
+    rows는 (계좌 id, 종목, 체결가, 체결 시각). {계좌 id: {종목: 체결가}} — 같은 종목도 계좌마다 체결 시각이 달라 계좌별로 둔다.
+    종가를 받지 못한 종목은 빠진다 (그때는 어차피 체결가로 평가한다 — priceBasis fill).
+    """
+    out: dict[int, dict[str, float]] = {}
+    for account_id, symbol, fill_price, filled_at in rows:
+        as_of = closes.get(symbol, {}).get("asOf")
+        if as_of and filled_at and filled_at > datetime.fromisoformat(as_of):
+            out.setdefault(account_id, {})[symbol] = fill_price
+    return out
+
+
+def _account_summary(store: AccountStore, prices: dict[str, float], today: dict[str, float], fx: float | None,
+                     rates: dict[str, float]) -> dict:
+    """records.account.summary에 보유마다 priceBasis를 붙인다 (close · today_fill · fill).
+
+    오늘 산 종목(today)은 종가 대신 체결가로 평가하고(손익 0) lastPrice는 직전 종가 그대로 둔다.
+    """
+    s = paper_account.summary(store, prices | today, fx, rates)
+    for h in s["holdings"]:
+        if h["symbol"] in today:
+            h.update(lastPrice=prices[h["symbol"]], priceBasis="today_fill")
+        else:
+            h["priceBasis"] = "close" if h["priced"] else "fill"
+    return s
+
+
 def _valuations(accounts: list[PaperAccount]) -> tuple[dict[int, dict], str | None, dict[str, str], list[str]]:
-    """계좌별 records.account.summary (장마감 기준). 보유 종목 종가는 모든 계좌를 묶어 한 번에 받는다.
+    """계좌별 records.account.summary (장마감 기준, 오늘 산 종목은 체결가). 보유 종목 종가는 모든 계좌를 묶어 한 번에 받는다.
 
     (계좌별 요약, 종가 조회 실패 사유, 시장별 pricesAsOf, 종가를 받지 못한 보유 종목)을 돌려준다.
     """
     orders = PaperOrder.objects.filter(account__in=accounts)
-    held = dict(orders.filter(status=EXIT_WATCHING).values_list("symbol", "market"))
+    rows = list(orders.filter(status=EXIT_WATCHING).values_list("account_id", "symbol", "market", "fill_price",
+                                                                 "filled_at"))
+    held = {symbol: mkt for _, symbol, mkt, _, _ in rows}
     symbols = sorted(held)
     closes, note = _held_prices(symbols)
     prices = {s: c["price"] for s, c in closes.items()}
+    today = _today_fills([(a, s, price, at) for a, s, _, price, at in rows], closes)
     fx = market.fx_rate() if orders.filter(status__in=ACTIVE, currency="USD").exists() else None
     rates = engine.engine_config().commission
-    values = {a.id: paper_account.summary(AccountStore(a), prices, fx, rates) for a in accounts}
+    values = {a.id: _account_summary(AccountStore(a), prices, today.get(a.id, {}), fx, rates) for a in accounts}
     return values, note, _as_of(closes, held), [s for s in symbols if s not in prices]
 
 

@@ -8,17 +8,21 @@
 //   "AI 의견: 긍정적"인데 실행할 수 없는 경우를 숨기지 않는다 — 안전장치가 다른 말을 하면 그 이유를 쉬운 말로 보인다.
 // - variant "mini": 리포트 상세 위쪽 "계획 미니" — 손절 시 손실·목표 이익·"실행 준비" 한 줄. "full": 쉬운 보기의 매매 계획 카드.
 // - view "expert": 같은 상태에 원래 용어(진입·목표·손절·손익비)와 사유 원문을 보인다.
+// - 지켜보기는 막다른 길이 되지 않게 다음 행동을 준다 (UX-8): 다른 종목으로 리포트 만들기(/search) ·
+//   시작할 수 있는 계획 제안 보기(/recommendations, 시작할 수 있는 제안 수 — Recommendation.blockedBy와 내 진행 중 계획으로 센다, 0개면 숨김) · 며칠 뒤 다시 만들기.
+//   "실행할 계획이 없어요"는 쉬운 보기에서 이 카드 한 곳만 말한다 (머리 안내·결론 카드의 계획 미니는 이 상태에서 비킨다 — lib/reports.ts planGuide·showPlanMini).
 // - 불러온 뒤에는 한 번 페이드로 나타난다 (캐시로 바로 그리면 움직이지 않는다). 스켈레톤은 실제 카드와 비슷한 높이.
 import { Link, useNavigate } from "react-router";
+import { isPlanLive, useRecommendations } from "../../api/queries";
 import { usePlanCardData } from "../../api/reports";
 import type { Recommendation, ReportSummary, RiskPreview } from "../../api/types";
 import { useRevealAfterLoading } from "../../hooks/useMotionState";
 import type { ViewMode } from "../../hooks/useBeginnerMode";
-import { kstDayOf } from "../../lib/autotrade";
+import { isRecBlocked, kstDayOf } from "../../lib/autotrade";
 import { cn } from "../../lib/cn";
 import { formatDayLabel, formatKrw, formatPrice, formatQty } from "../../lib/format";
 import { prefersReducedMotion } from "../../lib/motion";
-import { reasonSentences } from "../../lib/plainText";
+import { priceExpiredText, reasonSentences } from "../../lib/plainText";
 import { Icon } from "../Icon";
 import { AsOf, LiveDot, Skeleton, Spinner } from "../ui";
 
@@ -66,7 +70,10 @@ const MINI_TEXT: Record<Exclude<PlanCardState, "ready" | "blocked" | "not_comple
   expired: "계획의 기한이 끝났어요",
 };
 
-function expiredText(rec: Recommendation): string {
+/** 끝난 계획 제안의 문장: 가격이 이미 손절가·목표가를 지나 끝났으면 그 까닭(DECISIONS 25장), 아니면 기한. */
+function expiredText(rec: Recommendation, easy: boolean): string {
+  const price = priceExpiredText(rec.expiredReason, easy);
+  if (price) return easy ? `${price}. 가격이 바뀌었으니 새로 만들어 보세요.` : `${price}.`;
   return `이 계획은 ${formatDayLabel(kstDayOf(rec.validUntil))}에 기한이 끝났어요. 가격이 바뀌었을 수 있으니 새로 만들어 보세요.`;
 }
 
@@ -155,7 +162,7 @@ export function PlanCard({ report, variant = "full", view = "easy", id, classNam
           <Blocked rec={rec} preview={preview} easy={easy} />
         ) : state === "expired" && rec ? (
           <>
-            <p className="text-[15px] leading-relaxed">{expiredText(rec)}</p>
+            <p className="text-[15px] leading-relaxed">{expiredText(rec, easy)}</p>
             <div className="mt-3 flex flex-wrap gap-2">
               <Link to={`/stocks/${encodeURIComponent(report.symbol)}`} className={cn(linkBtn, "bg-fill text-ink hover:bg-line")}>
                 새로 만들기
@@ -170,9 +177,7 @@ export function PlanCard({ report, variant = "full", view = "easy", id, classNam
         ) : state === "watch" ? (
           <>
             <p className="text-[15px] leading-relaxed">{STATE_TEXT.watch}</p>
-            <Link to={`/stocks/${encodeURIComponent(report.symbol)}`} className={cn(linkBtn, "mt-3 bg-fill text-ink hover:bg-line")}>
-              며칠 뒤 다시 만들기
-            </Link>
+            <WatchActions symbol={report.symbol} />
           </>
         ) : state === "preparing" ? (
           // 완성 뒤 최대 10분 이어지는 '준비 중'이라 도는 아이콘 대신 살아 있음 점.
@@ -186,6 +191,31 @@ export function PlanCard({ report, variant = "full", view = "easy", id, classNam
         )}
       </div>
     </section>
+  );
+}
+
+/**
+ * 지켜보기 리포트의 다음 행동 (UX-8). 시작할 수 있는 계획 제안 수: 열린 추천 중 계좌와 무관한 막힘(blockedBy)이 없고
+ * 내가 진행 중인 계획이 없는 것 (최종 판단은 제안 화면의 리스크 미리 보기). 모를 때(받는 중·오류)는 수 없이, 0개면 버튼을 숨긴다.
+ * 목록 키는 계획 제안 화면·모의투자 탭과 같다 (캐시를 같이 쓴다).
+ */
+function WatchActions({ symbol }: { symbol: string }) {
+  const open = useRecommendations({ status: "open" });
+  const startable = open.data ? open.data.results.filter((r) => !isRecBlocked(r) && !(r.myPlan && isPlanLive(r.myPlan.status))).length : null;
+  return (
+    <div className="mt-3 flex flex-wrap gap-2">
+      <Link to="/search" className={cn(linkBtn, "bg-brand-soft text-brand-ink hover:bg-line")}>
+        다른 종목으로 리포트 만들기
+      </Link>
+      {startable !== 0 && (
+        <Link to="/recommendations" className={cn(linkBtn, "bg-fill text-ink hover:bg-line")}>
+          {startable === null ? "시작할 수 있는 계획 제안 보기" : `시작할 수 있는 계획 제안 ${startable}개 보기`}
+        </Link>
+      )}
+      <Link to={`/stocks/${encodeURIComponent(symbol)}`} className={cn(linkBtn, "bg-fill text-ink hover:bg-line")}>
+        며칠 뒤 다시 만들기
+      </Link>
+    </div>
   );
 }
 
@@ -338,7 +368,7 @@ function Mini({
   return (
     <div aria-label="계획 미니" data-state={state} className={box}>
       {state === "preparing" && <LiveDot />}
-      <span>{MINI_TEXT[state as keyof typeof MINI_TEXT]}</span>
+      <span>{(state === "expired" && rec ? priceExpiredText(rec.expiredReason, easy) : null) ?? MINI_TEXT[state as keyof typeof MINI_TEXT]}</span>
     </div>
   );
 }

@@ -4,25 +4,42 @@
 // 전문가 보기: 머리 → 가격 사다리 → 지표 → 결론·근거·리스크 → 활성화 카드(예산 → 리스크 미리 보기 → 같은 체크 셋을 한 줄 요약 확인 → "계획 활성화").
 // Discord 활성화 링크(?t=)로 들어오면 위에 띠를 보이고 활성화 요청에 token으로 넣는다 (via=discord).
 // 배치: 여정 ② 검토 → ③ 실행 순서 그대로 (왼쪽에서 읽고 오른쪽에서 확인). PC 오른쪽 열은 화면보다 길면 아래 끝(시작 버튼)이 보이게 붙는다.
+// 시작할 수 없으면(계좌와 무관한 사유 blockedBy 또는 예산 없는 안전장치 미리 보기 activatable=false) 머리 배지 아래에 이유 한 줄,
+// 실행 확인은 예산·체크리스트·시작 버튼 대신 이유와 '다른 계획 제안 보기'만 (UX-2). 예산 때문에 막힌 것(budget_too_small 등)은 예산을 고칠 수 있게 그대로 둔다.
+// 지금 실시간 가격이 사는 가격 이하이고 정규장 중이면 "시작하면 바로 사요"라고 말한다 (UX-3 — 숫자는 넣지 않는다).
 import { type RefObject, useId, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
-import { useActivate } from "../api/autotrade";
+import { useActivate, useDeleteRecommendation } from "../api/autotrade";
 import { ApiError, errorMessage } from "../api/client";
 import { isPlanLive, useMarket, useQuotes, useRecommendation, useRiskPreview } from "../api/queries";
-import type { Recommendation, RiskPreview } from "../api/types";
+import type { Quote, Recommendation, RiskPreview } from "../api/types";
 import { PlanStatusChip, ReadinessChip, RecStatusChip, RiskLevelBadge, SourceBadge } from "../components/autotrade/Badges";
 import { PriceLadder } from "../components/autotrade/PriceLadder";
+import { DeleteAction } from "../components/DeleteAction";
 import { Icon } from "../components/Icon";
 import { Collapse } from "../components/motion/Collapse";
 import { useToast } from "../components/toast";
 import { AsOf, Card, ErrorState, Flash, Notice, PageHeader, Row, Skeleton, SkeletonCard, Spinner } from "../components/ui";
 import { useViewMode } from "../hooks/useBeginnerMode";
 import { useRevealAfterLoading } from "../hooks/useMotionState";
-import { SOURCE, STICKY_FIT_TOP, closedMarketNotice, kstDayOf, nextActionOf, parseBudget, stickyFit, timeLeft } from "../lib/autotrade";
+import {
+  SOURCE,
+  STICKY_FIT_TOP,
+  blockedCodes,
+  buysRightAway,
+  closedMarketNotice,
+  deadlineMovedEarlier,
+  entryDeadlineLabel,
+  kstDayOf,
+  nextActionOf,
+  parseBudget,
+  stickyFit,
+  timeLeft,
+} from "../lib/autotrade";
 import { cn } from "../lib/cn";
 import { formatDateTime, formatDayLabel, formatKrw, formatPercent, formatPrice, formatQty, formatRate } from "../lib/format";
 import { prefersReducedMotion } from "../lib/motion";
-import { reasonSentence, rejectionSentences } from "../lib/plainText";
+import { blockedShort, priceExpiredText, reasonSentence, rejectionSentences } from "../lib/plainText";
 import { useDebounced } from "../lib/useDebounced";
 
 /** 지표 칸. 값은 줄을 바꾸지 않고(자릿수 중간에서 갈라지지 않게), 보조 줄은 넘치면 줄임표 + 전체는 title (trade-03). */
@@ -158,7 +175,72 @@ function SummaryCheck({
   );
 }
 
-function ActivateCard({ r, token, titleRef }: { r: Recommendation; token: string | null; titleRef: RefObject<HTMLHeadingElement | null> }) {
+/** 링크 줄 (다음 행동). */
+const NEXT_LINK = "press mt-2 flex h-11 items-center justify-between rounded-xl bg-fill px-3.5 text-[15px] font-semibold hover:bg-line";
+
+/**
+ * 이 계획을 지금 시작할 수 없을 때 실행 확인 카드의 본문: 이유 목록 + 다음 행동 (예산·체크리스트·꺼진 시작 버튼 대신 — UX-2).
+ * 이유는 예산 없는 미리 보기(내 계좌까지 본 결과)가 있으면 그것, 아직 없으면 계좌와 무관한 사유(blockedBy)로.
+ */
+function BlockedBody({ r, pv, codes, easy }: { r: Recommendation; pv: RiskPreview | undefined; codes: string[]; easy: boolean }) {
+  const fromPreview = pv && !pv.activatable && (pv.reasons.length > 0 || pv.reasonCodes.length > 0);
+  const easyReasons = fromPreview ? reasonPairs(pv) : codes.map((c) => ({ code: c, text: reasonSentence(c) }));
+  const expertReasons = fromPreview ? (pv.reasons.length > 0 ? pv.reasons : pv.reasonCodes.map((c) => reasonSentence(c))) : codes.map((c) => blockedShort([c], false));
+  const next = nextActionOf(fromPreview ? pv.reasonCodes : codes);
+  return (
+    <>
+      <div role="alert" className="mt-3 rounded-lg bg-up-soft/70 p-3">
+        <p className="text-[13px] font-semibold text-up-ink">{easy ? "지금은 시작할 수 없어요" : "활성화할 수 없는 사유"}</p>
+        {easy ? (
+          <ul aria-label="시작할 수 없는 이유" className="mt-1 list-disc space-y-0.5 pl-5 text-[13px] text-sub">
+            {easyReasons.map((x) => (
+              <li key={x.text}>
+                {x.text}
+                {r.myPlan && x.code === "plan_exists" && (
+                  <>
+                    {" "}
+                    <Link to={`/plans/${r.myPlan.id}`} className="font-semibold text-brand-ink">
+                      보기
+                    </Link>
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <ul aria-label="활성화할 수 없는 사유" className="mt-1 list-disc space-y-0.5 pl-5 text-[13px] text-sub">
+            {expertReasons.map((x, i) => (
+              <li key={i}>{x}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+      {next === "portfolio" && (
+        <Link to="/portfolio" className={NEXT_LINK}>
+          {easy ? "내 모의투자 보기" : "보유·주문 보기"}
+          <Icon name="chevron" className="size-4" />
+        </Link>
+      )}
+      <Link to="/recommendations" className={NEXT_LINK}>
+        {easy ? "다른 계획 제안 보기" : "다른 추천 보기"}
+        <Icon name="chevron" className="size-4" />
+      </Link>
+    </>
+  );
+}
+
+function ActivateCard({
+  r,
+  token,
+  titleRef,
+  quote,
+}: {
+  r: Recommendation;
+  token: string | null;
+  titleRef: RefObject<HTMLHeadingElement | null>;
+  /** 이 종목의 시세 (바로 사는지 판단 — 실시간일 때만) */
+  quote: Quote | undefined;
+}) {
   const navigate = useNavigate();
   const toast = useToast();
   const { easy } = useViewMode();
@@ -170,6 +252,10 @@ function ActivateCard({ r, token, titleRef }: { r: Recommendation; token: string
   const debounced = useDebounced(budget.value, 400);
   const open = r.status === "open";
   const preview = useRiskPreview(r.id, debounced, open && !budget.error);
+  // 예산 없는 미리 보기 (머리 칩과 같은 쿼리): 이것이 막혔거나 계좌와 무관한 사유가 있으면 이 계획은 지금 시작할 수 없다
+  const head = useRiskPreview(r.id, null, open);
+  const codes = blockedCodes(r);
+  const hardBlocked = open && (codes.length > 0 || head.data?.activatable === false);
   const activate = useActivate(r.id);
   const pv = preview.data;
   const ackKey = pv ? `${pv.quantity}:${pv.maxLossKrw}` : null;
@@ -198,8 +284,10 @@ function ActivateCard({ r, token, titleRef }: { r: Recommendation; token: string
   const canActivate = open && !budget.error && !settling && pv?.activatable === true && acked && !activate.isPending;
   const session = market?.markets.find((m) => m.market === r.market);
   const closedNotice = closedMarketNotice(session, r.market);
+  const buysNow = buysRightAway(session, quote, r.entryPrice);
   const rejected = activate.isError ? rejectionSentences(activate.error) : null;
   const title = easy ? "모의 자동매매 시작" : "계획 활성화";
+  const priceGone = priceExpiredText(r.expiredReason, easy);
   // 시작할 수 없을 때 버튼 아래의 다음 행동 하나 (진행 중인 내 계획은 위쪽 '내 모의 자동매매 보기'가 이미 잇는다 — trade-15)
   const next = blocked && pv ? nextActionOf(pv.reasonCodes) : null;
 
@@ -229,10 +317,17 @@ function ActivateCard({ r, token, titleRef }: { r: Recommendation; token: string
 
       {!open ? (
         <Notice tone="warn" className="mt-3">
-          {easy
-            ? `이 계획은 ${formatDayLabel(kstDayOf(r.validUntil))}에 기한이 끝났어요. 가격이 바뀌었을 수 있으니 새로 만들어 보세요.`
-            : `유효 기한(${formatDateTime(r.validUntil)})이 지나 활성화할 수 없습니다.`}
+          {priceGone
+            ? // 가격이 이미 손절가·목표가를 지나 끝난 제안 (DECISIONS 25장 — 장중 가격 숫자는 넣지 않는다)
+              easy
+              ? `${priceGone}. 가격이 바뀌었으니 새로 만들어 보세요.`
+              : `${priceGone} — 활성화할 수 없습니다.`
+            : easy
+              ? `이 계획은 ${formatDayLabel(kstDayOf(r.validUntil))}에 기한이 끝났어요. 가격이 바뀌었을 수 있으니 새로 만들어 보세요.`
+              : `유효 기한(${formatDateTime(r.validUntil)})이 지나 활성화할 수 없습니다.`}
         </Notice>
+      ) : hardBlocked ? (
+        <BlockedBody r={r} pv={head.data} codes={codes} easy={easy} />
       ) : (
         <>
           <div className="mt-4">
@@ -299,14 +394,16 @@ function ActivateCard({ r, token, titleRef }: { r: Recommendation; token: string
               <div className="mt-3 space-y-2">
                 {blocked && <p className="text-[13px] font-semibold text-sub">시작할 수 있게 되면 확인할 수 있어요.</p>}
                 <p className={cn("text-[14px] leading-snug text-sub", blocked && "opacity-50")}>
-                  {formatPrice(r.entryPrice, r.currency)} 이하가 될 때까지 {formatDayLabel(kstDayOf(r.validUntil))}까지만 기다려요. 그때까지 안 내려오면
-                  사지 않고 끝나요(돈은 그대로).
+                  {buysNow
+                    ? "지금 가격이 사는 가격보다 낮아서, 시작하면 모의 계좌에서 바로 사요."
+                    : `${formatPrice(r.entryPrice, r.currency)} 이하가 될 때까지 ${entryDeadlineLabel(r.validUntil, r.market)}까지만 기다려요. 그때까지 안 내려오면 사지 않고 끝나요(돈은 그대로).`}
                 </p>
                 <Checklist key={ackKey} r={r} pv={pv} onReady={setAcked} onTouch={touch} disabled={blocked} />
               </div>
             ) : (
               <>
                 {blocked && <p className="mt-3 text-[13px] font-semibold text-sub">활성화할 수 있게 되면 확인할 수 있습니다.</p>}
+                {buysNow && <p className="mt-3 text-[13px] text-sub">현재가가 진입가 이하라 활성화하면 바로 모의 체결됩니다.</p>}
                 <SummaryCheck
                   r={r}
                   pv={pv}
@@ -332,8 +429,20 @@ function ActivateCard({ r, token, titleRef }: { r: Recommendation; token: string
                 },
                 {
                   onSuccess: (plan) => {
+                    // 토스트는 응답의 상태로 고른다: 시작하자마자 샀으면(holding) "샀어요" — "주문을 넣었어요"라고 하지 않는다 (UX-3)
                     if (plan.status === "failed") toast(easy ? "모의 주문을 넣지 못해 계획이 끝났어요." : "첫 주문 접수가 거절되어 계획이 실패했습니다.", "error");
-                    else toast(easy ? `${plan.name} 모의 자동매매를 시작했어요. 사는 주문을 넣었어요.` : `${plan.name} 계획을 활성화했습니다. 진입 주문을 냈습니다.`, "success");
+                    else if (plan.status === "holding" && plan.fillPrice != null) {
+                      const fill = formatPrice(plan.fillPrice, plan.currency);
+                      toast(
+                        easy
+                          ? `${plan.name} 모의 자동매매를 시작했어요. 모의 계좌에서 ${formatQty(plan.quantity)}를 ${fill}에 샀어요.`
+                          : `${plan.name} 계획을 활성화했습니다. ${formatQty(plan.quantity)} ${fill}에 바로 체결됐습니다.`,
+                        "success",
+                      );
+                    } else if (plan.status === "active") {
+                      // 첫 주문을 일시 오류로 아직 못 냄 — 엔진 루프가 곧 낸다 (합친 알림도 '시작했어요', 리뷰 R-9)
+                      toast(easy ? `${plan.name} 모의 자동매매를 시작했어요. 사는 주문은 곧 넣어요.` : `${plan.name} 계획을 활성화했습니다. 진입 주문은 곧 접수됩니다.`, "success");
+                    } else toast(easy ? `${plan.name} 모의 자동매매를 시작했어요. 사는 주문을 넣었어요.` : `${plan.name} 계획을 활성화했습니다. 진입 주문을 냈습니다.`, "success");
                     // replace: 뒤로 가기가 이미 쓴 실행 확인·?t= 토큰 주소로 돌아가지 않게. started: 도착 화면의 단계 체크가 한 번 튄다
                     navigate(`/plans/${plan.id}`, { replace: true, state: { started: true } });
                   },
@@ -349,13 +458,13 @@ function ActivateCard({ r, token, titleRef }: { r: Recommendation; token: string
             <p className="mt-2 text-[13px] text-mute">{easy ? "위의 확인 셋을 모두 켜면 시작할 수 있어요." : "확인에 체크하면 활성화할 수 있습니다."}</p>
           )}
           {next === "other_plans" && (
-            <Link to="/recommendations" className="press mt-2 flex h-11 items-center justify-between rounded-xl bg-fill px-3.5 text-[15px] font-semibold hover:bg-line">
+            <Link to="/recommendations" className={NEXT_LINK}>
               {easy ? "다른 계획 제안 보기" : "다른 추천 보기"}
               <Icon name="chevron" className="size-4" />
             </Link>
           )}
           {next === "portfolio" && (
-            <Link to="/portfolio" className="press mt-2 flex h-11 items-center justify-between rounded-xl bg-fill px-3.5 text-[15px] font-semibold hover:bg-line">
+            <Link to="/portfolio" className={NEXT_LINK}>
               {easy ? "내 모의투자 보기" : "보유·주문 보기"}
               <Icon name="chevron" className="size-4" />
             </Link>
@@ -510,6 +619,21 @@ function ReasonsFold({ reasons }: { reasons: string[] }) {
   );
 }
 
+/**
+ * 머리의 '시작할 수 없는 이유' 한 줄 (첫 사유 하나). 예산 없는 미리 보기(내 계좌까지 본 결과)가 막혔으면 그 사유, 아니면 계좌와 무관한 사유(blockedBy).
+ * 시작할 수 있거나 아직 모르면 null. 기한이 지난 추천은 머리 칩('기한 지남')과 실행 확인 안내가 말하므로 null.
+ * 가격이 이미 손절가·목표가를 지나 끝난 추천은 그 까닭 한 줄 (쉬운 보기 긴 문장, 전문가 보기 '손절가 이탈로 만료' 등 — DECISIONS 25장).
+ */
+function blockedLine(r: Recommendation, pv: RiskPreview | undefined, easy: boolean): string | null {
+  if (r.status !== "open") return priceExpiredText(r.expiredReason, easy);
+  if (pv && !pv.activatable) {
+    const first = easy ? reasonPairs(pv)[0]?.text : (pv.reasons[0] ?? reasonSentence(pv.reasonCodes[0]));
+    if (first) return first;
+  }
+  const code = blockedCodes(r)[0];
+  return code ? reasonSentence(code) : null;
+}
+
 export function RecommendationPage() {
   const { id } = useParams();
   const [params] = useSearchParams();
@@ -550,9 +674,11 @@ export function RecommendationPage() {
 
   const src = sourceLink(r, easy);
   const live = r.myPlan != null && isPlanLive(r.myPlan.status);
+  const why = blockedLine(r, head.data, easy);
+  const weekend = open && easy && deadlineMovedEarlier(r.validUntil, r.market); // 주말·장 시작 전 기한은 앞 거래일 장 마감으로
   const chip =
     !open ? (
-      <RecStatusChip open={open} validUntil={r.validUntil} easy={easy} className="h-7 px-2 text-[13px]" />
+      <RecStatusChip open={open} validUntil={r.validUntil} expiredReason={r.expiredReason} easy={easy} className="h-7 px-2 text-[13px]" />
     ) : live ? (
       <ReadinessChip state="live" easy={easy} className="h-7 px-2 text-[13px]" />
     ) : head.data ? (
@@ -560,7 +686,7 @@ export function RecommendationPage() {
     ) : head.isError ? (
       // 안전장치 결과를 받지 못했으면 시간 사실(기한)로 돌아간다 — 뼈대로 남으면 '불러오는 중'으로 읽힌다.
       // 오류 문장과 다시 시도는 실행 확인 카드가 맡는다 (같은 쿼리라 거기서 다시 받으면 이 칩도 바뀐다 — trade-r5)
-      <RecStatusChip open={open} validUntil={r.validUntil} easy={easy} className="h-7 px-2 text-[13px]" />
+      <RecStatusChip open={open} validUntil={r.validUntil} expiredReason={r.expiredReason} easy={easy} className="h-7 px-2 text-[13px]" />
     ) : (
       <Skeleton className="h-7 w-24 shrink-0 rounded-md" />
     );
@@ -603,14 +729,29 @@ export function RecommendationPage() {
               </div>
               {chip}
             </div>
+            {/* 시작할 수 없는 이유 한 줄: 배지 바로 아래 (맨 아래 실행 확인까지 내려가야 알던 것 — UX-2) */}
+            {why && (
+              <p className="mt-2 flex items-start gap-1.5 text-[14px] leading-snug font-semibold text-sub">
+                <Icon name="ban" className="mt-0.5 size-4 shrink-0 text-mute" />
+                {why}
+              </p>
+            )}
             <div className="mt-2 flex flex-wrap gap-1.5">
               <SourceBadge source={r.source} />
               {!easy && <RiskLevelBadge level={r.riskLevel} />}
             </div>
             <p className="mt-2 text-[14px] text-sub">
               {r.requestedBy ? `${r.requestedBy} ${easy ? "님이 만듦" : "신청"}` : "자동"} · {formatDateTime(r.createdAt)}
-              {" · "}
-              {open ? `${timeLeft(r.validUntil)} (${formatDateTime(r.validUntil)}까지)` : `${formatDateTime(r.validUntil)}에 ${easy ? "기한 지남" : "만료"}`}
+              {/* 가격 때문에 끝난 제안은 머리 칩과 이름 아래 문장이 이미 말하므로 기한 칸을 비운다 (같은 말 세 번 — DECISIONS 25장) */}
+              {!open && priceExpiredText(r.expiredReason, easy) ? null : " · "}
+              {!open
+                ? priceExpiredText(r.expiredReason, easy)
+                  ? null
+                  : `${formatDateTime(r.validUntil)}에 ${easy ? "기한 지남" : "만료"}`
+                : weekend
+                  ? // 기한이 주말·장 시작 전이면 실제로 살 수 있는 마지막(앞 거래일 장 마감)으로 (UX-11, 리뷰 R-5)
+                    `${entryDeadlineLabel(r.validUntil, r.market)}까지`
+                  : `${timeLeft(r.validUntil)} (${formatDateTime(r.validUntil)}까지)`}
             </p>
             {r.source === "demo" && (
               <Notice tone="warn" className="mt-3">
@@ -640,7 +781,7 @@ export function RecommendationPage() {
               <ul className="mt-2 space-y-1.5 text-[15px] leading-relaxed">
                 <li>
                   목표에 팔면 <b className="text-up tabular-nums">{formatRate(r.targetReturn, 1)}</b> · 손절에 팔면{" "}
-                  <b className="text-down tabular-nums">{formatRate(r.stopLossRate, 1)}</b> <span className="text-[13px] text-mute">(비용 전)</span>
+                  <b className="text-down tabular-nums">{formatRate(r.stopLossRate, 1)}</b> <span className="text-[13px] text-mute">(수수료·세금 빼기 전)</span>
                 </li>
                 <li>목표에 팔면 버는 돈이 손절에 팔면 잃는 돈의 {r.rewardRisk.toFixed(1)}배예요 (수수료·세금 반영).</li>
                 <li>산 뒤 최대 {r.holdingDays}거래일 보유해요.</li>
@@ -706,12 +847,42 @@ export function RecommendationPage() {
         </div>
 
         <div ref={stickyFit} className="space-y-3 lg:sticky" style={{ top: STICKY_FIT_TOP }}>
-          <ActivateCard key={r.id} r={r} token={token} titleRef={titleRef} />
+          <ActivateCard key={r.id} r={r} token={token} titleRef={titleRef} quote={quote} />
           <p className="px-1 text-[13px] text-mute">
             {easy ? `팀에서 이 계획으로 시작한 모의 자동매매 ${r.planCount}건` : `팀에서 이 추천으로 활성화한 계획 ${r.planCount}건`}
           </p>
         </div>
       </div>
+      {r.canDelete && <DeleteRec key={r.id} r={r} easy={easy} />}
     </>
+  );
+}
+
+/**
+ * 내가 만든 계획 제안 지우기 (DECISIONS 25장): 화면 맨 아래, 눈에 덜 띄게. 확인 → DELETE → 목록으로 옮기고 토스트.
+ * 리포트 추천이면 출처 리포트도 같이 사라진다고 미리 말한다. 진행 중인 계획이 있으면 서버의 400 문장을 그대로 보인다.
+ */
+function DeleteRec({ r, easy }: { r: Recommendation; easy: boolean }) {
+  const navigate = useNavigate();
+  const toast = useToast();
+  const del = useDeleteRecommendation(r);
+  return (
+    <DeleteAction
+      className="mt-6"
+      label={easy ? "이 제안 지우기" : "추천 지우기"}
+      title={easy ? "이 제안을 지울까요?" : "이 추천을 지울까요?"}
+      description={r.source === "report" ? "제안과 출처 리포트가 목록에서 사라져요." : "제안이 목록에서 사라져요."}
+      pending={del.isPending}
+      error={del.error}
+      onOpen={del.reset}
+      onConfirm={() =>
+        del.mutate(undefined, {
+          onSuccess: () => {
+            navigate("/recommendations", { replace: true });
+            toast(easy ? "제안을 지웠어요" : "추천을 지웠어요", "success");
+          },
+        })
+      }
+    />
   );
 }

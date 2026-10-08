@@ -5,19 +5,24 @@
 // (목록이 약속하고 상세가 거둬들이는 모순을 막는다 — docs/컨셉변경계획.md 4-5 "실행할 수 없는 경우를 숨기지 않는다").
 // 전문가 보기는 예전 행 모양 그대로에 의견·한 줄 요약을 더하고, 팀 리포트에서 전체·자동·장애 주입으로 거른다 (묶음보다 낮은 위계의 작은 칩).
 // 움직임: 처음 불러온 목록은 한 번에 페이드, 거르기를 바꾸는 동안은 이전 목록을 흐리게 남긴다 (높이가 출렁이지 않게). 행은 누르면 바탕이 바뀐다.
+// 팀 리포트에서는 남이 신청한 실패 리포트·자동 리포트 실패를 뺀다 — 서비스가 고장 난 것처럼 보인다 (UX-15). 내 실패는 남기고, 쉬운 보기에서는
+// 카드 아래 '다시 만들기'(같은 종목, 장애 주입 없이 — 상세 실패 화면과 같다)를 둔다. 전문가 보기의 '장애 주입' 거르기는 실패까지 그대로 보인다(시연용).
+// 카드의 한 줄 요약은 상세와 같이 다듬어 보인다 (쉼표 없는 금액·의견 영어 — lib/reports.ts cleanReportText).
 import { useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { errorMessage } from "../../api/client";
-import { isPlanLive, useRecommendations, useReports, useRiskPreview } from "../../api/queries";
+import { isPlanLive, useMe, useRecommendations, useReports, useRiskPreview } from "../../api/queries";
+import { useReportQuota, useRequestReport } from "../../api/reports";
 import type { Recommendation, ReportSummary } from "../../api/types";
 import { useChanged, useRevealAfterLoading, revealList } from "../../hooks/useMotionState";
 import { cn } from "../../lib/cn";
 import { formatDateTime } from "../../lib/format";
-import { PLAN_NOTE, REPORT_CARD_TEXT, formatCost, reportCardStatus } from "../../lib/reports";
+import { errorSentence } from "../../lib/plainText";
+import { PLAN_NOTE, REPORT_CARD_TEXT, cleanReportText, formatCost, inTeamFeed, reportCardStatus } from "../../lib/reports";
 import { Icon } from "../Icon";
 import { ErrorPanel } from "../errors/ErrorPanel";
 import { errorKindOf } from "../errors/errorTypes";
-import { Card, EmptyState, Segmented } from "../ui";
+import { Card, EmptyState, Segmented, Spinner } from "../ui";
 import { CrossCheckList } from "./CrossCheckList";
 import { ListSkeleton } from "./ListSkeleton";
 import { OpinionBadge } from "./OpinionBadge";
@@ -61,7 +66,7 @@ function EasyCard({ r, rec, check, live }: { r: ReportSummary; rec: Recommendati
           {completed && <OpinionBadge opinion={r.opinion} />}
           {r.source === "auto" && <AutoBadge />}
         </span>
-        {completed && r.oneLiner && <span className="mt-1 block text-[14px] leading-snug text-ink">{r.oneLiner}</span>}
+        {completed && r.oneLiner && <span className="mt-1 block text-[14px] leading-snug text-ink">{cleanReportText(r.oneLiner)}</span>}
         <span className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[13px] text-sub">
           <span
             key={status}
@@ -92,7 +97,7 @@ function ExpertRow({ r }: { r: ReportSummary }) {
           {r.chaosEnabled && <InjectedBadge />}
           {r.status === "completed" && <OpinionBadge opinion={r.opinion} expert />}
         </span>
-        {r.status === "completed" && r.oneLiner && <span className="block truncate text-[13px] text-sub">{r.oneLiner}</span>}
+        {r.status === "completed" && r.oneLiner && <span className="block truncate text-[13px] text-sub">{cleanReportText(r.oneLiner)}</span>}
         <span className="block text-[13px] text-mute">
           {r.symbol} · {r.requestedBy} · {formatDateTime(r.createdAt)}
           {typeof r.costUsd === "number" && ` · ${formatCost(r.costUsd)}`}
@@ -101,6 +106,33 @@ function ExpertRow({ r }: { r: ReportSummary }) {
       <ReportStatusBadge status={r.status} />
       <Icon name="chevron" className="size-4 shrink-0 text-mute-weak" />
     </Link>
+  );
+}
+
+/** 내 실패 리포트 카드 아래의 '다시 만들기' (같은 종목, 장애 주입 없이 — 상세 실패 화면 EasyFailure와 같다). 카드 링크 안에 버튼을 넣지 않는다. */
+function RetryRow({ r }: { r: ReportSummary }) {
+  const navigate = useNavigate();
+  const request = useRequestReport();
+  const quota = useReportQuota();
+  const full = quota.data?.remaining === 0;
+  return (
+    <div className="-mt-1.5 flex flex-wrap items-center gap-x-2 px-5 pb-2.5">
+      <button
+        type="button"
+        disabled={request.isPending || full}
+        onClick={() => request.mutate({ symbol: r.symbol }, { onSuccess: (n) => navigate(`/reports/${n.id}`) })}
+        className="press -ml-1.5 flex min-h-11 items-center gap-1 rounded-lg px-1.5 text-[13px] font-semibold text-brand-ink hover:bg-fill disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        {request.isPending ? <Spinner /> : <Icon name="restart" className="size-4" />}
+        {r.name} 다시 만들기
+      </button>
+      {full && <span className="text-[12px] text-mute">오늘은 다 만들었어요</span>}
+      {request.isError && (
+        <span role="alert" className="basis-full text-[12px] leading-snug text-up-ink">
+          {errorSentence(request.error)}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -144,8 +176,16 @@ function Reports({ group, expert }: { group: "mine" | "team"; expert: boolean })
     const prev = recOf.get(x.sourceId);
     if (!prev || x.createdAt > prev.createdAt) recOf.set(x.sourceId, x);
   }
-  // "장애 주입"은 API에 조건이 없어 받은 목록에서 거른다. "자동"은 서버가 source를 아직 모를 수 있어 한 번 더 거른다
-  const rows = (data?.results ?? []).filter((r) => (byFilter === "auto" ? r.source === "auto" : byFilter === "chaos" ? r.chaosEnabled : true));
+  // 내 리포트인지: 내 리포트 목록(하단 탭의 점·만드는 중 띠와 같은 캐시)에 있거나 신청자가 내 닉네임 (자동 리포트는 "자동")
+  const me = useMe();
+  const mineQ = useReports({ mine: true });
+  const mineIds = new Set((mineQ.data?.results ?? []).map((r) => r.id));
+  const isMine = (r: ReportSummary) => group === "mine" || mineIds.has(r.id) || (r.source !== "auto" && me.data?.nickname === r.requestedBy);
+  // "장애 주입"은 API에 조건이 없어 받은 목록에서 거른다. "자동"은 서버가 source를 아직 모를 수 있어 한 번 더 거른다.
+  // 팀 리포트는 남의 실패·자동 리포트 실패를 뺀다 (UX-15) — '장애 주입' 거르기(전문가 보기)는 실패를 보려고 고른 것이라 그대로
+  const rows = (data?.results ?? [])
+    .filter((r) => (byFilter === "auto" ? r.source === "auto" : byFilter === "chaos" ? r.chaosEnabled : true))
+    .filter((r) => group !== "team" || byFilter === "chaos" || inTeamFeed(r, isMine(r)));
   // 화면 위쪽 완성 카드 5개까지만 미리 보기를 확인한다
   const checked = new Set<number>();
   for (const r of rows) {
@@ -192,6 +232,7 @@ function Reports({ group, expert }: { group: "mine" | "team"; expert: boolean })
             return (
               <li key={r.id}>
                 {expert ? <ExpertRow r={r} /> : <EasyCard r={r} rec={rec} check={checked.has(r.id)} live={live !== null} />}
+                {!expert && r.status === "failed" && isMine(r) && <RetryRow r={r} />}
                 {/* 이 리포트로 진행 중인 내 모의 자동매매로 바로 (카드 링크 안에 링크를 넣지 않는다) */}
                 {!expert && live && r.status === "completed" && (
                   <Link

@@ -283,10 +283,80 @@ export function planCardState(x: PlanCardInput): PlanCardState | "loading" {
   return "no_plan";
 }
 
-/** 새 계획 제안 나누기: 쉬운 보기는 리포트에서 나온 것만 앞에, 나머지(분석·연습용)는 접어 둔다. 전문가 보기는 전부 앞에. */
-export function splitProposals<T extends { source: RecommendationSource }>(recs: readonly T[], easy: boolean): { main: T[]; others: T[] } {
-  if (!easy) return { main: [...recs], others: [] };
-  return { main: recs.filter((r) => r.source === "report"), others: recs.filter((r) => r.source !== "report") };
+/**
+ * 계좌와 무관하게 지금 시작할 수 없는 사유 (Recommendation.blockedBy — 없으면 []로 본다, DECISIONS 23장).
+ * blockedBy를 모르는 서버라도 기한이 지난 추천은 expired로 본다.
+ */
+export function blockedCodes(r: Pick<Recommendation, "status"> & { blockedBy?: readonly string[] }): string[] {
+  const codes = [...(r.blockedBy ?? [])];
+  if (r.status !== "open" && !codes.includes("expired")) codes.push("expired");
+  return codes;
+}
+
+export const isRecBlocked = (r: Pick<Recommendation, "status"> & { blockedBy?: readonly string[] }): boolean => blockedCodes(r).length > 0;
+
+/** 시작할 수 있는 것을 먼저 (같은 무리 안에서는 받은 순서 = 최신순 그대로). 목록·홈·모의투자 탭의 압축 목록이 같이 쓴다 (UX-2). */
+export function startableFirst<T extends Pick<Recommendation, "status"> & { blockedBy?: readonly string[] }>(recs: readonly T[]): T[] {
+  return [...recs.filter((r) => !isRecBlocked(r)), ...recs.filter((r) => isRecBlocked(r))];
+}
+
+/**
+ * 새 계획 제안 나누기: 쉬운 보기는 리포트에서 나온 것만 앞에, 나머지(분석·연습용)는 접어 둔다. 전문가 보기는 전부 앞에.
+ * 어느 쪽이든 시작할 수 있는 것이 먼저다 (압축 목록 위 셋이 모두 '시작할 수 없음'이 되지 않게 — UX-2).
+ */
+export function splitProposals<T extends { source: RecommendationSource; status: Recommendation["status"]; blockedBy?: readonly string[] }>(
+  recs: readonly T[],
+  easy: boolean,
+): { main: T[]; others: T[] } {
+  const sorted = startableFirst(recs);
+  if (!easy) return { main: sorted, others: [] };
+  return { main: sorted.filter((r) => r.source === "report"), others: sorted.filter((r) => r.source !== "report") };
+}
+
+/** 같은 종목의 제안 묶음: 보일 하나(rec)와 그 카드 안에 접을 나머지(rest, 최신순). */
+export interface ProposalGroup<T> {
+  rec: T;
+  rest: T[];
+  /** rest가 모두 rec보다 먼저 만든 것인지 ('같은 종목의 이전 제안' / '다른 제안'). */
+  restOlder: boolean;
+}
+
+type GroupInput = Pick<Recommendation, "id" | "symbol" | "market" | "source" | "status" | "createdAt"> & { blockedBy?: readonly string[] };
+
+const newer = (a: GroupInput, b: GroupInput) => (a.createdAt === b.createdAt ? a.id > b.id : a.createdAt > b.createdAt);
+
+/**
+ * 새 계획 제안 목록 화면의 배치 (UX-2): 같은 종목은 하나로 묶고(보일 것 = 시작할 수 있는 것 중 최신, 없으면 최신),
+ * 묶음을 시작할 수 있는 것(ready) · 쉬운 보기의 다른 출처(others — 분석·연습용, 시작할 수 있는 것만) · 지금은 시작할 수 없는 것(blocked)으로 나눈다.
+ * 각 무리 안의 순서는 받은 순서(최신순)다.
+ */
+export function arrangeProposals<T extends GroupInput>(recs: readonly T[], easy: boolean): { ready: ProposalGroup<T>[]; others: ProposalGroup<T>[]; blocked: ProposalGroup<T>[] } {
+  const bySymbol = new Map<string, T[]>();
+  for (const r of recs) {
+    const key = `${r.market}:${r.symbol}`;
+    const list = bySymbol.get(key);
+    if (list) list.push(r);
+    else bySymbol.set(key, [r]);
+  }
+  const groups: ProposalGroup<T>[] = [];
+  const seen = new Set<string>();
+  for (const r of recs) {
+    const key = `${r.market}:${r.symbol}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const list = bySymbol.get(key)!;
+    const pick = (xs: T[]) => xs.reduce<T | null>((a, b) => (!a || newer(b, a) ? b : a), null);
+    const rec = pick(list.filter((x) => !isRecBlocked(x))) ?? pick(list)!;
+    const rest = list.filter((x) => x !== rec).sort((a, b) => (newer(a, b) ? -1 : 1));
+    groups.push({ rec, rest, restOlder: rest.every((x) => newer(rec, x)) });
+  }
+  // 묶음의 자리는 보일 제안의 순서로 (받은 목록에서의 위치)
+  const at = new Map(recs.map((r, i) => [r, i]));
+  groups.sort((a, b) => at.get(a.rec)! - at.get(b.rec)!);
+  const ready = groups.filter((g) => !isRecBlocked(g.rec));
+  const blocked = groups.filter((g) => isRecBlocked(g.rec));
+  if (!easy) return { ready, others: [], blocked };
+  return { ready: ready.filter((g) => g.rec.source === "report"), others: ready.filter((g) => g.rec.source !== "report"), blocked };
 }
 
 const KIND_SHORT: Record<RecommendationSource, string> = { report: "AI 리포트", analysis: "교차검증 분석", demo: "연습용 예시" };
@@ -385,6 +455,66 @@ export function formatOpensAt(iso: string | null | undefined, market: Market = "
   return `${p.month}월 ${p.day}일(${p.weekday}) ${clock}${market === "US" ? "(한국 시각)" : ""}`;
 }
 
+const WEEKDAY_INDEX: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+const KO_WEEKDAY = ["일", "월", "화", "수", "목", "금", "토"];
+
+/**
+ * 기한 전에 살 수 있는 마지막 정규장 (그 시장 시간대 기준, 평일만 거래일 — 공휴일 달력은 화면에 없다).
+ * 기한이 정규장 도중이면 그 날 그 시각까지(midSession), 장 마감 뒤면 그 날 장 마감, 장 시작 전·주말이면 앞 거래일 장 마감.
+ * 자동 리포트 추천(08:00 KST에 만들어 기한도 08:0x)은 마지막이 앞 거래일 장 마감이다 (리뷰 R-5).
+ */
+function lastSessionBefore(d: Date, market: Market): { month: number; day: number; weekday: number; midSession: boolean; moved: boolean } {
+  const p = zonedParts(d, MARKET_TZ[market]);
+  const [open, close] = SESSION_MIN[market];
+  const minutes = Number(p.hour) * 60 + Number(p.minute);
+  let wd = WEEKDAY_INDEX[p.weekday] ?? 1;
+  const tradingDay = wd >= 1 && wd <= 5;
+  if (tradingDay && minutes > open && minutes < close) return { month: Number(p.month), day: Number(p.day), weekday: wd, midSession: true, moved: false };
+  let back = 0;
+  if (!tradingDay || minutes <= open) {
+    do {
+      back += 1;
+      wd = (wd + 6) % 7;
+    } while (wd === 0 || wd === 6);
+  }
+  // 날짜만 셈하려고 UTC 정오로 만든다 (시간대와 무관)
+  const day = new Date(Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day) - back, 12));
+  return { month: day.getUTCMonth() + 1, day: day.getUTCDate(), weekday: wd, midSession: false, moved: back > 0 };
+}
+
+/**
+ * 사는 가격을 기다리는 기한(추천의 validUntil = 계획의 entryDeadline)을 실제로 살 수 있는 마지막으로 (UX-11):
+ * "10월 9일(금) 장 마감", 정규장 도중이면 그 시각 "10월 8일(목) 오전 10시 23분"(미국은 한국 시각). 뒤에 "까지"를 붙여 쓴다.
+ */
+export function entryDeadlineLabel(iso: string | null | undefined, market: Market = "KR"): string {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "-";
+  const last = lastSessionBefore(d, market);
+  if (last.midSession) return formatOpensAt(iso, market);
+  return `${last.month}월 ${last.day}일(${KO_WEEKDAY[last.weekday]}) 장 마감${market === "US" ? "(뉴욕)" : ""}`;
+}
+
+/** 기한이 그 시장의 장 시작 전·주말이라 entryDeadlineLabel이 앞 거래일 장 마감으로 당겨 보이는지. */
+export function deadlineMovedEarlier(iso: string | null | undefined, market: Market = "KR"): boolean {
+  if (!iso) return false;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return false;
+  return lastSessionBefore(d, market).moved;
+}
+
+/**
+ * 시작하면 바로 사는지 (UX-3): 그 시장이 정규장 중이고 실시간 시세(basis "live")가 사는 가격 이하. 장 밖이거나 종가 기준이면 false
+ * (다음 장에 지정가로 기다린다). 숫자를 문장에 넣지 않는다 — 장중 가격 문장 규칙.
+ */
+export function buysRightAway(
+  session: Pick<MarketSession, "isOpen"> | undefined,
+  quote: { price: number | null; basis?: string } | undefined,
+  entryPrice: number,
+): boolean {
+  return Boolean(session?.isOpen) && quote?.basis === "live" && quote.price != null && quote.price > 0 && quote.price <= entryPrice;
+}
+
 /** 장이 닫혀 있을 때 실행 확인·체결 대기 화면의 안내 (열려 있거나 모르면 null). */
 export function closedMarketNotice(session: Pick<MarketSession, "isOpen" | "opensAt"> | undefined, market: Market = "KR"): string | null {
   if (!session || session.isOpen) return null;
@@ -403,7 +533,10 @@ export interface Ladder {
   outside: "below" | "above" | null;
 }
 
-/** 손절–진입–목표(–지금 가격)를 한 막대 위 위치로. 양쪽에 8% 여백을 둔다. */
+/**
+ * 손절–기준점–목표(–지금 가격)를 한 막대 위 위치로. 양쪽에 8% 여백을 둔다. 기준점(entry)은 사기 전에는 사는 가격, 산 뒤에는 산 가격이다
+ * (산 가격은 손절·목표 밖일 수도 있어 막대 안으로 붙인다).
+ */
 export function priceLadder(stop: number, entry: number, target: number, last: number | null): Ladder {
   const lo = stop;
   const hi = target;
@@ -413,7 +546,7 @@ export function priceLadder(stop: number, entry: number, target: number, last: n
   let outside: Ladder["outside"] = null;
   if (last !== null && last < lo) outside = "below";
   if (last !== null && last > hi) outside = "above";
-  return { stop: pos(stop), entry: pos(entry), target: pos(target), last: last === null ? null : clamp(pos(last)), outside };
+  return { stop: pos(stop), entry: clamp(pos(entry)), target: pos(target), last: last === null ? null : clamp(pos(last)), outside };
 }
 
 /**

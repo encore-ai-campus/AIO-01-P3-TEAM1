@@ -38,16 +38,17 @@ def post(client, symbol):
 
 # --- 설정 ---
 
-@pytest.mark.parametrize("value, expected", [("5", 5), ("0", 0), ("-2", 0), ("세 번", 3), (" 7 ", 7)])
+@pytest.mark.parametrize("value, expected", [("5", 5), ("0", 0), ("-2", 0), ("세 번", None), (" 7 ", 7)])
 def test_per_user_limit(monkeypatch, value, expected):
     monkeypatch.setenv("AI_DAILY_REPORTS_PER_USER", value)
     assert quota.per_user_limit() == expected
 
 
 def test_per_user_limit_default(monkeypatch):
+    """기본값은 무제한(None) — 2026-10-08 사용자 결정 (전에는 3)."""
     monkeypatch.setenv("AI_DAILY_REPORTS_PER_USER", "")
     monkeypatch.setattr(quota, "_dotenv", lambda: {})  # .env에도 없으면 기본값
-    assert quota.per_user_limit() == quota.DEFAULT_PER_USER == 3
+    assert quota.per_user_limit() is quota.DEFAULT_PER_USER is None
     monkeypatch.setattr(quota, "_dotenv", lambda: {"AI_DAILY_REPORTS_PER_USER": "4"})  # 환경 변수가 비면 .env
     assert quota.per_user_limit() == 4
 
@@ -82,6 +83,16 @@ def test_remaining_never_negative(user, monkeypatch):
         make_report(user, status=Report.COMPLETED, created_at=NOON)
     used = quota.usage(user, NOON)
     assert (used.used, used.remaining) == (3, 0)
+
+
+def test_unlimited_usage_has_no_remaining(user, monkeypatch):
+    monkeypatch.setenv("AI_DAILY_REPORTS_PER_USER", "")
+    monkeypatch.setattr(quota, "_dotenv", lambda: {})
+    for _ in range(5):
+        make_report(user, status=Report.COMPLETED, created_at=NOON)
+    used = quota.usage(user, NOON)
+    assert (used.limit, used.used, used.remaining) == (None, 5, None)
+    assert quota.check(user, NOON) == used  # 무제한이면 막지 않는다
 
 
 def test_counts_rule():
@@ -159,6 +170,17 @@ def test_failed_without_chaos_frees_the_slot(api, user, stocks, clock, monkeypat
     assert post(api, "AAPL").status_code == 429
     state.finish(Report.objects.get(pk=first.json()["id"]), "failed")  # 장애 주입 없이 실패 → 세지 않는다
     assert post(api, "AAPL").status_code == 201
+
+
+def test_unlimited_never_429(api, user, stocks, clock, monkeypatch):
+    """한도가 비어 있으면(기본) 몇 번을 신청해도 429가 아니다."""
+    monkeypatch.setenv("AI_DAILY_REPORTS_PER_USER", "")
+    monkeypatch.setattr(quota, "_dotenv", lambda: {})
+    for hours in range(1, 6):
+        make_report(user, status=Report.COMPLETED, created_at=NOON - timedelta(hours=hours))
+    assert post(api, "005930").status_code == 201
+    assert api.get("/api/reports/quota").json() == {"limit": None, "used": 6, "remaining": None,
+                                                    "resetsAt": "2026-10-06T00:00:00+09:00"}
 
 
 def test_limit_zero_blocks_every_request(api, user, stocks, clock, monkeypatch):

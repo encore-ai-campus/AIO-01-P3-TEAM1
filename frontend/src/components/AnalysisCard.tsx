@@ -4,13 +4,15 @@ import { type ViewMode, useViewMode } from "../hooks/useBeginnerMode";
 import { countWord } from "../lib/autotrade";
 import { formatDateTime, formatPercent, formatPrice, formatRate, formatRequester, trendClass } from "../lib/format";
 import { ANALYSIS_PRICE_LABEL, quotePriceName } from "../lib/plainText";
-import { AsOf, Flash, Skeleton, VerdictBadge } from "./ui";
+import { VerdictText } from "./reports/VerdictText";
+import { AsOf, Flash, Skeleton } from "./ui";
 
 /**
  * AI 교차검증 분석 카드 (홈 대시보드·리포트 탭의 "교차검증 분석" 묶음).
  * 가격은 quote(실시간 현재가 + 받은 시각, 못 받은 종목은 장마감 기준 종가 + 기준 시각)를 보이고, 없으면 분석 시각 가격을 그렇게 적어 보인다.
  * 전문가 보기: 누르면 종목 상세로 (분석의 목표·손절을 주문 패널에 채워 준다), 점수·확률을 보인다.
  * 쉬운 보기: 누르면 분석 상세로 (여러 AI가 검증한 과정), 점수·확률 없이 통과 여부만. view를 주지 않으면 화면의 보기를 따른다.
+ * 판정은 전문가 보기도 한국어로 (BUY 매수 · PASS 지켜보기 — reports/VerdictText, UX-5). 계획이 없으면 판정과 부딪히지 않게 "제안된 계획이 없어요"만.
  * 가격은 줄바꿈하지 않는다 ('182,20 / 0원'처럼 쪼개지면 다른 값으로 읽힌다). 카드 안쪽 폭이 272px보다 좁으면
  * 진입·목표·손절 세 칸을 '이름 · 값' 세 줄로 바꾼다 — 일곱 자리 가격(1,234,000원 약 77px) 세 칸 + 칸 사이 16 + 안쪽 여백 24 = 271px.
  * 그보다 좁은 세 칸이면 가격이 칸을 넘어 이웃 가격과 붙어 하나의 숫자로 읽힌다 (PC 1280px 홈 2단 카드의 안쪽이 243~250px).
@@ -39,7 +41,7 @@ export function AnalysisCard({ a, quote, view }: { a: AnalysisSummary; quote?: Q
               {a.verdict === "BUY" ? "통과한 계획 있음" : "통과한 계획 없음"}
             </span>
           ) : (
-            <VerdictBadge verdict={a.verdict} className="shrink-0" />
+            <VerdictText verdict={a.verdict} className="shrink-0" />
           )}
         </div>
 
@@ -95,7 +97,7 @@ export function AnalysisCard({ a, quote, view }: { a: AnalysisSummary; quote?: Q
           </>
         ) : (
           // 목록 요약에는 오류가 없어 까닭(조건 불충족인지 AI가 응답하지 못했는지)을 모른다 → 사실만 말하고, 까닭은 분석 상세의 과정 카드가 말한다
-          <p className="mt-3 rounded-xl bg-fill p-3 text-[13px] text-mute">{easy ? "AI가 낸 계획이 없어요." : "제안된 시나리오가 없습니다."}</p>
+          <p className="mt-3 rounded-xl bg-fill p-3 text-[13px] text-mute">{easy ? "AI가 낸 계획이 없어요." : "제안된 계획이 없어요."}</p>
         )}
 
         <p className="mt-3 text-[12px] text-mute">

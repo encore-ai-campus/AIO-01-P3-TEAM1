@@ -1,22 +1,23 @@
 // 전문가 보기 홈의 "진행 중 자동매매"(늘 같은 자리, 비었으면 한 줄)와 "새 계획 제안"(열린 추천 최대 3개 → 목록) 요약.
+// 새 계획 제안은 활성화할 수 있는 것을 먼저 고른다 — 최신 셋만 받으면 셋 다 '활성화 불가'일 수 있다 (UX-2). 그래서 열린 목록을 받아(모의투자 탭과 같은 요청) 정렬해 자른다.
 // 쉬운 보기 홈은 components/home/LivePlans.tsx (쉬운 문장).
 // 진행 중 자동매매를 있을 때만 그리면, 늦게 도착할 때 아래 '새 계획 제안'이 손가락 밑에서 밀린다 — 그래서 자리를 늘 둔다.
 import { Link } from "react-router";
 import { usePlans, useRecommendations } from "../../api/queries";
 import { revealList, useRevealAfterLoading } from "../../hooks/useMotionState";
-import { timeLeft } from "../../lib/autotrade";
+import { startableFirst, timeLeft } from "../../lib/autotrade";
 import { cn } from "../../lib/cn";
 import { formatPrice, formatRate } from "../../lib/format";
 import { useChangedKeys, useShownCount } from "../home/homeHooks";
 import { EmptyRow, HOME_ROW, RowChevron, RowsSkeleton, SectionError } from "../home/HomeStates";
 import { SectionHead } from "../home/SectionHead";
-import { PlanStatusChip, SourceBadge } from "./Badges";
+import { BlockedMark, PlanStatusChip, SourceBadge } from "./Badges";
 import { PlanRow } from "./PlanRow";
 
 export function HomeRecommendations() {
-  const { data, isPending, isFetching, refetch } = useRecommendations({ status: "open", limit: 3 });
+  const { data, isPending, isFetching, refetch } = useRecommendations({ status: "open" });
   const reveal = useRevealAfterLoading(isPending);
-  const list = (data?.results ?? []).slice(0, 3);
+  const list = startableFirst(data?.results ?? []).slice(0, 3);
   // 받기 전 자리: 지난번에 본 행 수만큼 (기억이 없으면 3줄 — 팀의 열린 제안은 보통 있다)
   const rows = useShownCount("recs", data ? list.length : undefined, 3);
   return (
@@ -40,6 +41,7 @@ export function HomeRecommendations() {
                     <span className="truncate text-[16px] font-semibold">{r.name}</span>
                     <SourceBadge source={r.source} />
                     {r.myPlan && <PlanStatusChip status={r.myPlan.status} />}
+                    <BlockedMark r={r} />
                   </p>
                   {/* 조각마다 줄을 바꾸지 않는다 ('2일 / 22시간 남음'처럼 한 덩어리가 쪼개지지 않게) — 줄바꿈은 조각 사이에서만 */}
                   <p className="mt-0.5 flex flex-wrap gap-x-1 text-[13px] text-mute tabular-nums">

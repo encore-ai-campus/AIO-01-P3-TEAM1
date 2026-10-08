@@ -15,6 +15,7 @@ import { NotificationMenuItem } from "./autotrade/NotificationBell";
 import { BrandLockup } from "./BrandMark";
 import { inProgressReports } from "./home/homeData";
 import { Icon } from "./Icon";
+import { NicknamePrompt } from "./my/NicknamePrompt";
 import { RouteErrorBoundary } from "./motion/RouteErrorBoundary";
 import { RouteTransition } from "./motion/RouteTransition";
 import { Switch } from "./ui";
@@ -252,6 +253,8 @@ export function Layout() {
         <ConnectionBanner />
         <div className="mx-auto flex w-full max-w-[1120px] flex-1 flex-col px-4 lg:px-8 lg:pt-8">
           <div className="mb-10 min-w-0">
+            {/* 닉네임이 아직 아이디 그대로면 홈에서만 한 번 묻는다 (다른 화면을 밀지 않는다. 저장하거나 '나중에'면 사라진다 — UX-13) */}
+            {me && pathname === HOME.to && <NicknamePrompt me={me} />}
             <RouteErrorBoundary>
               <RouteTransition>
                 <Outlet />

@@ -280,11 +280,15 @@ def _multipart(payload: dict, filename: str, content: bytes) -> tuple[bytes, str
 
 
 def make_notifier(cfg: Config) -> Notifier:
-    """DISCORD_WEBHOOK_URL이 있으면 Webhook > OPENCLAW_TARGET이 있으면 openclaw > 콘솔."""
-    if cfg.discord_webhook_url:
-        return WebhookNotifier(cfg.discord_webhook_url)
-    if cfg.openclaw_target:
-        return OpenclawNotifier(cfg.openclaw_target, cfg.openclaw_bin)
+    """DISCORD_WEBHOOK_URL이 있으면 Webhook > OPENCLAW_TARGET이 있으면 openclaw > 콘솔.
+
+    2026-10-08 사용자 결정: Discord 알림을 끈다 (docs/DECISIONS.md 24장). 설정이 있어도 콘솔로만 남긴다.
+    다시 켜려면 아래 주석을 풀고 `return ConsoleNotifier()` 한 줄을 지운다 (engine/tests/test_notify.py도 되돌린다).
+    """
+    # if cfg.discord_webhook_url:
+    #     return WebhookNotifier(cfg.discord_webhook_url)
+    # if cfg.openclaw_target:
+    #     return OpenclawNotifier(cfg.openclaw_target, cfg.openclaw_bin)
     return ConsoleNotifier()
 
 

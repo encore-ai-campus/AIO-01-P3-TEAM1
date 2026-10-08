@@ -1,5 +1,6 @@
 // 홈의 "최근 AI 리포트": 팀이 최근 완성한 리포트 3개 (자동 리포트가 있으면 그것부터). AI 의견 배지 + 한 줄 요약.
 // 쉬운 보기는 "AI 의견: 긍정적" 같은 쉬운 이름, 전문가 보기는 원래 용어(매수·보유·회피). 배지는 리포트 화면과 같은 것(reports/OpinionBadge).
+// 완성된 리포트만 보인다(homeData pickRecentReports) — 남의 실패·자동 리포트 실패는 팀 피드에 나오지 않는다 (UX-15). 한 줄 요약은 리포트 화면과 같이 다듬는다(cleanReportText).
 import { useId } from "react";
 import { Link } from "react-router";
 import { useReports } from "../../api/queries";
@@ -7,6 +8,7 @@ import type { ReportSummary } from "../../api/types";
 import type { ViewMode } from "../../hooks/useBeginnerMode";
 import { revealList, useRevealAfterLoading } from "../../hooks/useMotionState";
 import { formatDateTime } from "../../lib/format";
+import { cleanReportText } from "../../lib/reports";
 import { OpinionBadge } from "../reports/OpinionBadge";
 import { pickRecentReports } from "./homeData";
 import { useShownCount } from "./homeHooks";
@@ -33,7 +35,7 @@ function ReportItem({ r, easy }: { r: ReportSummary; easy: boolean }) {
           </p>
           {r.oneLiner && (
             <p id={`${id}-l`} className="mt-0.5 line-clamp-2 text-[14px] leading-snug text-sub">
-              {r.oneLiner}
+              {cleanReportText(r.oneLiner)}
             </p>
           )}
           <p className="mt-0.5 text-[12px] text-mute tabular-nums">

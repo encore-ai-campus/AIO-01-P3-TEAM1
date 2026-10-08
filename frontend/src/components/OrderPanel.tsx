@@ -1,7 +1,9 @@
 // 종목 상세의 주문 패널. 한 벌로 두 자리에 쓴다:
 //   layout "dock"   — 전문가 보기: PC 오른쪽 sticky 패널 = 모바일 바텀시트 (StockPage의 .order-dock, 한 벌 DOM)
 //   layout "inline" — 쉬운 보기: 본문 안 '직접 주문(고급)'을 펼친 곳
-// 상태별 본문: 매수 입력(보유 방식 스윙·장기 보유) · 보유(전량 매도) · 체결 대기(취소) · 매수 예약(취소).
+// 상태별 본문: 매수 입력(보유 방식 스윙·장기 보유) · 보유(전량 매도 — 쉬운 보기 '모두 팔기') · 체결 대기(취소) · 매수 예약(취소).
+// - 결과 토스트: 전문가 보기는 서버 원문, 쉬운 보기는 응답 숫자로 만든 정해진 문장 (lib/orderText — "모의 계좌에서 카카오 1주를 32,450원에 샀어요").
+// - 오늘 산 보유(Position.priceBasis "today_fill")는 종가·손익 대신 "오늘 산 종목 · 장 마감(15:40) 뒤에 평가돼요".
 // - 주문이 접수돼 상태가 바뀌면 새 본문이 페이드로 들어오고, 누른 버튼이 사라졌으면 새 본문 제목으로 포커스를 옮긴다 (키보드·화면 읽기 사용자가 자리를 잃지 않게).
 // - dock: [문제 문구 · 예상 금액 · 매수 버튼]을 스크롤 영역 바닥에 붙인다 — 입력 → 금액 확인 → 제출이 늘 엄지 영역에 있고, 버튼이 화면 밖으로 밀리지 않는다.
 // - 쉬운 보기(easy): 매수 전에 확인 상자(무엇을·얼마에·언제)를 거치고, 라벨 옆 용어를 눌러 풀이를 본다.
@@ -31,6 +33,7 @@ import {
 } from "../lib/format";
 import type { GlossaryKey } from "../lib/glossary";
 import { CAN_ANIMATE, DURATION, prefersReducedMotion } from "../lib/motion";
+import { CANCEL_TEXT, buyResultText, isTodayFill, sellResultText, todayFillText } from "../lib/orderText";
 import { HOLDING_STYLE_TEXT, errorSentence, marketOrderEstimate, quotePriceName } from "../lib/plainText";
 import { StyleBadge } from "./autotrade/Badges";
 import { Icon } from "./Icon";
@@ -194,15 +197,16 @@ export function OrderPanel({
         session={session}
         sellReservation={t.sellReservation}
         hasThesis={hasThesis}
+        easy={easy}
         onDone={onDone}
         onActed={acted}
         onThesis={thesisApplicable ? () => openThesis(null) : null}
       />
     );
   } else if (kind === "pending" && t.order) {
-    body = <Pending order={t.order} onDone={onDone} onActed={acted} />;
+    body = <Pending order={t.order} easy={easy} onDone={onDone} onActed={acted} />;
   } else if (kind === "reserved" && t.buyReservation) {
-    body = <Reserved r={t.buyReservation} onDone={onDone} onActed={acted} />;
+    body = <Reserved r={t.buyReservation} easy={easy} onDone={onDone} onActed={acted} />;
   } else {
     body = (
       <BuyForm
@@ -230,24 +234,9 @@ export function OrderPanel({
       <div key={kind} className={swapped || arrived ? "reveal-fade" : undefined}>
         {body}
       </div>
-      <ThesisDialog open={thesis.open} result={thesis.result} stock={stock} onClose={closeThesis} />
+      <ThesisDialog open={thesis.open} result={thesis.result} stock={stock} easy={easy} onClose={closeThesis} />
     </div>
   );
-}
-
-/** 방금 낸 주문의 결과 한 문장 ('왜 샀나요?' 맨 위). 체결·예약·체결 대기를 구분해 '모의 계좌'를 밝힌다. */
-function resultSentence(res: OrderResult, stock: StockDetail): string {
-  const o = res.order;
-  if (res.reservation) {
-    return `모의 계좌에서 ${formatOpensAt(res.reservation.runAt, stock.market)}에 ${stock.name} ${formatQty(res.reservation.quantity)}를 사도록 예약했어요`;
-  }
-  if (o?.status === "EXIT_WATCHING") {
-    return `모의 계좌에서 ${stock.name} ${formatQty(o.quantity)}를 ${formatPrice(o.fillPrice ?? o.entryPrice, o.currency)}에 샀어요`;
-  }
-  if (o?.status === "ENTRY_PENDING") {
-    return `${stock.name} ${formatQty(o.quantity)}를 ${formatPrice(o.limitPrice ?? o.entryPrice, o.currency)} 이하가 되면 사요 (모의 계좌 체결 대기)`;
-  }
-  return res.message;
 }
 
 /**
@@ -256,8 +245,22 @@ function resultSentence(res: OrderResult, stock: StockDetail): string {
  * 받기 전에 빈 폼을 보이면 저장이 기존 이유·축을 덮어쓰므로, 받을 때까지 폼을 그리지 않는다.
  * result가 있으면(주문 직후) 맨 위에 결과를 보이고 대화상자의 설명(aria-describedby)으로 잇는다 — 화면 읽기가 제목 다음에 결과를 읽는다.
  * 처음 포커스는 시트 기본(첫 버튼 '나중에 적기')이다: 결과 띠는 조작할 곳이 아니고, 건너뛰기가 바로 손에 닿아야 한다.
+ * 결과 띠는 체결·예약·체결 대기를 구분해 '모의 계좌'를 밝힌다 (lib/orderText.buyResultText — 쉬운 보기 토스트와 같은 문장).
+ * easy: 쉬운 보기는 "정기공시"를 "실적 보고서(정기공시)"로 푼다.
  */
-function ThesisDialog({ open, result, stock, onClose }: { open: boolean; result: OrderResult | null; stock: StockDetail; onClose: () => void }) {
+function ThesisDialog({
+  open,
+  result,
+  stock,
+  easy,
+  onClose,
+}: {
+  open: boolean;
+  result: OrderResult | null;
+  stock: StockDetail;
+  easy: boolean;
+  onClose: () => void;
+}) {
   const toast = useToast();
   const q = useFundamentals(stock.symbol);
   const f = q.data;
@@ -286,7 +289,7 @@ function ThesisDialog({ open, result, stock, onClose }: { open: boolean; result:
       {result && (
         <div className="mb-3 flex items-start gap-2 rounded-xl bg-ok-soft px-3.5 py-3 text-[14px] leading-snug text-ink">
           <Icon name="check-circle" className="mt-0.5 size-4 shrink-0 text-ok" />
-          <p id={bandId}>{resultSentence(result, stock)}</p>
+          <p id={bandId}>{buyResultText(result, stock.name, stock.market)}</p>
         </div>
       )}
       {q.isPending ? (
@@ -301,7 +304,8 @@ function ThesisDialog({ open, result, stock, onClose }: { open: boolean; result:
         <>
           <p className="text-[14px] leading-snug text-sub">
             {name}
-            {josa(name, "은/는")} 정기공시 숫자 점검을 하지 않는 종목이에요{f.reason ? ` (${f.reason})` : ""}. 산 이유를 적어도 점검 알림은 오지 않아요.
+            {josa(name, "은/는")} {easy ? "실적 보고서(정기공시)" : "정기공시"} 숫자 점검을 하지 않는 종목이에요{f.reason ? ` (${f.reason})` : ""}. 산 이유를
+            적어도 점검 알림은 오지 않아요.
           </p>
           <button type="button" onClick={onClose} className={cn(subBtn, "mt-4")}>
             닫기
@@ -312,13 +316,14 @@ function ThesisDialog({ open, result, stock, onClose }: { open: boolean; result:
           <p className="mb-4 text-[14px] leading-snug text-sub">
             {future && "사고 나면 이 이유로 점검해요. "}
             {name}
-            {josa(name, "을/를")} {future ? "사려는" : "산"} 이유를 1~3개 적어 두면, 정기공시가 나올 때 그 이유와 관련된 숫자를 정해진 기준으로 점검해
-            알려 드려요. 매도를 권하거나 자동으로 팔지 않아요. 건너뛰어도 돼요.
+            {josa(name, "을/를")} {future ? "사려는" : "산"} 이유를 1~3개 적어 두면, {easy ? "실적 보고서(정기공시)" : "정기공시"}가 나올 때 그 이유와 관련된 숫자를
+            정해진 기준으로 점검해 알려 드려요. {easy ? "팔라고 하거나" : "매도를 권하거나"} 자동으로 팔지 않아요. 건너뛰어도 돼요.
           </p>
           <ThesisForm
             symbol={stock.symbol}
             name={name}
             intro={false}
+            easy={easy}
             stickyActions
             initial={f.thesis ? { reasons: f.thesis.reasons, axes: f.thesis.axes } : null}
             onSaved={() => {
@@ -528,7 +533,7 @@ function BuyForm({
       return api.post<OrderResult>("/api/orders", body);
     },
     (res) => {
-      toast(res.message, "success");
+      toast(easy ? buyResultText(res, stock.name, stock.market) : res.message, "success");
       setQty("");
       setConfirming(false);
       onActed();
@@ -851,6 +856,7 @@ function Holding({
   session,
   sellReservation,
   hasThesis,
+  easy,
   onDone,
   onActed,
   onThesis,
@@ -861,6 +867,8 @@ function Holding({
   session: Session;
   sellReservation: Reservation | null;
   hasThesis: boolean;
+  /** 쉬운 보기: '전량 매도' → '모두 팔기', 결과 토스트는 정해진 쉬운 문장. */
+  easy: boolean;
   onDone?: () => void;
   onActed: () => void;
   /** "왜 샀나요?"를 연다. null이면 버튼을 그리지 않는다 (펀더멘털 점검을 적용하지 않는 종목). */
@@ -876,7 +884,7 @@ function Holding({
   const sell = useOrderMutation(
     () => api.post<OrderResult>(`/api/orders/${order.id}/sell`),
     (res) => {
-      toast(res.message, "success");
+      toast(easy ? sellResultText(res, order.name, order.market) : res.message, "success");
       setConfirm(false);
       onActed();
       onDone?.();
@@ -886,13 +894,16 @@ function Holding({
   const cancelReservation = useOrderMutation(
     () => api.del(`/api/reservations/${sellReservation!.id}`),
     () => {
-      toast("매도 예약을 취소했어요.", "success");
+      toast(CANCEL_TEXT.sellReservation[easy ? "easy" : "expert"], "success");
       reservationCancelled.current = true;
       onActed();
     },
   );
   const c = order.currency;
   const style = position?.style ?? order.style;
+  // 오늘 산 보유: 체결가로 평가한 값이라(손익 0) 종가·손익·장마감 기준 시각 대신 언제 평가되는지 알린다
+  const today = isTodayFill(position);
+  const sellLabel = easy ? "모두 팔기" : "전량 매도";
 
   // 확인 상자가 열리면 그 질문으로, 닫혀서 포커스를 잃었으면 '전량 매도'(없으면 제목)로
   useEffect(() => {
@@ -918,18 +929,25 @@ function Holding({
         <p className="mt-1 text-[22px] font-bold tabular-nums">
           <Flash value={position?.valueKrw}>{formatKrw(position?.valueKrw ?? null)}</Flash>
         </p>
-        {position && (
-          <p className={cn("text-[15px] font-semibold tabular-nums", trendClass(position.profitKrw))}>
-            {formatSignedKrw(position.profitKrw)} ({formatRate(position.profitRate)})
-          </p>
-        )}
-        <AsOf at={pricesAsOf[order.market]} market={order.market} className="block" />
+        {position &&
+          (today ? (
+            <p className="text-[14px] font-medium text-sub">{todayFillText(order.market, easy)}</p>
+          ) : (
+            <p className="tabular-nums">
+              <span className={cn("text-[15px] font-semibold", trendClass(position.profitKrw))}>
+                {formatSignedKrw(position.profitKrw)} ({formatRate(position.profitRate)})
+              </span>{" "}
+              <span className="text-[12px] text-mute">수수료·세금 빼기 전</span>
+            </p>
+          ))}
+        {!today && <AsOf at={pricesAsOf[order.market]} market={order.market} className="block" />}
+        <p className="mt-1 text-[12px] leading-snug text-mute">팔 때 수수료와 세금이 빠져서 받는 돈은 조금 적어요.</p>
       </div>
       <dl className="border-t border-line pt-2">
         <Row label="보유 수량">{formatQty(order.quantity)}</Row>
-        <Row label="평균 체결가">{formatPrice(position?.avgPrice ?? order.fillPrice, c)}</Row>
-        <Row label="종가">{formatPrice(position?.lastPrice ?? null, c)}</Row>
-        <Row label="매수 원금">{formatKrw(position?.costKrw ?? null)}</Row>
+        <Row label={easy ? "산 가격" : "평균 체결가"}>{formatPrice(position?.avgPrice ?? order.fillPrice, c)}</Row>
+        {!today && <Row label="종가">{formatPrice(position?.lastPrice ?? null, c)}</Row>}
+        <Row label={easy ? "산 금액" : "매수 원금"}>{formatKrw(position?.costKrw ?? null)}</Row>
         {style === "long" ? (
           <Row label="자동 매도">없음 (내가 팔 때까지 보유)</Row>
         ) : (
@@ -952,7 +970,7 @@ function Holding({
         {sellReservation ? (
           <>
             <Notice>
-              <p>다음 정규장 시작에 전량 매도하도록 예약되어 있어요.</p>
+              <p>{easy ? "다음 정규장이 열리면 모의 계좌에서 모두 팔도록 예약되어 있어요." : "다음 정규장 시작에 전량 매도하도록 예약되어 있어요."}</p>
               {sellReservation.runAt && <p className="mt-0.5 text-[13px] opacity-80">실행 예정 {formatOpensAt(sellReservation.runAt, order.market)}</p>}
             </Notice>
             <button
@@ -965,15 +983,17 @@ function Holding({
               }}
             >
               {cancelReservation.isPending && <Spinner />}
-              매도 예약 취소
+              {easy ? "팔기 예약 취소" : "매도 예약 취소"}
             </button>
           </>
         ) : confirm ? (
           <div role="group" aria-labelledby={`sell-confirm-${order.id}`} className="space-y-2 rounded-xl bg-fill p-3">
             <p id={`sell-confirm-${order.id}`} ref={question} tabIndex={-1} className="text-center text-[15px] font-semibold outline-none">
-              {formatQty(order.quantity)}를 모두 매도할까요?
+              {formatQty(order.quantity)}를 모두 {easy ? "팔까요?" : "매도할까요?"}
             </p>
-            {closed && <p className="text-center text-[13px] text-sub">장이 닫혀 있어 다음 정규장 시작에 예약돼요.</p>}
+            {closed && (
+              <p className="text-center text-[13px] text-sub">{easy ? "장이 닫혀 있어 다음 정규장이 열리면 팔도록 예약돼요." : "장이 닫혀 있어 다음 정규장 시작에 예약돼요."}</p>
+            )}
             <div className="grid grid-cols-2 gap-2">
               <button type="button" className={boxBtn} onClick={() => setConfirm(false)}>
                 취소
@@ -991,7 +1011,7 @@ function Holding({
                 )}
               >
                 {sell.isPending && <Spinner />}
-                {closed ? "매도 예약" : "매도하기"}
+                {easy ? (closed ? "팔기 예약" : "팔기") : closed ? "매도 예약" : "매도하기"}
               </button>
             </div>
           </div>
@@ -999,26 +1019,30 @@ function Holding({
           <>
             {closed && (
               <ClosedNotice session={session} market={order.market}>
-                장이 닫혀 있어 매도는 다음 정규장 시작에 예약돼요.
+                {easy ? "장이 닫혀 있어 다음 정규장이 열리면 팔도록 예약돼요." : "장이 닫혀 있어 매도는 다음 정규장 시작에 예약돼요."}
               </ClosedNotice>
             )}
             <button ref={sellButton} type="button" onClick={() => setConfirm(true)} className={cn(primaryBtn, "bg-down hover:bg-brand-dark")}>
-              전량 매도
+              {sellLabel}
             </button>
           </>
         )}
       </div>
-      <p className="text-[12px] text-mute">같은 종목은 포지션 하나만 가질 수 있고, 매도는 전량만 돼요. 평가는 직전 장마감 종가 기준이에요.</p>
+      <p className="text-[12px] text-mute">
+        {easy
+          ? "같은 종목은 한 번에 하나만 가질 수 있고, 팔 때는 가진 수량을 모두 팔아요. 평가는 지난 장 마감 가격으로 해요 (오늘 산 종목은 장 마감 뒤에)."
+          : "같은 종목은 포지션 하나만 가질 수 있고, 매도는 전량만 돼요. 평가는 직전 장마감 종가 기준이에요 (당일 매수는 장 마감 뒤에)."}
+      </p>
     </div>
   );
 }
 
-function Pending({ order, onDone, onActed }: { order: Order; onDone?: () => void; onActed: () => void }) {
+function Pending({ order, easy, onDone, onActed }: { order: Order; easy: boolean; onDone?: () => void; onActed: () => void }) {
   const toast = useToast();
   const cancel = useOrderMutation(
     () => api.post<Order>(`/api/orders/${order.id}/cancel`),
     () => {
-      toast("주문을 취소했어요.", "success");
+      toast(CANCEL_TEXT.order[easy ? "easy" : "expert"], "success");
       onActed();
       onDone?.();
     },
@@ -1059,13 +1083,13 @@ function Pending({ order, onDone, onActed }: { order: Order; onDone?: () => void
   );
 }
 
-function Reserved({ r, onDone, onActed }: { r: Reservation; onDone?: () => void; onActed: () => void }) {
+function Reserved({ r, easy, onDone, onActed }: { r: Reservation; easy: boolean; onDone?: () => void; onActed: () => void }) {
   const toast = useToast();
   const currency = r.market === "KR" ? "KRW" : "USD";
   const cancel = useOrderMutation(
     () => api.del(`/api/reservations/${r.id}`),
     () => {
-      toast("예약을 취소했어요.", "success");
+      toast(CANCEL_TEXT.buyReservation[easy ? "easy" : "expert"], "success");
       onActed();
       onDone?.();
     },

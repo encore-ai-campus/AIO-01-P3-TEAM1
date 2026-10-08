@@ -6,7 +6,7 @@
 // - 전문가 보기: 9개 지표 표(값·기준선·변화·✓△✗·note). 지표 이름은 <Term>으로 풀이. 좁은 화면에서는 판정 기호를 지표 이름 옆에도 보이고,
 //   옆으로 밀 수 있으면 오른쪽 끝을 흐리게 해 단서를 준다 (표 구조·열 순서는 그대로 — 화면 읽기·테스트 계약).
 // - 늘 보이는 것: caption("공시 숫자를 정해진 기준으로 본 것이며 투자 권유가 아닙니다"), 출처(source), 보고서 기간·접수일(asOf),
-//   내 산 이유(thesis)가 있으면 그 점검(lastCheck)과 "산 이유 고치기"(ThesisForm).
+//   내 산 이유(thesis)가 있으면 그 점검(lastCheck)과 "산 이유 고치기"(ThesisForm). 쉬운 보기는 "정기공시"·"점검 축"·"기준선"을 쉬운 말로.
 // - 적용하지 않는 종목(미국·ETF·금융업·리츠)은 제목 옆 회색 표시 + 이유 한 줄로 작게 (정보가 없는 카드가 같은 무게를 차지하지 않게).
 import { Fragment, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { errorMessage } from "../../api/client";
@@ -267,6 +267,8 @@ function ThesisSection({ thesis, view }: { thesis: Thesis; view: ViewMode }) {
   const backToButton = useRef(false);
   const check = thesis.lastCheck;
   const labelOf = (key: string) => check?.rows.find((r) => r.key === key)?.label ?? key;
+  const easy = view === "easy";
+  const report = easy ? "실적 보고서(정기공시)" : "정기공시";
 
   const close = () => {
     backToButton.current = true;
@@ -289,6 +291,7 @@ function ThesisSection({ thesis, view }: { thesis: Thesis; view: ViewMode }) {
             onSaved={close}
             onCancel={close}
             focusOnMount
+            easy={easy}
           />
         ) : (
           <>
@@ -309,8 +312,8 @@ function ThesisSection({ thesis, view }: { thesis: Thesis; view: ViewMode }) {
               ))}
             </ul>
             <p className="mt-1.5 text-[13px] text-mute">
-              점검 축: {thesis.axes.length ? thesis.axes.map((a) => THESIS_AXIS_TEXT[a]).join(" · ") : "성장 · 수익성 · 재무 안정 (전부)"}
-              {thesis.baselinePeriod && ` · 기준선 ${thesis.baselinePeriod}`}
+              {easy ? "먼저 볼 것" : "점검 축"}: {thesis.axes.length ? thesis.axes.map((a) => THESIS_AXIS_TEXT[a]).join(" · ") : "성장 · 수익성 · 재무 안정 (전부)"}
+              {thesis.baselinePeriod && (easy ? ` · ${thesis.baselinePeriod} 숫자와 비교해요` : ` · 기준선 ${thesis.baselinePeriod}`)}
             </p>
             {!thesis.active && <p className="mt-1 text-[13px] text-mute">지금 장기 보유 중이 아니라 점검을 멈췄어요.</p>}
 
@@ -321,7 +324,7 @@ function ThesisSection({ thesis, view }: { thesis: Thesis; view: ViewMode }) {
                   {check.previousOverall && <span className="text-mute"> (직전 {FUNDAMENTALS_OVERALL_TEXT[check.previousOverall]})</span>}
                 </p>
                 <p className="mt-0.5 text-[12px] text-mute">
-                  {formatDateTime(check.checkedAt)} · {check.trigger === "weekly" ? "주간 점검" : "정기공시 점검"}
+                  {formatDateTime(check.checkedAt)} · {check.trigger === "weekly" ? "주간 점검" : `${easy ? "실적 보고서" : "정기공시"} 점검`}
                   {check.period && ` · ${check.period}`}
                   {check.receivedAt && ` (접수 ${formatDate(check.receivedAt)})`}
                 </p>
@@ -338,7 +341,7 @@ function ThesisSection({ thesis, view }: { thesis: Thesis; view: ViewMode }) {
                 <p className="mt-2 text-[12px] text-mute">{check.caption || FUNDAMENTALS_CAPTION}</p>
               </div>
             ) : (
-              <p className="mt-2 text-[13px] text-mute">아직 점검 전이에요. 정기공시가 나오거나 월요일에 점검해요.</p>
+              <p className="mt-2 text-[13px] text-mute">아직 점검 전이에요. {report}가 나오거나 월요일에 점검해요.</p>
             )}
           </>
         )}

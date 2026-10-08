@@ -50,6 +50,7 @@ export const POLL = {
   report: 3000, // SSE가 없거나 끊겼을 때 리포트 Snapshot 다시 받기
   notifications: 15000, // 안 읽은 알림 수
   plan: 5000, // 진행 중 계획
+  planIdle: 30_000, // 진행 중 계획이 없는 목록 (docs/API.md 프론트 폴링)
   recommendations: 30000,
 };
 
@@ -331,11 +332,13 @@ export function useRiskPreview(id: number, budgetKrw: number | null, enabled = t
   });
 }
 
+/** 계획 목록. 진행 중 계획이 있을 때만 5초마다, 없으면 30초마다 받는다 (탭이 가려지면 멈춘다). */
 export function usePlans(status: "active" | "all" = "active", opts: ListOptions = {}) {
   return useQuery({
     queryKey: keys.plans(status),
     queryFn: () => api.get<Page<TradePlan>>(`/api/trade-plans${qs({ status, limit: 50 })}`),
-    ...live(POLL.plan),
+    refetchInterval: (q) => (q.state.data?.results.some((p) => isPlanLive(p.status)) ? POLL.plan : POLL.planIdle),
+    refetchIntervalInBackground: false,
     ...keepIf(opts.keepPrevious),
   });
 }

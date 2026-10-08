@@ -17,7 +17,7 @@ from trading import market as quotes_module
 
 from config import engine
 from config.api import Unavailable
-from reports import agents, contracts, healing, registry, state
+from reports import agents, contracts, healing, registry, state, tidy
 from reports.agents import fundamental, market, news, report, report_team, review, risk
 from reports.agents.base import WorkerContext, WorkerError
 
@@ -353,7 +353,7 @@ def research() -> dict:
 
 
 DRAFT = {
-    "title": "삼성전자 종목 리포트", "verdict": "buy", "oneLiner": "AI 의견은 긍정적, 20일 이동평균 위 흐름이 이어졌다.",
+    "title": "삼성전자 종목 리포트", "verdict": "buy", "oneLiner": "AI 의견은 긍정적, 최근 평균 가격 위 흐름이 이어졌다.",
     "plainSummary": ["주가가 최근 한 달 동안 조금씩 올랐어요.", "재무 자료는 이번에 받지 못했어요.", "그래서 AI 의견은 긍정적이에요."],
     "markdown": "## 한눈에 보기\n...", "reasons": ["목표 가격 74,500원의 근거: 최근 20일 고점 부근"],
     "risks": ["이 의견이 틀리는 경우: 69,300원 아래로 내려가면 의견을 다시 봐야 해요"],
@@ -394,8 +394,9 @@ def test_report_formats_won_prose_without_changing_citations():
         "markdown": "## 위험 요인\\n69300원 아래로 내려가면 다시 봐야 해요",
         "citations": [cited],
     }
-    result = checked("ReportDraft", report.ReportAgent().run(
-        context("report_agent", FakeCaller(answer), inputs=inputs)))
+    # Orchestrator처럼 계약 검증 뒤 tidy.tidy_result로 후처리한다 (금액 쉼표는 Worker가 아니라 tidy가 넣는다)
+    result = tidy.tidy_result("ReportDraft", checked("ReportDraft", report.ReportAgent().run(
+        context("report_agent", FakeCaller(answer), inputs=inputs))))
     assert "74,500원" in result["reasons"][0]
     assert "69,300원" in result["risks"][0] and "69,300원" in result["markdown"]
     assert result["citations"] == [cited]

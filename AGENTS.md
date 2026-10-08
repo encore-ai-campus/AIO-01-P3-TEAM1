@@ -15,7 +15,7 @@
   `orders.py`, `create_order`, `LIVE_TRADING`, `--live`, `--bypass`가 코드 검색에서 나오면 안 된다.
   `tossinvest`는 로컬 개발용 조회 클라이언트 `engine/paper_engine/data/toss.py`의 주소 한 곳에만 있어야 한다.
 - **토스 조회는 로컬 개발 환경 전용이다.** `.env`의 `BROKER=toss`(+ `CLIENT_ID`, `CLIENT_SECRET`)로 켜고, 운영(EC2)은 키움만 쓴다
-  (`DJANGO_DEBUG=on`일 때만 `BROKER=toss`를 받는다). `data/toss.py`에 계좌·주문 메서드를 넣지 않는다 (토큰 발급 말고는 GET만).
+  (`DJANGO_DEBUG=on`일 때만 `BROKER=toss`를 받는다. 예외: 키움 키를 받기 전 운영 임시 `ALLOW_TOSS_BROKER=on` — `docs/DECISIONS.md` 3-1·23장). `data/toss.py`에 계좌·주문 메서드를 넣지 않는다 (토큰 발급 말고는 GET만).
   설명은 `docs/DECISIONS.md` 3-1장.
 - **AI는 제안만 한다.** 지표 계산, 사실 검증, 수량·한도·체결 가능 여부는 결정론적 코드(리스크 엔진, 모의 체결기)가 판단한다.
   AI 추천을 활성화한 매매 계획(`backend/autotrade`)도 같다: 수량·활성화 여부는 리스크 엔진, 주문·체결은 `trading.service`와 모의 체결기.
@@ -59,7 +59,7 @@ engine/paper_engine/   매매 엔진 (선별, AI 교차검증, 리스크 엔진,
 backend/               Django: config/(설정, engine.py 엔진 접점, api.py 공통), accounts/(로그인·프로필·팀 계정),
                        trading/(팀원별 계좌·주문·시세·랭킹·run_engine), analysis/(AI 분석 색인·작업),
                        reports/(AI 리포트: YAML Registry·Shared State·Trace·SSE·A4 PDF, orchestrator·guards·runner, agents/ Worker 11개, 선정 Guard·하루 파이프라인(auto, AUTO_REPORT)),
-                       autotrade/(AI 추천·리스크 미리 보기·계획 활성화·자동매매 진행), notifications/(웹 알림·Discord Webhook 보낼 편지함),
+                       autotrade/(AI 추천·리스크 미리 보기·계획 활성화·자동매매 진행), notifications/(웹 알림·Discord Webhook 보낼 편지함 — Discord 발송은 2026-10-08부터 꺼 둠, `docs/DECISIONS.md` 24장),
                        longterm/(장기투자: 오늘의 내 종목 뉴스·산 이유와 펀더멘털 점검).
                        accounts/에 투자자 프로필·주린이모드, reports/에 리포트 끝 알림(alerts)·하루 한도(quota). 테스트는 backend/<앱>/tests/
 frontend/              React + TypeScript + Vite + Tailwind CSS (하단 탭 홈·종목·리포트·모의투자·마이, 주린이모드 쉬운 보기, AI 교차검증 분석, 랭킹,
@@ -67,7 +67,10 @@ frontend/              React + TypeScript + Vite + Tailwind CSS (하단 탭 홈�
 backtest/              백테스트 (AI 없음, DB 없이 단독 실행)
 deploy/                compose.dev.yml(로컬 Redis + 선택 PostgreSQL), docker-compose.yml(운영: nginx·web·engine·db·redis),
                        Dockerfile(web·engine), nginx/, .env.docker.example, remote_deploy.sh(서버 배포·되돌리기), smoke_test.sh
-.github/workflows/     ci.yml(검사), deploy.yml(main: 검사 → 이미지 → 서버 배포 → 알림)
+.github/workflows/     ci.yml(검사), deploy.yml(main: 검사 → 이미지 → 서버 배포 → 관리 서버 배포 기록 → 알림)
+(관리 서버)            별도 저장소 SHS5029/paper_admin (2026-10-08 분리, 로컬은 이 저장소 옆 ../paper_admin): 조회 전용 관리자 화면·백엔드·MCP, 자기 CI/CD·서버.
+                       이 저장소에는 그 서버가 읽는 것만 둔다: engine_status(trading/heartbeat.py), DB 127.0.0.1 포트, deploy.yml의 배포 기록 작업,
+                       복구 셈법 기준 사례 사본(backend/reports/tests/recovery_cases.json — 두 저장소 파일이 같아야 한다)
 docs/                  DESIGN.md, DECISIONS.md, API.md, KIWOOM.md, DEPLOY.md, tasks/(담당별 작업·공통 약속)
 ```
 

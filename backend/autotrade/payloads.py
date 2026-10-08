@@ -9,6 +9,7 @@ from django.db.models import Count
 from django.utils import timezone
 from trading.store import iso
 
+from . import hide, risk
 from .models import PlanEvent, Recommendation, TradePlan
 
 
@@ -21,9 +22,16 @@ def _status(rec: Recommendation, now: datetime) -> str:
     return Recommendation.EXPIRED if rec.status == Recommendation.EXPIRED or now >= rec.valid_until else rec.status
 
 
+def _expired_reason(rec: Recommendation, status: str) -> str | None:
+    """expiredReason: expired면 까닭 (예전 행·엔진 루프가 아직 바꾸지 않은 행은 기한), open이면 None."""
+    return (rec.expired_reason or Recommendation.DEADLINE) if status == Recommendation.EXPIRED else None
+
+
 def recommendation(rec: Recommendation, nickname: str | None, my_plan: dict | None, plan_count: int,
-                   now: datetime | None = None) -> dict:
-    """Recommendation."""
+                   now: datetime | None = None, user=None) -> dict:
+    """Recommendation. blockedBy는 리스크 엔진과 같은 계산 (risk.blocked_by). canDelete는 user가 만든 추천인지."""
+    now = now or timezone.now()
+    status = _status(rec, now)
     return {
         "id": rec.id, "source": rec.source, "sourceId": _source_id(rec), "requestedBy": nickname,
         "symbol": rec.symbol, "name": rec.name, "market": rec.market, "currency": rec.currency,
@@ -32,9 +40,10 @@ def recommendation(rec: Recommendation, nickname: str | None, my_plan: dict | No
         "stopLossRate": rec.stop_loss_rate, "rewardRisk": rec.reward_risk, "probability": rec.probability,
         "probabilityAssumed": rec.probability_assumed, "expectedReturn": rec.expected_return,
         "confidence": rec.confidence, "summary": rec.summary, "reasons": rec.reasons, "risks": rec.risks,
-        "riskLevel": rec.risk_level, "status": _status(rec, now or timezone.now()),
+        "riskLevel": rec.risk_level, "status": status, "expiredReason": _expired_reason(rec, status),
         "validUntil": iso(rec.valid_until), "createdAt": iso(rec.created_at),
-        "myPlan": my_plan, "planCount": plan_count,
+        "myPlan": my_plan, "planCount": plan_count, "blockedBy": risk.blocked_by(rec, now),
+        "canDelete": user is not None and hide.can_delete_recommendation(rec, user),
     }
 
 
@@ -54,7 +63,7 @@ def recommendations(recs: list[Recommendation], user) -> list[dict]:
         if current is None or current["status"] not in TradePlan.LIVE or status in TradePlan.LIVE:
             mine[rec_id] = {"id": plan_id, "status": status}  # 진행 중인 것, 없으면 가장 최근 것
     now = timezone.now()
-    return [recommendation(r, _nickname(r, names), mine.get(r.id), counts.get(r.id, 0), now) for r in recs]
+    return [recommendation(r, _nickname(r, names), mine.get(r.id), counts.get(r.id, 0), now, user) for r in recs]
 
 
 def _nickname(rec: Recommendation, names: dict[int, str]) -> str | None:

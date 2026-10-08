@@ -28,9 +28,10 @@ import { cn } from "../lib/cn";
 import { formatDateTime, formatDayLabel, formatKrw, formatPercent, formatPrice, formatQty, formatRate, formatRequester, trendClass } from "../lib/format";
 import { prefersReducedMotion } from "../lib/motion";
 import { useOrderBarPresence } from "../lib/orderBar";
+import { isTodayFill, todayFillText } from "../lib/orderText";
 import { quotePriceName, reportStatusText } from "../lib/plainText";
 import { stockAsOfBasis } from "../lib/quote";
-import { todayReport } from "../lib/reports";
+import { quotaSentence, todayReport } from "../lib/reports";
 
 // 차트 라이브러리는 종목 상세에서만 쓰므로 따로 불러온다. 불러온 적이 있으면(다시 온 화면) 차트를 페이드하지 않는다
 let chartLoaded = false;
@@ -117,7 +118,7 @@ function ReportCta({ stock, easy }: { stock: StockDetail; easy: boolean }) {
   const reveal = useRevealAfterLoading(!settled);
   const quota = quotaQ.data;
   const existing = reportsQ.data ? todayReport(reportsQ.data.results) : null;
-  const spent = quota ? quota.remaining <= 0 : false;
+  const spent = quota?.remaining === 0;
   const chaosOn = !easy && chaos !== null;
   const create = () => request.mutate({ symbol: stock.symbol, chaos: chaosOn ? chaos : null }, { onSuccess: (r) => navigate(`/reports/${r.id}`) });
   const limitError = request.error instanceof ApiError && request.error.status === 429;
@@ -196,7 +197,7 @@ function ReportCta({ stock, easy }: { stock: StockDetail; easy: boolean }) {
             </p>
           ) : (
             <p className="mt-2 text-center text-[13px] text-sub" aria-live="polite">
-              {spent ? "오늘은 다 만들었어요. 내일 0시에 다시 만들 수 있어요" : `오늘 ${quota.remaining}번 더 만들 수 있어요`}
+              {quotaSentence(quota)}
             </p>
           )}
         </div>
@@ -237,19 +238,28 @@ function ReportCta({ stock, easy }: { stock: StockDetail; easy: boolean }) {
 
 type Trading = ReturnType<typeof useSymbolTrading>;
 
-/** 내 모의 주문 한 줄 (보유·체결 대기·매수 예약). 한 줄 문장으로 — 시세 카드의 가격 이름('현재가'·'종가')·가격 글자와 겹치지 않게. */
-function summaryLine(t: Trading, stock: StockDetail): ReactNode | null {
+/**
+ * 내 모의 주문 한 줄 (보유·체결 대기·매수 예약). 한 줄 문장으로 — 시세 카드의 가격 이름('현재가'·'종가')·가격 글자와 겹치지 않게.
+ * 오늘 산 보유(priceBasis "today_fill")는 수익률 대신 언제 평가되는지 (체결가로 평가해 손익이 0이다 — 어제 종가와 비교한 가짜 손익을 보이지 않는다).
+ */
+function summaryLine(t: Trading, stock: StockDetail, easy: boolean): ReactNode | null {
   if (t.state === "holding" && t.order) {
     const p = t.position;
     return (
       <span className="min-w-0 tabular-nums">
         <b className="font-semibold">모의 보유</b> {formatQty(t.order.quantity)}
-        {p && (
-          <>
-            {" "}
-            · {formatKrw(p.valueKrw)} <span className={trendClass(p.profitKrw)}>{formatRate(p.profitRate)}</span>
-          </>
-        )}
+        {p &&
+          (isTodayFill(p) ? (
+            <>
+              {" "}
+              · {formatKrw(p.valueKrw)} <span className="text-mute">· {todayFillText(p.market, easy)}</span>
+            </>
+          ) : (
+            <>
+              {" "}
+              · {formatKrw(p.valueKrw)} <span className={trendClass(p.profitKrw)}>{formatRate(p.profitRate)}</span>
+            </>
+          ))}
         {t.sellReservation && " · 매도 예약됨"}
       </span>
     );
@@ -274,15 +284,29 @@ function summaryLine(t: Trading, stock: StockDetail): ReactNode | null {
 
 /** 한 줄 요약이 바뀌었는지 가리는 열쇠 (같은 내용이면 같은 문자열). */
 function summaryKey(t: Trading): string | null {
-  if (t.state === "holding") return `h:${t.order?.quantity}:${t.position?.valueKrw}:${t.position?.profitKrw}:${Boolean(t.sellReservation)}`;
+  if (t.state === "holding") {
+    return `h:${t.order?.quantity}:${t.position?.valueKrw}:${t.position?.profitKrw}:${t.position?.priceBasis}:${Boolean(t.sellReservation)}`;
+  }
   if (t.state === "pending") return `p:${t.order?.quantity}:${t.order?.limitPrice}`;
   if (t.state === "reserved") return `r:${t.buyReservation?.quantity}:${t.buyReservation?.runAt}`;
   return null;
 }
 
 /** 시세 카드 안 '내 모의 주문' 한 줄: 보유자가 이 화면에 오는 가장 잦은 이유(내 것 확인)를 맨 위에. 누르면 주문으로. */
-function MySummary({ t, stock, onOpen, className }: { t: Trading; stock: StockDetail; onOpen: (e: MouseEvent<HTMLButtonElement>) => void; className?: string }) {
-  const line = summaryLine(t, stock);
+function MySummary({
+  t,
+  stock,
+  easy,
+  onOpen,
+  className,
+}: {
+  t: Trading;
+  stock: StockDetail;
+  easy: boolean;
+  onOpen: (e: MouseEvent<HTMLButtonElement>) => void;
+  className?: string;
+}) {
+  const line = summaryLine(t, stock, easy);
   const key = summaryKey(t);
   // 접히는 동안 보일 마지막 내용 (요약이 바뀐 때만 새로 담는다 — 새 엘리먼트를 그대로 비교하면 매번 달라 끝없이 다시 그린다)
   const [last, setLast] = useState<{ key: string | null; line: ReactNode }>({ key, line });
@@ -579,7 +603,7 @@ function Detail({ stock, prefill, reveal }: { stock: StockDetail; prefill: Prefi
         // 시세를 못 받았을 때: 가격은 없고 마지막 봉의 장마감 시각만 있다
         <AsOf at={stock.asOf} market={stock.market} className="mt-1 block" />
       )}
-      <MySummary t={t} stock={stock} onOpen={openOrder} className={easy ? undefined : "lg:hidden"} />
+      <MySummary t={t} stock={stock} easy={easy} onOpen={openOrder} className={easy ? undefined : "lg:hidden"} />
       {stock.warnings.length > 0 && (
         <div className="mt-3 space-y-2">
           {stock.warnings.map((w) => (

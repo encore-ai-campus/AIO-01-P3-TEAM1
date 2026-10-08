@@ -15,6 +15,7 @@ import type {
   PlanEvent,
   QuoteBasis,
   ReasonCode,
+  RecommendationExpiredReason,
   RecommendationSource,
   ReportFailureReason,
   ReportOpinion,
@@ -81,7 +82,7 @@ export const CLOSE_BASIS_NOTE = "계좌 평가와 랭킹은 직전 정규장 종
 export const ANALYSIS_PRICE_LABEL = "분석 시각 가격";
 
 /** 투자 성향·경험 진단 안내. */
-export const NOT_SUITABILITY = "법정 적합성 진단이 아니에요";
+export const NOT_SUITABILITY = "증권사의 공식 투자 성향 검사가 아니에요";
 
 /**
  * 리포트를 만드는 동안. 기기와 상관없는 말로 쓴다: 표시는 모바일 하단 탭의 점·PC 왼쪽 메뉴의 '만드는 중' 칩이고,
@@ -200,6 +201,48 @@ export const REASON_TEXT: Record<ReasonCode, string> = {
 
 export const isReasonCode = (code: string): code is ReasonCode => code in REASON_TEXT;
 
+/**
+ * 목록 카드의 '지금은 시작할 수 없음 · …' 뒤에 붙는 한 마디 (Recommendation.blockedBy — 계좌와 무관한 사유만, DECISIONS 23장).
+ * 쉬운 말은 REASON_TEXT의 앞부분('안전장치가 막았어요' 앞)과 같은 뜻이다. 모르는 코드는 REASON_TEXT 문장 그대로.
+ */
+export const BLOCKED_SHORT_TEXT: Partial<Record<ReasonCode, Wording>> = {
+  reward_risk_low: { easy: "버는 돈에 비해 잃을 수 있는 돈이 커요", expert: "손익비 1.5 미만" },
+  ev_negative: { easy: "비용까지 따지면 기대되는 결과가 0 이하예요", expert: "기대수익률 0 이하" },
+  expired: { easy: "기한이 끝났어요", expert: "만료" },
+};
+
+/**
+ * 가격이 이미 손절가·목표가를 지나 끝난 계획 제안의 문장 (Recommendation.expiredReason, 2026-10-08 DECISIONS 25장).
+ * long: 쉬운 보기의 문장 · short: 칩처럼 짧은 곳 · expert: 전문가 보기. 장중 가격 숫자는 넣지 않는다 (docs/API.md 공통 규칙).
+ * 기한이 지나 끝난 것(deadline)·까닭을 모르는 것(null)은 없다 — 그때는 화면이 지금 문구('기한 지남'·'만료')를 그대로 쓴다.
+ */
+export const PRICE_EXPIRED_TEXT: Record<Exclude<RecommendationExpiredReason, "deadline">, { long: string; short: string; expert: string }> = {
+  below_stop: { long: "가격이 이미 손절 가격 아래로 내려가 끝난 제안이에요", short: "손절 가격 아래로 내려감", expert: "손절가 이탈로 만료" },
+  above_target: { long: "가격이 이미 목표 가격을 넘어 끝난 제안이에요", short: "목표 가격을 넘음", expert: "목표가 도달로 만료" },
+};
+
+/**
+ * 가격 때문에 끝난 제안의 문장 (쉬운 보기는 길이 kind, 전문가 보기는 늘 expert 문장). 기한·모름이면 null.
+ * expiredReason이 없는 옛 응답도 null이다.
+ */
+export function priceExpiredText(
+  reason: RecommendationExpiredReason | null | undefined,
+  easy: boolean,
+  kind: "long" | "short" = "long",
+): string | null {
+  if (reason !== "below_stop" && reason !== "above_target") return null;
+  const t = PRICE_EXPIRED_TEXT[reason];
+  return easy ? t[kind] : t.expert;
+}
+
+/** blockedBy 사유 코드 → 한 마디 (첫 사유 하나, 없으면 빈 문자열). */
+export function blockedShort(codes: readonly string[] | null | undefined, easy = true): string {
+  const code = codes?.[0];
+  if (!code) return "";
+  const w = BLOCKED_SHORT_TEXT[code as ReasonCode];
+  return w ? (easy ? w.easy : w.expert) : reasonSentence(code);
+}
+
 /** 사유 코드 → 쉬운 문장. 모르는 코드면 같은 자리의 원문(fallback), 그것도 없으면 코드 그대로. */
 export function reasonSentence(code: string | null | undefined, fallback?: string | null): string {
   if (code && isReasonCode(code)) return REASON_TEXT[code];
@@ -274,12 +317,18 @@ export const exitReasonText = (reason: string | null | undefined, easy = true): 
   return w ? (easy ? w.easy : w.expert) : reason;
 };
 
-// "모의 계좌에서 …에 팔았어요" 앞에 붙는 청산 사유
+/** 모의 자동매매(계획) 화면의 쉬운 청산 문장: 사용자 매도(MANUAL)는 '멈추기'로 판 것이다. 체결 내역의 직접 매도는 exitReasonText 그대로. */
+export const PLAN_MANUAL_EXIT = "멈추기로 모의 계좌에서 팔았어요";
+
+export const planExitText = (reason: string | null | undefined, easy = true): string =>
+  easy && reason === "MANUAL" ? PLAN_MANUAL_EXIT : exitReasonText(reason, easy);
+
+// "모의 계좌에서 …에 팔았어요" 앞에 붙는 청산 사유 (계획 사건 — 사용자 매도는 계획을 멈춘 것)
 const CLOSED_PREFIX: Record<ExitReason, string> = {
   TARGET: "목표 가격에 닿아",
   STOP: "손절 가격에 닿아 손실이 더 커지지 않게",
   EXPIRED: "보유 기간이 끝나",
-  MANUAL: "직접",
+  MANUAL: "멈추기로",
 };
 
 const numOf = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);

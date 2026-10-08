@@ -48,6 +48,9 @@ function rowLook(state: ProgressState, here: boolean): RowLook {
     case "active":
       // 같이 돌던 단계가 멈춘 곳과 함께 끊겼다 (엔진 재시작 등)
       return { text: "하다가 멈췄어요", icon: "pause", dot: "bg-line text-mute", tone: "text-mute", dim: false };
+    case "again":
+      // 검토 AI가 고쳐 쓰게 한 뒤 다시 보기 전에 멈췄다
+      return { text: "다시 보기 전에 멈췄어요", icon: "pause", dot: "bg-line text-mute", tone: "text-mute", dim: false };
     default:
       return { text: "하지 않았어요", icon: "circle", dot: "bg-line text-mute", tone: "text-mute", dim: true };
   }

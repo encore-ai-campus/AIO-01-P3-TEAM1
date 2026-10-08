@@ -8,12 +8,14 @@ from zoneinfo import ZoneInfo
 import pytest
 from analysis import jobs
 from django.core.cache import cache
+from django.db.models import F
 from paper_engine.config import Config
 from reports import auto as reports_auto
 from reports import runner
 from rest_framework.test import APIClient
 
 from config import engine
+from trading.models import PaperOrder
 
 KST = ZoneInfo("Asia/Seoul")
 CFG = Config(kiwoom_appkey=None, kiwoom_secretkey=None, token_cache=None, markets=("KR", "US"),
@@ -131,6 +133,12 @@ def switch(fake: FakeClient, **open_):
 def set_price(fake: FakeClient, symbol: str, price: float):
     fake.price[symbol] = price
     cache.clear()
+
+
+def backdate_fills(days: int = 2) -> None:
+    """보유 주문의 체결 시각을 days일 앞당긴다 → 직전 장마감 종가보다 먼저 산 보유가 되어 종가로 평가된다 (priceBasis close).
+    그 종가 뒤에 산 보유(오늘 산 종목)는 체결가로 평가한다 (docs/API.md "장마감 기준", test_today_fill_e2efix.py)."""
+    PaperOrder.objects.filter(status="EXIT_WATCHING").update(filled_at=F("filled_at") - timedelta(days=days))
 
 
 CSAT_OPEN = datetime(2026, 11, 19, 10, tzinfo=KST)  # 2026-11-19 수능일: KRX 정규장 10:00~16:30

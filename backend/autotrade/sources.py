@@ -2,7 +2,7 @@
 
 출처마다 추천은 하나다. 판정이 buy/BUY이고 0 < 손절 < 진입 < 목표일 때만 만든다. 만들면 신청한 팀원(없으면 팀 전체)에게 알린다.
 priceAtCreation은 출처와 무관하게 만들 때의 직전 정규장 종가다 (장마감 기준, docs/DECISIONS.md 14-1).
-엔진 루프의 "추천 수집" 단계가 collect를 부른다 (끝난 리포트·분석을 추천으로, 기한 지난 추천을 만료로).
+엔진 루프의 "추천 수집" 단계가 collect를 부른다 (끝난 리포트·분석을 추천으로, 기한 지난 추천과 가격이 이미 손절가·목표가를 지난 추천을 만료로).
 리포트는 종목 리포트(team "stock_report")만 본다 — 매매 종목 선정 실행(stock_selection)에는 report_agent 결과가 없다.
 """
 import math
@@ -28,9 +28,11 @@ from .tokens import activation_token
 DEFAULT_HOLDING_DAYS = 10
 ASSUMED_PROBABILITY = 0.5
 REPORT_LOOKBACK, ANALYSIS_LOOKBACK = timedelta(days=7), timedelta(days=3)
+INVALIDATE_EVERY = timedelta(minutes=1)  # 가격이 지난 추천 정리 주기 (엔진 루프는 5초마다 돈다)
 SOURCE_LABEL = texts.SOURCE_LABEL
 COLOR = {Recommendation.REPORT: 0x2E7D32, Recommendation.ANALYSIS: 0x1565C0, Recommendation.DEMO: 0x757575}
 _FETCH = object()
+_invalidated_at: datetime | None = None  # 마지막으로 가격을 본 시각 (엔진 루프 프로세스 하나에서만 쓴다)
 
 
 def _price(value, name: str) -> float:
@@ -125,7 +127,7 @@ def create(source: str, *, symbol: str, name: str, market_: str, entry, target, 
 
 def from_report(report: Report, now: datetime | None = None) -> Recommendation | None:
     """끝난 종목 리포트의 report_agent 결과(ReportDraft)가 buy이고 목표가가 맞으면 추천. 아니면(이미 있으면·선정 실행이면) None."""
-    if report.status != Report.COMPLETED or report.team != Report.STOCK_REPORT:
+    if report.status != Report.COMPLETED or report.team != Report.STOCK_REPORT or report.deleted_at is not None:
         return None
     if Recommendation.objects.filter(report=report).exists():
         return None
@@ -176,20 +178,57 @@ def from_analysis(run: AnalysisRun, now: datetime | None = None) -> Recommendati
 
 
 def expire(now: datetime) -> int:
-    """validUntil이 지난 open 추천 → expired. 바꾼 수를 돌려준다."""
+    """validUntil이 지난 open 추천 → expired (까닭 deadline). 바꾼 수를 돌려준다."""
     return Recommendation.objects.filter(status=Recommendation.OPEN, valid_until__lte=now).update(
-        status=Recommendation.EXPIRED)
+        status=Recommendation.EXPIRED, expired_reason=Recommendation.DEADLINE)
+
+
+def passed(price: float, rec: Recommendation) -> str | None:
+    """현재가가 이미 손절가 이하면 below_stop, 목표가 이상이면 above_target, 아니면 None."""
+    if price <= rec.stop_price:
+        return Recommendation.BELOW_STOP
+    if price >= rec.target_price:
+        return Recommendation.ABOVE_TARGET
+    return None
+
+
+def invalidate(now: datetime, *, force: bool = False) -> int:
+    """가격이 이미 손절가 이하·목표가 이상인 open 추천 → expired (docs/API.md "가격이 지난 계획 제안 자동 정리", DECISIONS 25장).
+
+    1분에 한 번만 본다 (force면 지금). 가격은 실시간 시세와 같은 현재가(market.current_prices — 정규장 밖이면 마지막 가격)이고,
+    받지 못한 종목은 다음 번에 본다. 다시 open으로 돌리지 않는다. 진행 중 계획은 자기 값으로 그대로 진행한다. 바꾼 수를 돌려준다.
+    """
+    global _invalidated_at
+    if not force and _invalidated_at is not None and timedelta(0) <= now - _invalidated_at < INVALIDATE_EVERY:
+        return 0
+    _invalidated_at = now
+    recs = list(Recommendation.objects.filter(status=Recommendation.OPEN, valid_until__gt=now,
+                                              deleted_at__isnull=True))
+    if not recs:
+        return 0
+    try:
+        prices = market.current_prices(sorted({rec.symbol for rec in recs}))
+    except Unavailable:  # 증권사 키가 없거나 조회 실패 — 다음 번에
+        return 0
+    changed = 0
+    for rec in recs:
+        reason = passed(prices[rec.symbol], rec) if rec.symbol in prices else None
+        if reason:
+            changed += Recommendation.objects.filter(pk=rec.pk, status=Recommendation.OPEN).update(
+                status=Recommendation.EXPIRED, expired_reason=reason)
+    return changed
 
 
 def collect(now: datetime, log) -> int:
-    """최근 7일 안에 끝난 종목 리포트·최근 3일 BUY 분석 중 추천이 없는 것을 추천으로 만들고 기한 지난 추천을 만료한다.
+    """최근 7일 안에 끝난 종목 리포트·최근 3일 BUY 분석 중 추천이 없는 것을 추천으로 만들고 기한 지난 추천과 가격이 지난 추천을 만료한다.
 
     만든 추천 수를 돌려준다. 한 건의 오류가 나머지를 막지 않는다.
     """
     made = 0
     since = now - REPORT_LOOKBACK
     reports = (Report.objects.filter(Q(finished_at__gte=since) | Q(finished_at__isnull=True, created_at__gte=since),
-                                     team=Report.STOCK_REPORT, status=Report.COMPLETED, recommendations__isnull=True)
+                                     team=Report.STOCK_REPORT, status=Report.COMPLETED, recommendations__isnull=True,
+                                     deleted_at__isnull=True)
                .select_related("user").order_by("id"))
     runs = AnalysisRun.objects.filter(verdict=AnalysisRun.BUY, analyzed_at__gte=now - ANALYSIS_LOOKBACK,
                                       recommendations__isnull=True).order_by("id")
@@ -206,6 +245,9 @@ def collect(now: datetime, log) -> int:
     expired = expire(now)
     if expired:
         log(f"[추천] 기한 지난 추천 {expired}개 만료")
+    passed_ = invalidate(now)
+    if passed_:
+        log(f"[추천] 가격이 이미 손절가·목표가를 지난 추천 {passed_}개 만료")
     return made
 
 

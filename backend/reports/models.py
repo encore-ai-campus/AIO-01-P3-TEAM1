@@ -38,6 +38,8 @@ class Report(models.Model):
     chaos = models.JSONField(null=True, blank=True)                        # 장애 주입 설정 (ChaosConfig). null이면 끄기
     cost_usd = models.FloatField(default=0, db_default=0)                  # 이 리포트의 LLM 비용 합
     pdf_path = models.CharField(max_length=500, null=True, blank=True)     # 만든 PDF 경로 (PAPER_ROOT 기준 상대 경로)
+    # 신청한 팀원이 지운 시각 (숨김 — 목록·상세·PDF·SSE에서 빠진다. 비용·하루 한도·복구 통계는 그대로 센다, autotrade/hide.py)
+    deleted_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)

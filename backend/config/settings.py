@@ -111,6 +111,18 @@ USE_TZ = True
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
+# DEBUG가 꺼지면 Django 기본 설정은 콘솔 로그를 끄고 관리자 메일(ADMINS 없음)로만 보내서, 500 오류의 traceback이 docker logs에
+# 남지 않는다. 운영(DEBUG=off)에서도 요청 오류(ERROR 이상)를 콘솔로 낸다. DEBUG일 때는 Django 기본 콘솔 핸들러가 이미 내므로 겹치지 않게 막는다.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "filters": {"require_debug_false": {"()": "django.utils.log.RequireDebugFalse"}},
+    "handlers": {
+        "console_errors": {"class": "logging.StreamHandler", "level": "ERROR", "filters": ["require_debug_false"]},
+    },
+    "loggers": {"django.request": {"handlers": ["console_errors"]}},
+}
+
 # API 공통 규칙은 docs/API.md. 세션 로그인 + CSRF, JSON만, 오류는 {"detail": ...} (config/api.py).
 REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",

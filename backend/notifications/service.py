@@ -63,8 +63,13 @@ def public_url(path: str | None) -> str:
 
 
 def webhook_configured() -> bool:
-    """서버에 DISCORD_WEBHOOK_URL이 있는지 (주소는 비밀 값이라 있는지만 알린다)."""
-    return bool(engine.engine_config().discord_webhook_url)
+    """서버에 DISCORD_WEBHOOK_URL이 있는지 (주소는 비밀 값이라 있는지만 알린다).
+
+    2026-10-08 사용자 결정: Discord 알림을 끈다 (docs/DECISIONS.md 24장 — paper_engine.notify.make_notifier도 콘솔로만).
+    화면(My Page 알림 설정)은 이 값이 false면 Discord 묶음을 접고 "지금은 웹 알림으로만 와요"를 보인다.
+    """
+    # return bool(engine.engine_config().discord_webhook_url)
+    return False
 
 
 def discord_configured() -> bool:

@@ -51,7 +51,7 @@ def sweep_finished(now: datetime, log) -> int:
     이번에 만든 추천의 알림(recommendation)도 보낸 수에 센다. 한 리포트의 오류가 나머지를 막지 않는다.
     """
     reports = (Report.objects.filter(team=Report.STOCK_REPORT, status__in=Report.FINISHED,
-                                     finished_at__gte=now - SWEEP_WINDOW)
+                                     finished_at__gte=now - SWEEP_WINDOW, deleted_at__isnull=True)
                .select_related("user").order_by("id"))
     sent = 0
     for report in reports:

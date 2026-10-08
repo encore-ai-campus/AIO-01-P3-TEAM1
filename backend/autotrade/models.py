@@ -14,6 +14,8 @@ class Recommendation(models.Model):
     SOURCES = [(s, s) for s in (REPORT, ANALYSIS, DEMO)]
     OPEN, EXPIRED = "open", "expired"
     STATUSES = [(s, s) for s in (OPEN, EXPIRED)]
+    DEADLINE, BELOW_STOP, ABOVE_TARGET = "deadline", "below_stop", "above_target"  # expired가 된 까닭 (expiredReason)
+    EXPIRED_REASONS = [(s, s) for s in (DEADLINE, BELOW_STOP, ABOVE_TARGET)]
 
     source = models.CharField(max_length=10, choices=SOURCES)
     report = models.ForeignKey("reports.Report", on_delete=models.SET_NULL, null=True, blank=True,
@@ -43,8 +45,10 @@ class Recommendation(models.Model):
     risks = models.JSONField(default=list, blank=True)
     risk_level = models.CharField(max_length=6, null=True, blank=True)  # low | medium | high
     status = models.CharField(max_length=8, choices=STATUSES, default=OPEN, db_index=True)
+    expired_reason = models.CharField(max_length=12, choices=EXPIRED_REASONS, null=True, blank=True)  # None: open 또는 예전 행(기한)
     valid_until = models.DateTimeField()  # 활성화할 수 있는 기한이자 계획의 진입 기한
     created_at = models.DateTimeField(default=timezone.now)
+    deleted_at = models.DateTimeField(null=True, blank=True)  # 만든 팀원이 지운 시각 (숨김 — API에서 빠진다, hide.py)
 
     class Meta:
         db_table = "recommendations"

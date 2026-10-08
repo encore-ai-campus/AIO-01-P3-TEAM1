@@ -43,10 +43,11 @@ def reservation_json(r: Reservation, run_at: str | None) -> dict:
 
 
 def position_json(holding: dict, order: dict) -> dict:
-    """Position (장마감 기준 평가). holding은 records.account.holdings 항목 (lastPrice = 직전 종가),
-    order는 그 주문 dict (체결 환율로 원금을 계산한다)."""
+    """Position (장마감 기준 평가). holding은 records.account.holdings 항목 (lastPrice = 직전 종가)에
+    trading.service가 priceBasis를 붙인 것, order는 그 주문 dict (체결 환율로 원금을 계산한다)."""
     cost = order["filled_quantity"] * order["fill_price"] * (order["fill_fx_rate"] or 1.0)
     value = holding["valueKrw"]
+    basis = holding.get("priceBasis") or ("close" if holding["lastPrice"] is not None else "fill")
     return {
         "orderId": holding["id"], "symbol": holding["symbol"], "name": holding["name"], "market": holding["market"],
         "currency": holding["currency"], "style": _style(order), "quantity": holding["quantity"],
@@ -54,4 +55,5 @@ def position_json(holding: dict, order: dict) -> dict:
         "lastPrice": holding["lastPrice"], "costKrw": cost, "valueKrw": value, "profitKrw": value - cost,
         "profitRate": value / cost - 1 if cost else None, "targetPrice": holding["target"],
         "stopPrice": holding["stop"], "expireDate": holding["expireDate"], "filledAt": holding["filledAt"],
+        "priceBasis": basis,
     }

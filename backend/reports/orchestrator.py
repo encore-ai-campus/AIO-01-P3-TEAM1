@@ -10,6 +10,7 @@
   필수 Worker가 실패하면: 단계 제한 시간 초과면 `timeout` → 아니고 다음 단계가 이 단계를 Join하면 Join Guard가 `join_blocked`
   → 아니면 `agent_failed`. 실행 시작 때 LLM 클라이언트가 없으면 `no_llm`, 그 밖의 예외는 `exception`.
 - `run_report`는 예외를 밖으로 내지 않는다 (실패도 finish(failed)로 끝낸다).
+- Worker 결과는 출력 계약을 통과한 뒤 State에 넣기 전에 `tidy.tidy_result`로 후처리한다 (금액 쉼표·의견 영어·쉬운 글 용어 풀이).
 """
 import concurrent.futures
 import copy
@@ -23,7 +24,7 @@ from django.db import connections
 
 from config import engine
 
-from . import agents, contracts, guards, healing, registry, state
+from . import agents, contracts, guards, healing, registry, state, tidy
 from .agents.base import WorkerContext, WorkerError
 from .models import Report
 
@@ -405,6 +406,7 @@ class _Flow:
             result = {key: value for key, value in raw.items() if not str(key).startswith("_")}
             guarded = _guarded(raw.get("_guarded"))
             result = contracts.validate(definition["outputContract"], result)
+            result = tidy.tidy_result(definition["outputContract"], result)  # 금액 쉼표·의견 영어·쉬운 글 용어 풀이
         except Exception as error:
             self._failed(run, error, timed_out=healing.clock() >= deadline)
         else:

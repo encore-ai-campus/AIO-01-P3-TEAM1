@@ -12,6 +12,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Candle, Currency } from "../api/types";
 import { CHART_INTERACTION, DASHED, zoomWheelWithModifier } from "../lib/chartOptions";
 import { type ChartColors, useChartColors } from "../lib/chartTheme";
+import { monthStartTickFormatter } from "../lib/chartTicks";
 import { cn } from "../lib/cn";
 import { formatDayLabel, formatPrice, formatRate, trendClass } from "../lib/format";
 
@@ -241,6 +242,8 @@ export function CandleChart({
     h.line?.applyOptions({ color: closeLineColor(candles, c) });
     h.volume?.setData(candles.map((k) => toVol(k, c)));
     h.ma.forEach((s, i) => s.setData(movingAverage(candles, MA_DAYS[i])));
+    // x축: 그 달의 첫 거래일은 날("2일") 대신 달("6월") (lib/chartTicks.ts — 기간이 바뀌면 첫 거래일도 바뀐다)
+    h.chart.applyOptions({ timeScale: { tickMarkFormatter: monthStartTickFormatter(candles.map((k) => k.date)) } });
     h.chart.timeScale().fitContent();
     h.key = key;
   }, [candles, currency, variant]);

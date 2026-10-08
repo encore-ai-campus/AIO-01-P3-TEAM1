@@ -6,26 +6,24 @@
 // 쉬운 PDF(backend/reports/easy_text.py·pdf.py 쉬운 판)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
 import type { Currency, ReportOpinion } from "../../../api/types";
 import { formatPrice } from "../../../lib/format";
-import { type DraftView, type ReportTargets, priceOnlyRisk, splitSource, validTargets, whenWrongOf, withoutPriceClause } from "../../../lib/reports";
+import { type DraftView, type ReportTargets, type SourcedLine, reasonsRisksView } from "../../../lib/reports";
 import { Term } from "../../Term";
 import { Card } from "../../ui";
+import { AiText } from "./AiText";
 
-function Lines({ label, lines, tone }: { label: string; lines: string[]; tone: "reason" | "risk" | "wrong" }) {
-  const dot = tone === "reason" ? "bg-brand" : tone === "risk" ? "bg-warn" : "bg-up";
+function Lines({ label, lines, tone }: { label: string; lines: SourcedLine[]; tone: "reason" | "risk" }) {
+  const dot = tone === "reason" ? "bg-brand" : "bg-warn";
   return (
     <ul aria-label={label} className="space-y-2">
-      {lines.map((line) => {
-        const { text, source } = splitSource(line);
-        return (
-          <li key={line} className="flex gap-2 text-[15px] leading-snug">
-            <span aria-hidden="true" className={`mt-2 size-1.5 shrink-0 rounded-full ${dot}`} />
-            <span className="min-w-0">
-              {text}
-              {source && <span className="mt-0.5 block text-[12px] text-mute">출처: {source}</span>}
-            </span>
-          </li>
-        );
-      })}
+      {lines.map(({ line, text, source }) => (
+        <li key={line} className="flex gap-2 text-[15px] leading-snug">
+          <span aria-hidden="true" className={`mt-2 size-1.5 shrink-0 rounded-full ${dot}`} />
+          <span className="min-w-0">
+            <AiText text={text} />
+            {source && <span className="mt-0.5 block text-[12px] text-mute">출처: {source}</span>}
+          </span>
+        </li>
+      ))}
     </ul>
   );
 }
@@ -33,6 +31,7 @@ function Lines({ label, lines, tone }: { label: string; lines: string[]; tone: "
 /**
  * targets: 손절 문장·가격 판단에 쓸 가격 (주지 않으면 draft.targets). 쉬운 보기는 매매 계획·세 가지 경우·차트와 같은 값
  * (추천 가격, 없으면 호가 단위로 내린 제안값 — lib/reports.ts floorTargets)을 넘긴다 — 한 화면에 손절 가격이 둘이 되지 않게.
+ * 보일 글은 lib/reports.ts reasonsRisksView가 정한다 (쉬운 보기의 용어 풀이도 같은 글로 찾는다 — AiText).
  */
 export function ReasonsRisks({
   draft,
@@ -45,12 +44,7 @@ export function ReasonsRisks({
   currency: Currency;
   targets?: ReportTargets;
 }) {
-  const { risk, others } = whenWrongOf(draft, opinion);
-  const prices = targets ?? draft.targets;
-  const stopLine = opinion === "buy" && validTargets(prices) ? prices.stop : null;
-  const riskText = risk === null ? null : splitSource(risk).text;
-  // 손절 문장이 있으면 그 손절 가격만 말하는 AI 문장은 같은 뜻이라 숨긴다 (다른 금액·다른 조건이면 그대로 — 위험 목록에서 이미 옮겨 왔으므로 지우지 않는다)
-  const wrong = riskText !== null && !(stopLine !== null && priceOnlyRisk(riskText, stopLine, currency)) ? riskText : null;
+  const { reasons, risks, stopLine, wrong } = reasonsRisksView(draft, opinion, currency, targets);
   return (
     <Card aria-labelledby="why-title" className="space-y-4">
       <h2 id="why-title" className="text-[17px] font-bold">
@@ -58,11 +52,11 @@ export function ReasonsRisks({
       </h2>
       <div>
         <h3 className="mb-1.5 text-[14px] font-bold text-sub">AI가 든 근거</h3>
-        {draft.reasons.length ? <Lines label="근거" lines={draft.reasons} tone="reason" /> : <p className="text-[14px] text-mute">근거가 없어요.</p>}
+        {reasons.length ? <Lines label="근거" lines={reasons} tone="reason" /> : <p className="text-[14px] text-mute">근거가 없어요.</p>}
       </div>
       <div>
         <h3 className="mb-1.5 text-[14px] font-bold text-sub">위험</h3>
-        {others.length ? <Lines label="위험" lines={others} tone="risk" /> : <p className="text-[14px] text-mute">따로 적은 위험이 없어요.</p>}
+        {risks.length ? <Lines label="위험" lines={risks} tone="risk" /> : <p className="text-[14px] text-mute">따로 적은 위험이 없어요.</p>}
       </div>
       <div>
         <h3 className="mb-1.5 text-[14px] font-bold text-sub">이 의견이 틀리는 경우</h3>
@@ -72,8 +66,11 @@ export function ReasonsRisks({
               가격이 <Term k="손절">손절 가격</Term>({formatPrice(stopLine, currency)}) 아래로 내려가면 이 의견을 다시 봐야 해요
             </li>
           )}
-          {/* 손절 문장이 가격을 말하므로 AI 문장 앞의 같은 손절 가격 조건은 떼고 다른 조건만 (같은 가격을 두 번 보이지 않게) */}
-          {wrong && <li>{stopLine !== null ? withoutPriceClause(wrong, stopLine, currency) : wrong}</li>}
+          {wrong && (
+            <li>
+              <AiText text={wrong} />
+            </li>
+          )}
           {stopLine === null && !wrong && <li>AI가 근거로 든 내용(실적·공시·수급)이 바뀌면 의견도 달라질 수 있어요</li>}
         </ul>
       </div>

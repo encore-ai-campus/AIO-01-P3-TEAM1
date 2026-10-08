@@ -58,7 +58,7 @@ flowchart LR
 ```
 
 - 정의는 YAML Registry(`backend/reports/team_definitions.yaml`·`worker_definitions.yaml`), Worker 출력 계약은 `contracts.py`.
-- 모든 AI 호출은 `healing.py`를 거친다: 같은 모델 재시도 → 대체 모델 → Circuit Breaker. 호출 한 번은 **최대 4회** 시도한다 (주 모델 2회 + 대체 모델 2회). 진행은 `state.py`가 Shared State·Trace로 남기고 SSE로 화면에 보낸다.
+- 모든 AI 호출은 `healing.py`를 거친다: 같은 모델 재시도 → 대체 모델 → Circuit Breaker (주 모델이 시간 초과면 다시 기다리지 않고 바로 대체 모델). 호출 한 번은 **최대 4회** 시도한다 (모델마다 2회까지). 진행은 `state.py`가 Shared State·Trace로 남기고 SSE로 화면에 보낸다.
 - 실행은 `orchestrator.py`(병렬·Join Guard·부분 실패·검토 반복·Handoff Guard)와 `runner.py`(엔진 루프에서 한 번에 하나), Worker는 `agents/` (2026-10-07 구현).
   종목 선정까지 AI 팀으로 하는 하루 파이프라인(규칙 후보 30 → 선정 팀 → 선정 Guard → 자동 리포트 3개, `AUTO_REPORT=on`)은 [docs/AI_AGENT_WORKFLOW.md](docs/AI_AGENT_WORKFLOW.md).
 
@@ -212,6 +212,60 @@ erDiagram
 | 검사 도구 | uv · ruff · pytest · ESLint · Vitest · Testing Library · MSW | 파이썬 의존성·린트·테스트, 프론트 린트·테스트·가짜 API(`VITE_MOCK=1`) |
 
 버전·구성의 자세한 내용은 [docs/TEAM_PAPER_TRADING_PLAN.md](docs/TEAM_PAPER_TRADING_PLAN.md) 2장.
+
+### 수업 기술 대신 React/TS·Django·uv를 쓴 이유
+
+정규 수업은 화면을 Streamlit, API를 FastAPI로 만들고 패키지는 pip, 가상환경은 venv로 관리한다.
+이 프로젝트는 혼자 보는 분석 도구가 아니라 **팀원 다섯이 각자 로그인해 자기 모의 계좌를 쓰고, 백그라운드 엔진 루프가 체결·자동매매·리포트를 돌리는 웹 서비스**라서 아래 세 기준으로 다시 골랐다.
+
+1. 여러 사용자가 동시에 쓰는 서비스 구조(로그인·계좌 분리·백그라운드 작업·운영 배포)를 무리 없이 만들 수 있는가
+2. 여러 사람이 화면·API·엔진을 나눠 개발해도 계약과 자동 검사로 어긋남을 잡을 수 있는가
+3. 팀원 PC(macOS·WSL2)·CI·운영 서버에서 같은 버전이 깔리고 같은 결과가 나오는가
+
+| 수업 | 이 프로젝트 | 한 줄 이유 |
+|---|---|---|
+| Streamlit | React + TypeScript (Vite) | 로그인한 사용자별 모바일 앱 화면, 실시간 진행 화면, 프론트·백엔드 분업이 필요하다 |
+| FastAPI | Django + DRF | 로그인·관리자 화면·ORM·마이그레이션·관리 명령이 기본으로 들어 있고, 엔진이 동기 코드라 async 이점이 작다 |
+| pip + venv | uv | 잠금 파일(`uv.lock`)로 모든 환경의 버전을 맞추고, 엔진·백엔드를 작업 공간으로 나눈다 |
+
+**화면: Streamlit → React + TypeScript**
+
+- Streamlit은 데이터 앱용이다. 위젯을 누를 때마다 파이썬 스크립트 전체를 다시 실행하고, 상태는 서버 메모리의 브라우저 탭별 세션에 둔다.
+  분석 대시보드를 빨리 만들기에는 좋지만, 이 서비스는 팀원마다 계좌·주문·알림이 따로 있고 하단 탭(홈·종목·리포트·모의투자·마이)과 상세 화면으로 이동하는 모바일 우선 앱이다.
+- 필요한 화면 요소가 Streamlit 기본 부품 밖에 있다: 화면 전환 모션, 다크 모드 색 토큰, 일봉 차트(lightweight-charts), 리포트 Agent 진행 그래프의 실시간 갱신(SSE, `frontend/src/api/reports.ts`), 주린이모드 쉬운 보기.
+  React는 이것을 컴포넌트로 만들어 여러 화면에서 다시 쓴다 (`components/ui.tsx`, `components/motion/`).
+- 화면과 API를 나눠 개발할 수 있다. 프론트는 `docs/API.md` 계약만 보고 만들고, 백엔드 없이 가짜 API(`VITE_MOCK=1`, MSW)로 돌려 본다.
+  Streamlit은 화면과 서버 로직이 한 파이썬 프로세스에 묶여 담당을 나누기 어렵다.
+- TypeScript가 API 응답 형식을 타입으로 적어 두므로 필드 이름·형식이 어긋난 곳을 CI의 `tsc --noEmit`이 찾는다. 화면 동작은 Vitest·Testing Library로 검사한다.
+- 빌드 결과가 정적 파일이라 운영에서는 nginx가 바로 내보낸다. Streamlit처럼 접속자마다 서버에 WebSocket 세션과 스크립트 실행을 붙잡지 않는다.
+
+**백엔드: FastAPI → Django + DRF**
+
+- 이 서비스에 필요한 것이 Django에 기본으로 있다: 세션 로그인 + CSRF, 관리자 화면(`/admin`, 앱 7개의 모델 등록), ORM과 마이그레이션, 관리 명령(`run_engine`·`create_team_accounts`·`demo_recommend`·`auto_report` 등).
+  FastAPI는 가벼운 대신 ORM(SQLAlchemy)·마이그레이션(Alembic)·인증·관리자 화면을 따로 골라 붙여야 하고, 붙이는 방식이 사람마다 달라지기 쉽다.
+- 같은 모델·마이그레이션으로 DB 둘을 쓴다. 혼자 개발할 때는 SQLite, 공유 개발 DB·운영은 PostgreSQL을 `.env`의 `POSTGRES_HOST` 하나로 고르고,
+  CI가 `makemigrations --check`와 PostgreSQL 테스트로 두 쪽을 확인한다.
+- 매매 엔진은 표준 라이브러리(`urllib`)만 쓰는 동기 코드다. FastAPI의 async 장점은 동기 호출에서는 거의 나지 않는다 (동기 함수는 어차피 스레드 풀에서 돈다).
+  Django에서는 엔진을 그대로 불러 쓰고(`backend/config/engine.py`), 엔진 루프 `manage.py run_engine`도 웹과 같은 모델·설정을 써서 작업 서버를 따로 두지 않는다.
+- FastAPI의 장점은 DRF로 챙겼다: 요청·응답 검증은 serializer, 자동 API 문서(OpenAPI)는 drf-spectacular(`/api/schema/`).
+
+**패키지·가상환경: pip + venv → uv**
+
+- `uv.lock`에 간접 의존성까지 정확한 버전을 적는다. 팀원 PC, CI(`uv sync --frozen`), 운영 이미지(`deploy/Dockerfile`의 `uv sync --frozen --no-dev`)가 같은 버전을 설치한다.
+  pip의 `requirements.txt`는 버전을 직접 고정하지 않으면 설치하는 날마다 간접 의존성 버전이 달라질 수 있다.
+- 작업 공간(workspace)으로 엔진(`engine/`, 의존성 0개)과 백엔드(`backend/`, Django 등)를 패키지 둘로 나눠 한 번에 설치한다.
+  "엔진은 표준 라이브러리만" 규칙이 `engine/pyproject.toml`의 빈 `dependencies`로 드러난다.
+- `uv sync` 한 번이 가상환경(`.venv`) 만들기·파이썬 3.12 받기(없을 때)·의존성 설치를 다 하고, `uv run ...`은 가상환경을 켜지 않고 그 환경에서 실행한다.
+  운영체제마다 다른 `activate` 안내가 필요 없어 설치 안내([SETUP_PROMPT.md](SETUP_PROMPT.md))가 단순해진다. 설치도 pip보다 빠르고 CI는 `uv.lock` 기준으로 캐시한다.
+- venv·pip과 호환된다. uv가 만드는 `.venv`는 표준 venv 구조이고, `uv pip install ...`처럼 pip 명령도 쓸 수 있다. `requirements.txt`가 필요하면 `uv export --format requirements-txt`로 뽑는다.
+
+**대가와 대응**
+
+| 대가 | 대응 |
+|---|---|
+| 수업 밖 도구라 익히는 시간이 든다 | 실행은 `scripts/dev.sh`, 설치는 `SETUP_PROMPT.md` 한 번으로 끝난다 |
+| 언어·패키지 관리자가 둘씩(Python·TS, uv·npm)이다 | CI가 두 쪽을 함께 검사한다 |
+| 리포트 SSE 연결이 스레드를 하나씩 잡는다 | gunicorn 스레드 16개, 끊기면 3초 폴링으로 바꾼다 |
 
 ## 지금 상태 (2026-10-07)
 

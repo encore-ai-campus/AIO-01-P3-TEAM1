@@ -38,15 +38,20 @@ def per_user_limit() -> int:
         return DEFAULT_PER_USER
 
 
-def total_limit() -> int:
-    """floor(AI_DAILY_BUDGET_USD ÷ 0.3) (기본 10달러 → 33회). 소수 오차가 없게 Decimal로 나눈다."""
+def budget_usd() -> Decimal:
+    """AI_DAILY_BUDGET_USD (기본 10달러). 숫자가 아니거나 무한이면 기본값, 음수면 0."""
     try:
         budget = Decimal(_env("AI_DAILY_BUDGET_USD") or DEFAULT_BUDGET_USD)
     except InvalidOperation:
         budget = DEFAULT_BUDGET_USD
     if not budget.is_finite():
         budget = DEFAULT_BUDGET_USD
-    return int(max(budget, Decimal(0)) / COST_PER_ANALYSIS_USD)
+    return max(budget, Decimal(0))
+
+
+def total_limit() -> int:
+    """floor(AI_DAILY_BUDGET_USD ÷ 0.3) (기본 10달러 → 33회). 소수 오차가 없게 Decimal로 나눈다."""
+    return int(budget_usd() / COST_PER_ANALYSIS_USD)
 
 
 def today_start(now: datetime | None = None) -> datetime:

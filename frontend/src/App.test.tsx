@@ -81,7 +81,7 @@ describe("홈 (전문가 보기 — 앨리스는 주린이모드 끔)", () => {
     expect(cards.map((c) => c.getAttribute("aria-label"))).toEqual(["삼성전자 AI 분석", "SK하이닉스 AI 분석", "에코프로비엠 AI 분석", "NVIDIA AI 분석"]);
     expect(within(dash).getByRole("link", { name: /교차검증 분석 전체 보기/ }).getAttribute("href")).toBe("/reports?list=analyses");
     const samsung = cards[0];
-    expect(within(samsung).getByText("BUY")).toBeTruthy();
+    expect(within(samsung).getByText("매수")).toBeTruthy();
     expect(within(samsung).getByText("진입")).toBeTruthy();
     // 현재가는 /api/quotes로 따로 받는다
     await waitFor(() => expect(within(samsung).getByText("71,200원")).toBeTruthy());
@@ -93,7 +93,7 @@ describe("홈 (전문가 보기 — 앨리스는 주린이모드 끔)", () => {
     renderApp("/");
     const dash = await screen.findByRole("region", { name: "AI 교차검증 분석" });
     await within(dash).findAllByRole("article");
-    fireEvent.click(within(dash).getByRole("button", { name: "BUY" }));
+    fireEvent.click(within(dash).getByRole("button", { name: "매수" }));
     await waitFor(() => expect(within(dash).getAllByRole("article")).toHaveLength(3));
   });
 });

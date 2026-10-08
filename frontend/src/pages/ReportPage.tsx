@@ -13,9 +13,10 @@ import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { ApiError, errorMessage } from "../api/client";
 import { useRecommendations } from "../api/queries";
-import { type Delivery, isFinished, useReportLive, useRequestReport } from "../api/reports";
+import { type Delivery, isFinished, useDeleteReport, useReportLive, useRequestReport } from "../api/reports";
 import type { ReportDetail, SharedState, TraceEvent } from "../api/types";
 import { SourceRecommendations } from "../components/autotrade/SourceRecommendations";
+import { DeleteAction } from "../components/DeleteAction";
 import { ErrorPanel } from "../components/errors/ErrorPanel";
 import { errorKindOf } from "../components/errors/errorTypes";
 import { Icon } from "../components/Icon";
@@ -29,6 +30,7 @@ import { RunSummary } from "../components/reports/RunSummary";
 import { SharedStatePanel } from "../components/reports/SharedStatePanel";
 import { AutoBadge, DeliveryBadge, ExampleTag, InjectedBadge, ReportStatusBadge } from "../components/reports/StatusChip";
 import { TraceTimeline } from "../components/reports/TraceTimeline";
+import { useToast } from "../components/toast";
 import { ViewToggle } from "../components/reports/ViewToggle";
 import { EasyReport } from "../components/reports/easy/EasyReport";
 import { Card, EmptyState, Notice, PageHeader, PillTabs, Skeleton, SkeletonCard, Spinner } from "../components/ui";
@@ -45,6 +47,7 @@ import {
   EXPERT_FAILURE_NOTE,
   NOT_IMPLEMENTED,
   actorLabel,
+  cleanReportText,
   isSelection,
   opinionOf,
   policyName,
@@ -135,6 +138,35 @@ function FailureCard({ r, trace, state }: { r: ReportDetail; trace: TraceEvent[]
   );
 }
 
+/**
+ * 내가 신청한 끝난 리포트 지우기 (canDelete, DECISIONS 25장): 화면 맨 아래, 눈에 덜 띄게. 확인 → DELETE → 리포트 목록으로 옮기고 토스트.
+ * 쉬운 보기·전문가 보기 모두 같은 자리(면책 문장 아래)다. 실패하면 서버의 detail 문장을 확인 시트 안에 그대로 보인다.
+ */
+function DeleteReport({ r }: { r: ReportDetail }) {
+  const navigate = useNavigate();
+  const toast = useToast();
+  const del = useDeleteReport(r.id);
+  return (
+    <DeleteAction
+      className="mt-4"
+      label="리포트 지우기"
+      title="이 리포트를 지울까요?"
+      description="리포트와 이 리포트의 계획 제안이 목록에서 사라져요. 오늘 쓴 리포트 횟수는 돌아오지 않아요."
+      pending={del.isPending}
+      error={del.error}
+      onOpen={del.reset}
+      onConfirm={() =>
+        del.mutate(undefined, {
+          onSuccess: () => {
+            navigate("/reports", { replace: true });
+            toast("리포트를 지웠어요", "success");
+          },
+        })
+      }
+    />
+  );
+}
+
 /** 없는 리포트(404·숫자가 아닌 주소): 다시 시도해도 소용없으니 목록으로 가는 길을 준다 (알림·Discord 링크로 들어오는 화면). */
 function NotFound({ easy }: { easy: boolean }) {
   return (
@@ -195,6 +227,7 @@ export function ReportPage() {
         <div className={reveal ? "reveal-fade" : undefined}>
           <EasyReport r={r} view={view} />
         </div>
+        {r.canDelete && <DeleteReport key={r.id} r={r} />}
       </>
     );
   }
@@ -424,8 +457,8 @@ function ExpertReport({ r, delivery, view }: { r: ReportDetail; delivery: Delive
               </div>
               {r.content ? (
                 <Suspense fallback={<SkeletonCard lines={4} className="px-0" />}>
-                  {/* 카드 제목(h2) 아래라 문서 제목을 한 단계 더 낮춘다 */}
-                  <Markdown levelOffset={2}>{r.content}</Markdown>
+                  {/* 카드 제목(h2) 아래라 문서 제목을 한 단계 더 낮춘다. 옛 리포트의 쉼표 없는 금액·의견 영어(hold 등)는 그릴 때만 다듬는다 (UX-5) */}
+                  <Markdown levelOffset={2}>{cleanReportText(r.content)}</Markdown>
                 </Suspense>
               ) : (
                 <div className="rounded-xl bg-fill px-4 py-6 text-center">
@@ -511,6 +544,7 @@ function ExpertReport({ r, delivery, view }: { r: ReportDetail; delivery: Delive
         )}
         {/* 면책 문장은 꼭 읽어야 하는 문장이라 보조 글자색 */}
         <p className="px-1 text-[12px] leading-snug text-sub">{DISCLAIMER}</p>
+        {r.canDelete && <DeleteReport key={r.id} r={r} />}
       </div>
     </>
   );

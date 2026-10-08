@@ -5,6 +5,7 @@
 // - 저장은 useSaveThesis(symbol) (PUT). 400이면 서버 detail을 보인다. 저장되면 onSaved(thesis).
 // - 장기 보유 주문(OrderPanel의 "장기 보유")과 종목 상세의 펀더멘털 패널에서 연다.
 // - stickyActions: 바텀시트 안에서는 [취소·산 이유 저장]을 시트 바닥에 붙인다 (내용이 길어도 버튼이 엄지 영역에 남게).
+// - easy(쉬운 보기): "정기공시" → "실적 보고서(정기공시)", "점검할 축" → "먼저 볼 것" (전문가 보기는 그대로).
 import { useEffect, useId, useRef, useState } from "react";
 import { errorMessage } from "../../api/client";
 import { useSaveThesis } from "../../api/longterm";
@@ -32,6 +33,8 @@ export interface ThesisFormProps {
   stickyActions?: boolean;
   /** 처음 그릴 때 폼으로 포커스를 옮긴다 (보기 → 고치기로 바뀐 직후 — 누른 버튼이 사라져 포커스를 잃지 않게). */
   focusOnMount?: boolean;
+  /** 쉬운 보기 문구 (전문 용어를 푼다). */
+  easy?: boolean;
   className?: string;
 }
 
@@ -44,6 +47,7 @@ export function ThesisForm({
   intro = true,
   stickyActions = false,
   focusOnMount = false,
+  easy = false,
   className,
 }: ThesisFormProps) {
   const [reasons, setReasons] = useState<string[]>(initial?.reasons ?? []);
@@ -134,8 +138,8 @@ export function ThesisForm({
           <h3 className="text-[16px] font-bold">왜 샀나요?</h3>
           <p className="mt-0.5 text-[13px] leading-snug text-mute">
             {name}
-            {josa(name, "을/를")} 산 이유를 1~{THESIS_MAX_REASONS}개 남겨 두면, 정기공시가 나올 때 그 이유와 관련된 숫자를 같이 점검해요. 매도를 권하거나 자동으로
-            팔지 않아요.
+            {josa(name, "을/를")} 산 이유를 1~{THESIS_MAX_REASONS}개 남겨 두면, {easy ? "실적 보고서(정기공시)" : "정기공시"}가 나올 때 그 이유와 관련된 숫자를 같이
+            점검해요. {easy ? "팔라고 하거나" : "매도를 권하거나"} 자동으로 팔지 않아요.
           </p>
         </div>
       )}
@@ -226,8 +230,10 @@ export function ThesisForm({
       </div>
 
       <fieldset>
-        <legend className="text-[14px] font-semibold">점검할 축 (선택)</legend>
-        <p className="text-[12px] text-mute">고르지 않으면 셋 다 점검해요. 고른 축의 지표를 먼저 보여 줘요.</p>
+        <legend className="text-[14px] font-semibold">{easy ? "먼저 볼 것 (선택)" : "점검할 축 (선택)"}</legend>
+        <p className="text-[12px] text-mute">
+          {easy ? "고르지 않으면 셋 다 봐요. 고른 것의 숫자를 먼저 보여 줘요." : "고르지 않으면 셋 다 점검해요. 고른 축의 지표를 먼저 보여 줘요."}
+        </p>
         <div className="mt-1.5 flex flex-wrap gap-2">
           {THESIS_AXES.map((a) => (
             <label key={a} className="flex h-11 cursor-pointer items-center gap-2 rounded-xl bg-fill px-3.5 text-[14px] transition-colors hover:bg-line">

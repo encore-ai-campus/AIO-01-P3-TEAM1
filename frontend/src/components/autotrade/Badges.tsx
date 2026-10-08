@@ -1,10 +1,10 @@
 // 추천 출처·리스크 단계·계획 상태·보유 방식 배지. 상태는 색 + 아이콘 + 글자로 같이 보인다.
 // easy면 쉬운 보기 문구(docs/컨셉변경계획.md 4-4, lib/plainText.ts), 아니면 전문가 보기 문구.
 // 칩은 움직이지 않는다: 며칠씩 이어지는 '체결 대기' 동안 깜빡이면 아무 일 없는 대기에 움직임이 가장 많아진다 (trade-09).
-import type { HoldingStyle, RecommendationSource, RiskLevel } from "../../api/types";
+import type { HoldingStyle, Recommendation, RecommendationSource, RiskLevel } from "../../api/types";
 import { cn } from "../../lib/cn";
-import { RISK_LEVEL, SOURCE, STYLE_BADGE, planStatusOf, timeLeftShort } from "../../lib/autotrade";
-import { HOLDING_STYLE_TEXT, planStatusText } from "../../lib/plainText";
+import { RISK_LEVEL, SOURCE, STYLE_BADGE, blockedCodes, planStatusOf, timeLeftShort } from "../../lib/autotrade";
+import { HOLDING_STYLE_TEXT, blockedShort, planStatusText, priceExpiredText } from "../../lib/plainText";
 import { Icon } from "../Icon";
 
 const chip = "inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[12px] font-bold whitespace-nowrap";
@@ -49,11 +49,32 @@ export function PlanStatusChip({ status, easy, className }: { status: string; ea
  * 추천의 유효 기한 (시간 사실만). 시작할 수 있는지는 안전장치가 정하므로 이 칩은 말하지 않는다 —
  * 기한이 남은 계획도 손익비·진행 중 계획 때문에 막힐 수 있다 (trade-04). 하루 안 남았으면 주황.
  * 쉬운 보기 "기한 2일 남음"/"기한 지남", 전문가 보기 "유효 · 2일 남음"/"만료".
+ * 가격이 이미 손절가·목표가를 지나 끝났으면(expiredReason, DECISIONS 25장) 쉬운 "손절 가격 아래로 내려감" · 전문가 "손절가 이탈로 만료" 등.
  */
-export function RecStatusChip({ open, validUntil, easy, className }: { open: boolean; validUntil?: string; easy?: boolean; className?: string }) {
+export function RecStatusChip({
+  open,
+  validUntil,
+  expiredReason,
+  easy,
+  className,
+}: {
+  open: boolean;
+  validUntil?: string;
+  expiredReason?: Recommendation["expiredReason"];
+  easy?: boolean;
+  className?: string;
+}) {
   const left = open && validUntil ? timeLeftShort(validUntil) : null;
   const soon = left !== null && !left.includes("일");
-  const text = open ? (left ? (easy ? `기한 ${left}` : `유효 · ${left}`) : easy ? "기한 안" : "유효") : easy ? "기한 지남" : "만료";
+  const text = open
+    ? left
+      ? easy
+        ? `기한 ${left}`
+        : `유효 · ${left}`
+      : easy
+        ? "기한 안"
+        : "유효"
+    : (priceExpiredText(expiredReason, Boolean(easy), "short") ?? (easy ? "기한 지남" : "만료"));
   return (
     <span className={cn(chip, !open ? "bg-fill text-mute" : soon ? "bg-warn-soft text-warn-ink" : "bg-fill text-sub", className)}>
       <Icon name="clock" className="size-3.5" />
@@ -77,9 +98,43 @@ export function ReadinessChip({ state, easy, className }: { state: "ready" | "bl
   );
 }
 
+type ReadinessInput = Pick<Recommendation, "status" | "myPlan"> & { blockedBy?: readonly string[]; expiredReason?: Recommendation["expiredReason"] };
+
+const LIVE_PLAN = ["active", "entry_pending", "holding"];
+
+/**
+ * 계획 제안 목록 카드의 시작 가능 표시 (UX-2, DECISIONS 23장). 계좌와 무관한 사유(blockedBy)로만 말한다 — 비어 있어도 내 계좌 사정
+ * (현금·한도·같은 종목)으로 막힐 수 있어 최종 판단은 상세의 안전장치다. 막혔으면 이유 한 마디를 이어 쓰고, 좁으면 줄을 바꾼다.
+ * 진행 중인 내 계획이 있으면 그 상태 칩(PlanStatusChip)이 말하므로 그리지 않는다.
+ */
+export function ProposalReadiness({ r, easy, className }: { r: ReadinessInput; easy?: boolean; className?: string }) {
+  if (r.myPlan && LIVE_PLAN.includes(r.myPlan.status)) return null;
+  const codes = blockedCodes(r);
+  if (codes.length === 0) return <ReadinessChip state="ready" easy={easy} className={className} />;
+  // 가격이 이미 손절가·목표가를 지나 끝난 제안은 그 까닭을 먼저 (기한 사유 '기한이 끝났어요'로 말하지 않게 — DECISIONS 25장)
+  const short = (r.status !== "open" ? priceExpiredText(r.expiredReason, Boolean(easy), "short") : null) ?? blockedShort(codes, easy);
+  return (
+    <span className={cn("inline-flex min-h-6 max-w-full items-start gap-1 rounded-md bg-fill px-1.5 py-0.5 text-[12px] leading-snug font-bold text-sub", className)}>
+      <Icon name="ban" className="mt-px size-3.5 shrink-0" />
+      <span>{`${easy ? "지금은 시작할 수 없음" : "활성화 불가"}${short ? ` · ${short}` : ""}`}</span>
+    </span>
+  );
+}
+
+/** 압축 행(모의투자 탭·홈)의 작은 표시: 지금은 시작할 수 없는 제안에만 (이유는 상세에서). */
+export function BlockedMark({ r, easy, className }: { r: ReadinessInput; easy?: boolean; className?: string }) {
+  if ((r.myPlan && LIVE_PLAN.includes(r.myPlan.status)) || blockedCodes(r).length === 0) return null;
+  return (
+    <span className={cn(chip, "bg-fill text-sub", className)}>
+      <Icon name="ban" className="size-3.5" />
+      {easy ? "시작할 수 없음" : "활성화 불가"}
+    </span>
+  );
+}
+
 /**
  * 내 주식의 주문·보유·예약 행이 진행 중 모의 자동매매에 묶여 있다는 표시 (trade-05). 일반 주문처럼 보여 바로 취소하면 계획까지 끝나므로
- * 행만 봐도 알게 한다. stopping: 계획의 전량 매도 예약(멈추는 중).
+ * 행만 봐도 알게 한다. stopping: 계획의 모두 팔기 예약(멈추는 중).
  */
 export function AutoTradeBadge({ planId, easy, stopping = false, className }: { planId: number; easy?: boolean; stopping?: boolean; className?: string }) {
   const text = stopping ? (easy ? "모의 자동매매 멈추는 중" : `자동매매 #${planId} 매도`) : easy ? "모의 자동매매" : `자동매매 #${planId}`;

@@ -36,6 +36,7 @@ docs/               DESIGN.md(엔진 설계), DECISIONS.md(이 파일), KIWOOM.m
 | `KIWOOM_TOKEN_CACHE` | `.cache/kiwoom_token.json` | 엔진 | 토큰 파일 캐시 (0600) |
 | `BROKER` | `kiwoom` | 엔진 | 조회에 쓸 증권사 (`kiwoom` \| `toss`). `toss`는 **로컬 개발 환경 전용**이다 (3장). EC2의 `.env`에는 넣지 않는다 |
 | `CLIENT_ID`, `CLIENT_SECRET` | 없음 | 엔진 | `BROKER=toss`일 때 필수인 토스증권 Open API 키 (조회만 쓴다). 토큰 캐시는 `.cache/toss_token.json` (0600) |
+| `ALLOW_TOSS_BROKER` | `off` | 엔진 | `DJANGO_DEBUG=off`여도 `BROKER=toss`를 받는다 — 키움 키를 받기 전 **운영 임시용** (3-1, 23장). 키움 키가 오면 지운다 |
 | `MARKETS` | `KR` | 엔진 | 운영할 시장 (쉼표 구분, `KR` 또는 `KR,US`). 키움 미국 시세 확인 전에는 KR만 |
 | `PAPER_CAPITAL_KRW` | `10000000` | 엔진 | 모의 계좌 초기 자금 (계좌를 처음 만들 때만 쓴다) |
 | `PAPER_COMMISSION_KR`, `PAPER_COMMISSION_US` | `0.00015` | 엔진 | 모의 체결 수수료율 (매수·매도 각각). 국내 매도는 거래세 `SELL_TAX_RATE["KR"]`를 더한다 |
@@ -95,6 +96,7 @@ config.py       Config.broker · toss_client_id · toss_client_secret · toss_to
 
 - 켜는 법: 로컬 `.env`에 `BROKER=toss`, `CLIENT_ID`, `CLIENT_SECRET`. `BROKER`를 주지 않으면 토스 키가 있어도 키움이다.
 - **운영에서는 못 켠다.** `DJANGO_DEBUG`가 켜져 있을 때만 `load_config`가 `BROKER=toss`를 받는다 (운영은 `DJANGO_DEBUG=off`).
+  **예외 (2026-10-08, 23장)**: 키움 키를 받기 전 운영 임시로 `ALLOW_TOSS_BROKER=on`이면 `DJANGO_DEBUG=off`여도 받는다 — 토스 때문에 운영 DEBUG를 켜 두지 않으려고. 키움 키가 오면 끈다.
   처음에는 `POSTGRES_HOST` 유무로 가렸지만, 로컬에서도 PostgreSQL을 쓰게 되어 바꿨다 (2026-10-02, 10장). 4E의 운영 compose는 `BROKER`를 넘기지 않는다.
 - **조회만.** 토큰 발급 말고는 GET만 보내고 계좌 헤더를 붙이지 않는다. 계좌·주문 메서드는 없다
   (`test_toss.py`가 공개 메서드가 `KiwoomClient`와 이름·인자까지 같은지 검사한다). 주문은 계속 모의 계좌에서만 체결한다.
@@ -732,6 +734,8 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
   `chaos` 열이 아직 없으므로 `getattr(report, "chaos", None)`이 dict이고 `enabled`가 참일 때만 failed도 센다 (열이 생기기 전에는 failed를 모두 뺀다). JSON 필드는 Python에서 읽는다 (PostgreSQL 전용 조회를 쓰지 않는다).
 - 넘으면 `POST /api/reports` → `429 {"detail", "limit", "used"}` (`config.api`의 예외 처리는 `detail` 외 필드를 버리므로 `Response`를 직접 돌려준다). 같은 종목의 진행 중 리포트를 돌려주는 `200` 경로는 세지 않는다.
   남은 횟수는 `GET /api/reports/quota` (`limit`·`used`·`remaining`·`resetsAt`).
+- **2026-10-08 바뀜 (사용자 결정): 기본값은 무제한.** `AI_DAILY_REPORTS_PER_USER`가 비어 있으면(또는 숫자가 아니면) 한도가 없다 — `limit`·`remaining`이 `null`이고 `429`가 나지 않는다.
+  숫자를 넣으면 전처럼 그 수가 한도다 (0이면 신청할 수 없다). 팀 전체 하루 비용 예산(`AI_DAILY_BUDGET_USD`, `budget.check`)은 그대로 적용된다.
 - 비용 합산 한도(분석 + 리포트 $)는 `cost_usd` 열이 생긴 뒤 팀원(2) 몫이다 — 새 팀 파일 `backend/reports/budget.py`의 `check(now)`. `quota.py`(Claude)에 넣지 않는다.
   `ReportsView.post`에서는 `quota.check` 바로 뒤에 `budget.check`를 한 줄로 부른다 (14-2의 순서).
 
@@ -946,6 +950,10 @@ Claude가 끝까지 만들었다. 팀원이 이미 만든 것(3의 T3-1 레지�
   비용 집계(`state.add_cost`). `state`의 쓰기는 프로세스 잠금으로 한 번에 하나 (병렬 Worker 스레드가 SQLite에서 "table is locked"를 내지 않게).
 - **실패 사유 코드 셋 추가**: `agent_failed`(Join이 없는 단계의 필수 Worker 실패), `no_llm`(AI 키 없음), `expired`(24시간 넘게 기다린 `requested` — 실행기를 처음 켤 때
   묵은 신청이 실제 비용으로 한꺼번에 돌지 않게. 계획서 Q5). 화면·알림 문장 표에 같이 넣었다. 필수 Worker가 단계 제한 시간을 넘기면 `timeout`(Q3).
+- **2026-10-08 바뀜 — LLM timeout 규칙(Q1, 사용자 결정)**: 주 모델 timeout은 같은 모델을 다시 기다리지 않고 바로 대체 모델, 대체 모델 timeout은 같은 모델로 한 번 더 (넘어갈 대체 모델이 없을 때만 주 모델로 한 번 더, `healing.py`).
+  왜: 주 모델이 계속 멈출 때 60초를 또 기다리지 않아 복구가 125초 → 65초, 대체 모델이 첫 호출에서만 멈추는 경우도 180초 안에 복구된다.
+  `yubeen` 브랜치의 "timeout은 어느 모델이든 바로 다음 모델" 안과 지금 규칙을 가짜 시계로 비교해 고른 절충안이다 (`docs/works/todo/yubeen_리뷰_Orchestrator별도구현_2026-10-08.md` 3장).
+  호출 한 번에 주 모델 실패가 2번에서 1번으로 줄어, 장애 주입 시연에서 Circuit Breaker(연속 3번)는 세 번째 호출에서 열린다.
 - **실행기** (`reports/runner.py`): 엔진 루프 "리포트 실행" 단계가 `requested`를 오래된 순으로 하나씩(동시에 하나). 엔진이 다시 뜨면 남은 `running`을 `engine_restarted`로 끝낸다.
 - **Worker 11개**: 종목 리포트 6개(시세 — 장마감 기준 값을 코드가 덮어씀, 재무·공시, 뉴스, 작성, 검토 — 투자유의면 코드가 Handoff를 붙임, 리스크 — 투자유의 단계의 하한을 코드가 정함),
   선정 5개(후보 뉴스, 후보 공시 — 고위험 공시 낱말은 코드가 high로, 수급 — 합계는 코드, 선정 — 가격 없음, 선정 검토 — 후보 밖 종목이면 코드가 RETRY로). 외부 글은 입력 Guard(`guards.clean_text`)를 거친다.
@@ -1018,3 +1026,59 @@ AI는 목표를 가깝게(+6~9%), 손절을 멀게(−5~−19%) 잡았다. 그�
   화면(오늘의 선별 결과)은 더한 종목에 "다시 시도 n차" 꼬리표를 단다. `manage.py auto_report --wait`도 다시 시도한 리포트까지 돌린다.
 - 최소 손익비를 AI 프롬프트에 넣지 않는 규칙은 그대로다 (다시 시도는 코드가 판단하고, AI에게 목표를 올리라고 하지 않는다).
 - 비용: 다시 시도 한 번에 종목 리포트 top개(LLM 호출)가 더 든다. 자동 리포트는 신청자가 없어 팀원의 하루 리포트 한도에 세지 않는다.
+
+## 23. 운영 E2E 점검 뒤 고칠 것: 오늘 산 종목 평가 · 시작할 수 없는 추천 표시 · 알림 합치기 · 토스 허용 분리 (2026-10-08, 사용자 결정)
+
+근거: `docs/운영E2E점검_UX리뷰_2026-10-08.md` (운영 서버에서 초보 투자자 관점으로 끝까지 돌려 본 결과). 사용자가 권장안을 모두 골랐다.
+
+- **오늘 산 종목은 체결가로 평가한다 (UX-1).** 계좌·보유·랭킹의 장마감 기준 평가(14-1)는 그대로 두되, 평가할 종가의 기준 시각 **뒤에 체결된 보유**는
+  그 종가 대신 체결가로 평가한다(손익 0, `Position.priceBasis: "today_fill"`). 기준일이 오늘로 바뀌면(KR 15:40) 그날 종가로 평가된다.
+  이유: 원가(오늘 실시간 체결가)와 평가(어제 종가)의 기준이 달라, 산 지 1분 만에 "+4.31%"가 보이고 바로 팔면 손해였다. 랭킹도 그 값으로 움직였다. `docs/API.md` "장마감 기준".
+- **시작할 수 없는 추천을 목록에서 미리 보인다 (UX-2).** `Recommendation.blockedBy` — 계좌와 무관한 사유 코드(`reward_risk_low`·`ev_negative`·`expired`)를
+  리스크 엔진과 같은 계산으로 낸다(중단 스위치 `halted`도). 화면은 시작할 수 있는 것을 먼저, 시작할 수 없는 것은 접어서 보인다. 최종 판단은 지금처럼 `RiskPreview`다.
+  직전 종가가 이미 목표·손절을 지난 경우(`price_passed`)와 투자유의(`warning_stock`)는 시세 조회가 들어 목록에서는 보지 않는다 — 상세가 막는다.
+- **알림을 합친다 (UX-9).** 활성화 요청 하나 안에서 이어진 계획 사건(시작 → 주문 접수 → 체결)은 마지막 상태 하나만 웹·Discord로 보낸다. 사건 기록은 다 남긴다.
+- **토스 허용을 DEBUG와 떼어 낸다 (OPS-1).** 3-1의 예외 `ALLOW_TOSS_BROKER=on`. 운영은 `DJANGO_DEBUG=off`로 되돌리고(디버그 404가 URL 목록을 보였다),
+  키움 키를 받기 전까지만 `ALLOW_TOSS_BROKER=on`·`BROKER=toss`를 둔다. 운영 `AUTOTRADE_DEMO=off`(D-4: 리포트가 돌면 연습용 예시는 끈다).
+- **HTTPS는 하지 않는다 (OPS-2).** 운영은 HTTP(80)로 유지한다 (사용자 결정). 그래서 `SESSION_COOKIE_SECURE`·`CSRF_COOKIE_SECURE`·HSTS는 켜지 않는다
+  — HTTP에서 켜면 로그인이 깨진다. 로그인 비밀번호·세션 쿠키가 평문으로 오가는 것은 알고 받아들인 위험이다 (팀 내부 모의투자 서비스).
+- **쉬운 보기의 AI 글에서 전문 용어를 줄인다 (UX-4·UX-5).** 리포트 Worker의 쉬운 필드에 금지 용어를 프롬프트로 알리고 Guard가 검사한다.
+  숫자 쉼표·의견의 영어 표기(hold 등) 치환·블로그 출처 제외는 결정론적 코드가 한다. 실모델 프롬프트 튜닝(T2-10)은 그대로 담당 2 몫이다.
+  비용 상한: 용어 RETRY는 **첫 검토에서만** 한다(리포트당 작성·검토가 최대 1번씩 더). 두 번째 초안에도 용어가 남으면 실패시키지 않고 괄호 풀이를 붙여 통과한다.
+  용어 문제는 검토 LLM의 '코드 점검 결과'에 넣지 않고 코드가 RETRY를 더한다(LLM 규칙과 부딪혀 FAIL이 나지 않게). '이탈'·'돌파'는 가격 문맥일 때만 용어로 본다.
+- 같은 날 독립 리뷰(P0 0 · P1 1 · P2 12) 뒤 고친 것: 위 두 줄, 블로그·링크·연도 오탐, `blockedBy`에 `halted`, 장 시작 전 기한은 앞 거래일 장 마감으로, 첫 주문 대기(`active`) 토스트.
+  고치지 않은 것: 미국 종목 today_fill은 원화 환산에 지금 환율을 써 환율 차이만큼 손익이 생긴다(운영은 지금 국내만), Webhook 없이 openclaw만 있는 환경의 알림 설정 문구, '15:40' 고정 표기(수능일·미국 조기 폐장일은 다르다).
+
+## 24. Discord 알림을 끈다 (2026-10-08, 사용자 결정)
+
+- **서비스가 Discord로 아무것도 보내지 않는다.** 웹 알림(알림함)은 그대로다. 끈 것: 계획·체결·청산·리포트 끝 알림의 Discord 글, 자동 리포트의 표지·PDF 글,
+  엔진 CLI의 팀 채널 알림 (12-4의 Discord 쪽 전부).
+- **방법: 코드 두 곳을 주석 처리했다** (설정 값을 지우지 않아도 꺼진다).
+  - `engine/paper_engine/notify.py`의 `make_notifier` — Webhook·openclaw 분기를 주석 처리해 늘 `ConsoleNotifier`(콘솔 출력)를 돌려준다.
+    모든 Discord 전송(`config.engine.notifier()` → 알림 발송 `dispatch.tick`, 자동 리포트 `reports/auto.py`)이 이 함수를 거친다.
+  - `backend/notifications/service.py`의 `webhook_configured` — 늘 false. 화면(My Page 알림 설정)은 Discord 묶음(받기 스위치·사용자 ID·테스트 알림)을 접고
+    "지금은 웹 알림으로만 와요"를 보인다. 테스트 알림 API는 `discord: "not_configured"`.
+- 끈 동안 생기는 Discord 글은 편지함(`notification_outbox`)에 `skipped`로 남고 엔진 콘솔에만 찍힌다 (보내지 않음). `DISCORD_WEBHOOK_URL`은 남겨 둬도 된다.
+- **바뀌지 않는 것**: GitHub Actions의 배포 결과 Discord 알림(`deploy.yml`의 `notify` 작업)은 서비스 기능이 아니라 그대로 둔다 (저장소 비밀 값 `DISCORD_WEBHOOK_URL`로 보낸다).
+- **다시 켜려면**: 위 두 곳의 주석을 풀고 `return ConsoleNotifier()` / `return False` 줄을 지운다. 테스트 `engine/tests/test_notify.py`,
+  `backend/notifications/tests/test_service.py`·`test_notifications_api.py`의 "disabled" 테스트를 예전 기대값(각 테스트 docstring에 적었다)으로 되돌린다.
+
+
+## 25. 리포트·계획 제안 지우기와 가격이 지난 제안 자동 정리 (2026-10-08, 사용자 결정)
+
+근거: 사용자가 "리포트 삭제 기능이 있어야 할 것 같다"며 예로 든 계획 제안(두산에너빌리티, AI 리포트)이 현재가가 이미 손절가보다 낮은데도 목록에 '시작할 수 있음'으로 남아 있었다
+(23장의 `blockedBy`는 시세를 보지 않는다). 사용자가 권장안 셋(직접 지우기 + 자동 정리, 만든 사람만, 리포트와 제안 둘 다 숨김)을 골랐다. 계약은 `docs/API.md`
+"리포트·계획 제안 지우기"·"가격이 지난 계획 제안 자동 정리", 구현은 `backend/autotrade/hide.py`·`sources.invalidate`.
+
+- **직접 지우기는 만든 팀원만** 한다: 리포트는 신청한 팀원(끝난 `completed`·`failed`만), 계획 제안은 `requestedBy`인 팀원. 응답의 `canDelete`로 화면이 버튼을 보인다.
+  자동 리포트·선정 실행·자동 추천은 만든 사람이 없어 아무도 지우지 않는다 — 아래 자동 정리와 기한이 내린다.
+- **지우기는 숨김이다** (`deleted_at`): 목록·상세·PDF·SSE·추천 API에서 빠지고(`404`) 행은 남는다. 이유: 행을 지우면 비용 예산(`reports/budget.py`)·하루 한도(`quota.py`)·
+  복구 통계(`stats.py`)·관리 서버가 세는 행이 사라져, 지우고 다시 만들어 한도를 되돌려 받는 길이 생기고 통계가 바뀐다. 그래서 **지워도 한도는 돌아오지 않는다** (확인 문구에 적는다).
+- **리포트와 그 제안은 같이 숨긴다** (어느 쪽을 지워도). 그 제안으로 **진행 중인 계획**(누구 것이든)이 있으면 지우지 않는다 — 다른 팀원이 산 이유를 지우지 않게.
+  끝난 계획은 남고 계획 상세도 열린다. 지우기와 활성화는 추천 행을 잠그고 서로를 확인한다 (지운 뒤의 활성화는 `404`).
+- **가격이 지난 제안 자동 정리**: 엔진 루프 "추천 수집"이 1분에 한 번 open 추천의 현재가를 한 번에 조회해, 손절가 이하면 `expired`·`expiredReason: "below_stop"`,
+  목표가 이상이면 `"above_target"`으로 바꾼다. 다시 open으로 돌리지 않는다 (손절선을 깬 스윙 계획은 그 자체로 깨진 것으로 본다). 진행 중 계획은 자기 값으로 그대로 진행한다.
+  23장과의 관계: 목록 요청의 `blockedBy`는 지금처럼 시세를 보지 않고(요청마다 시세 조회를 하지 않는다), 시세는 엔진이 1분에 한 번만 본다. 그 1분 사이에는 '시작할 수 있음'으로 보일 수 있지만
+  상세의 안전장치(종가)와 활성화의 장중 확인이 지금처럼 막는다. 기한으로 끝난 추천은 `expiredReason: "deadline"`이다 (예전 행도 `deadline`으로 낸다).
+- 고치지 않은 것: 추천이 생기는 순간 이미 가격이 지났으면 '계획 제안' 알림이 먼저 가고 1분 안에 정리된다(알림을 열면 끝난 제안으로 보인다 — 만들 때 막으면 리포트 끝 알림이 사라진다,
+  `reports/alerts.py`). 관리 서버(`paper_admin`)는 지운 리포트도 그대로 보인다(`deleted_at` 열).

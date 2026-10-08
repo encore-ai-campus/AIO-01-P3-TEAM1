@@ -79,13 +79,18 @@ def test_notifier_has_no_confirm_or_ask():
     assert {"send", "log", "send_file"} <= set(dir(Notifier))
 
 
-def test_make_notifier_prefers_webhook_then_openclaw_then_console(capsys):
+def test_make_notifier_is_console_while_discord_disabled(capsys):
+    """2026-10-08 Discord 알림을 껐다 (docs/DECISIONS.md 24장): Webhook·openclaw 설정이 있어도 콘솔.
+
+    다시 켜면 예전 기대값으로 되돌린다: openclaw만 있으면 OpenclawNotifier(_bin "oc", _target TARGET),
+    Webhook이 있으면 WebhookNotifier(_url WEBHOOK)가 먼저.
+    """
     base = Config("key", "secret", None)
     assert isinstance(make_notifier(base), ConsoleNotifier)
     n = make_notifier(Config("key", "secret", None, openclaw_target=TARGET, openclaw_bin="oc"))
-    assert isinstance(n, OpenclawNotifier) and n._bin == "oc" and n._target == TARGET
+    assert isinstance(n, ConsoleNotifier)
     n = make_notifier(Config("key", "secret", None, openclaw_target=TARGET, discord_webhook_url=WEBHOOK))
-    assert isinstance(n, WebhookNotifier) and n._url == WEBHOOK
+    assert isinstance(n, ConsoleNotifier)
     assert "secret-token" not in repr(n) and "secret-token" not in repr(
         Config("key", "secret", None, discord_webhook_url=WEBHOOK))  # 비밀 값은 repr에 나오지 않는다
     ConsoleNotifier().send_file("x.pdf", "요약")

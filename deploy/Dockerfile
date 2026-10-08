@@ -46,9 +46,11 @@ USER app
 EXPOSE 8000
 HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=6 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)"]
+# --no-control-socket: gunicorn 26의 제어 소켓이 기본으로 ~/.gunicorn에 만들어지는데 읽기 전용 파일시스템이라 시작 때마다
+# "Control server error: [Errno 30] Read-only file system" 오류가 난다 (OPS-9). 쓰지 않는 기능이라 끈다.
 # 워커는 프로세스 하나에 스레드 여러 개로 띄운다: 시세 캐시와 증권사 호출 간격 조절이 프로세스별이라 프로세스를 늘리면
 # 증권사 호출이 그만큼 늘고(docs/DECISIONS.md 8-6), SSE 연결은 스레드 하나를 60초까지 잡는다 (9-4).
-CMD ["sh", "-c", "python manage.py collectstatic --noinput && exec gunicorn config.wsgi:application --bind 0.0.0.0:8000 --worker-class gthread --workers 1 --threads 16 --timeout 120 --worker-tmp-dir /dev/shm --access-logfile -"]
+CMD ["sh", "-c", "python manage.py collectstatic --noinput && exec gunicorn config.wsgi:application --bind 0.0.0.0:8000 --worker-class gthread --workers 1 --threads 16 --timeout 120 --worker-tmp-dir /dev/shm --no-control-socket --access-logfile -"]
 
 
 # --- engine: run_engine 루프 (체결·청산·예약·일별 자산·AI 작업). 리포트 PDF용 Chromium과 한글 글꼴을 넣는다 ---

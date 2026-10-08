@@ -135,23 +135,46 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", "", text).upper()
 
 
+# 한글로 읽은 영문 상호 → 종목 목록의 표기 (검색어는 _norm을 거친 대문자). 검색어에 있으면 바꾼 검색어로도 찾는다 (UX-12)
+SEARCH_ALIASES = {
+    "엘지": "LG", "에스케이": "SK", "네이버": "NAVER", "케이티앤지": "KT&G", "케이티": "KT", "씨제이": "CJ", "지에스": "GS",
+    "에이치디": "HD", "케이비": "KB", "엘에스": "LS", "디비": "DB", "에쓰오일": "S-OIL", "에스오일": "S-OIL",
+    "포스코": "POSCO", "에이치엠엠": "HMM", "에이치엘비": "HLB", "케이씨씨": "KCC", "에스디아이": "SDI",
+}
+
+
+def _variants(q: str) -> list[str]:
+    """검색어와, 별칭을 바꾼 검색어 (다르면). 긴 별칭부터 바꾼다 (케이티앤지 → KT&G가 케이티 → KT보다 먼저)."""
+    swapped = q
+    for alias in sorted(SEARCH_ALIASES, key=len, reverse=True):
+        swapped = swapped.replace(alias, SEARCH_ALIASES[alias])
+    return [q] if swapped == q else [q, swapped]
+
+
+def _rank(q: str, symbol: str, name: str) -> int | None:
+    """정확히 같음 0, 앞부분이 같음 1, 이름에 들어 있음 2, 아니면 None."""
+    if q in (symbol, name):
+        return 0
+    if symbol.startswith(q) or name.startswith(q):
+        return 1
+    return 2 if q in name else None
+
+
 def search(query: str, limit: int) -> list[dict]:
-    """이름 부분 일치·코드 앞부분 일치. 정확히 같은 것, 앞부분이 같은 것, 나머지 순."""
+    """이름 부분 일치·코드 앞부분 일치. 정확히 같은 것, 앞부분이 같은 것, 나머지 순.
+
+    한글로 읽은 영문 상호(엘지 → LG 등, SEARCH_ALIASES)는 바꾼 검색어로도 찾아 합친다 (종목마다 더 나은 순위 하나만).
+    """
     q = _norm(query)
     if not q:
         return []
+    variants = _variants(q)
     ranked = []
     for item in directory().values():
         symbol, name = item["symbol"].upper(), _norm(item["name"])
-        if q in (symbol, name):
-            rank = 0
-        elif symbol.startswith(q) or name.startswith(q):
-            rank = 1
-        elif q in name:
-            rank = 2
-        else:
-            continue
-        ranked.append((rank, len(name), item["symbol"], item))
+        ranks = [r for v in variants if (r := _rank(v, symbol, name)) is not None]
+        if ranks:
+            ranked.append((min(ranks), len(name), item["symbol"], item))
     ranked.sort(key=lambda r: r[:3])
     return [r[3] for r in ranked[:limit]]
 

@@ -5,6 +5,8 @@
 #   변수(Settings → Secrets and variables → Actions → Variables): DEPLOY_ENABLED, DEPLOY_HOST, DEPLOY_USER, DEPLOY_DIR,
 #     DEPLOY_HOST_KEY, DEPLOY_PORT(선택, 기본 22)
 #   비밀 값(Secrets): DEPLOY_SSH_KEY, DISCORD_WEBHOOK_URL(선택)
+# 관리 서버에 배포 기록 남기기(선택, 관리 서버 저장소 SHS5029/paper_admin의 README 3-3): 변수 ADMIN_RECORD_HOST, ADMIN_RECORD_HOST_KEY, ADMIN_RECORD_USER(기본 ubuntu),
+#   DEPLOY_SERVER_NAME(기본 app) · 비밀 값 ADMIN_RECORD_SSH_KEY (관리 서버에서 기록 한 줄만 쓸 수 있는 강제 명령 키)
 name: Deploy
 
 on:
@@ -93,6 +95,9 @@ jobs:
     permissions:
       contents: read
       packages: read
+    outputs:   # 서버 스크립트가 남긴 결과 (관리 서버 배포 기록용)
+      result: ${{ steps.up.outputs.result }}
+      previous: ${{ steps.up.outputs.previous }}
     env:
       DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
       DEPLOY_USER: ${{ vars.DEPLOY_USER }}
@@ -149,12 +154,25 @@ jobs:
           scp deploy/docker-compose.yml deploy/remote_deploy.sh "deploy-target:$DEPLOY_DIR/"
 
       - name: 서버에서 이미지 받아 띄우기
+        id: up
+        shell: bash
         env:
           REGISTRY_USER: ${{ github.actor }}
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # 이 작업이 끝나면 못 쓰게 되는 토큰 (읽기 전용)
         run: |
+          set -o pipefail
           printf '%s' "$REGISTRY_TOKEN" | ssh deploy-target "docker login ghcr.io -u '$REGISTRY_USER' --password-stdin"
-          ssh deploy-target "cd '$DEPLOY_DIR' && IMAGE_PREFIX='$IMAGE_PREFIX' IMAGE_TAG='$IMAGE_TAG' bash remote_deploy.sh"
+          status=0
+          ssh deploy-target "cd '$DEPLOY_DIR' && IMAGE_PREFIX='$IMAGE_PREFIX' IMAGE_TAG='$IMAGE_TAG' bash remote_deploy.sh" 2>&1 \
+            | tee "$RUNNER_TEMP/deploy.out" || status=$?
+          # remote_deploy.sh의 마지막 결과 줄: DEPLOY_RESULT=<success|rolled_back|rollback_failed|failed> PREVIOUS=<태그|->
+          line="$(grep -E '^DEPLOY_RESULT=' "$RUNNER_TEMP/deploy.out" | tail -1 || true)"
+          result="$(printf '%s' "$line" | sed -nE 's/^DEPLOY_RESULT=([a-z_]+).*/\1/p')"
+          previous="$(printf '%s' "$line" | sed -nE 's/.* PREVIOUS=([0-9A-Za-z._-]+)$/\1/p')"
+          [ "$previous" = "-" ] && previous=""
+          echo "result=${result:-failed}" >> "$GITHUB_OUTPUT"
+          echo "previous=$previous" >> "$GITHUB_OUTPUT"
+          exit "$status"
 
       - name: 서버의 레지스트리 로그인 지우기
         if: always()
@@ -163,6 +181,55 @@ jobs:
       - name: SSH 키 지우기
         if: always()
         run: rm -f ~/.ssh/deploy_key
+
+  record:
+    name: 관리 서버에 배포 기록
+    needs: [ci, publish, deploy]
+    # 관리 서버를 준비했을 때만. 배포가 꺼져 있거나 main이 아니면(publish 건너뜀) 남길 배포가 없다
+    if: always() && vars.ADMIN_RECORD_HOST != '' && vars.DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    continue-on-error: true   # 관리 서버가 응답하지 않아도 배포 실행 결과는 바꾸지 않는다
+    steps:
+      - name: 결과 한 줄 보내기
+        env:
+          ADMIN_RECORD_HOST: ${{ vars.ADMIN_RECORD_HOST }}
+          ADMIN_RECORD_USER: ${{ vars.ADMIN_RECORD_USER }}
+          ADMIN_RECORD_HOST_KEY: ${{ vars.ADMIN_RECORD_HOST_KEY }}
+          ADMIN_RECORD_SSH_KEY: ${{ secrets.ADMIN_RECORD_SSH_KEY }}
+          SERVER_NAME: ${{ vars.DEPLOY_SERVER_NAME }}
+          CI_RESULT: ${{ needs.ci.result }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          REMOTE_RESULT: ${{ needs.deploy.outputs.result }}
+          PREVIOUS: ${{ needs.deploy.outputs.previous }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          ACTOR: ${{ github.actor }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          # 관리 서버 저장소 API.md 5-2: success · rolled_back · rollback_failed · failed · blocked(검사 실패로 배포하지 않음). 취소는 남기지 않는다
+          if [ "$CI_RESULT" = cancelled ] || [ "$DEPLOY_RESULT" = cancelled ]; then echo "취소됨: 남기지 않음"; exit 0; fi
+          if [ "$CI_RESULT" != success ]; then result=blocked
+          elif [ "$DEPLOY_RESULT" = success ]; then result=success
+          elif [ "$DEPLOY_RESULT" = skipped ]; then result=failed   # 이미지 올리기 실패
+          else result="${REMOTE_RESULT:-failed}"
+          fi
+          [ -n "$ADMIN_RECORD_SSH_KEY" ] && [ -n "$ADMIN_RECORD_HOST_KEY" ] || { echo "::warning::관리 서버 기록 키가 비어 있어 건너뜁니다"; exit 0; }
+          install -m 700 -d ~/.ssh
+          trap 'rm -f ~/.ssh/record_key' EXIT
+          printf '%s\n' "$ADMIN_RECORD_SSH_KEY" > ~/.ssh/record_key && chmod 600 ~/.ssh/record_key
+          printf '%s\n' "$ADMIN_RECORD_HOST_KEY" \
+            | sed -nE 's/^.*((ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp[0-9]+) [A-Za-z0-9+\/=]+).*$/paper-admin-server \1/p' > ~/.ssh/known_hosts
+          [ -s ~/.ssh/known_hosts ] || { echo "::error::ADMIN_RECORD_HOST_KEY에서 호스트 키를 읽지 못했습니다"; exit 1; }
+          jq -cn --arg at "$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" --arg server "${SERVER_NAME:-app}" --arg tag "$GITHUB_SHA" \
+            --arg previous "$PREVIOUS" --arg result "$result" --arg actor "$ACTOR" \
+            --arg commit "$(printf '%s' "$COMMIT_MESSAGE" | head -n 1)" --arg runUrl "$RUN_URL" \
+            '{at: $at, server: $server, tag: $tag, previous: (if $previous == "" then null else $previous end),
+              result: $result, actor: $actor, commit: ($commit | .[:120]), runUrl: $runUrl}' > "$RUNNER_TEMP/record.json"
+          cat "$RUNNER_TEMP/record.json"
+          # 관리 서버의 authorized_keys가 이 키에 강제 명령(deploy_record.py)을 걸어 두었다: 표준 입력의 한 줄만 검사해 더한다
+          ssh -T -i ~/.ssh/record_key -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 \
+            -o HostKeyAlias=paper-admin-server -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
+            "${ADMIN_RECORD_USER:-ubuntu}@$ADMIN_RECORD_HOST" < "$RUNNER_TEMP/record.json"
 
   notify:
     name: Discord 알림

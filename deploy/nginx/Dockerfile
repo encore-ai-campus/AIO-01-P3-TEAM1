@@ -13,6 +13,7 @@ RUN node -e "const fs=require('fs');for(const f of fs.readdirSync('/src/docs')){
 
 FROM nginxinc/nginx-unprivileged:1.27-alpine
 COPY deploy/nginx/default.conf /etc/nginx/conf.d/default.conf
+COPY deploy/nginx/security-headers.conf /etc/nginx/security-headers.conf
 COPY --from=build /src/frontend/dist /usr/share/nginx/html
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=6 \

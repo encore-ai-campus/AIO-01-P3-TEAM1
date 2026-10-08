@@ -854,11 +854,11 @@ describe("새 계획 제안 · 실행 확인 (쉬운 보기)", () => {
     renderApp("/recommendations/93", "bob");
     const reasons = await screen.findByRole("list", { name: "시작할 수 없는 이유" });
     expect(within(reasons).getByText("지금은 새 모의 매수를 멈춰 두었어요")).toBeTruthy();
-    expect(screen.getAllByRole("checkbox")).toHaveLength(3);
-    expect(screen.getByLabelText("AI가 아닌 연습용 예시 계획이며, 실제 돈이 아닌 모의 투자예요.")).toBeTruthy(); // 연습용 예시는 AI 제안이 아니다
-    // 막힌 동안 확인 칸은 숨기지 않고 흐리게 막는다. 머리 칩도 같은 말을 한다 (기한이 남았다고 '시작할 수 있음'이라 하지 않는다)
-    expect(screen.getAllByRole("checkbox").every((c) => c.matches(":disabled"))).toBe(true);
-    expect(screen.getByText("시작할 수 있게 되면 확인할 수 있어요.")).toBeTruthy();
+    // 시작할 수 없으면 예산·확인 칸·시작 버튼 대신 이유와 '다른 계획 제안 보기' (UX-2). 머리 칩도 같은 말을 한다 (기한이 남았다고 '시작할 수 있음'이라 하지 않는다)
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+    expect(screen.queryByLabelText("예산 (원, 선택)")).toBeNull();
+    expect(screen.queryByRole("button", { name: "모의 자동매매 시작" })).toBeNull();
+    expect(screen.getByRole("link", { name: /다른 계획 제안 보기/ }).getAttribute("href")).toBe("/recommendations");
     expect(await screen.findByText("지금은 시작할 수 없음")).toBeTruthy();
     expect(screen.queryByText("시작할 수 있음")).toBeNull();
   });
@@ -901,7 +901,7 @@ describe("모의 자동매매 상세 (쉬운 보기)", () => {
       within(dialog).getByText(`지금 가지고 있는 ${plan.quantity}주를 모두 팔고 끝낼까요? 장이 닫혀 있으면 다음 장 시작(오전 9시)에 팔아요.`),
     ).toBeTruthy();
     fireEvent.click(within(dialog).getByRole("button", { name: "모두 팔고 멈추기" }));
-    await waitFor(() => expect(screen.getByRole("note").textContent).toContain("직접 모의 계좌에서 팔았어요"));
+    await waitFor(() => expect(screen.getByRole("note").textContent).toContain("멈추기로 모의 계좌에서 팔았어요"));
   });
 
   it("진행 중: 도는 스피너 대신 차분한 점과 알림 약속, 가격 사다리와 '사는 가격까지 얼마나' (지금 가격 기준 · 실시간)", async () => {
@@ -1109,7 +1109,7 @@ describe("AI 교차검증 분석 (두 모드 모두 과정을 보인다)", () =>
     easy.unmount();
     const expert = wrap("expert");
     expect(expert.getByRole("link").getAttribute("href")).toBe(`/stocks/005930?analysis=${a.id}`);
-    expect(expert.getByText("BUY")).toBeTruthy();
+    expect(expert.getByText("매수")).toBeTruthy();
     expect(expert.getByText("현재가")).toBeTruthy();
     expert.unmount();
   });
@@ -1148,7 +1148,7 @@ describe("AI 교차검증 분석 (두 모드 모두 과정을 보인다)", () =>
     expect(easy.queryByText(/조건에 맞는/)).toBeNull();
     easy.unmount();
     const expert = wrap("expert");
-    expect(expert.getByText("제안된 시나리오가 없습니다.")).toBeTruthy();
+    expect(expert.getByText("제안된 계획이 없어요.")).toBeTruthy();
     expect(expert.queryByText(/조건에 맞는/)).toBeNull();
     expert.unmount();
     renderApp("/stocks/AAPL", "bob");

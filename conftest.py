@@ -20,5 +20,5 @@ def no_real_broker_keys(monkeypatch):
     monkeypatch.setenv("LONGTERM_JOBS", "off")
     # 매일 자동 리포트(규칙 선별 → 선정 팀 → 자동 리포트)도 테스트가 직접 켤 때만 (reports.conf도 빈 값이면 .env를 읽는다)
     monkeypatch.setenv("AUTO_REPORT", "off")
-    # 리포트 하루 한도(reports.quota)는 개발자 .env 값과 상관없이 기본값 3으로 고정한다 (다른 값이 필요한 테스트는 자기가 덮는다)
+    # 리포트 하루 한도(reports.quota)는 개발자 .env 값과 상관없이 3으로 고정한다 (기본값은 무제한. 다른 값이 필요한 테스트는 자기가 덮는다)
     monkeypatch.setenv("AI_DAILY_REPORTS_PER_USER", "3")

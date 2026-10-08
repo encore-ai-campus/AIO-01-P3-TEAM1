@@ -3,6 +3,7 @@ import type { Market, PricesAsOf } from "../api/types";
 import { useRevealAfterLoading } from "../hooks/useMotionState";
 import { cn } from "../lib/cn";
 import { formatKrw, formatRate, formatSignedKrw, trendClass } from "../lib/format";
+import { todayFillNote } from "../lib/orderText";
 import { CardHeader, STRETCH_CARD } from "./home/CardHeader";
 import { useShownCount } from "./home/homeHooks";
 import { SectionError } from "./home/HomeStates";
@@ -72,7 +73,7 @@ function AssetSkeleton({ easy, asOfLines }: { easy: boolean; asOfLines: number }
 }
 
 /**
- * 홈의 내 자산 카드: 총자산, 손익·수익률, 투자금액·현금 (보유는 직전 장마감 종가로 평가).
+ * 홈의 내 자산 카드: 총자산, 손익·수익률, 투자금액·현금 (보유는 직전 장마감 종가로 평가 — 오늘 산 보유는 체결가, 기준 시각 아래 한 줄로 알린다).
  * easy(주린이모드)는 처음 자금 대비 손익과 현금·주식 평가액만 쉬운 이름으로 보인다.
  * 카드 전체가 모의투자 탭 링크다 (큰 숫자를 눌러 자세히 보려 한다). 기준 시각은 숫자 바로 아래 그대로 (장중 실시간으로 오해하지 않게).
  */
@@ -82,6 +83,7 @@ export function AssetCard({ easy = false }: { easy?: boolean }) {
   // 받기 전 기준 시각 자리: 지난번에 본 줄 수 (기억이 없으면 처음 쓰는 사람처럼 보유 없음 — 줄 없음)
   const asOfLines = useShownCount("asof", acc ? asOfMarkets(acc.pricesAsOf).length : undefined, 0);
   if (isPending) return <AssetSkeleton easy={easy} asOfLines={asOfLines} />;
+  const todayNote = acc ? todayFillNote(acc.positions, easy) : null;
   if (!acc) {
     return (
       <Card aria-labelledby="asset-title">
@@ -104,6 +106,7 @@ export function AssetCard({ easy = false }: { easy?: boolean }) {
         </Flash>
       </p>
       <PricesAsOfLine pricesAsOf={acc.pricesAsOf} className="mt-1" />
+      {todayNote && <p className="mt-0.5 text-[12px] leading-snug text-mute">{todayNote}</p>}
       {easy ? (
         <dl className="mt-4 border-t border-line pt-3">
           <Row label="처음 자금">{formatKrw(acc.initialCapitalKrw)}</Row>

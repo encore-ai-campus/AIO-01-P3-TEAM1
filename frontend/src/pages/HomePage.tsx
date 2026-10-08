@@ -111,7 +111,7 @@ function Dashboard() {
           surface="page"
           options={[
             { value: "ALL", label: "전체" },
-            { value: "BUY", label: "BUY" },
+            { value: "BUY", label: "매수" },
           ]}
         />
       </div>
@@ -125,7 +125,7 @@ function Dashboard() {
         <SectionError onRetry={() => void refetch()} retrying={isFetching} />
       ) : list.length === 0 ? (
         <EmptyRow icon="chart" to={filter === "BUY" ? undefined : "/search"} className={reveal || swapped ? "reveal-fade" : undefined}>
-          {filter === "BUY" ? "BUY 판정을 받은 종목이 아직 없습니다." : "아직 분석한 종목이 없습니다. 종목 상세의 'AI 교차검증 분석'에서 요청할 수 있습니다."}
+          {filter === "BUY" ? "매수 판정을 받은 종목이 아직 없습니다." : "아직 분석한 종목이 없습니다. 종목 상세의 'AI 교차검증 분석'에서 요청할 수 있습니다."}
         </EmptyRow>
       ) : (
         <ul

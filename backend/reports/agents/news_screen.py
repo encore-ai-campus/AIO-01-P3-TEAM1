@@ -4,7 +4,7 @@
 LLM은 후보마다 재료·악재·테마를 낸다. 선정 Guard가 "같은 테마 2개까지"를 테마 이름으로 세므로 같은 테마는 같은 글자로 쓰게 한다.
 코드가 고치는 것: 후보 표 밖 종목은 버린다. 뉴스를 받지 못한 후보의 재료·악재·근거는 비우고 neutral로 둔다 (자료 없이 쓴 주장).
 """
-from paper_engine.data.news import LOCALE, fetch_news
+from paper_engine.data.news import LOCALE, fetch_news, is_blocked_source
 
 from .. import guards
 from .base import WorkerContext
@@ -52,9 +52,11 @@ class NewsScreenAgent:
 
 
 def _headlines(items: list[dict], guarded: list[list[str]]) -> list[dict]:
-    """뉴스 항목 → [{date, source, title}] (제목·매체는 clean_text를 거친 것, 빈 제목은 뺀다). 지운 사유는 guarded에 모은다."""
+    """뉴스 항목 → [{date, source, title}] (제목·매체는 clean_text를 거친 것, 빈 제목·블로그 출처는 뺀다). 지운 사유는 guarded에 모은다."""
     out = []
     for item in items or []:
+        if is_blocked_source(item.get("source")):
+            continue
         title, why_title = guards.clean_text(item.get("title"), TITLE_MAX)
         source, why_source = guards.clean_text(item.get("source"), SOURCE_MAX)
         guarded += [why_title, why_source]
