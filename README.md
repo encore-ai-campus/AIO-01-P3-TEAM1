@@ -58,7 +58,7 @@ flowchart LR
 ```
 
 - 정의는 YAML Registry(`backend/reports/team_definitions.yaml`·`worker_definitions.yaml`), Worker 출력 계약은 `contracts.py`.
-- 모든 AI 호출은 `healing.py`를 거친다: 같은 모델 재시도 → 대체 모델 → Circuit Breaker. 호출 한 번은 **최대 4회** 시도한다 (주 모델 2회 + 대체 모델 2회). 진행은 `state.py`가 Shared State·Trace로 남기고 SSE로 화면에 보낸다.
+- 모든 AI 호출은 `healing.py`를 거친다: 같은 모델 재시도 → 대체 모델 → Circuit Breaker (주 모델이 시간 초과면 다시 기다리지 않고 바로 대체 모델). 호출 한 번은 **최대 4회** 시도한다 (모델마다 2회까지). 진행은 `state.py`가 Shared State·Trace로 남기고 SSE로 화면에 보낸다.
 - 실행은 `orchestrator.py`(병렬·Join Guard·부분 실패·검토 반복·Handoff Guard)와 `runner.py`(엔진 루프에서 한 번에 하나), Worker는 `agents/` (2026-10-07 구현).
   종목 선정까지 AI 팀으로 하는 하루 파이프라인(규칙 후보 30 → 선정 팀 → 선정 Guard → 자동 리포트 3개, `AUTO_REPORT=on`)은 [docs/AI_AGENT_WORKFLOW.md](docs/AI_AGENT_WORKFLOW.md).
 

@@ -14,6 +14,10 @@ main(`9b99bbd`) 대비 앞 6커밋·뒤 39커밋 (yubeen이 합쳐 둔 dy 쪽 �
 단독으로 돌리면 통과하고 브랜치 CI도 통과했다 — 실행 순서 문제로 보이며 timeout과 무관하다. yubeen의 timeout 테스트 7개는 모두 통과.
 
 상태: **main에 합치지 않음** (2026-10-08, 사용자). 살릴 부분만 아래 3장에서 시험했고, 고르면 main 구현 위에 옮긴다.
+**Q1은 절충안으로 결정·반영** (2026-10-08, 사용자 — `Hwanseok` 브랜치, `healing.py`·테스트·문서·프론트 예시 ③. `docs/DECISIONS.md` 19장).
+반영본은 시험의 절충안과 한 가지가 다르다: 주 모델 timeout인데 넘어갈 대체 모델이 없으면(모두 차단) 주 모델로 한 번 더 한다
+(시험의 절충안은 이때 바로 포기해 `test_gives_up_when_no_fallback_left`가 깨졌다 — 지금 규칙보다 나빠지지 않게).
+그래서 깨진 기존 테스트는 11개가 아니라 10개였고, 새 규칙 테스트 4개를 더했다. 나머지 항목(4장)은 그대로 남는다.
 
 ## 1. 판단
 
@@ -87,7 +91,7 @@ yubeen 안만 옮기면 120초에 포기해 단계 시간이 남으므로 409행
 
 | 항목 | 판단 | 옮길 때 |
 |---|---|---|
-| Q1 timeout 정책 | **결정 필요** (U21). 바꾼다면 절충안을 권한다 (S3에서 유일하게 복구, 나머지는 yubeen 안과 같거나 S4처럼 시간을 다 쓸 뿐) | 3장 "고칠 것" 전부. yubeen 안 그대로면 `orchestrator.py:409`도 |
+| Q1 timeout 정책 | **절충안으로 결정·반영** (2026-10-08, 사용자). S3에서 유일하게 복구, 나머지는 yubeen 안과 같거나 S4처럼 시간을 다 쓸 뿐 | 반영함 (`Hwanseok`) — 3장 "고칠 것" 전부. `orchestrator.py:409`는 고치지 않음(절충안은 180초를 다 써서 `timeout`) |
 | `engine/tests/test_llm_once.py` (4개) | 그대로 옮겨도 된다 — main 엔진에서 4개 모두 통과 (`complete_json_once`가 재시도하지 않고, 실패해도 든 비용을 남기는지) | 파일 하나 추가 |
 | `backend/reports/tests/test_healing_decisions.py` | Q2·Q8 두 개는 main에서 통과 — 회귀 테스트로 옮길 수 있다. Q1 하나는 정책을 정한 뒤 | main의 `test_healing.py` 형식(가짜 시계·`FALLBACK_POOL`)으로 고쳐서 |
 | `docs/설계서.md` (설계서 ①) | 담당 3의 설계서 몫이라 살린다. 그대로는 안 된다 | 이름 "종이배" → "모매매"(`DECISIONS.md` 18장). "timeout은 YAML의 다음 fallback" → main은 `FALLBACK_POOL`에서 하나(Q1 결정에 따라). 실패 사유 코드에 `agent_failed`·`no_llm`·`expired` 추가(`orchestrator.FAILURE_REASONS`) |

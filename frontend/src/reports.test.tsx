@@ -338,7 +338,7 @@ describe("리포트 상세", () => {
     click("멈춤");
     for (let i = 0; i < 9; i++) click("다음 사건");
 
-    // 뉴스: 두 번 실패(주입) → 대체 모델로 전환해 시도 중. 호출 실패는 노드의 실패가 아니다
+    // 뉴스: 주 모델 실패(주입) → 대체 모델로 전환 → 대체 모델도 실패 → 같은 대체 모델로 다시 시도 중. 호출 실패는 노드의 실패가 아니다
     const news = () => node("뉴스·심리 Agent");
     expect(within(news()).getByText("실행 중")).toBeTruthy();
     expect(within(news()).getAllByText("시간 초과")).toHaveLength(2);
@@ -349,7 +349,8 @@ describe("리포트 상세", () => {
     for (let i = 0; i < 13; i++) click("다음 사건");
     expect(screen.getByText(/사건 22 \/ 22/)).toBeTruthy();
     const chips = within(within(news()).getByRole("list", { name: "시도 이력" })).getAllByRole("listitem");
-    expect(chips.map((c) => c.textContent)).toEqual(["gemini-3.8-flash시간 초과", "gemini-3.8-flash시간 초과", "gpt-5.6-luna성공"]);
+    // 주 모델 timeout은 바로 대체 모델, 대체 모델 timeout은 한 번 더 (2026-10-08)
+    expect(chips.map((c) => c.textContent)).toEqual(["gemini-3.8-flash시간 초과", "gpt-5.6-luna시간 초과", "gpt-5.6-luna성공"]);
     expect(within(news()).getByText("자동 복구")).toBeTruthy();
     expect(within(region("단계 리포트 작성")).getByText(/검토 뒤 다시 작성 1/)).toBeTruthy();
 

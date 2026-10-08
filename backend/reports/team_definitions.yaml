@@ -4,7 +4,7 @@
 #       depends_on(먼저 끝나야 하는 step id), join(앞 단계 결과를 Join Guard로 확인한 뒤 실행), timeout(초, 없으면 null),
 #       retry(검토가 RETRY면 다시 실행할 앞 단계 Worker와 반복 횟수, 1~3, 없으면 null)
 # handoffs: from Worker가 to Worker에게 책임을 넘긴다. max_hops는 한 실행에서 넘길 수 있는 최대 횟수.
-# timeout 180초: 호출 한 번이 60초(healing.CALL_TIMEOUT_SEC)라 시간 초과 → 같은 모델 재시도 → 대체 모델까지 들어가게 (00-공통 7절)
+# timeout 180초: 호출 한 번이 60초(healing.CALL_TIMEOUT_SEC)라 주 모델 시간 초과 → 대체 모델 시간 초과 → 대체 모델 재시도까지 들어가게 (00-공통 7절)
 teams:
   stock_report:
     title: 종목 리포트
