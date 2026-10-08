@@ -6,6 +6,7 @@ import type {
   ErrorType,
   ExecutionPlan,
   FailurePolicy,
+  RecommendationExpiredReason,
   ReportDetail,
   ReportOpinion,
   ReportQuota,
@@ -20,7 +21,7 @@ import type { IconName } from "../components/Icon";
 import type { PlanCardState } from "../components/plan/PlanCard";
 import { countWord, isTodayKst } from "./autotrade";
 import { formatPercent, formatPrice, formatRate, formatSignedKrw } from "./format";
-import { REPORT_FAILURE_FALLBACK, REPORT_STATUS_TEXT } from "./plainText";
+import { REPORT_FAILURE_FALLBACK, REPORT_STATUS_TEXT, priceExpiredText } from "./plainText";
 import { attemptHistory, isGiveUp } from "./recovery";
 
 export const NOT_IMPLEMENTED = "Agent 실행은 아직 구현되지 않았습니다. 신청은 기록되고 구조만 볼 수 있습니다.";
@@ -763,15 +764,18 @@ export function stepsOf(status: ReportStatus, executed: boolean, plan?: PlanCard
  * 실행할 계획이 없는 경우(지켜보기·부정적·계획 없음)도 없다: "실행할 계획이 없어요"는 매매 계획 카드 한 곳에서만 말한다 (UX-8 — 머리·결론·카드에서 세 번 되풀이했다).
  * 머리에서는 단계 막대 ③ '없음'이 같은 뜻을 보인다.
  * 카드의 자리를 말하지 않는다 ('아래' 아님): 모바일은 아래, PC는 오른쪽 열에 있다.
+ * expiredReason: 기한이 아니라 가격이 이미 손절가·목표가를 지나 끝난 제안이면 그 까닭으로 말한다 (DECISIONS 25장).
  */
-export function planGuide(plan: PlanCardState | "loading" | null | undefined): string | null {
+export function planGuide(plan: PlanCardState | "loading" | null | undefined, expiredReason?: RecommendationExpiredReason | null): string | null {
   switch (plan) {
     case "ready":
       return "결론과 손실 금액을 확인했으면 매매 계획 카드에서 실행 준비로 넘어가요.";
     case "blocked":
       return "안전장치가 지금은 실행을 막았어요. 이유는 매매 계획 카드에 있어요.";
-    case "expired":
-      return "계획 기한이 끝났어요.";
+    case "expired": {
+      const price = priceExpiredText(expiredReason, true);
+      return price ? `${price}.` : "계획 기한이 끝났어요.";
+    }
     default:
       return null;
   }

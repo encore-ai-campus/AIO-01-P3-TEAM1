@@ -102,6 +102,23 @@ export function useCreateDemo() {
   });
 }
 
+/**
+ * 계획 제안(추천) 지우기 (DELETE /api/recommendations/{id} → 204, DECISIONS 25장). 리포트 추천이면 서버가 출처 리포트도 숨긴다.
+ * 진행 중인 계획이 있으면 400 {detail} — ApiError.detail을 그대로 보인다. 지운 추천의 상세는 404가 되므로 다시 받지 않는다.
+ */
+export function useDeleteRecommendation(rec: Pick<Recommendation, "id" | "source" | "sourceId">) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.del(`/api/recommendations/${rec.id}`),
+    onSuccess: async () => {
+      await qc.cancelQueries({ queryKey: keys.recommendation(rec.id) });
+      void qc.invalidateQueries({ queryKey: keys.recommendation(rec.id), refetchType: "none" }); // 미리 보기 포함
+      if (rec.source === "report" && rec.sourceId != null) void qc.invalidateQueries({ queryKey: keys.report(rec.sourceId), refetchType: "none" });
+      for (const k of ["recommendations", "reports"]) void qc.invalidateQueries({ queryKey: [k] });
+    },
+  });
+}
+
 /** 계획 중단: 주문 전·체결 대기면 취소, 보유 중이면 모두 팔기(전량 매도) 요청. */
 export function useCancelPlan(id: number) {
   const qc = useQueryClient();

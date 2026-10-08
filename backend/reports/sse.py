@@ -22,7 +22,7 @@ def events(request, pk: int):
     """GET /api/reports/{id}/events. 미로그인 401·없는 리포트 404는 JSON으로 (API 공통 오류 형식)."""
     if not request.user.is_authenticated:
         return _error("로그인이 필요합니다.", 401)
-    if not Report.objects.filter(pk=pk).exists():
+    if not Report.objects.filter(pk=pk, deleted_at__isnull=True).exists():  # 지운 리포트도 없는 것과 같다
         return _error("리포트를 찾을 수 없습니다.", 404)
     response = StreamingHttpResponse(stream(pk, _after(request)), content_type="text/event-stream")
     response["Cache-Control"] = "no-cache"
@@ -50,8 +50,8 @@ def stream(pk: int, after: int):
     last_state = None
     while True:
         # 상태를 사건보다 먼저 읽는다. 끝난 리포트에는 Trace가 더 붙지 않으므로(state.record) 끝난 것을 본 뒤 읽은 사건이 전부다
-        report = Report.objects.filter(pk=pk).first()
-        if report is None:  # 지워졌다
+        report = Report.objects.filter(pk=pk, deleted_at__isnull=True).first()
+        if report is None:  # 지워졌다 (숨김 포함)
             return
         state = shared_state(report)
         if state != last_state:

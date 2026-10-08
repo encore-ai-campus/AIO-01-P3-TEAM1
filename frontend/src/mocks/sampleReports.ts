@@ -286,6 +286,7 @@ export function selectionSample(id: number, createdAt: string): ReportDetail {
     chaosEnabled: false,
     costUsd: 0.082,
     hasPdf: false,
+    canDelete: false,
     opinion: null,
     oneLiner: null,
     createdAt,

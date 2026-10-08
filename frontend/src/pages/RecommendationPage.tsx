@@ -9,12 +9,13 @@
 // 지금 실시간 가격이 사는 가격 이하이고 정규장 중이면 "시작하면 바로 사요"라고 말한다 (UX-3 — 숫자는 넣지 않는다).
 import { type RefObject, useId, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
-import { useActivate } from "../api/autotrade";
+import { useActivate, useDeleteRecommendation } from "../api/autotrade";
 import { ApiError, errorMessage } from "../api/client";
 import { isPlanLive, useMarket, useQuotes, useRecommendation, useRiskPreview } from "../api/queries";
 import type { Quote, Recommendation, RiskPreview } from "../api/types";
 import { PlanStatusChip, ReadinessChip, RecStatusChip, RiskLevelBadge, SourceBadge } from "../components/autotrade/Badges";
 import { PriceLadder } from "../components/autotrade/PriceLadder";
+import { DeleteAction } from "../components/DeleteAction";
 import { Icon } from "../components/Icon";
 import { Collapse } from "../components/motion/Collapse";
 import { useToast } from "../components/toast";
@@ -38,7 +39,7 @@ import {
 import { cn } from "../lib/cn";
 import { formatDateTime, formatDayLabel, formatKrw, formatPercent, formatPrice, formatQty, formatRate } from "../lib/format";
 import { prefersReducedMotion } from "../lib/motion";
-import { blockedShort, reasonSentence, rejectionSentences } from "../lib/plainText";
+import { blockedShort, priceExpiredText, reasonSentence, rejectionSentences } from "../lib/plainText";
 import { useDebounced } from "../lib/useDebounced";
 
 /** 지표 칸. 값은 줄을 바꾸지 않고(자릿수 중간에서 갈라지지 않게), 보조 줄은 넘치면 줄임표 + 전체는 title (trade-03). */
@@ -286,6 +287,7 @@ function ActivateCard({
   const buysNow = buysRightAway(session, quote, r.entryPrice);
   const rejected = activate.isError ? rejectionSentences(activate.error) : null;
   const title = easy ? "모의 자동매매 시작" : "계획 활성화";
+  const priceGone = priceExpiredText(r.expiredReason, easy);
   // 시작할 수 없을 때 버튼 아래의 다음 행동 하나 (진행 중인 내 계획은 위쪽 '내 모의 자동매매 보기'가 이미 잇는다 — trade-15)
   const next = blocked && pv ? nextActionOf(pv.reasonCodes) : null;
 
@@ -315,9 +317,14 @@ function ActivateCard({
 
       {!open ? (
         <Notice tone="warn" className="mt-3">
-          {easy
-            ? `이 계획은 ${formatDayLabel(kstDayOf(r.validUntil))}에 기한이 끝났어요. 가격이 바뀌었을 수 있으니 새로 만들어 보세요.`
-            : `유효 기한(${formatDateTime(r.validUntil)})이 지나 활성화할 수 없습니다.`}
+          {priceGone
+            ? // 가격이 이미 손절가·목표가를 지나 끝난 제안 (DECISIONS 25장 — 장중 가격 숫자는 넣지 않는다)
+              easy
+              ? `${priceGone}. 가격이 바뀌었으니 새로 만들어 보세요.`
+              : `${priceGone} — 활성화할 수 없습니다.`
+            : easy
+              ? `이 계획은 ${formatDayLabel(kstDayOf(r.validUntil))}에 기한이 끝났어요. 가격이 바뀌었을 수 있으니 새로 만들어 보세요.`
+              : `유효 기한(${formatDateTime(r.validUntil)})이 지나 활성화할 수 없습니다.`}
         </Notice>
       ) : hardBlocked ? (
         <BlockedBody r={r} pv={head.data} codes={codes} easy={easy} />
@@ -615,9 +622,10 @@ function ReasonsFold({ reasons }: { reasons: string[] }) {
 /**
  * 머리의 '시작할 수 없는 이유' 한 줄 (첫 사유 하나). 예산 없는 미리 보기(내 계좌까지 본 결과)가 막혔으면 그 사유, 아니면 계좌와 무관한 사유(blockedBy).
  * 시작할 수 있거나 아직 모르면 null. 기한이 지난 추천은 머리 칩('기한 지남')과 실행 확인 안내가 말하므로 null.
+ * 가격이 이미 손절가·목표가를 지나 끝난 추천은 그 까닭 한 줄 (쉬운 보기 긴 문장, 전문가 보기 '손절가 이탈로 만료' 등 — DECISIONS 25장).
  */
 function blockedLine(r: Recommendation, pv: RiskPreview | undefined, easy: boolean): string | null {
-  if (r.status !== "open") return null;
+  if (r.status !== "open") return priceExpiredText(r.expiredReason, easy);
   if (pv && !pv.activatable) {
     const first = easy ? reasonPairs(pv)[0]?.text : (pv.reasons[0] ?? reasonSentence(pv.reasonCodes[0]));
     if (first) return first;
@@ -670,7 +678,7 @@ export function RecommendationPage() {
   const weekend = open && easy && deadlineMovedEarlier(r.validUntil, r.market); // 주말·장 시작 전 기한은 앞 거래일 장 마감으로
   const chip =
     !open ? (
-      <RecStatusChip open={open} validUntil={r.validUntil} easy={easy} className="h-7 px-2 text-[13px]" />
+      <RecStatusChip open={open} validUntil={r.validUntil} expiredReason={r.expiredReason} easy={easy} className="h-7 px-2 text-[13px]" />
     ) : live ? (
       <ReadinessChip state="live" easy={easy} className="h-7 px-2 text-[13px]" />
     ) : head.data ? (
@@ -678,7 +686,7 @@ export function RecommendationPage() {
     ) : head.isError ? (
       // 안전장치 결과를 받지 못했으면 시간 사실(기한)로 돌아간다 — 뼈대로 남으면 '불러오는 중'으로 읽힌다.
       // 오류 문장과 다시 시도는 실행 확인 카드가 맡는다 (같은 쿼리라 거기서 다시 받으면 이 칩도 바뀐다 — trade-r5)
-      <RecStatusChip open={open} validUntil={r.validUntil} easy={easy} className="h-7 px-2 text-[13px]" />
+      <RecStatusChip open={open} validUntil={r.validUntil} expiredReason={r.expiredReason} easy={easy} className="h-7 px-2 text-[13px]" />
     ) : (
       <Skeleton className="h-7 w-24 shrink-0 rounded-md" />
     );
@@ -734,9 +742,12 @@ export function RecommendationPage() {
             </div>
             <p className="mt-2 text-[14px] text-sub">
               {r.requestedBy ? `${r.requestedBy} ${easy ? "님이 만듦" : "신청"}` : "자동"} · {formatDateTime(r.createdAt)}
-              {" · "}
+              {/* 가격 때문에 끝난 제안은 머리 칩과 이름 아래 문장이 이미 말하므로 기한 칸을 비운다 (같은 말 세 번 — DECISIONS 25장) */}
+              {!open && priceExpiredText(r.expiredReason, easy) ? null : " · "}
               {!open
-                ? `${formatDateTime(r.validUntil)}에 ${easy ? "기한 지남" : "만료"}`
+                ? priceExpiredText(r.expiredReason, easy)
+                  ? null
+                  : `${formatDateTime(r.validUntil)}에 ${easy ? "기한 지남" : "만료"}`
                 : weekend
                   ? // 기한이 주말·장 시작 전이면 실제로 살 수 있는 마지막(앞 거래일 장 마감)으로 (UX-11, 리뷰 R-5)
                     `${entryDeadlineLabel(r.validUntil, r.market)}까지`
@@ -842,6 +853,36 @@ export function RecommendationPage() {
           </p>
         </div>
       </div>
+      {r.canDelete && <DeleteRec key={r.id} r={r} easy={easy} />}
     </>
+  );
+}
+
+/**
+ * 내가 만든 계획 제안 지우기 (DECISIONS 25장): 화면 맨 아래, 눈에 덜 띄게. 확인 → DELETE → 목록으로 옮기고 토스트.
+ * 리포트 추천이면 출처 리포트도 같이 사라진다고 미리 말한다. 진행 중인 계획이 있으면 서버의 400 문장을 그대로 보인다.
+ */
+function DeleteRec({ r, easy }: { r: Recommendation; easy: boolean }) {
+  const navigate = useNavigate();
+  const toast = useToast();
+  const del = useDeleteRecommendation(r);
+  return (
+    <DeleteAction
+      className="mt-6"
+      label={easy ? "이 제안 지우기" : "추천 지우기"}
+      title={easy ? "이 제안을 지울까요?" : "이 추천을 지울까요?"}
+      description={r.source === "report" ? "제안과 출처 리포트가 목록에서 사라져요." : "제안이 목록에서 사라져요."}
+      pending={del.isPending}
+      error={del.error}
+      onOpen={del.reset}
+      onConfirm={() =>
+        del.mutate(undefined, {
+          onSuccess: () => {
+            navigate("/recommendations", { replace: true });
+            toast(easy ? "제안을 지웠어요" : "추천을 지웠어요", "success");
+          },
+        })
+      }
+    />
   );
 }

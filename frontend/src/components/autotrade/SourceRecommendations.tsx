@@ -10,6 +10,7 @@ import { useRecommendations } from "../../api/queries";
 import { type ViewMode, useViewMode } from "../../hooks/useBeginnerMode";
 import { useRevealAfterLoading } from "../../hooks/useMotionState";
 import { cn } from "../../lib/cn";
+import { priceExpiredText } from "../../lib/plainText";
 import { Collapse } from "../motion/Collapse";
 import { Card } from "../ui";
 import { Icon } from "../Icon";
@@ -47,6 +48,9 @@ export function SourceRecommendations({
   );
 
   if (!list.some((r) => r.status === "open")) {
+    // 모두 같은 가격 까닭(손절가 이탈·목표가 도달)으로 끝났으면 그 말로, 아니면 '기한 지남' (DECISIONS 25장)
+    const reasons = new Set(list.map((r) => r.expiredReason));
+    const pastLabel = (reasons.size === 1 ? priceExpiredText(list[0].expiredReason, easy, "short") : null) ?? (easy ? "기한 지남" : "만료");
     // 모두 기한이 지났다: 지금 할 일이 없으니 강조하지 않고 한 줄로 접어 둔다
     return (
       <Card aria-labelledby={titleId} className={reveal ? "reveal-fade" : undefined}>
@@ -62,7 +66,7 @@ export function SourceRecommendations({
             onClick={() => setShowPast((v) => !v)}
             className="press -my-2 -mr-2 inline-flex min-h-11 shrink-0 items-center gap-1 rounded-lg px-2 text-[14px] font-semibold text-mute hover:bg-line/60 hover:text-sub"
           >
-            {list.length}개 · {easy ? "기한 지남" : "만료"}
+            {list.length}개 · {pastLabel}
             <Icon name="chevron-down" className={cn("size-4 transition-transform duration-fast", showPast && "rotate-180")} />
           </button>
         </div>

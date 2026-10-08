@@ -234,7 +234,7 @@ export function EasyReport({ r, view }: { r: ReportDetail; view: ViewModeState }
   const scenario = opinion === "buy" && targets ? scenarioOf(targets, rec ? plan.preview : null, targets.holdingDays, planState) : null;
   const researchAll = completed ? researchOf(r.state) : null;
   const research = researchAll && (researchAll.market || researchAll.fundamental || researchAll.news) ? researchAll : null;
-  const guide = completed && !executed ? planGuide(planState) : null;
+  const guide = completed && !executed ? planGuide(planState, rec?.expiredReason) : null;
   // 계획 미니는 긍정적 의견에서만 (지켜보기·부정적·계획 없음은 매매 계획 카드가 한 번만 말한다). 지켜보기·부정적은 추천을 받기 전에도 알 수 있어 자리가 생겼다 사라지지 않는다
   const mini = opinion === "buy" && showPlanMini(planState);
   // AI 글을 화면 순서대로: 용어 풀이는 용어마다 처음 나온 한 번만 (UX-4)

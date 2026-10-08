@@ -9,7 +9,7 @@ import type { Recommendation } from "../../api/types";
 import { SOURCE, isRecBlocked, timeLeftShort } from "../../lib/autotrade";
 import { cn } from "../../lib/cn";
 import { formatPercent, formatPrice, formatRate } from "../../lib/format";
-import { planStatusText } from "../../lib/plainText";
+import { planStatusText, priceExpiredText } from "../../lib/plainText";
 import { Icon } from "../Icon";
 import { Collapse } from "../motion/Collapse";
 import { BlockedMark, PlanStatusChip, ProposalReadiness, RecStatusChip, RiskLevelBadge, SourceBadge } from "./Badges";
@@ -25,7 +25,7 @@ const ROW_FOCUS = "focus-visible:outline-offset-[-2px] [li:first-child>&]:rounde
 function summaryOf(r: Recommendation, easy: boolean): string {
   const open = r.status === "open";
   return [
-    open ? `${easy ? "기한" : "유효"} ${timeLeftShort(r.validUntil)}` : easy ? "기한 지남" : "만료",
+    open ? `${easy ? "기한" : "유효"} ${timeLeftShort(r.validUntil)}` : (priceExpiredText(r.expiredReason, easy, "short") ?? (easy ? "기한 지남" : "만료")),
     SOURCE[r.source]?.label ?? r.source,
     r.myPlan ? `내 계획: ${planStatusText(r.myPlan.status, easy)}` : null,
     isRecBlocked(r) ? (easy ? "지금은 시작할 수 없음" : "활성화 불가") : null,
@@ -120,7 +120,7 @@ export function RecommendationCard({
             {r.requestedBy && ` · ${r.requestedBy}`}
           </p>
         </div>
-        <RecStatusChip open={open} validUntil={r.validUntil} easy={easy} />
+        <RecStatusChip open={open} validUntil={r.validUntil} expiredReason={r.expiredReason} easy={easy} />
       </div>
       <div className="mt-2 flex flex-wrap gap-1.5">
         <SourceBadge source={r.source} />
@@ -224,7 +224,7 @@ export function RecommendationRow({ r, easy = false }: { r: Recommendation; easy
           ) : (
             <span className={cn("inline-flex items-center gap-1 whitespace-nowrap", soon && "font-semibold text-warn-ink")}>
               <Icon name="clock" className="size-3.5" />
-              {open ? (easy ? `기한 ${left}` : `유효 ${left}`) : easy ? "기한 지남" : "만료"}
+              {open ? (easy ? `기한 ${left}` : `유효 ${left}`) : (priceExpiredText(r.expiredReason, easy, "short") ?? (easy ? "기한 지남" : "만료"))}
             </span>
           )}
           <BlockedMark r={r} easy={easy} />

@@ -15,8 +15,8 @@ class ReadOnly(admin.ModelAdmin):
 @admin.register(Recommendation)
 class RecommendationAdmin(ReadOnly):
     list_display = ("id", "source", "name", "symbol", "entry_price", "target_price", "stop_price", "reward_risk",
-                    "status", "valid_until", "created_at")
-    list_filter = ("source", "status", "market")
+                    "status", "expired_reason", "valid_until", "created_at", "deleted_at")
+    list_filter = ("source", "status", "expired_reason", "market")
     search_fields = ("symbol", "name")
 
 

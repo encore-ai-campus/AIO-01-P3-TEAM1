@@ -4,6 +4,7 @@
 팀(Report.team)이 둘이다: 팀원이 신청하는 종목 리포트(stock_report)와 하루 한 번 자동으로 도는 매매 종목 선정
 (stock_selection — 엔진이 만든다, docs/AI_AGENT_WORKFLOW.md). 목록·계획은 기본이 종목 리포트이고 ?team=으로 고른다.
 신청은 늘 종목 리포트이고, 선정 실행에는 PDF가 없다.
+지운 리포트(deleted_at — 신청한 팀원이 지움, autotrade/hide.py)는 목록·상세·PDF·SSE에서 없는 것과 같다 (비용·한도·복구 통계는 그대로 센다).
 """
 from datetime import date
 from zoneinfo import ZoneInfo
@@ -21,6 +22,7 @@ from rest_framework.views import APIView
 from trading import market
 
 from accounts.modes import beginner_mode_of
+from autotrade import hide
 from config.api import Rejected, page
 
 from . import budget, chaos, quota, registry
@@ -61,7 +63,8 @@ class ReportsView(APIView):
         """
         team = choice(request, "team", registry.TEAMS, TEAM_CHOICE, registry.TEAM)
         source = choice(request, "source", (Report.USER, Report.AUTO), SOURCE_CHOICE)
-        reports = Report.objects.select_related("user").filter(team=team).order_by("-created_at", "-id")
+        reports = (Report.objects.select_related("user").filter(team=team, deleted_at__isnull=True)
+                   .order_by("-created_at", "-id"))
         if source:
             reports = reports.filter(source=source)
         symbol = (request.query_params.get("symbol") or "").strip().upper()
@@ -70,7 +73,7 @@ class ReportsView(APIView):
         if request.query_params.get("mine") == "1":  # B8 (Claude). 자동 리포트는 신청자가 없어 빠진다
             reports = reports.filter(user=request.user)
         names = nicknames()
-        return page(request, reports, lambda report: summary(report, names))
+        return page(request, reports, lambda report: summary(report, names, request.user))
 
     @extend_schema(request=OpenApiTypes.OBJECT, responses={201: OpenApiTypes.OBJECT, 200: OpenApiTypes.OBJECT})
     def post(self, request):
@@ -95,7 +98,7 @@ class ReportsView(APIView):
                 user=request.user, team=Report.STOCK_REPORT, symbol=item["symbol"], status__in=Report.ACTIVE,
             ).order_by("id").first()
             if active is not None:
-                return Response(detail(active), status=status.HTTP_200_OK)
+                return Response(detail(active, request.user), status=status.HTTP_200_OK)
             try:
                 quota.check(request.user, now)  # Claude: 하루 리포트 횟수 한도 (D-7)
             except quota.Exceeded as e:  # 본문에 limit·used가 있어 Response를 직접 (config.api는 detail 외 필드를 버린다)
@@ -104,7 +107,7 @@ class ReportsView(APIView):
             report = Report.objects.create(user=request.user, team=Report.STOCK_REPORT, symbol=item["symbol"],
                                            name=item["name"], market=item["market"], chaos=chaos_config,
                                            created_at=now)
-        return Response(detail(report), status=status.HTTP_201_CREATED)
+        return Response(detail(report, request.user), status=status.HTTP_201_CREATED)
 
 
 class QuotaView(APIView):
@@ -116,14 +119,25 @@ class QuotaView(APIView):
                          "resetsAt": iso(used.resets_at)})
 
 
+def visible(pk: int) -> Report:
+    """지우지 않은 리포트 하나 (없거나 지웠으면 404)."""
+    report = Report.objects.select_related("user").filter(pk=pk, deleted_at__isnull=True).first()
+    if report is None:
+        raise NotFound("리포트를 찾을 수 없습니다.")
+    return report
+
+
 class ReportDetailView(APIView):
     @extend_schema(responses=OpenApiTypes.OBJECT)
     def get(self, request, pk: int):
         """ReportDetail (Snapshot: 새로고침·연결 복구에 쓴다)."""
-        report = Report.objects.select_related("user").filter(pk=pk).first()
-        if report is None:
-            raise NotFound("리포트를 찾을 수 없습니다.")
-        return Response(detail(report))
+        return Response(detail(visible(pk), request.user))
+
+    @extend_schema(responses={204: None})
+    def delete(self, request, pk: int):
+        """신청한 팀원이 끝난 리포트를 지운다 (숨김, 그 리포트의 추천도). 남의 것·자동 403, 끝나지 않음·진행 중 계획 400."""
+        hide.delete_report(visible(pk), request.user)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class PdfView(APIView):
@@ -138,9 +152,7 @@ class PdfView(APIView):
         Report.pdf_path는 자동 리포트가 Discord로 보낸 파일(쉬운 판)이다 — PDF API는 그 열을 쓰지 않는다 (쓰면 ?view=expert에도 쉬운 판이 나간다).
         """
         view = choice(request, "view", VIEWS, VIEW_CHOICE)
-        report = Report.objects.filter(pk=pk).first()
-        if report is None:
-            raise NotFound("리포트를 찾을 수 없습니다.")
+        report = visible(pk)
         if report.team == Report.STOCK_SELECTION:  # 종목 리포트 양식이 아니다 (선정 결과는 선별 표지 — auto.after_finish)
             raise NotFound("선정 실행은 PDF가 없습니다.")
         if report.status != Report.COMPLETED:

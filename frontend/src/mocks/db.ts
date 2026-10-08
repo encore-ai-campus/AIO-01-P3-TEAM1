@@ -103,9 +103,16 @@ const blocked = (reasons: string[], codes: string[]) => new MockError(400, reaso
 type Owned<T> = T & { userId: number };
 type MockOrder = Owned<Order> & { fx: number };
 type MockJob = Owned<Job> & { symbol: string; polls: number };
-type MockReport = Owned<ReportDetail>;
-/** 추천은 팀 공용. status·myPlan·planCount는 볼 때 계산한다. */
-type MockRec = Omit<Recommendation, "status" | "myPlan" | "planCount" | "blockedBy">;
+/** deletedAt: 지운(숨긴) 시각 — 목록·상세에서 빼고 한도에는 그대로 센다 (DECISIONS 25장). 저장된 canDelete는 쓰지 않고 볼 때 계산한다. */
+type MockReport = Owned<ReportDetail> & { deletedAt?: string };
+/**
+ * 추천은 팀 공용. status·myPlan·planCount·expiredReason·canDelete는 볼 때 계산한다.
+ * expired: 가격이 이미 손절가·목표가를 지나 엔진이 내린 까닭 (테스트·시연은 expireRecommendation). deletedAt: 지운(숨긴) 시각.
+ */
+type MockRec = Omit<Recommendation, "status" | "myPlan" | "planCount" | "blockedBy" | "expiredReason" | "canDelete"> & {
+  expired?: "below_stop" | "above_target";
+  deletedAt?: string;
+};
 /** nextAt: 시연용 진행 시각 (이 시각이 지나면 다음 단계로). exitRequested: 보유 중 중단으로 매도를 요청함. */
 type MockPlan = Owned<TradePlan> & { events: PlanEvent[]; nextAt: number | null; exitRequested: boolean };
 type MockSettings = Omit<NotificationSettings, "webhookConfigured">;
@@ -1056,7 +1063,11 @@ function conclusionOf(r: ReportDetail): Pick<ReportSummary, "opinion" | "oneLine
 const teamOf = (r: Pick<ReportSummary, "team">): ReportTeam => r.team ?? "stock_report";
 const TEAMS: readonly string[] = ["stock_report", "stock_selection"];
 
-function toReportSummary(r: MockReport): ReportSummary {
+/** 지울 수 있는지: 내가 신청했고 끝난 종목 리포트 (자동 리포트·선정 실행·남의 것은 아니다). */
+const reportDeletable = (r: MockReport, viewerId: number | null) =>
+  viewerId != null && r.userId === viewerId && (r.source ?? "user") === "user" && teamOf(r) === "stock_report" && (r.status === "completed" || r.status === "failed");
+
+function toReportSummary(r: MockReport, viewerId: number | null = null): ReportSummary {
   const { id, symbol, name, market, status, currentStep, requestedBy, createdAt, startedAt, finishedAt } = r;
   const { source, chaosEnabled, costUsd, hasPdf } = r;
   return {
@@ -1075,6 +1086,7 @@ function toReportSummary(r: MockReport): ReportSummary {
     chaosEnabled,
     costUsd,
     hasPdf,
+    canDelete: reportDeletable(r, viewerId),
     ...conclusionOf(r),
   };
 }
@@ -1082,24 +1094,48 @@ function toReportSummary(r: MockReport): ReportSummary {
 /** 리포트 목록. team이 없으면 종목 리포트만 (서버와 같다 — 선정 실행은 ?team=stock_selection일 때만). 모르는 team·source는 400. */
 export function listReports(
   symbol: string | null,
-  q: { source?: string | null; mineUserId?: number | null; team?: string | null } = {},
+  q: { source?: string | null; mineUserId?: number | null; team?: string | null; viewerId?: number | null } = {},
 ): ReportSummary[] {
   const team = q.team || "stock_report";
   if (!TEAMS.includes(team)) throw new MockError(400, "team은 stock_report 또는 stock_selection이어야 합니다.");
   if (q.source && q.source !== "user" && q.source !== "auto") throw new MockError(400, "source는 user 또는 auto여야 합니다.");
   return state.reports
+    .filter((r) => !r.deletedAt)
     .filter((r) => teamOf(r) === team)
     .filter((r) => !symbol || r.symbol === symbol.toUpperCase())
     .filter((r) => !q.source || (r.source ?? "user") === q.source)
     .filter((r) => !q.mineUserId || (r.userId === q.mineUserId && (r.source ?? "user") === "user"))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id - a.id)
-    .map(toReportSummary);
+    .map((r) => toReportSummary(r, q.viewerId ?? null));
 }
 
-export function getReport(id: number): ReportDetail {
-  const r = state.reports.find((x) => x.id === id);
+export function getReport(id: number, viewerId: number | null = null): ReportDetail {
+  const r = state.reports.find((x) => x.id === id && !x.deletedAt);
   if (!r) throw new MockError(404, "리포트를 찾을 수 없습니다.");
-  return { ...strip(r), ...conclusionOf(r) };
+  const { deletedAt: _d, ...rest } = strip(r);
+  void _d;
+  return { ...rest, ...conclusionOf(r), canDelete: reportDeletable(r, viewerId) };
+}
+
+/** 진행 중인 계획(누구 것이든)이 있는 추천인지 — 있으면 지우지 않는다 (400). */
+function recHasLivePlan(recId: number): boolean {
+  return state.plans.some((p) => p.recommendationId === recId && LIVE.includes(p.status));
+}
+const LIVE_PLAN_DETAIL = "이 계획 제안으로 진행 중인 모의 자동매매가 있어 지울 수 없어요. 먼저 멈춰 주세요.";
+
+/** 리포트 지우기 (숨김): 신청한 사람만, 끝난 종목 리포트만. 그 리포트의 계획 제안도 같이 숨긴다 (DECISIONS 25장). */
+export function deleteReport(user: MockUser, id: number) {
+  const r = state.reports.find((x) => x.id === id && !x.deletedAt);
+  if (!r) throw new MockError(404, "리포트를 찾을 수 없습니다.");
+  if (r.userId !== user.id || (r.source ?? "user") !== "user" || teamOf(r) !== "stock_report") {
+    throw new MockError(403, "내가 신청한 리포트만 지울 수 있어요.");
+  }
+  if (r.status !== "completed" && r.status !== "failed") throw new MockError(400, "끝난 리포트만 지울 수 있어요.");
+  const recs = state.recommendations.filter((x) => x.source === "report" && x.sourceId === id && !x.deletedAt);
+  if (recs.some((x) => recHasLivePlan(x.id))) throw new MockError(400, LIVE_PLAN_DETAIL);
+  const at = kstIso();
+  r.deletedAt = at;
+  for (const x of recs) x.deletedAt = at;
 }
 
 function newReport(id: number, user: MockUser, s: MockStock, createdAt: string, chaos?: ChaosRequest): MockReport {
@@ -1128,6 +1164,7 @@ function newReport(id: number, user: MockUser, s: MockStock, createdAt: string, 
     chaosEnabled: filled !== null,
     costUsd: null,
     hasPdf: false,
+    canDelete: false,
     opinion: null,
     oneLiner: null,
     chaos: filled,
@@ -1172,14 +1209,14 @@ export function requestReport(user: MockUser, symbol: string, chaos?: ChaosReque
   const open = state.reports.find(
     (r) => r.userId === user.id && r.symbol === s.symbol && r.status !== "completed" && r.status !== "failed",
   );
-  if (open) return { report: getReport(open.id), created: false };
+  if (open) return { report: getReport(open.id, user.id), created: false };
   const q = reportQuota(user.id);
   if (q.remaining !== null && q.remaining <= 0) {
     throw new MockError(429, `오늘 리포트 한도(${q.limit}개)를 다 썼어요. 내일 0시에 다시 만들 수 있어요.`, { limit: q.limit, used: q.used });
   }
   const r = newReport(nextId(), user, s, kstIso(), chaos);
   state.reports.push(r);
-  return { report: getReport(r.id), created: true };
+  return { report: getReport(r.id, user.id), created: true };
 }
 
 // ---------------------------------------------------------------- AI 추천 · 매매 계획 · 자동매매 · 알림
@@ -1284,7 +1321,29 @@ export function addRecommendation(x: Pick<RecInput, "symbol" | "entryPrice" | "t
   return id;
 }
 
-const recOpen = (r: MockRec) => Date.parse(r.validUntil) > Date.now();
+const recOpen = (r: MockRec) => !r.expired && Date.parse(r.validUntil) > Date.now();
+
+/** 테스트·시연용: 가격이 이미 손절가·목표가를 지나 엔진이 추천을 내린 것처럼 만든다 (DECISIONS 25장 — 다시 open으로 돌리지 않는다). */
+export function expireRecommendation(id: number, reason: "below_stop" | "above_target") {
+  recOf(id).expired = reason;
+}
+
+/** 계획 제안 지우기 (숨김): 만든 사람만. 진행 중인 계획이 있으면 400. 리포트 추천이면 출처 리포트도 숨긴다 (DECISIONS 25장). */
+export function deleteRecommendation(user: MockUser, id: number) {
+  const r = recOf(id);
+  if (r.requestedBy == null || r.requestedBy !== user.nickname) throw new MockError(403, "내가 만든 계획 제안만 지울 수 있어요.");
+  if (recHasLivePlan(id)) throw new MockError(400, LIVE_PLAN_DETAIL);
+  const at = kstIso();
+  r.deletedAt = at;
+  if (r.source === "report" && r.sourceId != null) {
+    const rep = state.reports.find((x) => x.id === r.sourceId && !x.deletedAt);
+    if (rep) {
+      rep.deletedAt = at;
+      // 같은 리포트의 다른 추천도 함께 숨긴다 (출처 리포트가 사라지므로)
+      for (const x of state.recommendations) if (x.source === "report" && x.sourceId === rep.id && !x.deletedAt && !recHasLivePlan(x.id)) x.deletedAt = at;
+    }
+  }
+}
 
 function toRecommendation(r: MockRec, userId: number): Recommendation {
   const plans = state.plans.filter((p) => p.recommendationId === r.id);
@@ -1294,11 +1353,25 @@ function toRecommendation(r: MockRec, userId: number): Recommendation {
   if (r.rewardRisk < MIN_REWARD_RISK) blockedBy.push("reward_risk_low");
   if (r.expectedReturn <= 0) blockedBy.push("ev_negative");
   if (!recOpen(r)) blockedBy.push("expired");
-  return { ...r, status: recOpen(r) ? "open" : "expired", myPlan: my ? { id: my.id, status: my.status } : null, planCount: plans.length, blockedBy };
+  const { expired: _x, deletedAt: _d, ...rest } = r;
+  void _x;
+  void _d;
+  const open = recOpen(r);
+  const nickname = state.users.find((u) => u.id === userId)?.nickname;
+  return {
+    ...rest,
+    status: open ? "open" : "expired",
+    expiredReason: open ? null : (r.expired ?? "deadline"),
+    myPlan: my ? { id: my.id, status: my.status } : null,
+    planCount: plans.length,
+    blockedBy,
+    canDelete: r.requestedBy != null && r.requestedBy === nickname,
+  };
 }
 
-function recOf(id: number): MockRec {
-  const r = state.recommendations.find((x) => x.id === id);
+/** includeHidden: 지운 추천도 (계획 상세의 recommendation은 계속 열린다). */
+function recOf(id: number, includeHidden = false): MockRec {
+  const r = state.recommendations.find((x) => x.id === id && (includeHidden || !x.deletedAt));
   if (!r) throw new MockError(404, "추천을 찾을 수 없습니다.");
   return r;
 }
@@ -1309,6 +1382,7 @@ export function listRecommendations(
 ): Recommendation[] {
   runEngine();
   return state.recommendations
+    .filter((r) => !r.deletedAt)
     .filter((r) => (q.status === "all" ? true : recOpen(r)))
     .filter((r) => !q.source || r.source === q.source)
     .filter((r) => !q.sourceId || r.sourceId === Number(q.sourceId))
@@ -1663,7 +1737,7 @@ function toPlan(p: MockPlan): TradePlan {
 }
 
 function toPlanDetail(p: MockPlan): TradePlanDetail {
-  return { ...toPlan(p), recommendation: toRecommendation(recOf(p.recommendationId), p.userId), events: p.events };
+  return { ...toPlan(p), recommendation: toRecommendation(recOf(p.recommendationId, true), p.userId), events: p.events };
 }
 
 export function listPlans(userId: number, status: string | null): TradePlan[] {

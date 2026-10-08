@@ -3,6 +3,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from accounts.models import Profile
+from autotrade import hide
 from config import engine
 from rest_framework import status
 from rest_framework.exceptions import APIException
@@ -71,8 +72,8 @@ def has_pdf(report: Report) -> bool:
     return bool(report.pdf_path) and (engine.ROOT / report.pdf_path).is_file()
 
 
-def summary(report: Report, names: dict[int, str] | None = None) -> dict:
-    """ReportSummary. report.user를 쓰므로 목록은 select_related("user")로 읽는다.
+def summary(report: Report, names: dict[int, str] | None = None, user=None) -> dict:
+    """ReportSummary. report.user를 쓰므로 목록은 select_related("user")로 읽는다. canDelete는 user가 지울 수 있는지 (autotrade/hide.py).
 
     team은 "stock_report"(종목 리포트) | "stock_selection"(하루 한 번의 매매 종목 선정 실행 — opinion·oneLiner는 늘 None).
     """
@@ -82,6 +83,7 @@ def summary(report: Report, names: dict[int, str] | None = None) -> dict:
         "status": report.status, "currentStep": report.current_step,
         "source": report.source, "team": report.team, "requestedBy": requester(report, names),
         "chaosEnabled": chaos_enabled(report), "costUsd": report.cost_usd, "hasPdf": has_pdf(report),
+        "canDelete": user is not None and hide.can_delete_report(report, user),
         **conclusion(report),  # B3 opinion·oneLiner (Claude). 담당 4의 새 필드는 이 위에 더한다 (docs/DECISIONS.md 14-2)
         "createdAt": iso(report.created_at), "startedAt": iso(report.started_at), "finishedAt": iso(report.finished_at),
     }
@@ -105,10 +107,10 @@ def trace_event(event: TraceEvent) -> dict:
     }
 
 
-def detail(report: Report) -> dict:
+def detail(report: Report, user=None) -> dict:
     """ReportDetail (Snapshot): 요약 + 본문 + Shared State + Trace(step 오름차순) + 그 리포트 팀의 실행 계획."""
     events = list(report.trace_events.order_by("step"))
-    return summary(report) | {
+    return summary(report, user=user) | {
         "content": report.content, "state": shared_state(report),
         "trace": [trace_event(event) for event in events], "plan": plan(report.team),
         "chaos": report.chaos, "recovery": stats.report_recovery(events),

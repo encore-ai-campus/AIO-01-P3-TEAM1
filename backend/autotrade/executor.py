@@ -25,6 +25,7 @@ from notifications import service as notices
 from paper_engine.data.kiwoom import KiwoomApiError
 from paper_engine.records.account import CANCELED, CLOSED, ENTRY_PENDING, EXIT_WATCHING
 from paper_engine.trading import MAX_MANAGED_DAYS
+from rest_framework.exceptions import NotFound
 from trading import service
 from trading.models import PaperOrder, Reservation
 from trading.store import KST, account_for
@@ -183,6 +184,9 @@ def _start(rec: Recommendation, user, budget_krw: float | None, via: str, now: d
     """계획을 active로 만들고 activated·risk_checked 사건을 남긴다. 같은 종목 계획이 그사이 생겼으면 Blocked(plan_exists)."""
     try:
         with transaction.atomic():
+            # 추천 행을 잠그고 숨김을 본다 — 지우기(hide.py)도 같은 행을 잠그고 진행 중 계획을 확인한다
+            if not Recommendation.objects.select_for_update().filter(pk=rec.pk, deleted_at__isnull=True).exists():
+                raise NotFound("추천을 찾을 수 없습니다.")
             plan = TradePlan.objects.create(
                 recommendation=rec, user=user, symbol=rec.symbol, name=rec.name, market=rec.market,
                 currency=rec.currency, status=TradePlan.ACTIVE, via=via, quantity=preview["quantity"],

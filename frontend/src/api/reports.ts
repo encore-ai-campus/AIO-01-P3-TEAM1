@@ -138,6 +138,25 @@ export function useRequestReport() {
   });
 }
 
+/**
+ * 리포트 지우기 (DELETE /api/reports/{id} → 204, DECISIONS 25장). 서버는 숨기기만 하고, 이 리포트의 계획 제안도 같이 숨긴다.
+ * 지운 리포트의 상세는 404가 되므로 지금 열린 상세는 다시 받지 않고(refetchType none) 화면이 목록으로 옮긴다.
+ * 오류(403·400·404)는 ApiError.detail 문장을 그대로 보인다.
+ */
+export function useDeleteReport(id: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.del(`/api/reports/${id}`),
+    onSuccess: async () => {
+      await qc.cancelQueries({ queryKey: keys.report(id) });
+      void qc.invalidateQueries({ queryKey: keys.report(id), refetchType: "none" });
+      // 목록·홈의 리포트와 계획 제안. 이 화면이 보던 계획 제안의 상세·미리 보기는 숨겨졌을 수 있어 다음에 열 때 받는다
+      for (const k of ["reports", "recommendations"]) void qc.invalidateQueries({ queryKey: [k] });
+      void qc.invalidateQueries({ queryKey: ["recommendation"], refetchType: "none" });
+    },
+  });
+}
+
 /** 오늘 내 리포트 한도 ("오늘 ○번 더 만들 수 있어요"). 신청하면 useRequestReport가 다시 받게 한다. */
 export function useReportQuota(enabled = true) {
   return useQuery({

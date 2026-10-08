@@ -615,6 +615,7 @@ interface ReportSummary {
   chaosEnabled: boolean;        // (구현) 장애 주입을 켜고 신청했는지
   costUsd: number | null;       // (구현) LLM 비용 (끝나기 전엔 지금까지의 합)
   hasPdf: boolean;              // (구현) GET /api/reports/{id}/pdf 가 되는지
+  canDelete: boolean;           // (2026-10-08, DECISIONS 25장) 내가 신청했고 끝난(completed·failed) 종목 리포트면 true → DELETE /api/reports/{id}. 자동 리포트·선정 실행·남의 것은 false
   opinion: "buy" | "hold" | "avoid" | null;   // AI 의견 = results.report_agent.verdict. status가 completed일 때만, 그 밖은 null
                                               // (2026-10-04 합의, 컨셉 계획 B3 — 구현: 2026-10-05 (Claude). 2026-10-05: 담당 4 대신 Claude가 `payloads.summary`에 넣는다 — docs/DECISIONS.md 14-2)
   oneLiner: string | null;      // 한 줄 요약 = results.report_agent.oneLiner (80자). opinion과 같은 규칙 (2026-10-04 합의, 컨셉 계획 B3 — 구현: 2026-10-05 (Claude))
@@ -682,7 +683,8 @@ interface ReportDetail extends ReportSummary {   // Snapshot
 | `POST /api/reports` | `{"symbol", "chaos"?: {"enabled", "probability"?, "errorTypes"?, "workers"?, "scope"?, "seed"?}}` | `201 ReportDetail` · 같은 사람이 같은 종목으로 신청해 아직 끝나지 않은 리포트가 있으면 그것을 `200`으로 (한도를 넘었어도 돌려준다) · 없는 종목·잘못된 `chaos` `400` · 하루 한도 초과 `429 {"detail": string, "limit": number, "used": number}` (한도가 무제한(기본, 2026-10-08)이면 나지 않는다) (`detail` 예: "오늘 리포트 한도(3개)를 다 썼어요. 내일 0시에 다시 만들 수 있어요." — D-7, 구현: 2026-10-05 (Claude)) · (추가) AI 설정 없음 `503` · 증권사 조회 불가 `503` |
 | `GET /api/reports/quota` | – | `200 ReportQuota` (D-7 — 구현: 2026-10-05 (Claude)) |
 | `GET /api/reports?symbol=&source=&mine=` | 페이지, `symbol`·`source`(`user`\|`auto`)·`mine`(`1`이면 내가 신청한 것만) 선택, 같이 쓸 수 있다 | `source` (구현: 2026-10-07, 잘못된 값 `400`) · `mine=1` (2026-10-04 합의, 컨셉 계획 B8 — 구현: 2026-10-05 (Claude): `ReportsView.get` 한 줄. 자동 리포트는 신청자가 없어 빠진다) |
-| `GET /api/reports/{id}` | – | `200 ReportDetail` · `404` (**Snapshot API**: 새로고침·연결 복구에 쓴다) |
+| `GET /api/reports/{id}` | – | `200 ReportDetail` · `404` (**Snapshot API**: 새로고침·연결 복구에 쓴다. 지운 리포트도 `404`) |
+| `DELETE /api/reports/{id}` | – | `204` (2026-10-08, 아래 "리포트·계획 제안 지우기") · 남의 리포트·자동 리포트·선정 실행 `403 {"detail": "내가 신청한 리포트만 지울 수 있어요."}` · 아직 끝나지 않은 리포트 `400 {"detail": "아직 만드는 중인 리포트는 끝난 뒤에 지울 수 있어요."}` · 이 리포트의 계획 제안으로 진행 중인 계획이 있으면 `400 {"detail": "이 계획 제안으로 진행 중인 모의 자동매매가 있어 지울 수 없어요. 계획이 끝난 뒤에 지울 수 있어요."}` · 없거나 이미 지운 리포트 `404` |
 | `GET /api/reports/{id}/events` | 헤더 `Last-Event-ID` 또는 `?after=<step>` | `200 text/event-stream` (**SSE**) · 미로그인 `401` JSON · `404` |
 | `GET /api/reports/{id}/pdf?view=` | `view`: `easy`(쉬운 판) \| `expert`(자세한 판). 없으면 요청한 사람의 주린이모드(켬 → `easy`) — 2026-10-07 구현, `docs/DECISIONS.md` 20장 | 잘못된 `view` `400 {"detail": "view는 easy 또는 expert입니다."}` · `200 application/pdf` (A4. 처음 부르면 만들어 `PAPER_ROOT/reports/<id>.v<양식 판>.pdf`(Chrome이 없으면 `.html`)에 저장하고 다음부터 그 파일. `pdf_path` 열은 자동 리포트가 Discord로 보낸 파일(2026-10-07부터 쉬운 판)이고 이 API는 쓰지 않는다. 2026-10-05 구현: 양식 판 `TEMPLATE_VERSION`(`backend/reports/pdf.py`, 지금 4 — 2: 쉬운 요약·장마감 기준, 3: 이름 종이배·로고 머리, 4: 이름 모매매)을 파일 이름에 넣어, 양식이 바뀌면 판 번호 없는 예전 `<id>.pdf`(1판)·이전 판 파일을 쓰지 않고 새로 만든 뒤 지운다. 2026-10-07: 쉬운 판은 따로 `<id>.v<판>.easy.pdf` — 웹 쉬운 보기와 같은 문장으로 결론·신뢰·쉬운 요약·매매 계획(말로)·근거와 위험·이 의견이 틀리는 경우·세 가지 경우(1주 기준 %)·가격 흐름·조사 자료·용어 풀이를 싣고, 검토 점수·확률·신뢰도·모델 이름·비용은 싣지 않는다. 계좌마다 다른 값(수량·금액)은 넣지 않는다 — 파일이 리포트당 판마다 하나) · 완성 전 `409 {"detail"}` · `404` (선정 실행 `team: "stock_selection"`도 `404` — 2026-10-07) · Chrome이 없으면 `200 text/html`(같은 내용) — 2026-10-04 구현 |
 | `GET /api/reports/recovery-stats?days=7` | `days` 1~90, 기본 7 | `200 RecoveryStats` (기간 = 오늘(KST) 포함 최근 `days`일 안에 만든 리포트, 모든 팀) · 잘못된 `days` `400 {"detail": "days는 1~90 사이의 정수입니다."}` — 2026-10-07 구현 (담당 4, T4-7) |
@@ -704,6 +706,15 @@ SSE 형식 (실행 Event를 발생 즉시 한 방향으로 전달):
   목록은 `GET /api/recommendations?source=report&status=open&limit=100` 한 번으로 받아 `sourceId`(= 리포트 id)로 카드에 붙이고,
   상세(매매 계획 카드)는 `GET /api/recommendations?source=report&sourceId={리포트 id}&status=all`로 받는다 (기한이 지난 추천까지 와야 "기한 지남" 상태를 보인다).
   두 쿼리는 지금 서버가 된다 (2026-10-04 `autotrade/views.py`로 확인. 페이지 상한은 100).
+
+리포트·계획 제안 지우기 (2026-10-08 사용자 결정, DECISIONS 25장 — `backend/autotrade/hide.py`):
+- **만든 사람만** 지운다: 리포트는 신청한 팀원(`canDelete`), 계획 제안(추천)은 `requestedBy`인 팀원. 자동 리포트·선정 실행·자동 추천은 아무도 지우지 않는다 (아래 autotrade의 자동 정리가 내린다).
+- 지우기는 **숨김**이다: 행에 `deleted_at`을 적고 목록·상세·PDF·SSE·추천 API에서 뺀다(`404`). 행은 남으므로 AI 비용(`cost_usd`, 비용 예산)·하루 리포트 한도·복구 통계·관리 서버는
+  지운 리포트도 그대로 센다 — **지워도 한도를 돌려받지 않는다**. 끝난(`completed`·`failed`) 리포트만 지운다.
+- 리포트를 지우면 그 리포트의 계획 제안도 같이 숨기고, 계획 제안을 지우면 출처 리포트도 같이 숨긴다 (분석·시연 추천은 추천만).
+- 그 계획 제안으로 **진행 중인 계획**(누구 것이든 `active`·`entry_pending`·`holding`)이 있으면 지우지 않는다 (`400`). 끝난 계획은 그대로 남고 계획 상세(`TradePlanDetail.recommendation`)도 계속 열린다.
+- 두 DELETE가 같은 함수(`autotrade/hide.py`)를 쓴다 — 리포트·추천 숨김과 진행 중 계획 확인을 한 트랜잭션에서 추천 행을 잠그고 한다. 활성화도 같은 행을 잠그고 숨김을 다시 본다
+  (화면이 읽은 뒤 지워진 추천은 활성화 `404`). reports가 autotrade를 부르는 것은 리포트 끝 알림(`reports/alerts.py`)과 같다 — 리포트 API 응답에 추천 정보를 넣지 않는 위 규칙은 그대로다.
 
 리포트 글 후처리와 쉬운 글 Guard (2026-10-08, DECISIONS 23장 — `backend/reports/tidy.py`, `guards.easy_jargon`):
 - Worker 결과는 출력 계약을 통과한 뒤 State에 넣기 전에 후처리한다: 쉼표 없는 원 금액("201000원" → "201,000원"), 한국어 문장 속 의견 영어
@@ -742,7 +753,7 @@ SSE 형식 (실행 Event를 발생 즉시 한 방향으로 전달):
 
 ```ts
 type RecommendationSource = "report" | "analysis" | "demo";
-type RecommendationStatus = "open" | "expired";   // open: validUntil 전이라 활성화할 수 있음
+type RecommendationStatus = "open" | "expired";   // open: validUntil 전이라 활성화할 수 있음. expired: 기한이 지났거나 가격이 이미 손절가·목표가를 지남 (expiredReason)
 
 interface Recommendation {
   id: number;
@@ -768,6 +779,8 @@ interface Recommendation {
   risks: string[];                // 리스크 (최대 3)
   riskLevel: "low" | "medium" | "high" | null;   // 리스크 점검 Agent 결과 (없으면 null)
   status: RecommendationStatus;
+  expiredReason: "deadline" | "below_stop" | "above_target" | null;   // (2026-10-08, DECISIONS 25장) status가 expired인 까닭 — 기한 지남 / 가격이 이미 손절가 이하 /
+                                  // 이미 목표가 이상 (아래 "가격이 지난 계획 제안 자동 정리"). open이면 null
   validUntil: string;             // 이 시각까지 활성화할 수 있고, 계획의 진입 기한도 이 시각이다
   createdAt: string;
   myPlan: { id: number; status: TradePlanStatus } | null;   // 내가 활성화한 계획 (진행 중인 것, 없으면 가장 최근 것)
@@ -775,6 +788,7 @@ interface Recommendation {
   blockedBy: string[];            // 계좌와 무관하게 지금 시작(활성화)을 막는 사유 코드 — reward_risk_low · ev_negative · expired · halted 중 (아래 "실행 불가 사유 코드"와 같은 코드,
                                   // 같은 계산). 목록·홈에서 '시작할 수 없음'을 미리 보이고 정렬하는 데 쓴다. 비어 있어도 내 계좌 사정으로 막힐 수 있다 — 최종 판단은 RiskPreview
                                   // (2026-10-08, DECISIONS 23장)
+  canDelete: boolean;             // (2026-10-08, DECISIONS 25장) 내가 만든(requestedBy가 나) 제안이면 true → DELETE /api/recommendations/{id}. 자동·남의 것은 false
 }
 
 interface RiskPreview {           // 리스크 엔진이 "내 계좌"로 계산한 결과 (활성화 전 확인용). 가격·자산은 장마감 기준
@@ -878,7 +892,8 @@ interface NotificationSettings {
 | 메서드·경로 | 요청 | 응답 |
 |---|---|---|
 | `GET /api/recommendations?status=open\|all&source=&sourceId=&symbol=` | 페이지. `status` 기본 `open`. `sourceId`는 `source`와 같이 (리포트·분석 화면이 자기 추천을 찾는다) | `200 {"count", "results": Recommendation[]}` (최신순, 팀 전체 공용). `source`가 `report`·`analysis`·`demo`가 아니면 `400` (2026-10-06: `source=day`도 모르는 값이라 `400`) |
-| `GET /api/recommendations/{id}` | – | `200 Recommendation` · `404` |
+| `GET /api/recommendations/{id}` | – | `200 Recommendation` · `404` (지운 추천도 `404`) |
+| `DELETE /api/recommendations/{id}` | – | `204` (2026-10-08, AI 리포트 절 "리포트·계획 제안 지우기" — 리포트 추천이면 출처 리포트도 숨긴다) · 남이 만든·자동 추천 `403 {"detail": "내가 만든 계획 제안만 지울 수 있어요."}` · 진행 중인 계획이 있으면 `400 {"detail": "이 계획 제안으로 진행 중인 모의 자동매매가 있어 지울 수 없어요. 계획이 끝난 뒤에 지울 수 있어요."}` · 없거나 이미 지운 추천 `404` |
 | `GET /api/recommendations/{id}/preview?budgetKrw=` | `budgetKrw` 선택 (양수, 원) | `200 RiskPreview` (장마감 기준 — 구현: 2026-10-05 (Claude)) · `budgetKrw`가 숫자가 아니거나 0 이하 `400` · 증권사 조회 불가 `503` |
 | `POST /api/recommendations/{id}/activate` | `{"budgetKrw"?: number, "token"?: string, "acknowledged"?: boolean}` | `201 TradePlanDetail` (첫 주문 접수가 거절된 드문 경우도 `201` — 계획 `status: "failed"`, 아래 규칙) · 활성화할 수 없으면 `400 {"detail": 사유들을 "; "로 이은 것, "reasonCodes": string[]}` (`reasonCodes[i]`는 `detail`을 이은 사유 i번째의 코드 — 같은 길이·같은 순서, 미리 보기의 사유 + 장중 확인의 `price_passed` + 동시 활성화의 `plan_exists`. `Response`를 직접 돌려준다 — 구현: 2026-10-05 (Claude)) · 입력 오류(`budgetKrw`·`acknowledged` 형식, `token`이 만료·위조)는 `400 {"detail"}` (`reasonCodes` 없음) · `404` · 증권사 조회 불가 `503`. `acknowledged`: 실행 확인 체크리스트를 모두 켰는지 → `activated` 사건 details `{via, budgetKrw, acknowledged}`에 남긴다 (없으면 `false`, 불리언이 아니면 `400`. 서버가 활성화를 막지는 않는다 — 체크리스트는 화면 테스트로 보장) — (2026-10-04 합의, 컨셉 계획 B5 — 구현: 2026-10-05 (Claude)) |
 | `POST /api/recommendations/demo` | `{"symbol"?: string}` (없으면 시연 종목 목록에서 고른다) | `201 Recommendation` (source `demo`. 진입가는 직전 장마감 종가, ATR은 완성 일봉으로 — 구현: 2026-10-05 (Claude)) · 시연 추천이 꺼져 있으면(`AUTOTRADE_DEMO=off`) `403` · 하루 한도(`AUTOTRADE_DEMO_PER_USER`, 기본 5) 초과 `429` · 없는 종목·일봉 부족 `400` · 증권사 조회 불가 `503` |
@@ -908,6 +923,11 @@ interface NotificationSettings {
   계획은 `failed`로 끝난다 (`failureReason` "다시 주문할 수 없음: 장중 가격이 이미 목표가 이상이에요" 등 — 장중 가격 숫자를 넣지 않는다, 공통 규칙). 엔진이 체결 시점에 취소한 진입 주문(현금 부족 등)도 `failed`다 (`cancelled`는 사용자가 멈춘 경우만).
 - **중단**(`cancel`): `active`·`entry_pending`이면 주문을 취소하고 `cancelled`. `holding`이면 전량 매도를 요청하고(정규장 밖이면 매도 예약)
   `exit_requested`를 남긴다 — 계획은 매도가 끝나면 `closed`(`MANUAL`)가 된다. 이미 매도 예약이 있으면 사건을 다시 남기지 않고 지금 계획을 `200`으로 돌려준다.
+- **가격이 지난 계획 제안 자동 정리** (2026-10-08 사용자 결정, DECISIONS 25장 — `autotrade/sources.invalidate`): 엔진 루프 "추천 수집"이 1분에 한 번 open 추천의 현재가
+  (실시간 시세와 같은 값, 정규장 밖이면 마지막 가격)를 보고 **손절가 이하면 `expired`·`expiredReason: "below_stop"`, 목표가 이상이면 `"above_target"`**으로 바꾼다. 다시 open으로 돌리지 않는다.
+  현재가를 받지 못한 종목은 다음 번에 본다. 목록 `status=open`에서 빠지고 `blockedBy`에 `expired`가 들어간다. 이미 시작한 계획은 자기 값으로 그대로 진행한다.
+  목록의 `blockedBy`는 지금처럼 시세를 보지 않는다(23장) — 시세는 이 정리 단계가 엔진에서 한 번 본다. 화면 문장(장중 가격 숫자는 넣지 않는다): 쉬운 보기 "가격이 이미 손절 가격 아래로 내려가 끝난 제안이에요" ·
+  "가격이 이미 목표 가격을 넘어 끝난 제안이에요", 전문가 보기 "손절가 이탈로 만료" · "목표가 도달로 만료".
 - AI가 준 진입·목표·손절은 추천을 만들 때 **호가 단위로 내려** 맞춘다 (모의 주문에 들어가는 값과 같게). 미국 종목의 예산 제한은 소수점(금액) 기준이다.
 - 같은 종목에는 진행 중 계획이 **하나만** 있다 (모의 계좌의 "같은 종목은 포지션 하나만" 규칙과 같다).
 - **Discord 활성화 링크** = `{PUBLIC_BASE_URL}/recommendations/{id}?t=<token>`. 웹 화면이 `t`를 읽어 활성화 요청의 `token`으로 보낸다.

@@ -22,7 +22,7 @@ import { isRecBlocked, kstDayOf } from "../../lib/autotrade";
 import { cn } from "../../lib/cn";
 import { formatDayLabel, formatKrw, formatPrice, formatQty } from "../../lib/format";
 import { prefersReducedMotion } from "../../lib/motion";
-import { reasonSentences } from "../../lib/plainText";
+import { priceExpiredText, reasonSentences } from "../../lib/plainText";
 import { Icon } from "../Icon";
 import { AsOf, LiveDot, Skeleton, Spinner } from "../ui";
 
@@ -70,7 +70,10 @@ const MINI_TEXT: Record<Exclude<PlanCardState, "ready" | "blocked" | "not_comple
   expired: "계획의 기한이 끝났어요",
 };
 
-function expiredText(rec: Recommendation): string {
+/** 끝난 계획 제안의 문장: 가격이 이미 손절가·목표가를 지나 끝났으면 그 까닭(DECISIONS 25장), 아니면 기한. */
+function expiredText(rec: Recommendation, easy: boolean): string {
+  const price = priceExpiredText(rec.expiredReason, easy);
+  if (price) return easy ? `${price}. 가격이 바뀌었으니 새로 만들어 보세요.` : `${price}.`;
   return `이 계획은 ${formatDayLabel(kstDayOf(rec.validUntil))}에 기한이 끝났어요. 가격이 바뀌었을 수 있으니 새로 만들어 보세요.`;
 }
 
@@ -159,7 +162,7 @@ export function PlanCard({ report, variant = "full", view = "easy", id, classNam
           <Blocked rec={rec} preview={preview} easy={easy} />
         ) : state === "expired" && rec ? (
           <>
-            <p className="text-[15px] leading-relaxed">{expiredText(rec)}</p>
+            <p className="text-[15px] leading-relaxed">{expiredText(rec, easy)}</p>
             <div className="mt-3 flex flex-wrap gap-2">
               <Link to={`/stocks/${encodeURIComponent(report.symbol)}`} className={cn(linkBtn, "bg-fill text-ink hover:bg-line")}>
                 새로 만들기
@@ -365,7 +368,7 @@ function Mini({
   return (
     <div aria-label="계획 미니" data-state={state} className={box}>
       {state === "preparing" && <LiveDot />}
-      <span>{MINI_TEXT[state as keyof typeof MINI_TEXT]}</span>
+      <span>{(state === "expired" && rec ? priceExpiredText(rec.expiredReason, easy) : null) ?? MINI_TEXT[state as keyof typeof MINI_TEXT]}</span>
     </div>
   );
 }

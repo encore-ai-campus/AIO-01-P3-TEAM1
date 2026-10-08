@@ -4,7 +4,7 @@
 import type { HoldingStyle, Recommendation, RecommendationSource, RiskLevel } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { RISK_LEVEL, SOURCE, STYLE_BADGE, blockedCodes, planStatusOf, timeLeftShort } from "../../lib/autotrade";
-import { HOLDING_STYLE_TEXT, blockedShort, planStatusText } from "../../lib/plainText";
+import { HOLDING_STYLE_TEXT, blockedShort, planStatusText, priceExpiredText } from "../../lib/plainText";
 import { Icon } from "../Icon";
 
 const chip = "inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[12px] font-bold whitespace-nowrap";
@@ -49,11 +49,32 @@ export function PlanStatusChip({ status, easy, className }: { status: string; ea
  * 추천의 유효 기한 (시간 사실만). 시작할 수 있는지는 안전장치가 정하므로 이 칩은 말하지 않는다 —
  * 기한이 남은 계획도 손익비·진행 중 계획 때문에 막힐 수 있다 (trade-04). 하루 안 남았으면 주황.
  * 쉬운 보기 "기한 2일 남음"/"기한 지남", 전문가 보기 "유효 · 2일 남음"/"만료".
+ * 가격이 이미 손절가·목표가를 지나 끝났으면(expiredReason, DECISIONS 25장) 쉬운 "손절 가격 아래로 내려감" · 전문가 "손절가 이탈로 만료" 등.
  */
-export function RecStatusChip({ open, validUntil, easy, className }: { open: boolean; validUntil?: string; easy?: boolean; className?: string }) {
+export function RecStatusChip({
+  open,
+  validUntil,
+  expiredReason,
+  easy,
+  className,
+}: {
+  open: boolean;
+  validUntil?: string;
+  expiredReason?: Recommendation["expiredReason"];
+  easy?: boolean;
+  className?: string;
+}) {
   const left = open && validUntil ? timeLeftShort(validUntil) : null;
   const soon = left !== null && !left.includes("일");
-  const text = open ? (left ? (easy ? `기한 ${left}` : `유효 · ${left}`) : easy ? "기한 안" : "유효") : easy ? "기한 지남" : "만료";
+  const text = open
+    ? left
+      ? easy
+        ? `기한 ${left}`
+        : `유효 · ${left}`
+      : easy
+        ? "기한 안"
+        : "유효"
+    : (priceExpiredText(expiredReason, Boolean(easy), "short") ?? (easy ? "기한 지남" : "만료"));
   return (
     <span className={cn(chip, !open ? "bg-fill text-mute" : soon ? "bg-warn-soft text-warn-ink" : "bg-fill text-sub", className)}>
       <Icon name="clock" className="size-3.5" />
@@ -77,7 +98,7 @@ export function ReadinessChip({ state, easy, className }: { state: "ready" | "bl
   );
 }
 
-type ReadinessInput = Pick<Recommendation, "status" | "myPlan"> & { blockedBy?: readonly string[] };
+type ReadinessInput = Pick<Recommendation, "status" | "myPlan"> & { blockedBy?: readonly string[]; expiredReason?: Recommendation["expiredReason"] };
 
 const LIVE_PLAN = ["active", "entry_pending", "holding"];
 
@@ -90,7 +111,8 @@ export function ProposalReadiness({ r, easy, className }: { r: ReadinessInput; e
   if (r.myPlan && LIVE_PLAN.includes(r.myPlan.status)) return null;
   const codes = blockedCodes(r);
   if (codes.length === 0) return <ReadinessChip state="ready" easy={easy} className={className} />;
-  const short = blockedShort(codes, easy);
+  // 가격이 이미 손절가·목표가를 지나 끝난 제안은 그 까닭을 먼저 (기한 사유 '기한이 끝났어요'로 말하지 않게 — DECISIONS 25장)
+  const short = (r.status !== "open" ? priceExpiredText(r.expiredReason, Boolean(easy), "short") : null) ?? blockedShort(codes, easy);
   return (
     <span className={cn("inline-flex min-h-6 max-w-full items-start gap-1 rounded-md bg-fill px-1.5 py-0.5 text-[12px] leading-snug font-bold text-sub", className)}>
       <Icon name="ban" className="mt-px size-3.5 shrink-0" />

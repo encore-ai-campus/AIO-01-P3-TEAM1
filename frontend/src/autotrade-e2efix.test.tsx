@@ -332,11 +332,13 @@ function rec(over: Partial<Recommendation> = {}): Recommendation {
     risks: [],
     riskLevel: null,
     status: "open",
+    expiredReason: null,
     validUntil: "2026-10-09T15:30:00+09:00",
     createdAt: "2026-10-06T09:00:00+09:00",
     myPlan: null,
     planCount: 0,
     blockedBy: [],
+    canDelete: false,
     ...over,
   };
 }

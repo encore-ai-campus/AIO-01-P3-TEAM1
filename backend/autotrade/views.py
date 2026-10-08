@@ -1,6 +1,6 @@
 """AI 추천·매매 계획 API (docs/API.md "AI 추천 · 매매 계획 · 자동매매 · 알림"). 로그인은 전역 설정이 확인한다 (안 했으면 401).
 
-추천은 팀 전체 공용, 계획은 내 것만 (남의 계획은 404).
+추천은 팀 전체 공용, 계획은 내 것만 (남의 계획은 404). 지운 추천은 목록·상세·미리 보기·활성화에서 없는 것과 같다 (hide.py).
 활성화 점검에서 막히면 400 {"detail", "reasonCodes"} (Response를 직접 돌려준다 — config.api의 예외는 detail 밖을 버린다).
 """
 import math
@@ -13,7 +13,7 @@ from rest_framework.views import APIView
 
 from config.api import Rejected, page
 
-from . import demo, executor, payloads, risk
+from . import demo, executor, hide, payloads, risk
 from .models import Recommendation, TradePlan
 from .tokens import check_token
 
@@ -53,7 +53,8 @@ def _acknowledged(data: dict) -> bool:
 
 
 def _recommendation(rec_id: int) -> Recommendation:
-    rec = Recommendation.objects.select_related("requested_by").filter(pk=rec_id).first()
+    """지운 추천은 없는 것과 같다 (404)."""
+    rec = Recommendation.objects.select_related("requested_by").filter(pk=rec_id, deleted_at__isnull=True).first()
     if rec is None:
         raise NotFound("추천을 찾을 수 없습니다.")
     return rec
@@ -71,7 +72,8 @@ class RecommendationsView(APIView):
     def get(self, request):
         """추천 목록 (팀 전체 공용, 최신순). status=open(기본)|all, source, sourceId(source와 같이), symbol."""
         params = request.query_params
-        recs = Recommendation.objects.select_related("requested_by").order_by("-created_at", "-id")
+        recs = (Recommendation.objects.select_related("requested_by").filter(deleted_at__isnull=True)
+                .order_by("-created_at", "-id"))
         wanted = params.get("status", "open")
         if wanted == "open":
             recs = recs.filter(status=Recommendation.OPEN, valid_until__gt=timezone.now())
@@ -102,6 +104,11 @@ class RecommendationsView(APIView):
 class RecommendationView(APIView):
     def get(self, request, rec_id: int):
         return Response(payloads.recommendation_for(_recommendation(rec_id), request.user))
+
+    def delete(self, request, rec_id: int):
+        """만든 팀원만 지운다 (숨김, 리포트 추천이면 출처 리포트도). 남의 것 403, 진행 중 계획이 있으면 400."""
+        hide.delete_recommendation(_recommendation(rec_id), request.user)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class RecommendationPreviewView(APIView):

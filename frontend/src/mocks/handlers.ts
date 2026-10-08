@@ -238,7 +238,7 @@ export const handlers = [
       const sp = urlOf(ctx).searchParams;
       return page(
         urlOf(ctx),
-        db.listReports(sp.get("symbol"), { source: sp.get("source"), team: sp.get("team"), mineUserId: sp.get("mine") === "1" ? u.id : null }),
+        db.listReports(sp.get("symbol"), { source: sp.get("source"), team: sp.get("team"), mineUserId: sp.get("mine") === "1" ? u.id : null, viewerId: u.id }),
       );
     }),
   ),
@@ -252,7 +252,14 @@ export const handlers = [
   ),
   http.get(
     "*/api/reports/:id",
-    route((_u, { params }) => db.getReport(num(params.id))),
+    route((u, { params }) => db.getReport(num(params.id), u.id)),
+  ),
+  http.delete(
+    "*/api/reports/:id",
+    route((u, { params }) => {
+      db.deleteReport(u, num(params.id));
+      return undefined;
+    }),
   ),
   // AI 추천 · 매매 계획 · 알림 (시연용 진행: 주문 접수 → 몇 초 뒤 체결 → 몇 초 뒤 목표가 청산)
   http.post(
@@ -279,6 +286,13 @@ export const handlers = [
   http.get(
     "*/api/recommendations/:id",
     route((u, { params }) => db.getRecommendation(u.id, num(params.id))),
+  ),
+  http.delete(
+    "*/api/recommendations/:id",
+    route((u, { params }) => {
+      db.deleteRecommendation(u, num(params.id));
+      return undefined;
+    }),
   ),
   http.post(
     "*/api/recommendations/:id/activate",

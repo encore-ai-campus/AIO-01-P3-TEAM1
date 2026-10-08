@@ -529,6 +529,8 @@ export interface ReportSummary {
   chaosEnabled?: boolean;
   costUsd?: number | null;
   hasPdf?: boolean;
+  /** 내가 신청했고 끝난(completed·failed) 종목 리포트면 true → DELETE /api/reports/{id} (2026-10-08, DECISIONS 25장). 자동 리포트·선정 실행·남의 것은 false */
+  canDelete: boolean;
   opinion: ReportOpinion | null; // AI 의견 = results.report_agent.verdict. status가 completed일 때만, 그 밖은 null
   oneLiner: string | null; // 한 줄 요약 = results.report_agent.oneLiner (80자). opinion과 같은 규칙
   createdAt: string;
@@ -572,6 +574,7 @@ export interface ReportDetail extends ReportSummary {
 
 export type RecommendationSource = "report" | "analysis" | "demo";
 export type RecommendationStatus = "open" | "expired"; // open: validUntil 전이라 활성화할 수 있음
+export type RecommendationExpiredReason = "deadline" | "below_stop" | "above_target";
 export type RiskLevel = "low" | "medium" | "high";
 
 export interface Recommendation {
@@ -600,6 +603,8 @@ export interface Recommendation {
   risks: string[];
   riskLevel: RiskLevel | null;
   status: RecommendationStatus;
+  /** status가 expired인 까닭: 기한 지남 / 가격이 이미 손절가 이하 / 이미 목표가 이상 (2026-10-08, DECISIONS 25장). open이면 null */
+  expiredReason: RecommendationExpiredReason | null;
   validUntil: string; // 활성화 기한 = 계획의 진입 기한
   createdAt: string;
   myPlan: { id: number; status: TradePlanStatus } | null;
@@ -609,6 +614,8 @@ export interface Recommendation {
    * 비어 있어도 내 계좌 사정(현금·한도·같은 종목)으로 막힐 수 있다 — 최종 판단은 RiskPreview. 없으면 []로 본다.
    */
   blockedBy?: ReasonCode[];
+  /** 내가 만든(requestedBy가 나) 제안이면 true → DELETE /api/recommendations/{id} (2026-10-08, DECISIONS 25장). 자동·남의 것은 false */
+  canDelete: boolean;
 }
 
 /**

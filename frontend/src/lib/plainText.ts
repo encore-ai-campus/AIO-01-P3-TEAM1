@@ -15,6 +15,7 @@ import type {
   PlanEvent,
   QuoteBasis,
   ReasonCode,
+  RecommendationExpiredReason,
   RecommendationSource,
   ReportFailureReason,
   ReportOpinion,
@@ -209,6 +210,30 @@ export const BLOCKED_SHORT_TEXT: Partial<Record<ReasonCode, Wording>> = {
   ev_negative: { easy: "비용까지 따지면 기대되는 결과가 0 이하예요", expert: "기대수익률 0 이하" },
   expired: { easy: "기한이 끝났어요", expert: "만료" },
 };
+
+/**
+ * 가격이 이미 손절가·목표가를 지나 끝난 계획 제안의 문장 (Recommendation.expiredReason, 2026-10-08 DECISIONS 25장).
+ * long: 쉬운 보기의 문장 · short: 칩처럼 짧은 곳 · expert: 전문가 보기. 장중 가격 숫자는 넣지 않는다 (docs/API.md 공통 규칙).
+ * 기한이 지나 끝난 것(deadline)·까닭을 모르는 것(null)은 없다 — 그때는 화면이 지금 문구('기한 지남'·'만료')를 그대로 쓴다.
+ */
+export const PRICE_EXPIRED_TEXT: Record<Exclude<RecommendationExpiredReason, "deadline">, { long: string; short: string; expert: string }> = {
+  below_stop: { long: "가격이 이미 손절 가격 아래로 내려가 끝난 제안이에요", short: "손절 가격 아래로 내려감", expert: "손절가 이탈로 만료" },
+  above_target: { long: "가격이 이미 목표 가격을 넘어 끝난 제안이에요", short: "목표 가격을 넘음", expert: "목표가 도달로 만료" },
+};
+
+/**
+ * 가격 때문에 끝난 제안의 문장 (쉬운 보기는 길이 kind, 전문가 보기는 늘 expert 문장). 기한·모름이면 null.
+ * expiredReason이 없는 옛 응답도 null이다.
+ */
+export function priceExpiredText(
+  reason: RecommendationExpiredReason | null | undefined,
+  easy: boolean,
+  kind: "long" | "short" = "long",
+): string | null {
+  if (reason !== "below_stop" && reason !== "above_target") return null;
+  const t = PRICE_EXPIRED_TEXT[reason];
+  return easy ? t[kind] : t.expert;
+}
 
 /** blockedBy 사유 코드 → 한 마디 (첫 사유 하나, 없으면 빈 문자열). */
 export function blockedShort(codes: readonly string[] | null | undefined, easy = true): string {

@@ -15,7 +15,8 @@ from .conftest import make_report
 pytestmark = pytest.mark.django_db
 
 SUMMARY_KEYS = {"id", "symbol", "name", "market", "status", "currentStep", "requestedBy", "opinion", "oneLiner",
-                "createdAt", "startedAt", "finishedAt", "source", "team", "chaosEnabled", "costUsd", "hasPdf"}
+                "createdAt", "startedAt", "finishedAt", "source", "team", "chaosEnabled", "costUsd", "hasPdf",
+                "canDelete"}
 KST = ZoneInfo("Asia/Seoul")
 DRAFT = {"title": "삼성전자 리포트", "verdict": "buy", "oneLiner": "단기 반등 구간, 분할 접근", "markdown": "# x",
          "plainSummary": ["거래가 늘고 있어요", "실적이 나아지고 있어요", "환율이 바뀌면 손실이 날 수 있어요"],
