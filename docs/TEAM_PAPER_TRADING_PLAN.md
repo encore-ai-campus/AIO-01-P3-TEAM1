@@ -184,7 +184,7 @@ macOS·Linux·WSL2에서만 돈다. 공유 개발 DB는 `.env`에 `POSTGRES_HOST
 
 | # | 쟁점 | 지금 | 정할 사람 · 막는 작업 |
 |---|---|---|---|
-| Q1 | timeout 규칙 | `00-공통.md` 7절·T4-4는 "다음 모델로", `TEAM_DEV_PLAN.md` 5-1·DR-LLM-01·예시 재생 ③은 "같은 모델 1회 → 대체 모델"이다. 하나로 정하고 다른 쪽을 고친다 | 4(5와) · T4-4 전 |
+| Q1 | timeout 규칙 (**2026-10-07 정함**: 같은 모델 1회 → 대체 모델 하나, 호출 한 번 최대 4회 — 00-공통 7절) | `00-공통.md` 7절·T4-4는 "다음 모델로", `TEAM_DEV_PLAN.md` 5-1·DR-LLM-01·예시 재생 ③은 "같은 모델 1회 → 대체 모델"이다. 하나로 정하고 다른 쪽을 고친다 | 4(5와) · T4-4 전 |
 | Q2 | 제한 시간 | 호출 제한 90초(`engine/paper_engine/llm.py:10`)가 단계 `timeout` 60초(`team_definitions.yaml`)보다 길어 시간 초과 뒤 대체 모델로 넘어갈 시간이 없다(추측). 검토 재작성·Handoff에는 제한 시간이 없다. 버린 Worker 스레드가 `finish` 뒤에 기록하면 `StateError`다(`03-orchestrator.md` 주의) | 4·3 · T4-4·T3-5 전 |
 | Q3 | 필수 Worker 시간 초과의 사유 코드 (**2026-10-07 정함**: 단계 제한 시간 초과면 `timeout`, 00-공통 9절) | `join_blocked`인지 `timeout`인지(9절 표) | 3 · T3-5 |
 | Q4 | 검토 단계 입력 | 문서는 "Join Guard가 초안·조사 결과를 검토에 넘긴다", YAML `review`에는 join이 없다 | 3 · T3-5 전 |
@@ -222,7 +222,7 @@ YAML 모델 값은 ① 뒤, budget·`add_cost`·chaos 저장·B9는 ② 뒤, `AG
 **주의**
 
 - 0002에서 user를 null로 열면 `payloads.summary`의 `get_username()`이 깨진다(`payloads.py:62`). user가 없는 리포트의 끝 알림은 활성 사용자 전체에게 간다(코드로 확인: `alerts.py:92,99` → `backend/notifications/service.py:161-162`. 건너뛰는 것은 `source == "auto"`뿐 — `alerts.py:67`).
-- 비용: 리포트는 동시에 1건, 하루 예산 $10을 분석·리포트·대체 모델·자동 리포트가 같이 쓴다. 한 리포트는 최대 Worker 실행 10번·LLM 시도 40번이다(Worker가 실행마다 LLM을 한 번 부른다고 본 계산). 실제 호출은 T2-10·T3-10·T4-10에서만 한다.
+- 비용: 리포트는 동시에 1건, 하루 예산 $10을 분석·리포트·대체 모델·자동 리포트가 같이 쓴다. 한 리포트는 최대 Worker 실행 10번·LLM 시도 40번이다(Worker 실행마다 LLM 호출 한 번 × 최대 4회 시도로 본 계산). 실제 호출은 T2-10·T3-10·T4-10에서만 한다.
 - 루트 `conftest.py`는 `DEVPASS_APIKEY`·`DART_API_KEY`를 비우지 않는다 → 팀 테스트는 가짜 `engine_config`와 `fake_llm`을 꼭 끼운다. 스레드가 DB를 쓰는 테스트에는 `django_db(transaction=True)`가 필요할 것이다(추측). 새 이름에 CI 금지 문자열을 쓰지 않는다.
 
 ### 3-2. 프론트엔드 개선 (담당 5)
