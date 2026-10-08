@@ -7,6 +7,7 @@
 import re
 import subprocess
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -111,10 +112,11 @@ def test_report_html_has_every_section(user, candles):
     report, trace = full_report(user)
     html = pdf.build_report_html(report, trace)
     assert "@page { size: A4; margin: 12mm }" in html and '"Noto Sans CJK KR", "Apple SD Gothic Neo", sans-serif' in html
-    # ⓪ 쪽 머리: 로고(48px 이상 판 — 타일·배·돛의 접힌 선) + 이름, 오른쪽 작은 글씨, 맨 위. 면책 문장·날짜는 되풀이하지 않는다
+    # ⓪ 쪽 머리: 로고(32px 이상 판 — 타일 + 속이 빈 ㅁ 블록 셋) + 이름, 오른쪽 작은 글씨, 맨 위. 면책 문장·날짜는 되풀이하지 않는다
     assert html.index('<header class="brand">') < html.index("<h1>")
     brand = html.split('<header class="brand">')[1].split("</header>")[0]
-    assert '<svg class="logo"' in brand and brand.count("<rect") == 1 and brand.count("<path") == 2
+    assert '<svg class="logo"' in brand and brand.count("<rect") == 1 and brand.count("<path") == 3
+    assert 'fill-rule="evenodd"' in brand and brand.count(pdf.MU_PATH) == 3
     assert f"<span>{pdf.SERVICE_NAME}</span>" in brand and pdf.BRAND_NOTE in brand
     assert "투자 권유" not in brand and "2026-10-04" not in brand
     # ① 머리: 서비스 이름(탭 제목), AI 의견 배지(권유가 아닌 말), 한 줄 요약. 이름은 쪽 머리에 있어 날짜 줄에 다시 쓰지 않는다
@@ -405,4 +407,14 @@ def test_pdf_of_older_template_is_made_again(api, user, files, candles, monkeypa
 
 def test_file_stem():
     assert pdf._file_stem(7, 1) == "7" and pdf._file_stem(7, 2) == "7.v2"
-    assert pdf.TEMPLATE_VERSION == 4 and pdf._file_stem(7, pdf.TEMPLATE_VERSION) == "7.v4"  # 4판: 이름 모매매
+    assert pdf.TEMPLATE_VERSION == 5 and pdf._file_stem(7, pdf.TEMPLATE_VERSION) == "7.v5"  # 5판: 로고 ㅁ 블록 셋
+
+
+def test_logo_shapes_match_frontend():
+    """PDF 머리 로고의 도형 값이 화면 로고(frontend/src/lib/brandShapes.ts)와 같다 — 한쪽만 바꾸면 PDF와 화면의 로고가 달라진다."""
+    shapes = (Path(__file__).resolve().parents[3] / "frontend" / "src" / "lib" / "brandShapes.ts").read_text(encoding="utf-8")
+    assert f'export const MU_PATH = "{pdf.MU_PATH}";' in shapes
+    assert f"export const ICON_BLOCK_SCALE = {pdf.ICON_BLOCK_SCALE};" in shapes
+    blocks = shapes.split("export const ICON_BLOCKS = [")[1].split("]")[0]
+    found = tuple((float(x), float(y)) for x, y in re.findall(r"\{ x: ([\d.]+), y: ([\d.]+) \}", blocks))
+    assert found == pdf.ICON_BLOCKS
