@@ -40,9 +40,15 @@ RULES = """- verdict는 소문자 buy·hold·avoid 중 하나다 (buy = AI 의�
   ○○{unit}에는 손절 가격을 쓴다.
 - markdown은 리포트 본문이다. "## 한눈에 보기", "## 시세·차트", "## 재무·공시", "## 뉴스·심리", "## AI 의견과 가격 제안", "## 위험 요인" 절로 쓰고,
   조사 결과가 없는 절에는 "자료 없음"이라고 쓴다.
-- citations에는 근거로 쓴 조사 결과의 evidence 항목을 글자 그대로 옮긴다 (최대 10개).
+- citations에는 본문에서 실제로 사용한 조사 결과의 evidence 항목을 글자 그대로 옮긴다 (최대 10개).
+  개별 뉴스 기사·증권사 목표주가를 언급했다면 그 출처를 빠뜨리지 않는다. 10개를 넘으면 실제로 쓴 근거를 우선하고, 인용할 수 없는 주장은 본문에서 뺀다.
+- 뉴스 심리를 설명할 때 news_agent의 sentiment와 반대되는 표현을 단정하지 않는다. 상반된 개별 기사가 있으면 전체 심리 판단과 구분해 쓴다.
 - title은 "○○ 종목 리포트"처럼 짧게 쓴다.
-- 이전 초안과 검토의 수정 지시가 있으면 지시를 모두 반영해 초안 전체를 다시 쓴다."""
+- 이전 초안과 검토의 수정 지시가 있으면 지시한 항목을 모두 고친 JSON 전체를 반환한다. 지시받지 않은 사실·가격·근거는 유지한다."""
+
+RETRY_PREFIX = ("이전 초안에서 지시받지 않은 사실·가격·근거는 유지하세요. "
+                "수정 지시의 각 항목을 관련 필드와 markdown 양쪽에 반영하고, "
+                "기사·증권사 목표주가를 썼다면 해당 evidence 문구를 citations에 그대로 복사하세요.\n")
 
 
 class ReportAgent:
@@ -56,7 +62,10 @@ class ReportAgent:
         unit = UNITS.get(ctx.market, "")
         sections = {"종목": {"symbol": ctx.symbol, "name": ctx.name, "market": ctx.market, "priceUnit": unit}}
         sections |= {f"{title} ({wid})": research.get(wid) for wid, title in RESEARCH.items()}
-        prompt = user_prompt(sections, instructions=ctx.instructions, previous=ctx.inputs.get("report_agent"))
+        sections["citations에 그대로 복사할 근거 후보"] = list(dict.fromkeys(
+            evidence for result in research.values() for evidence in result.get("evidence") or []))
+        instructions = RETRY_PREFIX + ctx.instructions if ctx.instructions else None
+        prompt = user_prompt(sections, instructions=instructions, previous=ctx.inputs.get("report_agent"))
         system = system_prompt(ROLE, self.output_contract, RULES.replace("{unit}", unit).replace("{jargon}", JARGON_LIST))
         reply = ctx.llm(system, prompt, contract=self.output_contract)
         return finish(reply.data, research)
