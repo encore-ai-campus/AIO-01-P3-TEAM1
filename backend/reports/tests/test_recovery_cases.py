@@ -1,7 +1,6 @@
-"""복구 셈법 기준 사례 (이 폴더의 recovery_cases.json, 관리 서버 저장소 SHS5029/paper_admin의 API.md 3장): 서비스의 셈(reports.stats)과 관리자 백엔드의 셈이 같은 숫자를 낸다.
+"""복구 셈법 기준 사례 (admin/recovery_cases.json, admin/API.md 3장): 서비스의 셈(reports.stats)과 관리자 백엔드의 셈이 같은 숫자를 낸다.
 
-관리자 백엔드는 Django가 아니어서 같은 셈법을 옮겨 구현했다. 관리 서버 저장소에 같은 파일(recovery_cases.json)이 있고,
-그 저장소의 CI가 두 파일이 같은지 본다 — 셈법을 바꾸면 두 저장소를 같이 고친다.
+관리자 백엔드(admin/server)는 Django가 아니어서 같은 셈법을 옮겨 구현했다. 두 쪽 테스트가 같은 파일을 읽는다.
 """
 import json
 from datetime import datetime
@@ -12,7 +11,7 @@ import pytest
 
 from reports import stats
 
-CASES = json.loads((Path(__file__).resolve().parent / "recovery_cases.json").read_text(encoding="utf-8"))["cases"]
+CASES = json.loads((Path(__file__).resolve().parents[3] / "admin" / "recovery_cases.json").read_text(encoding="utf-8"))["cases"]
 
 
 def _event(raw: dict) -> SimpleNamespace:

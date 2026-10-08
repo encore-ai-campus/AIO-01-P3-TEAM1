@@ -1,4 +1,4 @@
-"""환경 변수 설정 (API.md, 서비스 저장소 OPS_ADMIN_PLAN.md). ADMIN_SECRET_KEY가 32자 미만이면 시작하지 않는다."""
+"""환경 변수 설정 (admin/API.md, OPS_ADMIN_PLAN.md). ADMIN_SECRET_KEY가 32자 미만이면 시작하지 않는다."""
 import os
 from dataclasses import dataclass
 from pathlib import Path

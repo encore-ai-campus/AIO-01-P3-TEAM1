@@ -1,4 +1,4 @@
-"""엔진 상태 기록 (관리 서버 저장소 SHS5029/paper_admin의 API.md 5-1): run_engine이 engine_status 행에 생존 신호·버전·중단 스위치·단계 오류·한도를 남긴다."""
+"""엔진 상태 기록 (admin/API.md 5-1): run_engine이 engine_status 행에 생존 신호·버전·중단 스위치·단계 오류·한도를 남긴다."""
 from datetime import timedelta
 from io import StringIO
 

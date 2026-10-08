@@ -46,7 +46,7 @@ export default function McpTools() {
                 <code>{`claude mcp add --transport http paper-admin ${url} --header "Authorization: Bearer <토큰>"`}</code>
               </pre>
               <p className="muted">
-                토큰 만들기·지우기는 관리 서버에서: <code>python -m paper_admin.tokens add|list|revoke &lt;이름&gt;</code> (README 5장, 원문은 만들 때 한 번만 보인다)
+                토큰 만들기·지우기는 관리 서버에서: <code>python -m paper_admin.tokens add|list|revoke &lt;이름&gt;</code> (README 3장, 원문은 만들 때 한 번만 보인다)
               </p>
 
               <div className="stats">

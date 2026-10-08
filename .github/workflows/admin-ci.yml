@@ -1,23 +1,32 @@
-# 관리 서버 검사: 관리자 백엔드·MCP(server), 관리자 프론트(web), 실제 서비스 스키마에서 읽기 전용 확인(schema).
-# push·PR마다 돌고, deploy.yml이 배포 전에 같은 검사를 부른다 (workflow_call).
-# schema 작업은 서비스 저장소(비공개 SHS5029/paper_trading)의 마이그레이션을 쓴다 — 읽기 전용 deploy key를 비밀 값 SERVICE_REPO_KEY에 넣는다.
-name: CI
+# 관리 서버 검사 (admin/, OPS_ADMIN_PLAN.md 7장): 관리자 백엔드·MCP(admin/server), 관리자 프론트(admin/web), 실제 서비스 스키마에서 읽기 전용 확인(schema).
+# 서비스 검사·배포(ci.yml, deploy.yml)와 따로 돈다: 관리자 앱을 고쳐도 유저 앱 검사·배포에 영향이 없다.
+# 서비스 모델·마이그레이션이 바뀌어도 돈다 (관리자 백엔드가 읽는 표·열이 바뀌었는지 확인). main은 admin-deploy.yml이 이 검사를 부른다.
+name: Admin CI
 
 on:
   push:
-    branches-ignore: [main]   # main은 deploy.yml이 이 검사를 부른다
+    branches-ignore: [main]
+    paths:
+      - "admin/**"
+      - "backend/*/models.py"
+      - "backend/*/migrations/**"
+      - "backend/reports/stats.py"
+      - ".github/workflows/admin-*.yml"
   pull_request:
+    paths:
+      - "admin/**"
+      - "backend/*/models.py"
+      - "backend/*/migrations/**"
+      - "backend/reports/stats.py"
+      - ".github/workflows/admin-*.yml"
   workflow_dispatch:
   workflow_call:
-    secrets:
-      SERVICE_REPO_KEY:
-        required: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  group: admin-ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -27,14 +36,14 @@ jobs:
     timeout-minutes: 10
     defaults:
       run:
-        working-directory: server
+        working-directory: admin/server
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.2.0   # 이 액션은 v8부터 major 태그를 내지 않는다. 정확한 버전을 적는다
         with:
           python-version: "3.12"
           enable-cache: true
-          cache-dependency-glob: server/uv.lock
+          cache-dependency-glob: admin/server/uv.lock
       - name: 의존성 설치
         run: uv sync --frozen
       - name: 린트
@@ -48,14 +57,14 @@ jobs:
     timeout-minutes: 10
     defaults:
       run:
-        working-directory: web
+        working-directory: admin/web
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: admin/web/package-lock.json
       - name: 의존성 설치
         run: npm ci
       - name: 린트
@@ -87,42 +96,16 @@ jobs:
           --health-retries 20
     env:
       PGPASSWORD: ci-only
-      SERVICE_REPO_KEY: ${{ secrets.SERVICE_REPO_KEY }}
     steps:
-      - name: 서비스 저장소 키 확인
-        id: key
-        run: |
-          if [ -z "$SERVICE_REPO_KEY" ]; then
-            echo "::warning::SERVICE_REPO_KEY가 없어 서비스 스키마 확인을 건너뜁니다 (README 4장)"
-            echo "ok=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "ok=true" >> "$GITHUB_OUTPUT"
-          fi
       - uses: actions/checkout@v7
-        if: steps.key.outputs.ok == 'true'
-      - name: 서비스 저장소 받기 (main, 마이그레이션만 쓴다)
-        if: steps.key.outputs.ok == 'true'
-        uses: actions/checkout@v7
-        with:
-          repository: SHS5029/paper_trading
-          ssh-key: ${{ secrets.SERVICE_REPO_KEY }}
-          path: service
-      - name: 복구 셈법 기준 사례가 서비스 사본과 같은지 (API.md 3장)
-        if: steps.key.outputs.ok == 'true'
-        run: |
-          cmp recovery_cases.json service/backend/reports/tests/recovery_cases.json \
-            || { echo "::error::recovery_cases.json이 서비스 저장소 사본과 다릅니다. 두 저장소를 같이 고친다"; exit 1; }
       - uses: astral-sh/setup-uv@v10.2.0
-        if: steps.key.outputs.ok == 'true'
         with:
           python-version: "3.12"
           enable-cache: true
           cache-dependency-glob: |
-            service/uv.lock
-            server/uv.lock
+            uv.lock
+            admin/server/uv.lock
       - name: 서비스 마이그레이션 (서비스 코드 그대로)
-        if: steps.key.outputs.ok == 'true'
-        working-directory: service
         env:
           DJANGO_DEBUG: "on"
           DJANGO_SECRET_KEY: ci-only-not-a-secret
@@ -135,14 +118,12 @@ jobs:
           uv sync --frozen
           uv run python backend/manage.py migrate --noinput
       - name: 읽기 전용 계정 만들기 (두 번 돌려도 된다)
-        if: steps.key.outputs.ok == 'true'
         run: |
           for i in 1 2; do
-            psql -h 127.0.0.1 -U paper -d paper -v ON_ERROR_STOP=1 -v ro_password=ro-ci-only -q -f deploy/readonly_role.sql
+            psql -h 127.0.0.1 -U paper -d paper -v ON_ERROR_STOP=1 -v ro_password=ro-ci-only -q -f admin/deploy/readonly_role.sql
           done
       - name: 관리자 백엔드를 읽기 전용 계정으로 (모든 경로 200, 쓰기 실패)
-        if: steps.key.outputs.ok == 'true'
-        working-directory: server
+        working-directory: admin/server
         env:
           ADMIN_TEST_PG_DSN: postgresql://paper_admin_ro:ro-ci-only@127.0.0.1:5432/paper
         run: |

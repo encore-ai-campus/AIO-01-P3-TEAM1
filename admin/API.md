@@ -1,7 +1,7 @@
 # 관리자 API 계약 (`/api/admin/*`)
 
-> 관리 서버의 관리자 백엔드(`server/`)가 내고, 관리자 프론트(`web/`)와 MCP 서버(`server/paper_admin/mcp_server.py`)가 부른다.
-> 계획은 서비스 저장소(SHS5029/paper_trading)의 `OPS_ADMIN_PLAN.md`. 이 문서를 먼저 고친 뒤 코드를 고친다 (서비스의 `docs/API.md`와 따로다).
+> 관리 서버의 관리자 백엔드(`admin/server/`)가 내고, 관리자 프론트(`admin/web/`)와 MCP 서버(`admin/server/paper_admin/mcp_server.py`)가 부른다.
+> 계획은 루트 `OPS_ADMIN_PLAN.md`. 이 문서를 먼저 고친 뒤 코드를 고친다 (서비스의 `docs/API.md`와 따로다).
 
 ## 0. 공통 규칙
 
@@ -235,9 +235,8 @@ interface Alerts {
 - 복구 못 함(`unrecovered`) = 그 run이 포기로 끝남. **끝나지 않은 run의 장애**(실행 중이거나, 장애가 열린 채 같은 actor의 `agent_started`가 다시 옴)는 장애 건수에만 든다 — 복구도 포기도 아니다.
 - `injected` = 장애 건의 첫 실패의 `details.injected`가 true. `errorType` = 첫 실패의 `details.errorType` (`timeout`·`server_error`·`bad_output`·`unknown` 밖이면 `"unknown"`).
 - 한 리포트의 `recoveryMs` = 복구된 건의 복구 시간 **합** (복구된 건이 없으면 null). 기간 지표의 `meanRecoveryMs` = 건별 복구 시간 평균(반올림), `recent`의 `recovered`는 복구된 건만 true.
-- 기준 사례: `recovery_cases.json`. 관리자 백엔드 테스트(`server/tests/test_recovery.py`)와 서비스 테스트(서비스 저장소 `backend/reports/tests/test_recovery_cases.py`, `reports.stats`)가
-  **같은 사례로 같은 숫자**가 나오는지 확인한다. 서비스 저장소에는 사본 `backend/reports/tests/recovery_cases.json`을 두고, `ci.yml`의 schema 작업이 두 파일이 같은지 본다.
-  셈법을 바꾸면 두 저장소의 파일을 같이 고친다.
+- 기준 사례: `admin/recovery_cases.json`. 관리자 백엔드 테스트(`admin/server/tests/test_recovery.py`)와 서비스 테스트(`backend/reports/tests/test_recovery_cases.py`, `reports.stats`)가
+  **같은 파일로 같은 숫자**가 나오는지 확인한다. 셈법을 바꾸면 이 파일을 먼저 고친다.
 
 ## 4. 읽는 서비스 DB (읽기 전용 계정 `paper_admin_ro`, `deploy/readonly_role.sql`)
 
@@ -272,7 +271,7 @@ PostgreSQL의 JSON 열은 `jsonb`, 테스트의 SQLite는 JSON 문자열이다.
 
 ### 5-2. 배포 기록 (`ADMIN_DATA_DIR/deploys.jsonl`)
 
-GitHub Actions `deploy.yml`의 마지막 작업이 배포 결과 한 줄을 관리 서버로 보낸다. 관리 서버의 `authorized_keys`에 강제 명령
+서비스 GitHub Actions `deploy.yml`의 마지막 작업이 배포 결과 한 줄을 관리 서버로 보낸다. 관리 서버의 `authorized_keys`에 강제 명령
 (`server/paper_admin/deploy_record.py`, 표준 라이브러리만)을 건 전용 키로 SSH 접속해 표준 입력으로 JSON 한 줄을 넘기면, 그 스크립트가 검사해 파일 끝에 더한다.
 
 ```json

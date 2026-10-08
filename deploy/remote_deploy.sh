@@ -46,7 +46,7 @@ prune_images() { # 지금 버전과 직전 버전(되돌릴 때 쓴다)만 남�
 }
 
 record() { echo "$(date '+%Y-%m-%d %H:%M:%S') $IMAGE_TAG $1" >> deploy_history.log; }  # 배포 기록 (보고서 근거)
-# deploy.yml이 이 줄을 읽어 관리 서버의 배포 기록으로 보낸다 (관리 서버 저장소 API.md 5-2의 result)
+# deploy.yml이 이 줄을 읽어 관리 서버의 배포 기록으로 보낸다 (admin/API.md 5-2의 result)
 result() { echo "DEPLOY_RESULT=$1 PREVIOUS=${previous:--}"; }
 
 echo "배포: $IMAGE_PREFIX-*:$IMAGE_TAG (직전: ${previous:-없음})"
