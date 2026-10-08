@@ -28,10 +28,10 @@ def used_usd(now: datetime) -> Decimal:
     analyses = (Job.objects.filter(type=Job.ANALYZE, created_at__gte=start, created_at__lt=end)
                 .exclude(status=Job.FAILED, started_at__isnull=True).count())
     total = analyses * analysis_quota.COST_PER_ANALYSIS_USD
-    # cost_usd는 담당 4의 마이그레이션에서 추가된다. 그 전에는 비용 0으로 읽는다.
+    # 사용자·자동 리포트와 성공·실패 여부에 관계없이 실제 저장된 비용을 합산한다.
     reports = Report.objects.filter(created_at__gte=start, created_at__lt=end)
     for report in reports:
-        cost = getattr(report, "cost_usd", None)
+        cost = report.cost_usd
         if cost is not None:
             amount = Decimal(str(cost))
             if amount.is_finite() and amount > 0:

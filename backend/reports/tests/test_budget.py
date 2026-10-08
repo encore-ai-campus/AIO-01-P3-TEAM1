@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from analysis.models import Job
 from config.api import LimitExceeded
-from reports import budget
+from reports import budget, state
 from reports.models import Report
 
 from .conftest import make_report
@@ -56,6 +56,24 @@ def test_check_blocks_at_limit_and_resets_next_day(user, monkeypatch):
     with pytest.raises(LimitExceeded):
         budget.check(NOON)
     budget.check(NOON + timedelta(days=1))
+
+
+def test_saved_worker_cost_of_failed_auto_report_blocks_next_request(api, stocks, monkeypatch):
+    """Orchestrator의 State 저장 → 예산 합산 → 새 신청 429를 실제 모델 열로 연결한다."""
+    monkeypatch.setattr(timezone, "now", lambda: NOON)
+    monkeypatch.setenv("AI_DAILY_BUDGET_USD", "0.5")
+    monkeypatch.setenv("AI_DAILY_REPORTS_PER_USER", "3")
+    report = make_report(None, source=Report.AUTO, created_at=NOON)
+    state.start(report)
+    state.add_cost(report, 0.3)
+    state.add_cost(report, 0.2)
+    state.finish(report, Report.FAILED)
+
+    assert budget.used_usd(NOON) == Decimal("0.5")
+    response = api.post("/api/reports", {"symbol": "AAPL"}, content_type="application/json")
+    assert response.status_code == 429
+    assert "비용 예산" in response.json()["detail"]
+    assert Report.objects.count() == 1
 
 
 def test_post_checks_budget_after_duplicate_and_quota(api, user, stocks, monkeypatch):
