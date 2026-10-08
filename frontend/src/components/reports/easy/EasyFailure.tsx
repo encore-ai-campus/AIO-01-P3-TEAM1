@@ -12,6 +12,7 @@ import {
   FAILURE_NEXT,
   FAILURE_NEXT_FALLBACK,
   PROGRESS_STATE_TEXT,
+  actorLabel,
   type ProgressState,
   progressOf,
   progressStepsOf,
@@ -116,6 +117,18 @@ export function EasyFailure({ r }: { r: ReportDetail }) {
         </button>
         <Collapse open={open} id={stepsId} className="mt-1">
           <StoppedSteps r={r} reason={reason} />
+          {Object.keys(r.state.errors).length > 0 && (
+            <div className="mt-2 rounded-xl bg-fill px-3 py-2.5">
+              <p className="text-[13px] font-bold">실패한 Agent와 이유</p>
+              <ul className="mt-1 space-y-1 text-[13px] text-sub">
+                {Object.entries(r.state.errors).map(([agent, message]) => (
+                  <li key={agent} className="break-words">
+                    <b>{actorLabel(r.plan, agent)}</b> · {message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </Collapse>
       </div>
 

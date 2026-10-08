@@ -12,7 +12,12 @@ async function boot() {
   // VITE_MOCK=1 npm run dev: 실제 Django 대신 브라우저 안의 가짜 API(MSW)를 쓴다
   if (import.meta.env.VITE_MOCK === "1") {
     const { startMockApi } = await import("./mocks/browser");
-    await startMockApi();
+    // 일부 인앱 브라우저는 Service Worker 등록을 끝내지 못한다. 디자인 검수용 /ui/* 화면까지 흰 화면으로
+    // 남지 않도록 일정 시간 뒤에는 앱 셸을 먼저 그린다. 일반 브라우저에서는 MSW가 준비되는 즉시 그대로 시작한다.
+    await Promise.race([
+      startMockApi().catch(() => undefined),
+      new Promise<void>((resolve) => window.setTimeout(resolve, 2_000)),
+    ]);
   }
   createRoot(document.getElementById("root")!).render(
     <StrictMode>

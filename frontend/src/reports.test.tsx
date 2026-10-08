@@ -274,7 +274,7 @@ describe("리포트 상세", () => {
     expect(within(node("재무·공시 Agent")).getByText("완료")).toBeTruthy();
     expect(within(node("뉴스·심리 Agent")).getByText("실패")).toBeTruthy();
     expect(within(node("시세·차트 Agent")).getByText("실행 중")).toBeTruthy();
-    expect(within(node("뉴스·심리 Agent")).getByText("llama3.2", { exact: false })).toBeTruthy();
+    expect(within(node("뉴스·심리 Agent")).getByText("gemini-3.8-flash", { exact: false })).toBeTruthy();
     expect(traceItems()).toHaveLength(6);
     tab("자세히");
     const state = region(/^Shared State/);
@@ -351,7 +351,7 @@ describe("리포트 상세", () => {
     for (let i = 0; i < 13; i++) click("다음 사건");
     expect(screen.getByText(/사건 22 \/ 22/)).toBeTruthy();
     const chips = within(within(news()).getByRole("list", { name: "시도 이력" })).getAllByRole("listitem");
-    expect(chips.map((c) => c.textContent)).toEqual(["llama3.2시간 초과", "llama3.2시간 초과", "gpt-4.1-mini성공"]);
+    expect(chips.map((c) => c.textContent)).toEqual(["gemini-3.8-flash시간 초과", "gemini-3.8-flash시간 초과", "gpt-5.6-luna성공"]);
     expect(within(news()).getByText("자동 복구")).toBeTruthy();
     expect(within(region("단계 리포트 작성")).getByText(/검토 뒤 다시 작성 1/)).toBeTruthy();
 
@@ -362,8 +362,11 @@ describe("리포트 상세", () => {
 
     // 주요 사건만: agent_started·join_completed는 빠진다
     expect(traceItems()).toHaveLength(14);
-    expect(screen.getByText("대체 모델 gpt-4.1-mini(으)로 전환 (← llama3.2)")).toBeTruthy();
+    expect(screen.getByText("대체 모델 gpt-5.6-luna(으)로 전환 (← gemini-3.8-flash)")).toBeTruthy();
     expect(screen.getByText("검토 → 리포트 작성 Agent 다시 작성 (1번째)")).toBeTruthy();
+    const feedback = screen.getByRole("heading", { name: "Feedback Loop · 검토 후 재작성" }).closest("section") as HTMLElement;
+    expect(within(feedback).getByText(/1번째 검토/)).toBeTruthy();
+    expect(within(feedback).getByText(/수정할 점:/)).toBeTruthy();
     showAll();
     expect(traceItems()).toHaveLength(22);
   });
@@ -592,15 +595,13 @@ describe("리포트 상세", () => {
     expect(within(summary).queryByText(/장애 없음/)).toBeNull();
   });
 
-  it("완성 리포트(전문가): 본문 제목은 카드 제목 아래 단계(h3), PDF는 '보기'(새 창·전문가 판), 완성된 리포트에는 미구현 안내가 없다", async () => {
+  it("완성 리포트(전문가): 본문 제목은 카드 제목 아래 단계(h3), PDF 보기 버튼, 완성된 리포트에는 미구현 안내가 없다", async () => {
     db.addSampleReports();
     const buy = db.listReports("035420")[0];
     renderApp(`/reports/${buy.id}?tab=report`);
     expect(await screen.findByRole("heading", { name: "NAVER 종목 리포트", level: 3 }, { timeout: 5000 })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "리포트 본문", level: 2 })).toBeTruthy();
-    const pdf = screen.getByRole("link", { name: "PDF로 보기" });
-    expect(pdf.getAttribute("target")).toBe("_blank");
-    expect(pdf.getAttribute("href")).toBe(`/api/reports/${buy.id}/pdf?view=expert`); // 전문가 보기는 전문가 판 PDF
+    expect(screen.getByRole("button", { name: "PDF로 보기" })).toBeTruthy();
     expect(screen.queryByText(/Agent 실행은 아직 구현되지 않았습니다/)).toBeNull();
   });
 
