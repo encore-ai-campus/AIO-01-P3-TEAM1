@@ -517,6 +517,7 @@ type TraceStatus = "started" | "completed" | "failed" | "blocked" | "skipped";
 // review_retry.details: {round, target, issues: ["주장 — 문제", ...], instructions}
 // agent_failed는 두 가지다: details.final = false 는 LLM 호출 한 번의 실패(재시도·전환으로 이어진다),
 // details.final = true 는 그 Worker를 포기한 것. details.injected = true 는 장애 주입으로 일으킨 실패.
+// LLM 호출 한 번은 최대 4회 시도한다 (첫 시도 + 재시도 3회, 모델마다 2회 — 00-공통.md 7절). 넘거나 deadline이 지나면 그 Worker를 포기한다.
 type ErrorType = "timeout" | "server_error" | "bad_output" | "unknown";
 
 interface TraceEvent {            // 구조화된 Trace의 사건 하나
@@ -545,7 +546,7 @@ interface SharedState {           // Orchestrator만 갱신한다
 interface Worker {
   id: string; title: string; goal: string;
   provider: string | null; model: string | null;   // 아직 정하지 않았으면 null
-  fallbacks: string[];          // (추가) 주 모델이 실패하면 차례로 쓰는 대체 모델
+  fallbacks: string[];          // (추가) 주 모델이 실패하면 쓰는 대체 모델 (지금은 하나 — healing.FALLBACK_POOL에서 차단이 없을 때 고르는 모델. 2026-10-08)
   outputContract: string;       // 역할별 출력 계약 이름
 }
 
