@@ -132,7 +132,7 @@ class Reservation(models.Model):
 
 
 class EngineStatus(models.Model):
-    """엔진 루프의 생존 신호 (admin/API.md 5-1). run_engine이 30초마다 자기 행을 고치고, 관리 서버가 읽기 전용 계정으로 읽는다.
+    """엔진 루프의 생존 신호 (관리 서버 저장소 SHS5029/paper_admin의 API.md 5-1). run_engine이 30초마다 자기 행을 고치고, 관리 서버가 읽기 전용 계정으로 읽는다.
 
     웹 API는 이 표를 쓰지 않는다. 비밀 값은 넣지 않는다 (한도 숫자와 오류 이름·짧은 문장만).
     """

@@ -100,7 +100,7 @@ docker compose --env-file .env.docker down        # 데이터까지 지우려면
 | 비밀 값 | `DEPLOY_SSH_KEY` | 4장 3번의 개인 키 파일 내용 전체 |
 | 비밀 값 | `DISCORD_WEBHOOK_URL` | (선택) 결과를 받을 Discord 채널의 Webhook 주소. 없으면 알림을 건너뛴다 |
 | 변수 | `DEPLOY_ENABLED` | 위를 다 넣은 뒤 `true`. 이 값이 `true`가 아니면 검사만 돈다 |
-| 변수·비밀 값 | `ADMIN_RECORD_HOST`, `ADMIN_RECORD_HOST_KEY`, `ADMIN_RECORD_USER`, `DEPLOY_SERVER_NAME` · `ADMIN_RECORD_SSH_KEY` | (선택) 관리 서버에 배포 결과 한 줄을 남긴다 (`record` 작업). 관리 서버를 준비했을 때만 — `admin/README.md` 3-3 |
+| 변수·비밀 값 | `ADMIN_RECORD_HOST`, `ADMIN_RECORD_HOST_KEY`, `ADMIN_RECORD_USER`, `DEPLOY_SERVER_NAME` · `ADMIN_RECORD_SSH_KEY` | (선택) 관리 서버에 배포 결과 한 줄을 남긴다 (`record` 작업). 관리 서버를 준비했을 때만 — 관리 서버 저장소 SHS5029/paper_admin의 README 3-3 |
 
 `gh`로 넣을 때 (값이 화면에 남지 않게 파일·입력으로 준다):
 
@@ -126,7 +126,7 @@ gh variable set DEPLOY_ENABLED --body "true"
 3. nginx를 거쳐 `/api/health`와 `/`를 확인한다 (최대 2분).
 4. 성공하면 태그를 `.deployed_tag`에 적고, 지금 버전과 직전 버전 이미지만 남기고 지운다.
 5. 2~3에서 실패하면 로그를 남기고 **직전에 성공한 태그로 다시 띄운 뒤 실패로 끝난다.** 결과는 `deploy_history.log`에 한 줄씩 쌓인다.
-6. 마지막에 `DEPLOY_RESULT=<success|rolled_back|rollback_failed|failed> PREVIOUS=<직전 태그>` 줄을 출력한다. `deploy.yml`의 `record` 작업이 이 결과(검사 실패면 `blocked`)를 관리 서버의 배포 기록으로 보낸다 (`admin/API.md` 5-2).
+6. 마지막에 `DEPLOY_RESULT=<success|rolled_back|rollback_failed|failed> PREVIOUS=<직전 태그>` 줄을 출력한다. `deploy.yml`의 `record` 작업이 이 결과(검사 실패면 `blocked`)를 관리 서버의 배포 기록으로 보낸다 (관리 서버 저장소 `API.md` 5-2).
 
 - DB 마이그레이션은 되돌리지 않는다. 되돌릴 수 없는 모델 변경(열 삭제 등)은 "코드가 안 쓰게 하는 배포"와 "지우는 배포"로 나눈다.
 - 손으로 직전 버전으로 돌리기 (서버에서, 이미지가 남아 있는 직전 태그에 한해):

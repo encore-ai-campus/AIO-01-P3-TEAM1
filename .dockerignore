@@ -47,7 +47,6 @@ frontend/dist
 # 이미지에 필요 없는 것
 graft
 personal_project_files
-admin
 scripts
 *.md
 !docs/*.md

@@ -67,9 +67,10 @@ frontend/              React + TypeScript + Vite + Tailwind CSS (하단 탭 홈�
 backtest/              백테스트 (AI 없음, DB 없이 단독 실행)
 deploy/                compose.dev.yml(로컬 Redis + 선택 PostgreSQL), docker-compose.yml(운영: nginx·web·engine·db·redis),
                        Dockerfile(web·engine), nginx/, .env.docker.example, remote_deploy.sh(서버 배포·되돌리기), smoke_test.sh
-.github/workflows/     ci.yml(검사), deploy.yml(main: 검사 → 이미지 → 서버 배포 → 관리 서버 배포 기록 → 알림), admin-ci.yml(관리 서버 검사)
-admin/                 관리 서버 (조회 전용, 서비스와 따로 둔 서버·검사·배포): API.md(계약), server/(FastAPI 관리자 백엔드 + MCP, 자기 uv 프로젝트),
-                       web/(관리자 화면, 자기 npm 패키지), deploy/(compose·읽기 전용 DB 계정 SQL·push.sh). 서비스 코드와 서로 import하지 않는다 (README.md)
+.github/workflows/     ci.yml(검사), deploy.yml(main: 검사 → 이미지 → 서버 배포 → 관리 서버 배포 기록 → 알림)
+(관리 서버)            별도 저장소 SHS5029/paper_admin (2026-10-08 분리, 로컬은 이 저장소 옆 ../paper_admin): 조회 전용 관리자 화면·백엔드·MCP, 자기 CI/CD·서버.
+                       이 저장소에는 그 서버가 읽는 것만 둔다: engine_status(trading/heartbeat.py), DB 127.0.0.1 포트, deploy.yml의 배포 기록 작업,
+                       복구 셈법 기준 사례 사본(backend/reports/tests/recovery_cases.json — 두 저장소 파일이 같아야 한다)
 docs/                  DESIGN.md, DECISIONS.md, API.md, KIWOOM.md, DEPLOY.md, tasks/(담당별 작업·공통 약속)
 ```
 

@@ -30,7 +30,7 @@ pythonpath = ["backend"]
 [tool.ruff]
 line-length = 120
 target-version = "py312"
-extend-exclude = ["frontend", "personal_project_files", "graft", "admin"]  # admin/: 관리 서버 (자기 pyproject·검사, admin-ci.yml)
+extend-exclude = ["frontend", "personal_project_files", "graft"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W"]

@@ -5,7 +5,7 @@
 #   변수(Settings → Secrets and variables → Actions → Variables): DEPLOY_ENABLED, DEPLOY_HOST, DEPLOY_USER, DEPLOY_DIR,
 #     DEPLOY_HOST_KEY, DEPLOY_PORT(선택, 기본 22)
 #   비밀 값(Secrets): DEPLOY_SSH_KEY, DISCORD_WEBHOOK_URL(선택)
-# 관리 서버에 배포 기록 남기기(선택, admin/deploy/README.md): 변수 ADMIN_RECORD_HOST, ADMIN_RECORD_HOST_KEY, ADMIN_RECORD_USER(기본 ubuntu),
+# 관리 서버에 배포 기록 남기기(선택, 관리 서버 저장소 SHS5029/paper_admin의 README 3-3): 변수 ADMIN_RECORD_HOST, ADMIN_RECORD_HOST_KEY, ADMIN_RECORD_USER(기본 ubuntu),
 #   DEPLOY_SERVER_NAME(기본 app) · 비밀 값 ADMIN_RECORD_SSH_KEY (관리 서버에서 기록 한 줄만 쓸 수 있는 강제 명령 키)
 name: Deploy
 
@@ -206,7 +206,7 @@ jobs:
           ACTOR: ${{ github.actor }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          # admin/API.md 5-2: success · rolled_back · rollback_failed · failed · blocked(검사 실패로 배포하지 않음). 취소는 남기지 않는다
+          # 관리 서버 저장소 API.md 5-2: success · rolled_back · rollback_failed · failed · blocked(검사 실패로 배포하지 않음). 취소는 남기지 않는다
           if [ "$CI_RESULT" = cancelled ] || [ "$DEPLOY_RESULT" = cancelled ]; then echo "취소됨: 남기지 않음"; exit 0; fi
           if [ "$CI_RESULT" != success ]; then result=blocked
           elif [ "$DEPLOY_RESULT" = success ]; then result=success
