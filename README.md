@@ -29,7 +29,7 @@ flowchart LR
     S["선별<br/>규칙 점수"]:::code --> R["AI 리포트<br/>근거·위험·목표가"]:::ai
     R --> K["리스크 엔진<br/>손익비·수량"]:::code --> REC["AI 추천"]:::code
     REC --> U["사용자가 리포트 검토<br/>웹 · A4 PDF<br/>계획 활성화"]:::decide
-    U --> T["모의 자동매매"]:::code --> N["알림<br/>웹 · Discord"]:::code
+    U --> T["모의 자동매매"]:::code --> N["알림<br/>웹 알림"]:::code
 ```
 
 - **AI는 제안만 한다.** 지표 계산·사실 검증·수량·한도·체결은 결정론적 코드(리스크 엔진, 모의 체결기)가 정한다.
@@ -205,8 +205,179 @@ erDiagram
     }
 ```
 
-표 이름은 실제 `db_table`이고 열은 핵심만 적었다. 이 밖에 FK 없는 표: `notification_outbox`(Discord 보낼 글), `daily_move_notes`(오늘의 내 종목 뉴스), `analysis_run_files`(분석 파일 색인).
+표 이름은 실제 `db_table`이고 열은 핵심만 적었다. 이 밖에 FK 없는 표: `notification_outbox`(Discord 보낼 글), `daily_move_notes`(오늘의 내 종목 뉴스), `analysis_run_files`(분석 파일 색인), `engine_status`(엔진 동작 기록 — 관리 서버가 읽는다).
 워크플로우가 쓰는 표의 자세한 열은 [docs/AI_AGENT_WORKFLOW.md](docs/AI_AGENT_WORKFLOW.md) 0장, 엔진 CLI의 기록 저장소(`data/trading.db`)는 `docs/DECISIONS.md` 4장.
+
+## 시스템 구조 — 큰 그림에서 한 단계씩 안으로
+
+위의 Agent 워크플로우가 **어디서 도는지**를 큰 그림부터 확대해 본다. 자세한 설명은 [산출물 2의 0장](docs/deliverables/02_배포_및_장애복구_보고서.md#0-배포-구성--큰-그림에서-서버-안까지).
+
+| 확대 | 그림 | 보이는 것 |
+|---|---|---|
+| 1단계 | [전체 그림](#1단계--전체-그림) | 서버 두 대(EC2 ①·②), GitHub, 외부 API |
+| 2단계 | [두 서버 안과 사이](#2단계--두-서버-안과-서버-사이) | 서버마다 도는 컨테이너, 두 서버가 주고받는 것 |
+| 3단계 | [리포트 한 건의 길](#3단계--리포트-한-건이-지나가는-길-서비스-서버-안) | 서비스 서버 안에서 요청이 컨테이너를 지나는 순서 |
+| 4단계 | [Agent 워크플로우](#ai-리포트-agent-워크플로우) (위) | 엔진 컨테이너 안의 Orchestrator와 Agent |
+
+### 1단계 — 전체 그림
+
+```mermaid
+flowchart TB
+    classDef user fill:#eafaf0,stroke:#16a34a,color:#0f3d22
+    classDef svc fill:#e8f1ff,stroke:#3b82f6,stroke-width:2px,color:#0b2a5b
+    classDef adm fill:#f3e8ff,stroke:#a855f7,stroke-width:2px,color:#3b0764
+    classDef ext fill:#fff4e5,stroke:#f59e0b,color:#5a3300
+    classDef gh fill:#f1f5f9,stroke:#64748b,color:#0f172a
+
+    U["팀원<br/>브라우저 · 휴대폰"]:::user
+    OP["운영 담당<br/>브라우저 · Claude Code"]:::user
+    S["EC2 ① 서비스 서버<br/>모매매 웹 서비스"]:::svc
+    A["EC2 ② 관리 서버<br/>조회 전용 관리자 화면"]:::adm
+    G["GitHub<br/>코드 · Actions · 이미지 저장소"]:::gh
+    X["외부 API<br/>AI 게이트웨이 · 토스 시세 · DART · 뉴스"]:::ext
+
+    U -- "HTTP :80" --> S
+    OP -- "HTTP :80" --> A
+    A -- "상태 확인 · DB 읽기" --> S
+    S -- "조회만" --> X
+    G -- "자동 배포" --> S
+    G -- "자동 배포 · 배포 기록" --> A
+```
+
+- **EC2 ① 서비스 서버** — 팀원이 쓰는 모매매 전체(화면·API·엔진·DB).
+- **EC2 ② 관리 서버** — 운영 담당이 장애·복구·배포·AI 비용을 보는 **조회 전용** 관리자 화면과 MCP 서버. 서비스와 서버를 나눠, 관리 서버가 멈춰도 서비스는 그대로 돈다.
+- **GitHub** — `main`에 push하면 검사를 통과한 버전만 두 서버에 자동 배포한다 ([산출물 3](docs/deliverables/03_파이프라인_구현결과_보고서.md)).
+- **외부 API는 조회만** 한다: AI 게이트웨이(DevPass), 토스증권 시세, DART 공시·재무, Google 뉴스. 증권사 주문 API는 부르지 않는다 (실주문 코드 0건 — CI가 검사).
+
+### 2단계 — 두 서버 안과 서버 사이
+
+```mermaid
+flowchart TB
+    classDef user fill:#eafaf0,stroke:#16a34a,color:#0f3d22
+    classDef svc fill:#e8f1ff,stroke:#3b82f6,color:#0b2a5b
+    classDef adm fill:#f3e8ff,stroke:#a855f7,color:#3b0764
+    classDef db fill:#f1f5f9,stroke:#64748b,color:#0f172a
+
+    U["팀원"]:::user
+    OP["운영 담당"]:::user
+
+    subgraph S["EC2 ① 서비스 서버"]
+        NG["nginx :80<br/>입구 · 화면 파일"]:::svc
+        WEB["web<br/>Django API"]:::svc
+        ENG["engine<br/>엔진 루프 · AI Agent"]:::svc
+        DB[("db<br/>PostgreSQL")]:::db
+        NG --> WEB --> DB
+        ENG --> DB
+    end
+
+    subgraph A["EC2 ② 관리 서버"]
+        AW["web :80<br/>관리자 화면"]:::adm
+        API["api<br/>관리자 백엔드"]:::adm
+        MCP["mcp<br/>MCP 서버"]:::adm
+        TN["tunnel<br/>SSH 터널"]:::adm
+        AW --> API
+        AW --> MCP --> API
+        API --> TN
+    end
+
+    U --> NG
+    OP --> AW
+    API -- "① 30초마다 상태 확인" --> NG
+    TN -- "② DB 읽기 (읽기 전용)" --> DB
+    style S fill:#f5f9ff,stroke:#3b82f6,stroke-width:2px
+    style A fill:#faf5ff,stroke:#a855f7,stroke-width:2px
+```
+
+| 서버 | 컨테이너 | 하는 일 |
+|---|---|---|
+| EC2 ① | `nginx` | 유일한 입구(80). React 빌드 파일을 내주고 `/api`를 web으로 넘긴다 |
+| | `web` | Django API: 로그인, 계좌·주문, 리포트 신청, 진행 스트림(SSE) |
+| | `engine` | 5초마다 도는 엔진 루프: 모의 체결·청산, **AI 리포트 실행(Orchestrator·Agent)**, 매일 08:00 자동 리포트, 추천·자동매매, 알림, A4 PDF |
+| | `db` | PostgreSQL 16 — 위 ERD의 모든 표 |
+| | `redis` · `migrate` | 엔진 CLI용 Redis, 띄울 때 한 번 도는 DB 마이그레이션 (그림에서 뺐다) |
+| EC2 ② | `web` | 관리자 화면, `/api/admin`·`/mcp` 길 안내 |
+| | `api` | 관리자 백엔드 — 서비스 상태·엔진 상태·배포 기록·리포트 장애·복구 지표·AI 비용을 계산 (읽기만) |
+| | `mcp` | Claude Code에서 쓰는 조회 도구 9개 |
+| | `tunnel` | 서비스 DB로 가는 SSH 터널 |
+
+두 서버 사이에 오가는 것은 둘뿐이고, 모두 **관리 서버 → 서비스 서버** 방향이다 (서비스는 관리 서버를 모른다).
+
+| # | 무엇 | 어떻게 |
+|---|---|---|
+| ① | 서비스가 살아 있나 | 30초마다 `GET /api/health`·`GET /`을 불러 가동률·응답 시간을 낸다 |
+| ② | 리포트·Trace·엔진 상태·비용 같은 표 | SSH(22) 터널로 서비스 서버 안의 DB 포트(`127.0.0.1:15432`)에만 붙는다. 터널 전용 사용자(셸 없음)와 읽기 전용 DB 계정. DB 포트는 인터넷에 열지 않는다 |
+
+이 밖에 GitHub Actions가 두 서버에 각각 배포하고, 서비스 배포 결과(`success`·`rolled_back`·`blocked` 등)를 관리 서버의 배포 기록에 한 줄 남긴다.
+
+### 3단계 — 리포트 한 건이 지나가는 길 (서비스 서버 안)
+
+```mermaid
+sequenceDiagram
+    participant B as 브라우저
+    participant W as nginx → web
+    participant D as db
+    participant E as engine
+    participant L as AI 게이트웨이
+
+    B->>W: ① 리포트 신청
+    W->>D: ② "requested"로 저장
+    W-->>B: 리포트 번호
+    B->>W: ③ 진행 스트림 열기 (SSE)
+    E->>D: ④ 5초마다 확인 → 신청을 집는다
+    E->>L: ⑤ Agent들이 모델 호출 (실패하면 재시도 · 대체 모델)
+    E->>D: ⑥ 결과 · Trace 기록
+    W-->>B: ⑦ Trace를 실시간으로 화면에
+    E->>D: ⑧ 완료 · PDF · (매수 의견이면) AI 추천
+```
+
+- **웹은 AI를 부르지 않는다.** 오래 걸리는 일은 engine이 하고, web과 engine은 DB로만 이야기한다. 그래서 리포트가 도는 중에도 화면은 느려지지 않는다.
+- ⑤의 안쪽이 위의 [AI 리포트 Agent 워크플로우](#ai-리포트-agent-워크플로우)다. Agent 하나의 호출이 실패하면 무엇을 하는지는 [산출물 1의 8장](docs/deliverables/01_멀티에이전트_아키텍처_설계서.md#8-정상재시도실패종료-흐름).
+- 진행 스트림이 끊기면 화면은 3초 폴링으로 바꿔 계속 갱신한다.
+
+## 평가 기준과 산출물
+
+과제 주제는 **에러 자가 치유(AutoHealing) 워크플로우**다 — 여러 에이전트의 협업 구조를 설계하고, 장애를 감지·판단·복구하는 흐름을 구현해 배포한 뒤
+장애 시험으로 복구 결과를 검증한다 ([평가 기준](docs/프로젝트평가기준.md)). 산출물은 [`docs/deliverables/`](docs/deliverables/)에 번호를 붙여 둔다.
+
+### 필수 산출물
+
+| 산출물 | 문서 | 담은 것 |
+|---|---|---|
+| ① 멀티 에이전트 아키텍처 설계서 | [01_멀티에이전트_아키텍처_설계서.md](docs/deliverables/01_멀티에이전트_아키텍처_설계서.md) | 목적·시나리오, Supervisor(코드) 중앙 조정형과 선정 이유, Agent 11개의 역할·입출력, Handoff 전달 데이터, Shared State·Trace, 정상·재시도·실패·종료 흐름, 역할 중복·공백 점검 |
+| ② 배포 및 장애 복구 보고서 | [02_배포_및_장애복구_보고서.md](docs/deliverables/02_배포_및_장애복구_보고서.md) | 서버 두 대·컨테이너·통신·시크릿·상태 확인, 장애 유형별 감지·복구, 장애 주입 시험 설정과 결과, 자동 복구율·평균 복구시간, 수동 개입과 알림, 실패 사례 |
+| ③ 파이프라인 구현 결과 보고서 | [03_파이프라인_구현결과_보고서.md](docs/deliverables/03_파이프라인_구현결과_보고서.md) | 커밋 → 검사 → 이미지 → 배포 → 되돌리기, 단계별 성공 조건·실패 처리, 테스트 데이터와 통과 수, 배포 차단 실제 기록, 실행 결과(실행 번호·커밋·시각·링크) |
+
+### 핵심 수행내용은 어디에
+
+| 핵심 수행내용 (가이드) | 구현 | 문서 |
+|---|---|---|
+| 에이전트 협업 시나리오와 역할 구조 설계 | YAML 실행 계획(`backend/reports/*_definitions.yaml`), Agent 11개(`backend/reports/agents/`) | 산출물 1의 1~6장 |
+| 장애 유형별 복구 로직 및 자동화 파이프라인 구현 | 재시도·대체 모델·Circuit Breaker(`healing.py`), Join·Handoff Guard(`guards.py`), 장애 주입(`chaos.py`), 하루 파이프라인과 Fallback(`auto.py`) | 산출물 1의 8장, 산출물 2의 1~4장 |
+| 협업 기반 실행 흐름 통합 구현 | Orchestrator(`orchestrator.py`) → 리포트·PDF → 리스크 엔진 → AI 추천 → 계획 활성화 → 모의 자동매매 → 알림 | 산출물 1의 2·4장 |
+| 서비스 배포 및 결과 검증 | EC2 두 대 + Docker Compose, GitHub Actions(`ci.yml`·`deploy.yml`·`admin-*.yml`), 관리 서버 복구 지표 | 산출물 2·3 |
+
+### 평가 항목별로 보여 줄 것
+
+| 평가 항목 | 배점 | 보여 줄 것 | 근거 |
+|---|---|---|---|
+| 프로젝트 기획 및 목표 달성도 | 25 | 핵심 수행내용 네 가지를 모두 구현해 운영 서버에서 돈다. "AI는 제안, 코드는 검증, 사람이 결정" 원칙으로 초보자의 문제를 푼다 | 위 표, 산출물 1 |
+| 서비스 완성도 및 활용 가능성 | 35 | 운영 주소에서 로그인 → AI 리포트(약 2분) → 계획 활성화 → 모의 자동매매 → 알림까지 실제로 돈다. 매일 08:00 자동 리포트, 주린이모드(쉬운 보기), 모바일 화면, 관리 서버 | [운영 E2E 점검](docs/운영E2E점검_UX리뷰_2026-10-08.md) |
+| 프로젝트 수행 과정 및 개선 노력 | 20 | 결정 기록 27장, 브랜치 리뷰 문서, 실패 사례와 개선 이력 — 검사 실패가 실제로 배포를 막은 기록, 리뷰에서 찾아 고친 결함 | [DECISIONS](docs/DECISIONS.md), [docs/works/](docs/works/), 산출물 2의 6장, 산출물 3의 4·8장 |
+| 발표 구성 및 전달력 | 20 | 큰 그림 → 서버 → Agent → 복구 순서로 설명, 시연(정상 → 장애 주입 → 복구 → 배포 차단) | 발표 자료, [TEAM_DEV_PLAN.md](TEAM_DEV_PLAN.md) 9장 시연 순서 |
+
+### 실행 정보
+
+| 항목 | 값 |
+|---|---|
+| 서비스 (EC2 ①) | http://52.78.101.101 — HTTP만. 상태 확인 `/api/health` |
+| 관리 서버 (EC2 ②) | http://54.116.203.153 — 서비스의 staff 계정으로 로그인 |
+| 저장소 | https://github.com/SHS5029/paper_trading (비공개) |
+| 파이프라인 | https://github.com/SHS5029/paper_trading/actions — `Deploy`(main), `CI`(브랜치·PR), `Admin CI`·`Admin Deploy`(관리 서버) |
+| 모니터링·로그 | 관리 서버의 서비스 상태·엔진 상태·배포 기록·리포트 장애·복구 지표·AI 비용 메뉴. 컨테이너 로그는 서버에서 `docker compose logs` |
+| 실행 환경 | AWS EC2(Ubuntu 26.04) 두 대 + Docker Compose. 서비스: nginx · Django(gunicorn) · 엔진 루프 · PostgreSQL 16 · Redis 7. 관리 서버: nginx · FastAPI · MCP · SSH 터널 |
+| 테스트 계정 | 회원 가입 화면은 없다. 팀원 계정 5개·관리자 1개를 관리 명령(`create_team_accounts`)으로 만들고, 아이디·비밀번호는 git에 넣지 않는 파일(`team_accounts.txt`·`admin_account.txt`)로 전한다 |
+| AI·외부 API | DevPass LLM 게이트웨이(gemini-3.8-flash · gpt-5.6-luna · claude-opus-5-5 · deepseek-v4.1-flash), 토스증권 시세 조회, DART OpenAPI, Google 뉴스 RSS |
+| 프로젝트 기간 | 2026-10-02 ~ 2026-10-13 (발표) |
 
 ## 기술 스택
 
@@ -218,14 +389,18 @@ erDiagram
 | 캐시·실시간 | Django LocMemCache · Redis 7 · SSE | 웹의 시세·조회 캐시 / 엔진 CLI 상주 루프·예약(`paper:` 키) / 리포트 진행 화면 |
 | 프론트 | React 19 · TypeScript · Vite · Tailwind CSS 4 · TanStack Query · React Router · lightweight-charts · react-markdown | 화면 SPA(`frontend/`), 서버 상태 폴링, 차트, 리포트 본문 |
 | AI | DevPass LLM Gateway (OpenAI 호환) | AI 교차검증 분석, 리포트 Worker 호출(`reports/healing.py`), 장기투자 뉴스 문장 |
-| 외부 데이터 | 키움 REST · 토스(로컬 개발 전용) · DART OpenAPI · Google 뉴스 RSS | 시세·일봉·순위·종목 정보(조회만) · 공시·재무 · 뉴스 제목 |
-| PDF·알림 | Chrome headless · Discord Webhook | 리포트 A4 PDF · 단계별 알림 (웹 알림은 DB) |
-| 배포 | Docker Compose · nginx · GitHub Actions · GHCR · AWS EC2 | 운영 구성(nginx·web·engine·db·redis), 검사 → 이미지 → 서버 배포 → 실패 시 되돌리기 |
+| 외부 데이터 | 토스증권 API(조회 전용) · DART OpenAPI · Google 뉴스 RSS | 시세·일봉·순위·종목 정보(조회만) · 공시·재무 · 뉴스 제목. 키움 REST 클라이언트도 남아 있어 `BROKER=kiwoom`으로 바꿀 수 있다 |
+| PDF·알림 | Chrome headless · 웹 알림(DB) · Discord Webhook | 리포트 A4 PDF · 단계별 알림 (Discord는 2026-10-08부터 꺼 둠) |
+| 관리 서버 | FastAPI · psycopg · MCP Python SDK · React | 조회 전용 관리자 API·화면·MCP 도구 (`admin/`). 서비스 코드에 기대지 않게 가볍게 따로 만들었다 |
+| 배포 | Docker Compose · nginx · GitHub Actions · GHCR · AWS EC2 두 대 | 서비스(nginx·web·engine·db·redis)·관리 서버(web·api·mcp·tunnel), 검사 → 이미지 → 서버 배포 → 실패 시 되돌리기 |
 | 검사 도구 | uv · ruff · pytest · ESLint · Vitest · Testing Library · MSW | 파이썬 의존성·린트·테스트, 프론트 린트·테스트·가짜 API(`VITE_MOCK=1`) |
 
 버전·구성의 자세한 내용은 [docs/TEAM_PAPER_TRADING_PLAN.md](docs/TEAM_PAPER_TRADING_PLAN.md) 2장.
 
 ### 수업 기술 대신 React/TS·Django·uv를 쓴 이유
+
+<details>
+<summary>펼쳐 보기 — 세 가지 기준과 Streamlit·FastAPI·pip+venv 대비</summary>
 
 정규 수업은 화면을 Streamlit, API를 FastAPI로 만들고 패키지는 pip, 가상환경은 venv로 관리한다.
 이 프로젝트는 혼자 보는 분석 도구가 아니라 **팀원 다섯이 각자 로그인해 자기 모의 계좌를 쓰고, 백그라운드 엔진 루프가 체결·자동매매·리포트를 돌리는 웹 서비스**라서 아래 세 기준으로 다시 골랐다.
@@ -279,18 +454,24 @@ erDiagram
 | 언어·패키지 관리자가 둘씩(Python·TS, uv·npm)이다 | CI가 두 쪽을 함께 검사한다 |
 | 리포트 SSE 연결이 스레드를 하나씩 잡는다 | gunicorn 스레드 16개, 끊기면 3초 폴링으로 바꾼다 |
 
-## 지금 상태 (2026-10-07)
+</details>
+
+## 지금 상태 (2026-10-09)
 
 | 기능 | 상태 |
 |---|---|
+| AI 리포트 Agent 워크플로우 — Orchestrator·Agent 11개·Join/Handoff Guard·검토 반복, State·Trace·SSE, A4 PDF, 쉬운 보기, 끝 알림 | **운영에서 실제 모델로 동작** (2026-10-08 운영 점검: 리포트 1건 122초·$0.196, 검토가 한 번 고쳐 쓰게 한 뒤 통과) |
+| 하루 파이프라인 — 규칙 후보 → AI 선정 팀 → 선정 Guard → 자동 리포트 3개 | 운영에서 켬 (`AUTO_REPORT=on`, 국내 거래일 08:00) |
+| AutoHealing — 재시도·대체 모델·Circuit Breaker, 장애 주입, 복구 지표 API, 팀 하루 AI 예산 | 구현·테스트 완료 (시나리오 테스트 `test_dr_scenarios.py`). 운영 시험: DR-LLM-01 통과 (리포트 #61, 시간 초과 → 대체 모델 6.3초 복구), 같은 리포트에서 검토 RETRY → PASS (DR-CRT-01). 운영 7일 호출 장애 자동 복구율 100% (7/7, 평균 10.6초). 나머지는 산출물 2의 5장에 채우는 중 |
+| 추천 → 계획 활성화 → 모의 자동매매 → 알림 | 운영 점검 통과 (리포트 → 계획 제안 → 실행 → 체결 → 멈추기(전량 매도) → 알림) |
 | 모의 계좌·주문 — 팀원별 계좌, 시장가·지정가, 장 밖 예약, 목표·손절 청산, 보유 방식 스윙·장기 | 동작 (장중 지정가 체결·자동 청산 실측은 아직) |
-| 종목·차트 — 시세는 실시간, 계좌 평가·랭킹은 장마감 기준 | 동작 |
-| AI 교차검증 분석 — 팀원별·팀 하루 한도 | 구현됨 (실제 AI 실행은 CLI 1건만 확인) |
-| AI 리포트 — 신청·하루 한도, YAML Registry, State·Trace, SSE, A4 PDF, 쉬운 보기, 끝 알림 | 동작 (2026-10-07 구현: Orchestrator·Worker 11개·선정 팀·자동 리포트, 가짜 LLM 테스트로 확인 — 실제 모델 실행·장애 주입·복구 지표는 아직) |
-| 추천 → 활성화 → 모의 자동매매 → 알림 | 시연판 (규칙 추천 `demo_recommend`로 끝까지 돈다. AI 리포트가 붙으면 리포트 출처 추천이 생긴다) |
+| 종목·차트 — 시세는 실시간(토스 조회), 계좌 평가·랭킹은 장마감 기준 | 동작 |
 | 장기투자 — "왜 샀나요?", 오늘의 내 종목 뉴스, 펀더멘털 점검 | 동작 (정해진 시각의 실제 실행 확인은 아직) |
 | 주린이모드·화면 — 쉬운 보기, 하단 탭(홈·종목·리포트·모의투자·마이), 다크 모드 | 동작 |
-| 알림 — 웹 알림, Discord Webhook | 웹 동작, Discord는 꺼 둠 |
+| 알림 — 웹 알림, Discord Webhook | 웹 동작, Discord는 꺼 둠 (2026-10-08 결정) |
+| 관리 서버 (EC2 ②) — 서비스·엔진 상태, 배포 기록, 리포트 장애, 복구 지표, AI 비용, MCP | 동작 (2026-10-08) |
+| CI/CD — 검사 실패 시 배포 차단, 실패 시 되돌리기 | 동작 (운영 배포 24회 모두 성공, 검사 실패로 배포가 막힌 실제 기록 — 산출물 3) |
+| AI 교차검증 분석 — 팀원별·팀 하루 한도 | 구현됨 (실제 AI 실행은 CLI 1건만 확인) |
 | 엔진 CLI·백테스트 | 동작 (웹 계좌와 별개) |
 | ~~단타 연습~~ | 2026-10-06 폐기 |
 
@@ -354,12 +535,13 @@ push하면 GitHub Actions가 같은 검사를 돌린다. `main`은 검사를 통
 ```
 engine/paper_engine/   매매 엔진 (선별, AI 교차검증, 리스크 엔진, 모의 체결, 기록, 리포트) — 표준 라이브러리만
 backend/               Django: accounts(로그인·프로필·주린이모드) · trading(계좌·주문·시세·랭킹·run_engine) · analysis(AI 분석)
-                       reports(AI 리포트: Registry·State·Trace·SSE·PDF·선별·출력 계약) · autotrade(추천·활성화·자동매매)
-                       notifications(웹 알림·Discord) · longterm(장기투자)
+                       reports(AI 리포트: Registry·Orchestrator·Guard·Agent 11개·AutoHealing·State·Trace·SSE·PDF·하루 파이프라인)
+                       autotrade(추천·활성화·자동매매) · notifications(웹 알림·Discord) · longterm(장기투자)
 frontend/              React + TypeScript + Vite + Tailwind CSS
+admin/                 관리 서버 (EC2 ②): server(FastAPI·MCP) · web(관리자 화면) · deploy(compose·SSH 터널)
 backtest/              백테스트 (AI 없음, DB 없이 단독 실행)
 deploy/                Docker Compose (개발용 Redis·PostgreSQL, 운영 nginx·web·engine·db·redis), 배포 스크립트
-docs/                  설계·결정·API 계약·담당별 작업(tasks/)·작업 문서(works/)
+docs/                  deliverables/(산출물 3종) · 설계·결정·API 계약·담당별 작업(tasks/)·리뷰(works/)
 ```
 
 엔진 자체 계좌(웹 계좌와 별개)는 CLI로 조작한다: `uv run python -m paper_engine --help` (명령은 [AGENTS.md](AGENTS.md) "실행").
@@ -368,6 +550,7 @@ docs/                  설계·결정·API 계약·담당별 작업(tasks/)·작
 
 | 문서 | 내용 |
 |---|---|
+| [docs/deliverables/](docs/deliverables/) | **산출물 3종**: ① 멀티 에이전트 아키텍처 설계서 · ② 배포 및 장애 복구 보고서 · ③ 파이프라인 구현 결과 보고서 |
 | [AGENTS.md](AGENTS.md) | 안전 규칙·명령·작업 방식 (AI 에이전트와 팀원 공통) |
 | [SETUP_PROMPT.md](SETUP_PROMPT.md) · [WSL2_SETUP.md](WSL2_SETUP.md) | 클론 직후 설치·실행 (AI 에이전트용) · Windows의 WSL2·VS Code 준비 |
 | [docs/TEAM_PAPER_TRADING_PLAN.md](docs/TEAM_PAPER_TRADING_PLAN.md) · [docs/결정필요사항.md](docs/결정필요사항.md) | 지금 상태·남은 작업 · 남은 결정과 다음 시작점 |
@@ -376,13 +559,15 @@ docs/                  설계·결정·API 계약·담당별 작업(tasks/)·작
 | [docs/교육용문서.md](docs/교육용문서.md) · [docs/AI_AGENT_WORKFLOW.md](docs/AI_AGENT_WORKFLOW.md) | Agent 개념 · 종목 선정 Agent 워크플로우 설계 예시 (오류 복구 포함) |
 | [docs/DESIGN.md](docs/DESIGN.md) · [docs/KIWOOM.md](docs/KIWOOM.md) | 엔진 설계 · 키움 API |
 | [docs/화면배치.md](docs/화면배치.md) | 화면별 배치와 근거 |
-| [docs/DEPLOY.md](docs/DEPLOY.md) | 배포와 CI/CD |
+| [docs/DEPLOY.md](docs/DEPLOY.md) · [admin/README.md](admin/README.md) | 배포와 CI/CD 설정 · 관리 서버 |
+| [docs/팀원별_업무분장_기여.md](docs/팀원별_업무분장_기여.md) | 담당별 업무와 기여 (커밋·PR) |
 | [docs/프로젝트평가기준.md](docs/프로젝트평가기준.md) | 과제 평가 기준 |
 
 ## 배포와 CI/CD (Docker)
 
 push하면 GitHub Actions가 검사한다 (린트 → 실주문 코드 검사 → 테스트 → 프론트 빌드 → 이미지 빌드와 기동 확인). `main`은 검사를 통과하면 이미지를 올리고
-서버에 배포하며, 새 버전이 뜨지 않으면 직전 버전으로 되돌린다. 설정과 동작은 [docs/DEPLOY.md](docs/DEPLOY.md).
+서비스 서버(EC2 ①)에 배포하며, 새 버전이 뜨지 않으면 직전 버전으로 되돌린다. 관리 서버(EC2 ②)는 `admin/`이 바뀔 때 `admin-deploy.yml`로 따로 배포한다.
+설정은 [docs/DEPLOY.md](docs/DEPLOY.md), 구조와 실제 실행 결과는 [산출물 3](docs/deliverables/03_파이프라인_구현결과_보고서.md).
 
 ```bash
 cd deploy && cp .env.docker.example .env.docker      # 값을 채운다 (커밋하지 않는다)

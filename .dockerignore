@@ -49,6 +49,7 @@ graft
 personal_project_files
 admin
 scripts
+docs/deliverables
 *.md
 !docs/*.md
 deploy/*
