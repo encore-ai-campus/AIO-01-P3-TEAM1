@@ -81,8 +81,12 @@ class FakeClient:
         if market in self.ended:  # 같은 날(KST) 이미 끝난 정규장
             end = max(now - timedelta(minutes=1), now.replace(hour=0, minute=0, second=1, microsecond=0))
             start = end - timedelta(hours=2)
-        else:
-            start = now - timedelta(hours=1) if self.open[market] else now + timedelta(hours=1)
+        else:  # 시작 시각도 같은 날(KST) 안에 둔다 — 0시·23시대에 날짜를 넘으면 장 열림·닫힘이 뒤바뀐다
+            midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            if self.open[market]:
+                start = max(now - timedelta(hours=1), midnight)
+            else:
+                start = now + min(timedelta(hours=1), (midnight + timedelta(days=1) - now) / 2)
             end = start + timedelta(hours=2)
 
         def entry(shift: int) -> dict:
