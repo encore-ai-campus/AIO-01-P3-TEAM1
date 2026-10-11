@@ -109,7 +109,7 @@ export function formatLiveAsOf(iso: string | null | undefined): string {
 
 /**
  * 장 중에 만든 리포트의 가격 시각 (docs/API.md 공통 규칙 "리포트 시세"): "10월 8일(목) 15:23 기준" (그 시장 현지 시각, 미국은 "15:23(뉴욕)").
- * 리포트는 나중에도 읽으므로 "실시간 · 시각"이 아니라 날짜를 넣는다. 쉬운 PDF(backend/reports/pdf.py _live_at)와 같은 글자. 값이 없으면 "-".
+ * 리포트는 나중에도 읽으므로 "실시간 · 시각"이 아니라 날짜를 넣는다. 쉬운 PDF(backend/reports/output/pdf.py _live_at)와 같은 글자. 값이 없으면 "-".
  */
 export function formatIntradayAsOf(iso: string | null | undefined, market: Market = "KR"): string {
   if (!iso || Number.isNaN(new Date(iso).getTime())) return "-";

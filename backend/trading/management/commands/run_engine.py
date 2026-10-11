@@ -6,9 +6,9 @@
 한 단계의 오류는 콘솔에 한 줄로 남기고 다음 단계·다음 루프로 넘어간다. Ctrl+C로 끝난다.
 증권사 조회 키가 없으면 체결·예약·자산 기록·자동 추천·자동매매·장기투자는 건너뛰고
 분석 작업·리포트 실행·자동 리포트·추천 수집·리포트 알림·알림 발송만 돈다 (자동 리포트는 스스로 키·설정을 보고 쉰다).
-리포트 실행(reports.runner)은 requested 리포트 하나를 백그라운드 스레드에서 Agent 팀으로 돌린다 (동시에 하나).
+리포트 실행(reports.orchestration.runner)은 requested 리포트 하나를 백그라운드 스레드에서 Agent 팀으로 돌린다 (동시에 하나).
 --once는 그 리포트가 끝날 때까지 기다렸다 끝낸다. 상주 루프는 시작할 때 이전 실행이 남긴 리포트를 정리하고, 끝낼 때 도는 리포트를 기다린다.
-리포트 알림(끝난 리포트 → 신청자 알림, reports.alerts)은 추천 수집 다음이라 같은 바퀴에서 만든 추천을 보고 판단한다.
+리포트 알림(끝난 리포트 → 신청자 알림, reports.output.alerts)은 추천 수집 다음이라 같은 바퀴에서 만든 추천을 보고 판단한다.
 알림 발송은 늘 마지막이라 같은 바퀴에서 생긴 알림을 바로 보낸다.
 바퀴 시작과 끝에 엔진 상태(생존 신호·버전·중단 스위치·최근 단계 오류)를 30초마다 engine_status에 남긴다 (trading.heartbeat — 관리 서버가 읽는다.
 바퀴 시작에도 남겨 단계 하나가 오래 걸리는 바퀴를 "멈춤"으로 보지 않게 한다).
@@ -32,7 +32,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, once=False, interval=5.0, **options):
         from analysis import jobs  # analysis 앱 소유 (분석 작업 실행)
-        from reports import runner  # reports 앱 소유 (AI 리포트 실행)
+        from reports.orchestration import runner  # reports 앱 소유 (AI 리포트 실행)
 
         self.heartbeat = heartbeat.Heartbeat(service.now())
         if engine.broker_client() is None:
@@ -104,13 +104,13 @@ def _analysis_tick() -> None:
 
 
 def _report_tick() -> None:
-    from reports import runner  # reports 앱 소유 (requested 리포트를 Agent 팀으로 실행, 동시에 하나)
+    from reports.orchestration import runner  # reports 앱 소유 (requested 리포트를 Agent 팀으로 실행, 동시에 하나)
 
     runner.tick()
 
 
 def _auto_report_tick(now, log) -> None:
-    from reports import auto  # reports 앱 소유 (하루 한 번 선정 팀 → 종목 리포트. AUTO_REPORT=on일 때만)
+    from reports.autoreport import auto  # reports 앱 소유 (하루 한 번 선정 팀 → 종목 리포트. AUTO_REPORT=on일 때만)
 
     tick = getattr(auto, "tick", None)  # 담당 1이 만들기 전에는 없다
     if tick is not None:
@@ -124,7 +124,7 @@ def _collect_recommendations(now, log) -> None:
 
 
 def _report_alerts(now, log) -> None:
-    from reports import alerts  # 리포트 끝 알림 (B7, Claude 파일 — 팀의 runner·healing은 사용자 알림을 보내지 않는다)
+    from reports.output import alerts  # 리포트 끝 알림 (B7, Claude 파일 — 팀의 runner·healing은 사용자 알림을 보내지 않는다)
 
     alerts.sweep_finished(now, log)
 

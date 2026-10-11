@@ -32,7 +32,7 @@ def clean_error(error: BaseException) -> str:
 def limits() -> dict:
     """관리 화면이 오늘 사용량과 견주는 하루 한도 (설정 값만)."""
     from analysis import quota as analysis_quota
-    from reports import quota as report_quota
+    from reports.limits import quota as report_quota
 
     return {"aiDailyBudgetUsd": float(analysis_quota.budget_usd()), "analysisCostUsd": float(analysis_quota.COST_PER_ANALYSIS_USD),
             "analysesPerUser": analysis_quota.per_user_limit(), "analysesTotal": analysis_quota.total_limit(),

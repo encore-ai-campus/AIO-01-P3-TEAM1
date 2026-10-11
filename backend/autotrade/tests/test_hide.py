@@ -6,7 +6,7 @@ from datetime import timedelta
 
 import pytest
 from django.utils import timezone
-from reports import quota
+from reports.limits import quota
 from reports.models import Report
 from rest_framework.exceptions import NotFound
 

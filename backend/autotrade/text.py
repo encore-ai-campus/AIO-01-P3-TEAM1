@@ -12,7 +12,7 @@ from datetime import datetime
 
 from notifications.service import Notice
 from paper_engine.agents.executor import money, qty_text, signed_money
-from reports.text import COMPLETED_LINE
+from reports.output.text import COMPLETED_LINE
 from trading.store import KST
 
 from .models import Recommendation, TradePlan
@@ -88,7 +88,7 @@ def reason_sentences(codes) -> str:
 # --- 추천 ---
 
 def recommendation(rec: Recommendation) -> Notice:
-    """recommendation. 리포트 추천이면 본문 첫 줄이 "리포트가 완성됐어요" (리포트 완성 알림을 대신한다 — reports/alerts.py)."""
+    """recommendation. 리포트 추천이면 본문 첫 줄이 "리포트가 완성됐어요" (리포트 완성 알림을 대신한다 — reports/output/alerts.py)."""
     c = rec.currency
     entry, target, stop = money(rec.entry_price, c), money(rec.target_price, c), money(rec.stop_price, c)
     first = [COMPLETED_LINE] if rec.source == Recommendation.REPORT else []

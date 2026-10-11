@@ -10,7 +10,7 @@
 // 완성되는 순간(이 화면에서 상태가 바뀐 경우만): 결론 카드가 올라오며 나타나고, 아래로 내려가 있던 사람에게는 토스트로 알린다 (스크롤은 옮기지 않는다).
 // 실행할 계획이 없으면(지켜보기·부정적·계획 없음) "실행할 계획이 없어요"는 매매 계획 카드 한 곳만 말한다 — 머리 안내 문장·결론 카드의 계획 미니는 비킨다 (UX-8).
 // AI가 쓴 글(한 줄 요약·쉬운 요약·근거·위험·틀리는 경우·조사 요약)은 전문 용어마다 처음 나온 한 번에 용어 풀이를 붙인다 (UX-4, AiTermsProvider — 화면 순서대로).
-// 완성 화면의 고정 문장(결론·쉬운 요약 빈 값·차트 범례)은 쉬운 PDF(backend/reports/pdf.py 쉬운 판)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
+// 완성 화면의 고정 문장(결론·쉬운 요약 빈 값·차트 범례)은 쉬운 PDF(backend/reports/output/pdf.py 쉬운 판)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
 import { Suspense, lazy, useEffect, useMemo, type CSSProperties } from "react";
 import { useStock } from "../../../api/queries";
 import { usePlanCardData } from "../../../api/reports";

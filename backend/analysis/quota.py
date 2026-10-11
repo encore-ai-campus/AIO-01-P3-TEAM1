@@ -79,7 +79,7 @@ class Usage:
 
 
 def usage(user, spent_usd: Decimal) -> Usage:
-    """spent_usd: 팀 전체가 오늘 쓴 AI 비용 (reports.budget.used_usd — 분석 예상 비용 + 리포트 실제 비용)."""
+    """spent_usd: 팀 전체가 오늘 쓴 AI 비용 (reports.limits.budget.used_usd — 분석 예상 비용 + 리포트 실제 비용)."""
     today = (Job.objects.filter(type=Job.ANALYZE, user=user, created_at__gte=today_start())
              .exclude(status=Job.FAILED, started_at__isnull=True))
     return Usage(used=today.count(), limit=per_user_limit(), team_left=team_left(spent_usd))

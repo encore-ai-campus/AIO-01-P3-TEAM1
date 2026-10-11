@@ -87,7 +87,7 @@ def settings_of(user) -> NotificationSetting:
 class Notice:
     """알림 문장 한 벌 (B6): 쉬운 문장(주린이모드 켬·Discord) + 전문가 문장(끔) + Discord 숫자 한 줄.
 
-    문장은 부르는 앱이 모아 둔다 (autotrade/text.py, reports/text.py). send는 이 모듈의 notify를 부른다.
+    문장은 부르는 앱이 모아 둔다 (autotrade/text.py, reports/output/text.py). send는 이 모듈의 notify를 부른다.
     """
     title: str
     body: str

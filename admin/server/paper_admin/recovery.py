@@ -1,8 +1,8 @@
-"""복구 셈법 (API.md 3장). 서비스 `backend/reports/stats.py`(담당 4, T4-7)의 `incidents`·`report_recovery`·`recovery_stats`와 같은 규칙.
+"""복구 셈법 (API.md 3장). 서비스 `backend/reports/autohealing/stats.py`(담당 4, T4-7)의 `incidents`·`report_recovery`·`recovery_stats`와 같은 규칙.
 
 한 Worker의 실행(run) = agent_started부터 다음 agent_completed 또는 포기(agent_failed, final이 false가 아님)까지.
 장애 1건 = 한 run의 첫 agent_failed(final: false). 포기로 끝나면 복구 못 함, 끝나지 않은 run의 장애는 장애 건수에만 든다.
-기준 사례: recovery_cases.json (서비스 테스트 backend/reports/tests/test_recovery_cases.py도 같은 파일로 stats를 본다).
+기준 사례: recovery_cases.json (서비스 테스트 backend/reports/tests/autohealing/test_recovery_cases.py도 같은 파일로 stats를 본다).
 """
 from collections import Counter
 from dataclasses import dataclass

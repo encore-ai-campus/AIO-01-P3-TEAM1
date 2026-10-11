@@ -10,8 +10,8 @@ from analysis import jobs
 from django.core.cache import cache
 from django.db.models import F
 from paper_engine.config import Config
-from reports import auto as reports_auto
-from reports import runner
+from reports.autoreport import auto as reports_auto
+from reports.orchestration import runner
 from rest_framework.test import APIClient
 
 from config import engine

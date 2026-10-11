@@ -69,7 +69,7 @@ flowchart LR
     V -- "FAIL<br/>review_failed" --> X
 ```
 
-- 정의는 YAML Registry(`backend/reports/team_definitions.yaml`·`worker_definitions.yaml`), Worker 출력 계약은 `contracts.py`.
+- 정의는 YAML Registry(`backend/reports/orchestration/team_definitions.yaml`·`worker_definitions.yaml`), Worker 출력 계약은 `contracts.py`.
 - 모든 AI 호출은 `healing.py`를 거친다: 같은 모델 재시도 → 대체 모델 → Circuit Breaker (주 모델이 시간 초과면 다시 기다리지 않고 바로 대체 모델). 호출 한 번은 **최대 4회** 시도한다 (모델마다 2회까지). 진행은 `state.py`가 Shared State·Trace로 남기고 SSE로 화면에 보낸다.
 - 실행은 `orchestrator.py`(병렬·Join Guard·부분 실패·검토 반복·Handoff Guard)와 `runner.py`(엔진 루프에서 한 번에 하나), Worker는 `agents/` (2026-10-07 구현).
   종목 선정까지 AI 팀으로 하는 하루 파이프라인(규칙 후보 30 → 선정 팀 → 선정 Guard → 자동 리포트 3개, `AUTO_REPORT=on`)은 [docs/design/AI_AGENT_WORKFLOW.md](docs/design/AI_AGENT_WORKFLOW.md).
@@ -351,7 +351,7 @@ sequenceDiagram
 
 | 핵심 수행내용 (가이드) | 구현 | 문서 |
 |---|---|---|
-| 에이전트 협업 시나리오와 역할 구조 설계 | YAML 실행 계획(`backend/reports/*_definitions.yaml`), Agent 11개(`backend/reports/agents/`) | 산출물 1의 1~6장 |
+| 에이전트 협업 시나리오와 역할 구조 설계 | YAML 실행 계획(`backend/reports/orchestration/*_definitions.yaml`), Agent 11개(`backend/reports/agents/`) | 산출물 1의 1~6장 |
 | 장애 유형별 복구 로직 및 자동화 파이프라인 구현 | 재시도·대체 모델·Circuit Breaker(`healing.py`), Join·Handoff Guard(`guards.py`), 장애 주입(`chaos.py`), 하루 파이프라인과 Fallback(`auto.py`) | 산출물 1의 8장, 산출물 2의 1~4장 |
 | 협업 기반 실행 흐름 통합 구현 | Orchestrator(`orchestrator.py`) → 리포트·PDF → 리스크 엔진 → AI 추천 → 계획 활성화 → 모의 자동매매 → 알림 | 산출물 1의 2·4장 |
 | 서비스 배포 및 결과 검증 | EC2 두 대 + Docker Compose, GitHub Actions(`ci.yml`·`deploy.yml`·`admin-*.yml`), 관리 서버 복구 지표 | 산출물 2·3 |
@@ -388,7 +388,7 @@ sequenceDiagram
 | DB | SQLite · PostgreSQL 16 (psycopg) | 혼자 개발·테스트 / 공유 개발 DB·운영 — `.env`의 `POSTGRES_HOST`로 고른다 |
 | 캐시·실시간 | Django LocMemCache · Redis 7 · SSE | 웹의 시세·조회 캐시 / 엔진 CLI 상주 루프·예약(`paper:` 키) / 리포트 진행 화면 |
 | 프론트 | React 19 · TypeScript · Vite · Tailwind CSS 4 · TanStack Query · React Router · lightweight-charts · react-markdown | 화면 SPA(`frontend/`), 서버 상태 폴링, 차트, 리포트 본문 |
-| AI | DevPass LLM Gateway (OpenAI 호환) | AI 교차검증 분석, 리포트 Worker 호출(`reports/healing.py`), 장기투자 뉴스 문장 |
+| AI | DevPass LLM Gateway (OpenAI 호환) | AI 교차검증 분석, 리포트 Worker 호출(`reports/autohealing/healing.py`), 장기투자 뉴스 문장 |
 | 외부 데이터 | 토스증권 API(조회 전용) · DART OpenAPI · Google 뉴스 RSS | 시세·일봉·순위·종목 정보(조회만) · 공시·재무 · 뉴스 제목. 키움 REST 클라이언트도 남아 있어 `BROKER=kiwoom`으로 바꿀 수 있다 |
 | PDF·알림 | Chrome headless · 웹 알림(DB) · Discord Webhook | 리포트 A4 PDF · 단계별 알림 (Discord는 2026-10-08부터 꺼 둠) |
 | 관리 서버 | FastAPI · psycopg · MCP Python SDK · React | 조회 전용 관리자 API·화면·MCP 도구 (`admin/`). 서비스 코드에 기대지 않게 가볍게 따로 만들었다 |

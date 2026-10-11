@@ -113,7 +113,7 @@ interface Deploys { servers: DeployServer[]; records: DeployRecord[]; total: num
 // F6 리포트 장애 — GET /api/admin/reports?days=7&kind=all&team=&limit=100
 //   days 1~90 (기본 7) · kind: all(기본, 아래 셋 중 하나라도) | failed(status failed) | recovered(복구된 장애가 1건 이상) | chaos(장애 주입을 켬)
 //   team: stock_report | stock_selection | 빈 값(둘 다) · limit 1~500 (기본 100)
-//   기간 = 리포트의 created_at이 오늘(KST)을 포함한 최근 days일 안 (첫날 0시 KST부터) — F7·서비스 reports.stats와 같은 기간
+//   기간 = 리포트의 created_at이 오늘(KST)을 포함한 최근 days일 안 (첫날 0시 KST부터) — F7·서비스 reports.autohealing.stats와 같은 기간
 interface ReportRow {
   id: number; team: "stock_report" | "stock_selection"; symbol: string; name: string;
   source: "user" | "auto"; status: "requested" | "running" | "completed" | "failed";
@@ -141,7 +141,7 @@ interface RecoverySummary { failures: number; recovered: number; unrecovered: nu
 interface ReportTrace { report: ReportRow; recovery: RecoverySummary; events: TraceItem[] }   // events는 step 오름차순(= 시간순)
 
 // F7 복구 지표 — GET /api/admin/recovery?days=7  (days 1~90)
-//   서비스 docs/API.md의 RecoveryStats(backend/reports/stats.py recovery_stats)와 같은 형식·기간이다: 오늘(KST)을 포함한 최근 days일 안에 만든 리포트, from·to는 KST 날짜
+//   서비스 docs/API.md의 RecoveryStats(backend/reports/autohealing/stats.py recovery_stats)와 같은 형식·기간이다: 오늘(KST)을 포함한 최근 days일 안에 만든 리포트, from·to는 KST 날짜
 interface RecoveryStats {
   from: string; to: string; days: number;   // from·to: "YYYY-MM-DD" (KST)
   reports: number; reportsWithFailures: number;
@@ -171,11 +171,11 @@ interface Costs {
   today: {
     date: string; totalUsd: number;
     budgetUsd: number | null;   // limits.aiDailyBudgetUsd (엔진이 알려 준 값. 모르면 null)
-    budgetUsedUsd: number;      // 예산 사용액 = 서비스 reports.budget.used_usd와 같은 셈 (이 값이 예산에 닿으면 서비스가 새 리포트를 막는다):
+    budgetUsedUsd: number;      // 예산 사용액 = 서비스 reports.limits.budget.used_usd와 같은 셈 (이 값이 예산에 닿으면 서비스가 새 리포트를 막는다):
                                 //   오늘 분석 요청 수(analyses.used) × limits.analysisCostUsd(건당 예상, 없으면 0.3) + 오늘 만든 리포트의 실제 비용(reportsUsd)
     budgetPct: number | null;   // budgetUsedUsd ÷ budgetUsd × 100, 소수 1자리
     analyses: { used: number; limit: number | null };        // 오늘 분석 요청 수 (서비스 analysis.quota와 같은 셈) / limits.analysesTotal
-    reportsPerUser: { maxUsed: number; limit: number | null;    // 오늘 가장 많이 쓴 사람의 리포트 수 (reports.quota와 같은 셈) / limits.reportsPerUser
+    reportsPerUser: { maxUsed: number; limit: number | null;    // 오늘 가장 많이 쓴 사람의 리포트 수 (reports.limits.quota와 같은 셈) / limits.reportsPerUser
                       unlimited: boolean };                     // 엔진이 한도를 null(무제한, 서비스 기본값 — 2026-10-08)로 알려 줬으면 true. limit null이고 false면 모름
   };
 }
@@ -227,7 +227,7 @@ interface Alerts {
 | `GET /api/admin/mcp?hours=&limit=` | `200 McpStatus` (6장) |
 | `GET /api/admin/health` | `200 {"ok": true}` (로그인 없이. 관리 서버 컨테이너 상태 확인용) |
 
-## 3. 복구 셈법 (F6·F7, 서비스 `docs/tasks/00-공통.md` 9절 · `backend/reports/stats.py`(담당 4, T4-7)와 같은 규칙)
+## 3. 복구 셈법 (F6·F7, 서비스 `docs/tasks/00-공통.md` 9절 · `backend/reports/autohealing/stats.py`(담당 4, T4-7)와 같은 규칙)
 
 - Worker의 실행(run) = 그 actor의 `agent_started`부터 다음 `agent_completed` 또는 **포기**(`agent_failed`이면서 `details.final`이 `false`가 아닌 것 — `final` 키가 없어도 포기)까지. Trace는 리포트별로 `step` 순서로 읽는다.
 - 장애 1건 = 한 run 안의 **첫** `agent_failed(final: false)`. `agent_started` 없이 실패가 먼저 오면 그때 run이 시작된 것으로 본다.
@@ -235,7 +235,7 @@ interface Alerts {
 - 복구 못 함(`unrecovered`) = 그 run이 포기로 끝남. **끝나지 않은 run의 장애**(실행 중이거나, 장애가 열린 채 같은 actor의 `agent_started`가 다시 옴)는 장애 건수에만 든다 — 복구도 포기도 아니다.
 - `injected` = 장애 건의 첫 실패의 `details.injected`가 true. `errorType` = 첫 실패의 `details.errorType` (`timeout`·`server_error`·`bad_output`·`unknown` 밖이면 `"unknown"`).
 - 한 리포트의 `recoveryMs` = 복구된 건의 복구 시간 **합** (복구된 건이 없으면 null). 기간 지표의 `meanRecoveryMs` = 건별 복구 시간 평균(반올림), `recent`의 `recovered`는 복구된 건만 true.
-- 기준 사례: `admin/recovery_cases.json`. 관리자 백엔드 테스트(`admin/server/tests/test_recovery.py`)와 서비스 테스트(`backend/reports/tests/test_recovery_cases.py`, `reports.stats`)가
+- 기준 사례: `admin/recovery_cases.json`. 관리자 백엔드 테스트(`admin/server/tests/test_recovery.py`)와 서비스 테스트(`backend/reports/tests/autohealing/test_recovery_cases.py`, `reports.autohealing.stats`)가
   **같은 파일로 같은 숫자**가 나오는지 확인한다. 셈법을 바꾸면 이 파일을 먼저 고친다.
 
 ## 4. 읽는 서비스 DB (읽기 전용 계정 `paper_admin_ro`, `deploy/readonly_role.sql`)

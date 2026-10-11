@@ -1,0 +1,85 @@
+# AI 리포트 Worker 정의 (YAML Registry, docs/DECISIONS.md 9-3). registry.py가 읽어 실행 계획을 만든다.
+# 여기에는 Worker 이름·목표·Provider·주 모델·대체 모델·출력 계약 이름만 둔다. 병렬 실행·Join·부분 실패·Handoff 판단은 Python Orchestrator(orchestrator.py) 몫이다.
+# provider는 LLM 게이트웨이(devpass), model은 주 모델이다 (00-공통 4절 배정, .env의 ANALYSTS·APPROVER에 있는 모델만).
+# fallbacks는 화면(실행 계획)에 보이는 대체 모델이다. 호출기는 이 값을 쓰지 않고 healing.FALLBACK_POOL에서 하나를 고르므로(00-공통 7절)
+# 그 모델(차단이 없을 때 고르는 것) 하나를 적는다 — tests/orchestration/test_registry.py가 같은지 확인한다.
+workers:
+  market_agent:
+    title: 시세·차트 Agent
+    goal: 최근 시세와 일봉 차트로 추세·변동성·거래량을 정리한다
+    provider: devpass
+    model: gemini-3.8-flash
+    fallbacks: [gpt-5.6-luna]
+    output_contract: MarketResult
+  fundamental_agent:
+    title: 재무·공시 Agent
+    goal: 재무제표와 최근 공시에서 실적과 주요 사건을 정리한다
+    provider: devpass
+    model: gemini-3.8-flash
+    fallbacks: [gpt-5.6-luna]
+    output_contract: FundamentalResult
+  news_agent:
+    title: 뉴스·심리 Agent
+    goal: 최근 뉴스와 시장 분위기에서 호재·악재와 심리를 정리한다
+    provider: devpass
+    model: gemini-3.8-flash
+    fallbacks: [gpt-5.6-luna]
+    output_contract: NewsResult
+  report_agent:
+    title: 리포트 작성 Agent
+    goal: 조사 결과를 모아 종목 리포트 초안을 Markdown으로 쓴다
+    provider: devpass
+    model: gpt-5.6-luna
+    fallbacks: [gemini-3.8-flash]
+    output_contract: ReportDraft
+  review_agent:
+    title: 검토 Agent
+    goal: 리포트 초안이 조사 결과와 맞는지, 근거 없는 주장이 없는지 검토한다
+    provider: devpass
+    model: claude-opus-5-5
+    fallbacks: [gpt-5.6-luna]
+    output_contract: ReviewResult
+  risk_agent:
+    title: 리스크 점검 Agent
+    goal: 투자 유의 지정이나 고위험 신호를 점검해 리포트에 경고를 붙인다
+    provider: devpass
+    model: deepseek-v4.1-flash
+    fallbacks: [gpt-5.6-luna]
+    output_contract: RiskResult
+
+  # --- 매매 종목 선정 팀 (stock_selection, docs/design/AI_AGENT_WORKFLOW.md 2장). 후보 표는 규칙 선별(auto.select)이 준다
+  news_screen_agent:
+    title: 후보 뉴스 점검 Agent
+    goal: 후보 종목마다 최근 뉴스에서 재료와 악재를 찾아 출처와 함께 정리하고 테마 이름을 붙인다
+    provider: devpass
+    model: gemini-3.8-flash
+    fallbacks: [gpt-5.6-luna]
+    output_contract: CandidateNewsResult
+  filing_screen_agent:
+    title: 후보 공시 점검 Agent
+    goal: 후보 종목마다 최근 30일 공시에서 위험 신호를 찾아 위험 정도(none·low·high)를 매긴다
+    provider: devpass
+    model: gemini-3.8-flash
+    fallbacks: [gpt-5.6-luna]
+    output_contract: FilingCheckResult
+  flow_agent:
+    title: 수급 해석 Agent
+    goal: 코드가 합한 외국인·기관 순매수로 후보마다 매집·이탈을 해석한다
+    provider: devpass
+    model: gemini-3.8-flash
+    fallbacks: [gpt-5.6-luna]
+    output_contract: FlowResult
+  selector_agent:
+    title: 종목 선정 Agent
+    goal: 후보 표와 조사 결과를 보고 스윙 매매로 살펴볼 종목 5개의 순위와 근거를 낸다 (가격은 내지 않는다)
+    provider: devpass
+    model: gpt-5.6-luna
+    fallbacks: [gemini-3.8-flash]
+    output_contract: SelectionDraft
+  selection_review_agent:
+    title: 선정 검토 Agent
+    goal: 선정안의 근거가 조사 결과와 맞는지, 후보 밖 종목이나 근거 없는 주장이 없는지 검토한다
+    provider: devpass
+    model: claude-opus-5-5
+    fallbacks: [gpt-5.6-luna]
+    output_contract: ReviewResult

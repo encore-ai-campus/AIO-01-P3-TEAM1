@@ -137,7 +137,7 @@ macOS·Linux·WSL2에서만 돈다. 공유 개발 DB는 `.env`에 `POSTGRES_HOST
 3. **AI는 제안만 한다.** 수량·한도·활성화는 리스크 엔진, 주문·체결은 `trading.service`와 모의 체결기. 최소 손익비(스윙 1.5)는 프롬프트에 넣지 않는다. 손절가는 AI가 아니라 코드가 정한다 (`judge/stops.py`).
 4. **엔진은 표준 라이브러리만**, 외부 패키지는 `backend/`에만. 키움 응답 → 내부(토스) 형식 변환은 `data/kiwoom.py` 안에서만.
 5. **DB**: 같은 모델·마이그레이션을 SQLite·PostgreSQL에 쓴다(PostgreSQL 전용 기능 금지).
-6. **계약을 먼저 고친다**: 웹 API는 `docs/API.md`, 워크플로우 약속은 `00-공통.md`. State·Trace는 `backend/reports/state.py` 함수로만. "Claude" 파일(`00-공통.md` 2절)은 팀원이 고치지 않고 팀장에게 알린다.
+6. **계약을 먼저 고친다**: 웹 API는 `docs/API.md`, 워크플로우 약속은 `00-공통.md`. State·Trace는 `backend/reports/orchestration/state.py` 함수로만. "Claude" 파일(`00-공통.md` 2절)은 팀원이 고치지 않고 팀장에게 알린다.
 7. **화면**: 색은 `frontend/src/index.css` 토큰만(`colors.test.ts`가 검사), 금지 표현은 `engine/paper_engine/wording.py` 하나, 면책 문장은 하나, 주문·체결 쉬운 문장에는 "모의", 주어는 "AI 의견"·"안전장치".
 8. **테스트는 실제 증권사·AI·Discord를 부르지 않는다.** 팀 코드는 브랜치 `feat/<담당>-<주제>` → PR(설명에 "03 T3-5"처럼 문서 항목) → CI 초록 + 다른 담당 1명 확인 → 합친다(급하면 1). 매일 아침 `main`을 자기 브랜치에 합친다(`00-공통.md` 12절). `main` 직접 push는 문서·작은 고침만(`docs/tasks/01-인프라.md:112`).
 
@@ -176,7 +176,7 @@ macOS·Linux·WSL2에서만 돈다. 공유 개발 DB는 `.env`에 `POSTGRES_HOST
 
 ### 3-1. 핵심 AI Agent 워크플로우 (담당 2·3·4, 자동 리포트는 1)
 
-앞(신청·Registry·State·Trace·SSE·화면)과 뒤(추천 수집·끝 알림 `reports/alerts.py`·PDF·한도)는 이어져 있고 가운데(Agent 실행)만 비어 있다. `completed` 리포트의 `report_agent.verdict`가 `"buy"`이고 `0 < stop < entry < target`이면 엔진 루프가 추천을 만든다(`backend/autotrade/sources.py:134-158`).
+앞(신청·Registry·State·Trace·SSE·화면)과 뒤(추천 수집·끝 알림 `reports/output/alerts.py`·PDF·한도)는 이어져 있고 가운데(Agent 실행)만 비어 있다. `completed` 리포트의 `report_agent.verdict`가 `"buy"`이고 `0 < stop < entry < target`이면 엔진 루프가 추천을 만든다(`backend/autotrade/sources.py:134-158`).
 약속의 원본은 `docs/tasks/00-공통.md`(파일 소유 2절·Trace 9절·출력 계약 10절)와 `docs/API.md` "AI 리포트" 절이다. 바꾸려면 문서를 먼저 고친다. PR 규칙은 2-6 규칙 8.
 **개발 환경**: 팀원 PC에는 증권사 조회 키가 없다고 보고 만든다(토스는 개발자 로컬 전용·client당 토큰 1개, 팀원용 키움 키는 대기 — `docs/plans/TEAM_DEV_PLAN.md:614`, U9). 그래서 신청 API는 503(`backend/reports/views.py:62`), market_agent는 `WorkerError`다. 각자 SQLite에서 가짜 조회 클라이언트·`fake_llm`·`fake_worker`로 만들고, 실제 자료·모델 통합(T2-10·T3-10·T4-10)은 호스트 PC에서 1과 같이 한다.
 

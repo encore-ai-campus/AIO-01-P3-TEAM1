@@ -62,7 +62,7 @@ _NEGATED = re.compile(r"[^\s.,]*?지\s*(?:는|도|만)?\s*(?:않|못)")
 def clean_text(text, limit: int = TEXT_MAX) -> str:
     """입력 정리: 제어 문자·폭 없는 문자를 지우고 공백을 하나로, limit자로 자른다 (넘으면 끝에 "…").
 
-    근거 목록과 LLM 출력은 모두 이 함수를 거친다. 팀의 reports.guards.clean_text가 생기면 이 함수 하나를 바꾼다.
+    근거 목록과 LLM 출력은 모두 이 함수를 거친다. 팀의 reports.guardrails.guards.clean_text가 생기면 이 함수 하나를 바꾼다.
     """
     text = unicodedata.normalize("NFC", str(text or ""))
     text = " ".join(_CONTROL.sub(" ", text).split())

@@ -1,6 +1,6 @@
 """AI 리포트의 Shared State와 구조화된 Trace (docs/DECISIONS.md 9-2, docs/API.md "AI 리포트").
 
-두 표는 Orchestrator가 `reports.state`의 함수로만 바꾼다. 웹 API는 읽기와 신청(requested 행 만들기)만 한다.
+두 표는 Orchestrator가 `reports.orchestration.state`의 함수로만 바꾼다. 웹 API는 읽기와 신청(requested 행 만들기)만 한다.
 """
 from django.conf import settings
 from django.db import models

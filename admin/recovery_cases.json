@@ -1,5 +1,5 @@
 {
-  "about": "복구 셈법 기준 사례 (admin/API.md 3장, 서비스 docs/tasks/00-공통.md 9절·backend/reports/stats.py). 관리자 백엔드와 서비스 테스트가 같은 숫자를 내는지 확인한다. events는 한 리포트의 Trace, expected.summary는 그 리포트의 요약, expected.incidents는 장애 건(첫 실패 순서, recovered: true 복구 · false 포기 · null 진행 중).",
+  "about": "복구 셈법 기준 사례 (admin/API.md 3장, 서비스 docs/tasks/00-공통.md 9절·backend/reports/autohealing/stats.py). 관리자 백엔드와 서비스 테스트가 같은 숫자를 내는지 확인한다. events는 한 리포트의 Trace, expected.summary는 그 리포트의 요약, expected.incidents는 장애 건(첫 실패 순서, recovered: true 복구 · false 포기 · null 진행 중).",
   "cases": [
     {
       "name": "장애 없음",

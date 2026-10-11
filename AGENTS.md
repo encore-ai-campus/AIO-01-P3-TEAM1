@@ -114,7 +114,7 @@ uv run python -m paper_engine analyze 005930 --buy --by alice           # AI 교
 
 - 코드 변경 전 관련 파일을 먼저 읽고 기존 스타일을 따른다.
 - 키움 API 동작은 추측하지 말고 문서와 실제 응답으로 확인한다 (`docs/KIWOOM.md`, `scripts/kiwoom_check.py`).
-- AI 리포트의 Agent·Orchestrator를 구현할 때: 개념은 `docs/교육용문서.md`, State·Trace는 `backend/reports/state.py`의 함수로만 바꾼다
+- AI 리포트의 Agent·Orchestrator를 구현할 때: 개념은 `docs/교육용문서.md`, State·Trace는 `backend/reports/orchestration/state.py`의 함수로만 바꾼다
   (`docs/DECISIONS.md` 9-4). Guard 사건의 `details`에는 대상(`step`, `to`)을 넣는다 (`docs/API.md`).
 - 웹 API를 바꾸면 `docs/API.md`를 먼저 고친다 (백엔드와 프론트가 같이 따르는 계약). 테스트는 실제 증권사·AI를 부르지 않는다
   (루트 `conftest.py`가 키를 비운다. 가짜 클라이언트를 `config.engine`에 끼운다).

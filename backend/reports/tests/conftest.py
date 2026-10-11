@@ -10,7 +10,8 @@ from paper_engine.llm import LlmError, LlmTimeout
 from trading import market
 
 from config.api import Unavailable
-from reports import healing, registry
+from reports.autohealing import healing
+from reports.orchestration import registry
 from reports.models import Report
 
 STOCKS = {
@@ -205,6 +206,6 @@ def fake_worker():
 @pytest.fixture
 def inline_workers(monkeypatch):
     """Orchestrator가 Worker를 스레드 없이 부른 스레드에서 돌리게 한다 (테스트 DB 트랜잭션 안에서 돈다)."""
-    from reports import orchestrator
+    from reports.orchestration import orchestrator
 
     monkeypatch.setattr(orchestrator, "make_executor", lambda workers: orchestrator.InlineExecutor())

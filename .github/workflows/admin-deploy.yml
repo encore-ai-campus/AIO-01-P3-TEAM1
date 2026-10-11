@@ -14,7 +14,7 @@ on:
       - "admin/**"
       - "backend/*/models.py"
       - "backend/*/migrations/**"
-      - "backend/reports/stats.py"
+      - "backend/reports/autohealing/stats.py"
       - ".github/workflows/admin-*.yml"
   workflow_dispatch:   # 같은 커밋을 다시 배포할 때 (Actions 화면에서 실행)
 

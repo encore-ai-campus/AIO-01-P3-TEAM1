@@ -49,7 +49,7 @@
 | F4 | 엔진 상태 | 서비스 엔진(`run_engine`)이 30초마다 고치는 `engine_status` 행을 읽는다. 120초 넘게 동작이 없으면 "멈춤" | down: 행 없음 또는 멈춤 · warn: 중단 스위치 켜짐, 또는 30분 안에 단계 오류 |
 | F5 | 배포 기록 | 서비스 GitHub Actions가 보낸 배포 결과(성공 · 되돌림 · 되돌리기 실패 · 실패 · 검사 실패로 막힘)를 최신순으로 보고, 서버별 지금 버전을 계산한다 | down: 최신 기록이 되돌리기 실패 · warn: 최신 기록이 실패·되돌림·막힘 · unknown: 기록 없음 |
 | F6 | 리포트 장애 | AI 리포트 중 실패했거나 복구된 장애가 있거나 장애 주입을 켠 것을 모으고, 리포트 하나의 실행 기록(재시도 · 대체 모델 전환 · 포기)을 시간순으로 보여 준다 | warn: 24시간 안에 장애 주입 없이 실패로 끝난 리포트 |
-| F7 | 복구 지표 | 기간 안 자동 복구율 · 평균 복구 시간 · errorType별 · Worker별 장애 수. 서비스 `reports.stats`와 같은 셈법이다 (`recovery_cases.json`, `API.md` 3장) | warn: 7일 안 미복구 장애 · unknown: 7일 안 장애 0건 |
+| F7 | 복구 지표 | 기간 안 자동 복구율 · 평균 복구 시간 · errorType별 · Worker별 장애 수. 서비스 `reports.autohealing.stats`와 같은 셈법이다 (`recovery_cases.json`, `API.md` 3장) | warn: 7일 안 미복구 장애 · unknown: 7일 안 장애 0건 |
 | F8 | AI 비용 | 날짜별 리포트 · 분석 · 장기투자 비용과 오늘 예산 사용액(서비스가 새 리포트를 막는 셈과 같다) · 분석 요청 수 · 한 사람 리포트 수 | down: 예산 100% 이상 · warn: 80% 이상 · unknown: 예산을 모름 |
 | F9 | 알림·작업 실패 | Discord 알림 발송 실패 · 10분 넘은 대기 · 10분 넘게 멈춘 발송, 오래 멈춘 작업(분석 RUNNING 15분 · QUEUED 10분, 리포트 running 20분 · requested 30분) | warn: 하나라도 있음 |
 | F10 | MCP 도구·호출 | MCP 도구 9개와 부르는 경로, 토큰별 만든 시각 · 마지막 사용 · 호출 수, 토큰으로 들어온 호출 기록(누가 · 도구 · 응답 코드, 틀린 토큰 포함) | – |
@@ -107,7 +107,7 @@ claude mcp add --transport http paper-admin http://<관리 서버 퍼블릭 IP>/
 | `server/` | 관리자 백엔드 FastAPI(`paper_admin.api`)와 MCP 서버(`paper_admin.mcp_server`). 숫자(F2~F9)는 백엔드에서만 만들고 MCP는 백엔드를 부른다 | uv 프로젝트 |
 | `web/` | 관리자 화면 (React + Vite). `/api/admin/*`만 부른다 | npm 패키지 |
 | `deploy/` | 관리 서버 compose(web·api·mcp·tunnel), 서버 배포 스크립트, 서비스 DB 읽기 전용 계정 SQL | |
-| `recovery_cases.json` | 복구 셈법 기준 사례. 관리자 백엔드와 서비스 테스트(`backend/reports/tests/test_recovery_cases.py`)가 같은 파일을 읽는다 (`API.md` 3장) | |
+| `recovery_cases.json` | 복구 셈법 기준 사례. 관리자 백엔드와 서비스 테스트(`backend/reports/tests/autohealing/test_recovery_cases.py`)가 같은 파일을 읽는다 (`API.md` 3장) | |
 | (루트) `.github/workflows/` | `admin-ci.yml`(검사), `admin-deploy.yml`(main: 검사 → 이미지 → 관리 서버 배포) | |
 
 ```
@@ -192,7 +192,7 @@ ADMIN_TEST_PG_DSN=postgresql://paper_admin_ro:ro-dev@127.0.0.1:55432/paper uv ru
 
 | 작업 | 언제 | 하는 일 |
 |---|---|---|
-| `admin-ci.yml` | `admin/`·서비스 모델·마이그레이션·`reports/stats.py`가 바뀐 main 아닌 브랜치 push·PR, 그리고 `admin-deploy.yml` 안에서 | server 린트·테스트, web 린트·타입·테스트·빌드, schema(서비스 마이그레이션을 건 PostgreSQL에서 읽기 전용 계정으로 모든 경로 200·쓰기 실패) |
+| `admin-ci.yml` | `admin/`·서비스 모델·마이그레이션·`reports/autohealing/stats.py`가 바뀐 main 아닌 브랜치 push·PR, 그리고 `admin-deploy.yml` 안에서 | server 린트·테스트, web 린트·타입·테스트·빌드, schema(서비스 마이그레이션을 건 PostgreSQL에서 읽기 전용 계정으로 모든 경로 200·쓰기 실패) |
 | `admin-deploy.yml` | 같은 경로가 바뀐 main push | 검사 → 이미지 3개(`ghcr.io/shs5029/paper-trading-admin-{server,web,tunnel}:<커밋>`) → 관리 서버에 compose·스크립트 올리고 `remote_deploy.sh` (새 버전이 2분 안에 뜨지 않으면 직전 버전으로 되돌림) |
 
 서비스 검사·배포(`ci.yml`, `deploy.yml`)와 따로 돈다. `admin/`만 바뀐 main push는 서비스를 다시 배포하지 않는다 (`deploy.yml`의 `paths-ignore`).

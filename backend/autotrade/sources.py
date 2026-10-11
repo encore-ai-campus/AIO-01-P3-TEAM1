@@ -14,7 +14,7 @@ from django.db import IntegrityError
 from django.db.models import Q
 from django.utils import timezone
 from paper_engine.data.ticks import round_price
-from reports.contracts import MAX_HOLDING_DAYS, MAX_ITEMS, MIN_HOLDING_DAYS, RISK_LEVELS
+from reports.guardrails.contracts import MAX_HOLDING_DAYS, MAX_ITEMS, MIN_HOLDING_DAYS, RISK_LEVELS
 from reports.models import Report
 from trading import market
 

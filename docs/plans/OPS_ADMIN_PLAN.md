@@ -95,7 +95,7 @@
 | DB 권한 | 읽기 전용 계정에 필요한 열만 SELECT (`admin/deploy/readonly_role.sql`) + 읽기 전용 트랜잭션 | 쓰기와 개인 정보(본문·사용자 표)를 권한으로 막는다 |
 | 엔진 상태 | `engine_status` 표 (`trading` 0004), `run_engine`이 30초마다. 버전은 이미지 태그(`APP_VERSION`) | 5장 |
 | 배포 기록 | `deploy.yml`의 `record` 작업이 강제 명령 키로 관리 서버에 한 줄 (`검사 실패`도 `blocked`로) | 그 키로는 기록 한 줄만 쓸 수 있다 |
-| 복구 셈법 | `admin/recovery_cases.json` 기준 사례를 관리자 백엔드와 서비스(`reports.stats`) 테스트가 같이 읽는다 | 5장 "같은 숫자" |
+| 복구 셈법 | `admin/recovery_cases.json` 기준 사례를 관리자 백엔드와 서비스(`reports.autohealing.stats`) 테스트가 같이 읽는다 | 5장 "같은 숫자" |
 | 검사·배포 | `admin-ci.yml`(서비스 스키마에서 읽기 전용 확인 포함)·`admin-deploy.yml`(main의 `admin/` 변경 → GHCR 이미지 `paper-trading-admin-*` → 관리 서버). 서비스 `ci.yml`·`deploy.yml`과 따로 돌고, `admin/`만 바뀐 push는 서비스를 다시 배포하지 않는다 | 7장 |
 | 저장소 (2026-10-08 사용자 결정) | 같은 날 `admin/`을 별도 비공개 저장소 `SHS5029/paper_admin`으로 뺐다가, 다시 이 저장소의 `admin/`으로 합쳤다 (`git subtree`로 그 저장소 이력 포함). 그 저장소의 배포는 끄고(`DEPLOY_ENABLED=false`) 더 쓰지 않는다 | 한 저장소에서 서비스와 같이 고치고 검사한다. 검사·배포는 위처럼 따로 |
 | 공개 범위 (2026-10-08 사용자 결정) | 관리자 화면·MCP를 관리 서버 퍼블릭 IP의 80번으로 **모두에게** 연다 (처음 계획은 SSH 터널로만, 밖에 여는 포트 22뿐). HTTPS 없음 — 도메인을 붙이면 HTTPS로 바꾼다. 로그인은 IP별(nginx)·아이디별(백엔드) 속도 제한 | 퍼블릭 IP 링크로 바로 열기 |

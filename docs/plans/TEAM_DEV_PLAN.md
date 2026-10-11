@@ -125,7 +125,7 @@
 
 ### 4-2. 만들 것
 
-이미 있는 것(고치지 않고 그 위에 만든다): 실행 계획과 계획 검증(`backend/reports/registry.py`, YAML 두 개), State·Trace 저장과 **유일한 쓰기 경로**(`state.py`:
+이미 있는 것(고치지 않고 그 위에 만든다): 실행 계획과 계획 검증(`backend/reports/orchestration/registry.py`, YAML 두 개), State·Trace 저장과 **유일한 쓰기 경로**(`state.py`:
 `start`·`set_step`·`record`·`add_result`·`add_error`·`finish`), Snapshot·SSE API, 화면(그래프·타임라인·State·정책 안내·예시 재생).
 새 코드는 `backend/reports/` 안에 둔다 (예: `contracts.py`, `agents/`, `guards.py`, `orchestrator.py`, `runner.py`).
 
@@ -137,7 +137,7 @@
 | D | **Join Guard** | 필수 결과 존재 → 계약 확인 → 실패 결과 제외 → 최소 Context 선택. 막으면 `join_blocked`, 뒤 Agent는 `skipped` |
 | E | **부분 실패 정책** | `failure_policy`(fail_fast·best_effort·required_optional)와 `required`·`optional`대로 계속할지 정한다 |
 | F | **Handoff와 Guard** | 아래 4-3의 전달 데이터, Guard(사용자, 허용 경로, 민감정보, 최대 Hop) |
-| G | **실행 연결** | 웹 요청 안에서 실행하지 않는다. `run_engine` 루프에서 `requested` 리포트를 집어 실행 (`backend/analysis/jobs.py`의 `tick()`이 본보기). 끝나면 `reports/registry.py`의 `AGENTS_IMPLEMENTED = True` |
+| G | **실행 연결** | 웹 요청 안에서 실행하지 않는다. `run_engine` 루프에서 `requested` 리포트를 집어 실행 (`backend/analysis/jobs.py`의 `tick()`이 본보기). 끝나면 `reports/orchestration/registry.py`의 `AGENTS_IMPLEMENTED = True` |
 | H | **Provider·Model** | `worker_definitions.yaml`의 `provider`·`model`과 **대체 모델**(5장)을 채운다 |
 | I | **비용·한도** | 리포트 한 건의 AI 비용 기록, 팀원별·전체 하루 한도 (`backend/analysis/quota.py` 방식) |
 | J | **테스트** | LLM은 가짜 객체로. 정상, 선택 Worker 실패, 필수 Worker 실패(Join 차단), 검토 RETRY 뒤 PASS, RETRY 한도 초과, Handoff Guard 거절 |
@@ -216,7 +216,7 @@ LLM 세 줄(응답 없음·서버 오류·출력 형식 불일치)의 재시도�
 
 - `worker_definitions.yaml`의 Worker마다 주 모델과 **대체 모델 목록**을 둔다 (예: `model: A`, `fallbacks: [B, C]`). Registry 검증에 추가한다.
   (2026-10-07 담당 4 결정: 호출기는 `fallbacks`를 쓰지 않고 `healing.FALLBACK_POOL`에서 차단되지 않은 **대체 모델 하나**를 고른다 — `docs/tasks/00-공통.md` 7절)
-- LLM 호출을 한 곳(예: `backend/reports/healing.py`의 호출 함수)으로 모은다. Worker는 이 함수만 부른다. 이 함수가 아래 순서로 복구한다.
+- LLM 호출을 한 곳(예: `backend/reports/autohealing/healing.py`의 호출 함수)으로 모은다. Worker는 이 함수만 부른다. 이 함수가 아래 순서로 복구한다.
   1. 호출 → 실패(시간 초과·서버 오류·형식 불일치)를 **유형으로 분류**
   2. 유형에 맞게 같은 모델로 다시 (형식 불일치면 오류를 알려 주고 재요청, 서버 오류면 잠깐 기다렸다가). 주 모델의 시간 초과는 다시 기다리지 않고 바로 3으로 (2026-10-08)
   3. 그래도 실패하면 **대체 모델(하나)로 전환** — 대체 모델도 같은 규칙으로 한 번 더
@@ -473,9 +473,9 @@ Claude가 구현한다(2026-10-05, `docs/DECISIONS.md` 14장). "추천 워크플
 | 담당 | 만들 것 | 주로 건드리는 곳 | 산출물 책임 |
 |---|---|---|---|
 | **1. 인프라·배포·통합** (저장소·호스트 PC 담당) | EC2 준비, GitHub 변수·비밀 값, 첫 배포, 배포 차단 시연(7장). 호스트 PC·공유 DB·`main` 통합. 자동 리포트의 자동 실행·선별·리포트 생성 연결·Discord 발송과 그 테스트(6-2의 1·2·3·5·7) | `deploy/`, `.github/`, 자동 리포트 명령, 발송 코드 | ③ 파이프라인 보고서, ②의 배포 구성 |
-| **2. Worker·출력 계약** | 출력 계약, Worker 6개, 모델 지정, 비용·한도 (4-2의 A·B·H·I) | `backend/reports/contracts.py`, `agents/` | ①의 역할·입출력 |
-| **3. Orchestrator** | 병렬 실행·Join Guard·실패 정책·검토 반복·Handoff·`run_engine` 연결과 그 테스트 (4-2의 C~G·J) | `backend/reports/orchestrator.py`, `guards.py`, `runner.py` | ① 설계서 총괄 (흐름·Handoff) |
-| **4. AutoHealing 백엔드** | 재시도·대체 모델·Circuit Breaker, 장애 주입, 복구용 Trace 사건, 복구 지표 API, 엔진이 다시 뜰 때 남은 리포트 정리 (5-1~5-3) | `backend/reports/healing.py`, YAML의 대체 모델, `docs/API.md` 추가분 | ② 장애 복구 보고서 (유형표·지표), 8장 시험 시나리오와 결과표 |
+| **2. Worker·출력 계약** | 출력 계약, Worker 6개, 모델 지정, 비용·한도 (4-2의 A·B·H·I) | `backend/reports/guardrails/contracts.py`, `agents/` | ①의 역할·입출력 |
+| **3. Orchestrator** | 병렬 실행·Join Guard·실패 정책·검토 반복·Handoff·`run_engine` 연결과 그 테스트 (4-2의 C~G·J) | `backend/reports/orchestration/orchestrator.py`, `guards.py`, `runner.py` | ① 설계서 총괄 (흐름·Handoff) |
+| **4. AutoHealing 백엔드** | 재시도·대체 모델·Circuit Breaker, 장애 주입, 복구용 Trace 사건, 복구 지표 API, 엔진이 다시 뜰 때 남은 리포트 정리 (5-1~5-3) | `backend/reports/autohealing/healing.py`, YAML의 대체 모델, `docs/API.md` 추가분 | ② 장애 복구 보고서 (유형표·지표), 8장 시험 시나리오와 결과표 |
 | **5. 프론트·리포트 서식** | 장애 주입 체크박스, 복구 과정 시각화, 복구 지표 화면, 검토 반복 표시, 실패 안내 (5-4, 10-1). A4 PDF 서식과 PDF 내려받기, "자동" 표시 (6-3, 6-2의 4·6) | `frontend/`, PDF용 HTML·CSS | 발표 자료·시연 영상 총괄 |
 
 같이 하는 것:
@@ -614,7 +614,7 @@ DB 데이터는 Docker 볼륨 `paper-dev_pgdata`에 있다 (컨테이너를 내�
 - **비밀 값은 `.env`에만.** 키·비밀번호·Discord Webhook 주소·`team_accounts.txt`를 커밋하거나 문서·Trace·로그에 남기지 않는다 (제출 전 체크리스트 항목이다).
 - **테스트는 실제 증권사·AI를 부르지 않는다.** 가짜 객체를 쓴다. push 전에 `uv run ruff check . && uv run pytest`와 프론트 검사를 돌린다.
 - **API를 바꾸면 `docs/API.md`를 먼저 고친다.** Trace 사건·요청 형식을 더할 때도 마찬가지다.
-- **State·Trace는 `backend/reports/state.py`로만 바꾼다.** Worker는 결과만 돌려준다.
+- **State·Trace는 `backend/reports/orchestration/state.py`로만 바꾼다.** Worker는 결과만 돌려준다.
 - **엔진 루프는 한 곳에서만.** 공유 DB를 쓸 때 `run_engine`은 호스트 PC에서만 돌린다.
 - **토스 조회는 로컬 개발 전용이다** (`BROKER=toss`, `DJANGO_DEBUG=on`일 때만). 팀원 PC와 운영에는 키움 키를 쓴다.
 - AI 분석·리포트·대체 모델 호출은 실제 비용이 든다. 반복 실험은 가짜 LLM이나 값싼 모델로 하고, 장애 주입 시험은 한도 안에서 한다.

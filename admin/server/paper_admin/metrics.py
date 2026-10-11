@@ -212,7 +212,7 @@ def reports_level(db: Database, now: datetime) -> tuple[str, str]:
 ANALYSIS_COST_USD = 0.3  # 엔진이 limits.analysisCostUsd를 알려 주지 않을 때 (서비스 analysis.quota.COST_PER_ANALYSIS_USD)
 
 def counts_for_quota(r: dict) -> bool:
-    """서비스 reports.quota.counts와 같은 셈: 자동 리포트는 빼고, failed는 장애 주입을 켰을 때만 센다."""
+    """서비스 reports.limits.quota.counts와 같은 셈: 자동 리포트는 빼고, failed는 장애 주입을 켰을 때만 센다."""
     if (r.get("source") or "user") == "auto":
         return False
     if r["status"] != "failed":
@@ -262,7 +262,7 @@ def costs(db: Database, now: datetime, days: int) -> dict:
     jobs = db.query("SELECT id, type, user_id, status, created_at, started_at FROM jobs WHERE created_at >= %(since)s",
                     {"since": today})
     analyses_used = sum(1 for j in jobs if j["type"] == "analyze" and not (j["status"] == "FAILED" and j["started_at"] is None))
-    # 예산 사용액 = 서비스 reports.budget.used_usd와 같은 셈: 오늘 분석 요청 수 × 건당 예상 비용 + 오늘 만든 리포트의 실제 비용
+    # 예산 사용액 = 서비스 reports.limits.budget.used_usd와 같은 셈: 오늘 분석 요청 수 × 건당 예상 비용 + 오늘 만든 리포트의 실제 비용
     per_analysis = num(limits.get("analysisCostUsd"))
     budget_used = usd(analyses_used * (per_analysis if per_analysis is not None else ANALYSIS_COST_USD)
                       + daily[dates[-1]]["reportsUsd"])

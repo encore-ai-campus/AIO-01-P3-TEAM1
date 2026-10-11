@@ -6,7 +6,7 @@ system = 역할 + 공통 규칙 + 출력 계약 설명(contracts.describe에서 
 import json
 from typing import Any
 
-from .. import contracts
+from ..guardrails import contracts
 
 COMMON_RULES = """공통 규칙:
 - 한국어로 쓴다. 출력은 JSON 객체 하나만 낸다 (설명 문장·코드 블록 표시 없이).

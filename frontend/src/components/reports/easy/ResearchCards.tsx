@@ -3,7 +3,7 @@
 // 시세 가격은 기준 시각(MarketResult.asOf)이 있을 때만 보인다 (asOf가 없거나 읽을 수 없으면 가격 없이 "자료 없음" — PDF와 같다).
 // 리포트를 장 중에 만들었으면(basis live) "장중 가격 … · 10월 8일(목) 15:23 기준", 아니면 "종가 … · … 장마감 기준" (docs/API.md "리포트 시세").
 // 뉴스는 제목·매체·날짜만 (링크 없음, docs/DECISIONS.md 13-3 약관 대응).
-// 쉬운 PDF(backend/reports/pdf.py 쉬운 판)도 같은 칸·문장을 쓴다 — 바꾸면 둘 다 고친다
+// 쉬운 PDF(backend/reports/output/pdf.py 쉬운 판)도 같은 칸·문장을 쓴다 — 바꾸면 둘 다 고친다
 import { type ReactNode, useId, useState } from "react";
 import type { Currency, Market } from "../../../api/types";
 import { cn } from "../../../lib/cn";

@@ -10,14 +10,14 @@ on:
       - "admin/**"
       - "backend/*/models.py"
       - "backend/*/migrations/**"
-      - "backend/reports/stats.py"
+      - "backend/reports/autohealing/stats.py"
       - ".github/workflows/admin-*.yml"
   pull_request:
     paths:
       - "admin/**"
       - "backend/*/models.py"
       - "backend/*/migrations/**"
-      - "backend/reports/stats.py"
+      - "backend/reports/autohealing/stats.py"
       - ".github/workflows/admin-*.yml"
   workflow_dispatch:
   workflow_call:

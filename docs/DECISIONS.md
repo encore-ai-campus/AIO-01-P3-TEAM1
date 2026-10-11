@@ -303,7 +303,7 @@ API 계약은 `docs/API.md`. 아래는 그 배경 결정이다. 앞 장과 다�
 - 웹에서 요청한 분석은 엔진 CLI를 하위 프로세스로 돌린다: `python -m paper_engine analyze <종목> --by <아이디> --equity <초기 자금>`
   (`--buy`는 주지 않는다. 엔진 계좌에 자동 매수하지 않는다). 한도는 횟수로 건다: 팀원별 하루 `AI_DAILY_ANALYSES_PER_USER`(기본 5),
   전체 하루 `AI_DAILY_BUDGET_USD ÷ 0.3`(기본 33회). 2026-10-08부터 팀 전체 몫은 리포트와 같은 예산이다: 오늘 쓴 분석 예상 비용과 리포트 실제 비용을
-  뺀 나머지 ÷ 0.3 (`reports/budget.py` `used_usd`, `analysis/quota.py` `team_left`). 리포트 비용이 없으면 전과 같다.
+  뺀 나머지 ÷ 0.3 (`reports/limits/budget.py` `used_usd`, `analysis/quota.py` `team_left`). 리포트 비용이 없으면 전과 같다.
 
 ### 8-5. 프론트엔드
 
@@ -353,7 +353,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 
 | 문서의 개념 | 이 저장소에서 |
 |---|---|
-| Execution Plan, 계획 검증 | `backend/reports/team_definitions.yaml`의 steps(`depends_on`, `join`, `retry`) + `registry.py`의 검증 (없는 앞 단계·중복 step id·순환·없는 Worker·대체 모델·검토 재시도) |
+| Execution Plan, 계획 검증 | `backend/reports/orchestration/team_definitions.yaml`의 steps(`depends_on`, `join`, `retry`) + `registry.py`의 검증 (없는 앞 단계·중복 step id·순환·없는 Worker·대체 모델·검토 재시도) |
 | Sequential / Parallel | step의 `mode`. 조사(`parallel_research`)는 병렬, 리포트 작성·검토는 순차 |
 | Join Guard | step의 `join: true`. Trace의 `join_guard` 사건(`join_completed`·`join_blocked`). 판단 코드는 미구현 |
 | Partial Failure 정책 | team의 `failure_policy`(fail_fast·best_effort·required_optional)와 step의 `required`·`optional`. 판단 코드는 미구현 |
@@ -380,10 +380,10 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 
 ### 9-4. Orchestrator를 붙일 자리 (구현할 때)
 
-- State와 Trace는 **`backend/reports/state.py`의 함수로만** 바꾼다 (Orchestrator만 State를 갱신한다. Worker는 독립 결과만 돌려준다).
+- State와 Trace는 **`backend/reports/orchestration/state.py`의 함수로만** 바꾼다 (Orchestrator만 State를 갱신한다. Worker는 독립 결과만 돌려준다).
   `start` · `set_step` · `record`(Trace 사건) · `add_result`(계약을 통과한 결과만) · `add_error` · `finish`.
 - 오래 걸리는 실행은 웹 요청 안에서 하지 않는다. `run_engine` 루프에서 `requested` 리포트를 집어 실행하는 식으로 붙인다 (8-2).
-- 붙인 뒤 `reports.registry.AGENTS_IMPLEMENTED`를 True로 바꾸면 화면이 SSE를 연다.
+- 붙인 뒤 `reports.orchestration.registry.AGENTS_IMPLEMENTED`를 True로 바꾸면 화면이 SSE를 연다.
 - Guard 사건의 `details`에는 대상을 넣는다: `join_guard`는 `{"step": <Join하는 step id>}`, `handoff_guard`는 `{"to": <넘겨받는 Worker id>}`
   (화면이 그래프의 어느 노드인지 찾는 데 쓴다). `workflow_completed`를 남긴 뒤 `finish`를 부른다 (끝난 리포트에는 Trace가 붙지 않는다).
 - 운영(4E)에서 SSE는 연결 하나가 요청 처리 스레드 하나를 60초까지 잡는다: gunicorn은 스레드 워커(gthread), nginx는 `/api/reports/*/events`에
@@ -621,7 +621,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
   | 01 T1-7 | `?mine=1`(B8)은 Claude. `?source=`는 그대로 1 (`source` 열이 생긴 뒤 `ReportsView.get`에 한 줄) |
   | 01 T1-19·T1-20·T1-21·T1-22·T1-23 | B4·B5·B10·B6·쉬운 보기 뼈대 → Claude |
   | 02 T2-4 | `market_agent`는 `trading.market.close_price`·`completed_candles`(장마감 기준)로 자료를 만들고 `MarketResult.asOf`를 채운다 (`00-공통.md` 10절). `current_prices`·`last_price`·미완성 봉을 쓰지 않는다 (2026-10-08: 장 중에는 가격만 현재가 `live_prices` — 26장) |
-  | 02 T2-9 | 팀원별 횟수 한도(`quota.py`, `AI_DAILY_REPORTS_PER_USER`, `429`, `GET /api/reports/quota`)는 Claude. 2에게 남는 것은 **비용 예산**: 새 팀 파일 `backend/reports/budget.py`의 `check(now) -> None`(넘으면 `LimitExceeded`)과 `tests/test_budget.py`, `ReportsView.post`에 한 줄 (`cost_usd` 열이 생긴 뒤) |
+  | 02 T2-9 | 팀원별 횟수 한도(`quota.py`, `AI_DAILY_REPORTS_PER_USER`, `429`, `GET /api/reports/quota`)는 Claude. 2에게 남는 것은 **비용 예산**: 새 팀 파일 `backend/reports/limits/budget.py`의 `check(now) -> None`(넘으면 `LimitExceeded`)과 `tests/limits/test_budget.py`, `ReportsView.post`에 한 줄 (`cost_usd` 열이 생긴 뒤) |
   | 03 (B7 줄) · T3-4 · T3-12 | runner는 끝난 리포트마다 팀의 `auto.after_finish(report)`를 부른다 (자동 리포트용). 사용자 알림은 Claude `alerts`가 보내므로 runner가 따로 부를 것은 없다 (`alerts.notify_finished`를 불러도 된다). T3-12의 `healing.notify_failure` 호출과 완료 기준 "실패 1건에 `notify_failure` 호출 1번"은 빠진다. 실패할 때 `workflow_failed.details.reason`을 9절 코드로 남기는 것은 그대로 |
   | 04 T4-1 | **B3(`opinion`·`oneLiner`)는 Claude** (2026-10-05 바뀜 — Claude가 지금 `payloads.summary`에 넣는다). 4에게 남는 것: 모델 열·마이그레이션 0002, 같은 `summary`·`detail`의 `source`·`chaosEnabled`·`costUsd`·`hasPdf`·`requestedBy`("자동")·`chaos`·`recovery` — Claude가 넣은 B3 두 필드 위에 더한다 (지우지 않는다) |
   | 04 T4-8 | `healing.notify_failure`는 사용자 알림(`report_failed`)을 보내지 않아도 된다 (14-5) |
@@ -722,24 +722,24 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 ### 14-5. 리포트 끝 알림 (컨셉 계획 B7 바뀜)
 
 - **전**: 팀원의 runner가 `auto.after_finish`를 불러 완성 알림을, 담당 4의 `healing.notify_failure`가 실패 알림(`report_failed`)을 보낸다.
-- **지금**: 알림은 **모두 Claude 코드** — 새 파일 **`backend/reports/alerts.py`**가 보낸다 (`auto.py`는 자동 리포트 B9의 팀 파일이라 나눴다 — 14-2).
+- **지금**: 알림은 **모두 Claude 코드** — 새 파일 **`backend/reports/output/alerts.py`**가 보낸다 (`auto.py`는 자동 리포트 B9의 팀 파일이라 나눴다 — 14-2).
   `notify_finished(report)`(즉시, 예외를 밖으로 내지 않음)와 `sweep_finished(now, log)`(최근 24시간 안에 끝난 리포트 중 아직 알림이 없는 것)를 두고,
   `run_engine`의 새 단계 "리포트 알림"(추천 수집 다음)이 `alerts.sweep_finished`를 부른다. 팀 코드는 `alerts.notify_finished`를 불러도 되고 안 불러도 된다.
   `healing.notify_failure`는 사용자 알림을 보내지 않아도 된다. 자동 리포트의 끝 처리(PDF·Discord)는 팀의 `auto.after_finish(report)`(runner가 부른다)다.
 - **왜**: 팀 일을 줄여 추천 워크플로우에 집중하게 하고, 알림이 runner·healing의 구현 시점에 묶이지 않게 한다. sweep이 있어 어느 경로가 빠져도 한 번은 간다.
 - 완성: 이 리포트로 추천이 있으면(추천 알림 첫 줄 "리포트가 완성됐어요"가 그 역할) 따로 보내지 않고, 없으면 `report_completed`. 실패: `report_failed`, 본문은 실패 사유 코드
-  (`workflow_failed.details.reason`)의 쉬운 문장(`reports/text.py`), 모르면 "리포트를 만들지 못했어요. 다시 만들 수 있어요". 같은 사용자·kind·link 알림이 있으면 보내지 않는다.
+  (`workflow_failed.details.reason`)의 쉬운 문장(`reports/output/text.py`), 모르면 "리포트를 만들지 못했어요. 다시 만들 수 있어요". 같은 사용자·kind·link 알림이 있으면 보내지 않는다.
   자동 리포트(`source: auto`)는 건너뛴다 (팀 몫, B9).
 
 ### 14-6. 하루 리포트 한도 (D-7)
 
-- 새 `backend/reports/quota.py`, 설정 `AI_DAILY_REPORTS_PER_USER`(기본 3). 오늘(KST) 내가 신청한 리포트에서 **장애 주입 없이 failed로 끝난 것은 빼고** 센다.
+- 새 `backend/reports/limits/quota.py`, 설정 `AI_DAILY_REPORTS_PER_USER`(기본 3). 오늘(KST) 내가 신청한 리포트에서 **장애 주입 없이 failed로 끝난 것은 빼고** 센다.
   `chaos` 열이 아직 없으므로 `getattr(report, "chaos", None)`이 dict이고 `enabled`가 참일 때만 failed도 센다 (열이 생기기 전에는 failed를 모두 뺀다). JSON 필드는 Python에서 읽는다 (PostgreSQL 전용 조회를 쓰지 않는다).
 - 넘으면 `POST /api/reports` → `429 {"detail", "limit", "used"}` (`config.api`의 예외 처리는 `detail` 외 필드를 버리므로 `Response`를 직접 돌려준다). 같은 종목의 진행 중 리포트를 돌려주는 `200` 경로는 세지 않는다.
   남은 횟수는 `GET /api/reports/quota` (`limit`·`used`·`remaining`·`resetsAt`).
 - **2026-10-08 바뀜 (사용자 결정): 기본값은 무제한.** `AI_DAILY_REPORTS_PER_USER`가 비어 있으면(또는 숫자가 아니면) 한도가 없다 — `limit`·`remaining`이 `null`이고 `429`가 나지 않는다.
   숫자를 넣으면 전처럼 그 수가 한도다 (0이면 신청할 수 없다). 팀 전체 하루 비용 예산(`AI_DAILY_BUDGET_USD`, `budget.check`)은 그대로 적용된다.
-- 비용 합산 한도(분석 + 리포트 $)는 `cost_usd` 열이 생긴 뒤 팀원(2) 몫이다 — 새 팀 파일 `backend/reports/budget.py`의 `check(now)`. `quota.py`(Claude)에 넣지 않는다.
+- 비용 합산 한도(분석 + 리포트 $)는 `cost_usd` 열이 생긴 뒤 팀원(2) 몫이다 — 새 팀 파일 `backend/reports/limits/budget.py`의 `check(now)`. `quota.py`(Claude)에 넣지 않는다.
   `ReportsView.post`에서는 `quota.check` 바로 뒤에 `budget.check`를 한 줄로 부른다 (14-2의 순서).
 
 ### 14-7. 그 밖의 구현 결정
@@ -872,7 +872,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
   A4 PDF(양식 판 `TEMPLATE_VERSION` 3 — 예전 판 파일은 다음 요청 때 새로 만든다): 모든 쪽 맨 위 머리 [로고 9mm + 이름 | 'AI 리포트 · 모의투자 연습용'] + 가는 선. 면책·날짜는 본문·꼬리말에 이미 있어 머리에 넣지 않는다.
 - 로그인 첫 화면: 로고 56px → 이름 26px → 부제(`SERVICE_TAGLINE`) → 설명 한 줄(`SERVICE_INTRO` "진짜 돈 대신 종이 위에서 — AI가 쓴 리포트를 읽고 따져 본 뒤, 가상 현금으로 모의투자를 연습해요.") → 3단계 칩. 상수는 `lib/plainText.ts`.
 - **쓰지 않는 것**: 배를 노란색으로 칠하지 않는다(세월호 추모의 노란 종이배와 겹친다), 물결·화살표·차트를 덧그리지 않는다. 문구에 배 은어(탑승·승선·선장·출항·순항 — 리딩방 은어와 닿는다), '띄우다'(주가 띄우기)·'접다'(포기), 침몰·가라앉다·구조, '배(倍)' 말장난을 쓰지 않는다.
-- 2·3위 후보(바꾸고 싶을 때): **"따져봄"**("AI 리포트로 따져 보는 모의투자 연습" — 검토 원칙을 가장 정확히 말하고 안전 심사 1위, 마크(안경)는 다시 다듬어야 함), **"검산"**(√ 체크 마크가 가장 독창적, 이름이 딱딱함). 이름은 `lib/plainText.ts` `SERVICE_NAME` 한 곳 + 백엔드 두 상수(`notifications/service.py` `HEADER`, `reports/pdf.py` `SERVICE_NAME`)다.
+- 2·3위 후보(바꾸고 싶을 때): **"따져봄"**("AI 리포트로 따져 보는 모의투자 연습" — 검토 원칙을 가장 정확히 말하고 안전 심사 1위, 마크(안경)는 다시 다듬어야 함), **"검산"**(√ 체크 마크가 가장 독창적, 이름이 딱딱함). 이름은 `lib/plainText.ts` `SERVICE_NAME` 한 곳 + 백엔드 두 상수(`notifications/service.py` `HEADER`, `reports/output/pdf.py` `SERVICE_NAME`)다.
 
 
 ## 16. 단타 폐기 (2026-10-06, 사용자 결정)
@@ -937,7 +937,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
   - 화면 `frontend/src/lib/plainText.ts` `SERVICE_NAME`: 왼쪽 메뉴·모바일 홈 머리·로그인·부팅 화면, 브라우저 탭 "〈화면〉 · 모매매", 로고의 읽기 이름.
     `frontend/index.html`의 `<title>`·`apple-mobile-web-app-title`도 같이.
   - Discord 머리말 `[모매매 · 모의투자]` (`backend/notifications/service.py` `HEADER`).
-  - A4 PDF 머리 (`backend/reports/pdf.py` `SERVICE_NAME`). 양식 판 `TEMPLATE_VERSION` 3 → 4 — 예전 판 PDF는 다음 요청 때 새 이름으로 다시 만든다.
+  - A4 PDF 머리 (`backend/reports/output/pdf.py` `SERVICE_NAME`). 양식 판 `TEMPLATE_VERSION` 3 → 4 — 예전 판 PDF는 다음 요청 때 새 이름으로 다시 만든다.
 - **그대로 둔 것**: 로고(종이배 모양 — `BrandMark.tsx`·`favicon.svg`·`apple-touch-icon.png`)와 15-7의 로고 규칙·"쓰지 않는 것",
   부제 "종이 위에서 연습하는 AI 리포트 모의투자"와 풀이 한 줄(`SERVICE_TAGLINE`·`SERVICE_INTRO`). 새 이름에 로고·부제를 맞출지는 `docs/결정필요사항.md` U24.
   → 2026-10-08 로고·부제·풀이 한 줄도 새 이름에 맞춰 바꿨다 (27장, U24 결정).
@@ -952,7 +952,7 @@ Claude가 끝까지 만들었다. 팀원이 이미 만든 것(3의 T3-1 레지�
 
 - **두 팀** (`Report.team`, 마이그레이션 0003): `stock_report`(종목 리포트, 기본)와 `stock_selection`(매매 종목 선정 — 하루 한 번, `symbol`은 시장 코드).
   `registry.execution_plan(team)`·`step_ids(team)`·`worker_ids(team)`, `state`는 리포트의 팀 계획으로 단계·Worker를 확인한다. 선정 실행은 목록·알림·추천 수집에서 빠진다.
-- **Orchestrator** (`reports/orchestrator.py`): 계획대로 병렬·순차 실행, 단계 제한 시간(180초) → `timeout`, Join Guard, 부분 실패 정책 셋, 검토 반복(RETRY ≤ 2), Handoff Guard(리스크 점검),
+- **Orchestrator** (`reports/orchestration/orchestrator.py`): 계획대로 병렬·순차 실행, 단계 제한 시간(180초) → `timeout`, Join Guard, 부분 실패 정책 셋, 검토 반복(RETRY ≤ 2), Handoff Guard(리스크 점검),
   비용 집계(`state.add_cost`). `state`의 쓰기는 프로세스 잠금으로 한 번에 하나 (병렬 Worker 스레드가 SQLite에서 "table is locked"를 내지 않게).
 - **실패 사유 코드 셋 추가**: `agent_failed`(Join이 없는 단계의 필수 Worker 실패), `no_llm`(AI 키 없음), `expired`(24시간 넘게 기다린 `requested` — 실행기를 처음 켤 때
   묵은 신청이 실제 비용으로 한꺼번에 돌지 않게. 계획서 Q5). 화면·알림 문장 표에 같이 넣었다. 필수 Worker가 단계 제한 시간을 넘기면 `timeout`(Q3).
@@ -960,11 +960,11 @@ Claude가 끝까지 만들었다. 팀원이 이미 만든 것(3의 T3-1 레지�
   왜: 주 모델이 계속 멈출 때 60초를 또 기다리지 않아 복구가 125초 → 65초, 대체 모델이 첫 호출에서만 멈추는 경우도 180초 안에 복구된다.
   `yubeen` 브랜치의 "timeout은 어느 모델이든 바로 다음 모델" 안과 지금 규칙을 가짜 시계로 비교해 고른 절충안이다 (`docs/works/todo/yubeen_리뷰_Orchestrator별도구현_2026-10-08.md` 3장).
   호출 한 번에 주 모델 실패가 2번에서 1번으로 줄어, 장애 주입 시연에서 Circuit Breaker(연속 3번)는 세 번째 호출에서 열린다.
-- **실행기** (`reports/runner.py`): 엔진 루프 "리포트 실행" 단계가 `requested`를 오래된 순으로 하나씩(동시에 하나). 엔진이 다시 뜨면 남은 `running`을 `engine_restarted`로 끝낸다.
+- **실행기** (`reports/orchestration/runner.py`): 엔진 루프 "리포트 실행" 단계가 `requested`를 오래된 순으로 하나씩(동시에 하나). 엔진이 다시 뜨면 남은 `running`을 `engine_restarted`로 끝낸다.
 - **Worker 11개**: 종목 리포트 6개(시세 — 장마감 기준 값을 코드가 덮어씀, 재무·공시, 뉴스, 작성, 검토 — 투자유의면 코드가 Handoff를 붙임, 리스크 — 투자유의 단계의 하한을 코드가 정함),
   선정 5개(후보 뉴스, 후보 공시 — 고위험 공시 낱말은 코드가 high로, 수급 — 합계는 코드, 선정 — 가격 없음, 선정 검토 — 후보 밖 종목이면 코드가 RETRY로). 외부 글은 입력 Guard(`guards.clean_text`)를 거친다.
-- **하루 파이프라인** (`reports/auto.py`, `AUTO_REPORT=on`일 때만 — 기본 off): 국내 거래일 `AUTO_REPORT_AT`(08:00) 뒤 규칙 선별(후보 30) → 선정 팀 실행 →
-  선정 Guard(`reports/selection.py`: 후보 밖·투자유의(조회 실패면 제외)·고위험 공시·같은 테마 2개까지, 모자라면 규칙 점수로 채움) → 상위 3종목 자동 리포트 → 끝나면 Discord로 PDF와 표지,
+- **하루 파이프라인** (`reports/autoreport/auto.py`, `AUTO_REPORT=on`일 때만 — 기본 off): 국내 거래일 `AUTO_REPORT_AT`(08:00) 뒤 규칙 선별(후보 30) → 선정 팀 실행 →
+  선정 Guard(`reports/autoreport/selection.py`: 후보 밖·투자유의(조회 실패면 제외)·고위험 공시·같은 테마 2개까지, 모자라면 규칙 점수로 채움) → 상위 3종목 자동 리포트 → 끝나면 Discord로 PDF와 표지,
   매수 의견이면 AI 추천(팀 전체 알림). 선정 팀이 실패하면 규칙 점수 상위로 Fallback하고 `selectedBy: "rule"`·`fallbackReason`을 남긴다. 증권사 조회가 안 되면 그날은 건너뛰고 Discord로 알린다.
   `AUTO_RECOMMEND=demo`(시연 추천)와 같이 켜지 않는다.
 - **독립 리뷰(2026-10-07, 구현하지 않은 작업자 7명 + 결과마다 반박 3명)**에서 확인된 19건을 고쳤다: Worker 결과 쓰기와 단계 시간 초과의 경합,
@@ -981,7 +981,7 @@ Claude가 끝까지 만들었다. 팀원이 이미 만든 것(3의 T3-1 레지�
 
 - **두 판**: 쉬운 판과 자세한 판(지금까지의 PDF, 내용 그대로). `GET /api/reports/{id}/pdf?view=easy|expert` — 화면의 `?view`와 같은 값.
   없으면 요청한 사람의 주린이모드(켬 → 쉬운 판). 웹 쉬운 보기의 "PDF로 보기"는 `?view=easy`, 자세히 보기는 `?view=expert`를 붙여 "이 화면만 자세히 보기"를 따른다.
-- **쉬운 판 내용 = 웹 쉬운 보기와 같은 문장** (`backend/reports/easy_text.py` — 짝 TS 파일을 주석에 적고, 테스트가 두 쪽 문장이 같은지 본다):
+- **쉬운 판 내용 = 웹 쉬운 보기와 같은 문장** (`backend/reports/output/easy_text.py` — 짝 TS 파일을 주석에 적고, 테스트가 두 쪽 문장이 같은지 본다):
   AI 의견 배지와 한 줄 풀이, 신뢰 패널(검토 통과·인용 수·자료 시각·자동 복구 문장·"AI 검토는 사실을 보증하지 않아요"), 쉬운 요약 3줄,
   매매 계획(말로 — "웹의 매매 계획 카드에서 '실행 준비'를 거쳐 직접 '모의 자동매매 시작'을 눌러야 시작돼요" — 쉬운 보기의 버튼 이름. 누르지 않으면 실행되지 않고 기한이 지나면 만료된다), 근거와 위험·"이 의견이 틀리는 경우", 세 가지 경우(1주 기준 %),
   가격 흐름(사는 가격·목표 가격·손절 가격 가로선, 이동평균 없음), 조사 자료 요약, **용어 풀이**(종이에서는 눌러 볼 수 없어서 — 그 쪽에 나온 용어만, 화면 용어 사전 문장 그대로),
@@ -1027,7 +1027,7 @@ AI는 목표를 가깝게(+6~9%), 손절을 멀게(−5~−19%) 잡았다. 그�
 - **같은 종목이 아니라 다음 종목**으로 낸다: 이미 리포트한 종목과 선정 Guard가 뺀 종목을 빼고, 같은 선정 Guard(AI 선정안의 남은 순위 → 규칙 점수 순,
   투자유의·고위험 공시·같은 테마 검사)로 top개를 고른다. 선정 팀(LLM)은 다시 부르지 않는다.
   같은 종목을 다시 내면 손절가는 코드가 정하고(21장) 목표가는 AI가 저항선에 맞춰 거의 같게 낸다 (10/7 삼성전자 두 번 모두 진입 269,000·목표 287,000, 한미반도체 두 번 모두 목표 283,500).
-- **최대 2번** (`reports/auto.py` `RETRY_ROUNDS`). 다음 종목이 없거나, 그날(KST)이 지났으면 더 하지 않는다. 다시 시도가 실패해도 표지는 보낸다.
+- **최대 2번** (`reports/autoreport/auto.py` `RETRY_ROUNDS`). 다음 종목이 없거나, 그날(KST)이 지났으면 더 하지 않는다. 다시 시도가 실패해도 표지는 보낸다.
 - 그날 선별 파일: `retries`(다시 시도한 횟수), 더한 종목은 `picks`에 `retryRound`(1|2)를 붙여 더한다 (`docs/API.md` ScreeningResult).
   팀 채널에 "자동 리포트 다시 시도 n/2: …" 한 줄, 표지는 마지막 회차가 끝난 뒤 한 번 ("리포트 9개 (다시 시도 2번)").
   화면(오늘의 선별 결과)은 더한 종목에 "다시 시도 n차" 꼬리표를 단다. `manage.py auto_report --wait`도 다시 시도한 리포트까지 돌린다.
@@ -1062,7 +1062,7 @@ AI는 목표를 가깝게(+6~9%), 손절을 멀게(−5~−19%) 잡았다. 그�
   엔진 CLI의 팀 채널 알림 (12-4의 Discord 쪽 전부).
 - **방법: 코드 두 곳을 주석 처리했다** (설정 값을 지우지 않아도 꺼진다).
   - `engine/paper_engine/notify.py`의 `make_notifier` — Webhook·openclaw 분기를 주석 처리해 늘 `ConsoleNotifier`(콘솔 출력)를 돌려준다.
-    모든 Discord 전송(`config.engine.notifier()` → 알림 발송 `dispatch.tick`, 자동 리포트 `reports/auto.py`)이 이 함수를 거친다.
+    모든 Discord 전송(`config.engine.notifier()` → 알림 발송 `dispatch.tick`, 자동 리포트 `reports/autoreport/auto.py`)이 이 함수를 거친다.
   - `backend/notifications/service.py`의 `webhook_configured` — 늘 false. 화면(My Page 알림 설정)은 Discord 묶음(받기 스위치·사용자 ID·테스트 알림)을 접고
     "지금은 웹 알림으로만 와요"를 보인다. 테스트 알림 API는 `discord: "not_configured"`.
 - 끈 동안 생기는 Discord 글은 편지함(`notification_outbox`)에 `skipped`로 남고 엔진 콘솔에만 찍힌다 (보내지 않음). `DISCORD_WEBHOOK_URL`은 남겨 둬도 된다.
@@ -1081,7 +1081,7 @@ AI는 목표를 가깝게(+6~9%), 손절을 멀게(−5~−19%) 잡았다. 그�
 
 - **직접 지우기는 만든 팀원만** 한다: 리포트는 신청한 팀원(끝난 `completed`·`failed`만), 계획 제안은 `requestedBy`인 팀원. 응답의 `canDelete`로 화면이 버튼을 보인다.
   자동 리포트·선정 실행·자동 추천은 만든 사람이 없어 아무도 지우지 않는다 — 아래 자동 정리와 기한이 내린다.
-- **지우기는 숨김이다** (`deleted_at`): 목록·상세·PDF·SSE·추천 API에서 빠지고(`404`) 행은 남는다. 이유: 행을 지우면 비용 예산(`reports/budget.py`)·하루 한도(`quota.py`)·
+- **지우기는 숨김이다** (`deleted_at`): 목록·상세·PDF·SSE·추천 API에서 빠지고(`404`) 행은 남는다. 이유: 행을 지우면 비용 예산(`reports/limits/budget.py`)·하루 한도(`quota.py`)·
   복구 통계(`stats.py`)·관리 서버가 세는 행이 사라져, 지우고 다시 만들어 한도를 되돌려 받는 길이 생기고 통계가 바뀐다. 그래서 **지워도 한도는 돌아오지 않는다** (확인 문구에 적는다).
 - **리포트와 그 제안은 같이 숨긴다** (어느 쪽을 지워도). 그 제안으로 **진행 중인 계획**(누구 것이든)이 있으면 지우지 않는다 — 다른 팀원이 산 이유를 지우지 않게.
   끝난 계획은 남고 계획 상세도 열린다. 지우기와 활성화는 추천 행을 잠그고 서로를 확인한다 (지운 뒤의 활성화는 `404`).
@@ -1090,7 +1090,7 @@ AI는 목표를 가깝게(+6~9%), 손절을 멀게(−5~−19%) 잡았다. 그�
   23장과의 관계: 목록 요청의 `blockedBy`는 지금처럼 시세를 보지 않고(요청마다 시세 조회를 하지 않는다), 시세는 엔진이 1분에 한 번만 본다. 그 1분 사이에는 '시작할 수 있음'으로 보일 수 있지만
   상세의 안전장치(종가)와 활성화의 장중 확인이 지금처럼 막는다. 기한으로 끝난 추천은 `expiredReason: "deadline"`이다 (예전 행도 `deadline`으로 낸다).
 - 고치지 않은 것: 추천이 생기는 순간 이미 가격이 지났으면 '계획 제안' 알림이 먼저 가고 1분 안에 정리된다(알림을 열면 끝난 제안으로 보인다 — 만들 때 막으면 리포트 끝 알림이 사라진다,
-  `reports/alerts.py`). 관리 서버(`admin/`)는 지운 리포트도 그대로 보인다(`deleted_at` 열).
+  `reports/output/alerts.py`). 관리 서버(`admin/`)는 지운 리포트도 그대로 보인다(`deleted_at` 열).
 
 ## 26. 리포트 시세는 만들 때 가격: 장 중이면 현재가 (2026-10-08, 사용자 결정)
 
@@ -1125,8 +1125,8 @@ ju 브랜치 `f2d42db`("인트로 로고 수정")가 15-7의 종이배 로고를
 - **워드마크 "모매매"**: 굵은 직선 획 글자 SVG(viewBox 640 × 175), 세 ㅁ만 brand 색이고 나머지 획은 글자색(둘러싼 `text-*`). 장식이라 화면 읽기에서 숨기고 이름은 옆의 숨김 글자(sr-only)가 읽는다.
   가로 잠금 `BrandLockup`(PC 왼쪽 메뉴 32px · 모바일 홈 머리 28px · 부팅 뼈대): 마크 + 워드마크, 사이 = 마크의 1/4, 워드마크 높이 = 마크의 0.7배.
 - **파비콘·홈 화면 아이콘**: `public/favicon.svg`는 16px 전용 모양(속이 찬 사각형 셋, 블록 사이 틈 0.8 — path·선 없음), `apple-touch-icon.png`(180px) 새 모양으로.
-- **PDF 머리**: 로고만 새 아이콘(32px 이상 판 — 속이 빈 ㅁ)으로 바꾸고 이름은 그대로 글자다(PDF에서 검색·복사되게). 도형 값은 `brandShapes.ts`를 `backend/reports/pdf.py`에 옮겨 적었고,
-  두 값이 같은지 `backend/reports/tests/test_pdf.py::test_logo_shapes_match_frontend`가 검사한다. 양식 판 `TEMPLATE_VERSION` 4 → 5 — 예전 판 PDF는 다음 요청 때 새 로고로 다시 만든다.
+- **PDF 머리**: 로고만 새 아이콘(32px 이상 판 — 속이 빈 ㅁ)으로 바꾸고 이름은 그대로 글자다(PDF에서 검색·복사되게). 도형 값은 `brandShapes.ts`를 `backend/reports/output/pdf.py`에 옮겨 적었고,
+  두 값이 같은지 `backend/reports/tests/output/test_pdf.py::test_logo_shapes_match_frontend`가 검사한다. 양식 판 `TEMPLATE_VERSION` 4 → 5 — 예전 판 PDF는 다음 요청 때 새 로고로 다시 만든다.
 - **로그인 첫 화면**: 로고 56px(반복 모션) → 워드마크 높이 28px(제목 `h1` 안, 이름은 숨김 글자) → 부제 14px → 풀이 한 줄 → 3단계 칩.
   - 부제 `SERVICE_TAGLINE` **"여러 AI가 함께 검증하는 모의투자"** (전: "종이 위에서 연습하는 AI 리포트 모의투자"). 이 서비스의 핵심(여러 AI의 교차검증 + 모의투자)을 한 줄로.
   - 풀이 한 줄 `SERVICE_INTRO` **"AI들이 조사하고 서로 따져 본 리포트를 읽고, 가상 현금으로 매매를 연습해요."** — 아래 안심 줄('실제 주문은 나가지 않아요')과 같은 말을 되풀이하지 않는다.
@@ -1140,7 +1140,7 @@ ju 브랜치 `f2d42db`("인트로 로고 수정")가 15-7의 종이배 로고를
 - **로고 규칙(15-7을 대신함)**: 늘이기·돌리기·기울이기, 그림자·그라데이션을 하지 않는다. 블록 색을 바꾸지 않는다(워드마크의 ㅁ만 brand 색으로 강조). 고대비(forced-colors)에서도 브랜드 색을 지킨다.
   문구 규칙(배 은어·띄우다·접다·침몰·'배(倍)' 말장난을 쓰지 않음 — `lib/plainText.ts`)은 그대로 둔다.
 - **바꾼 파일**: `frontend/src/lib/brandShapes.ts`(새), `components/BrandMark.tsx`(`BrandMark`·`Wordmark`·`BrandLockup`), `components/BrandIntro.tsx`·`IntroGate.tsx`(새), `pages/BrandPreviewPage.tsx`(새),
-  `pages/LoginPage.tsx`, `App.tsx`, `index.css`, `lib/plainText.ts`, `public/favicon.svg`, `public/apple-touch-icon.png`, `index.html`, `components/home/DemoPreviewCard.tsx`, `backend/reports/pdf.py`(`LOGO_SVG`·`TEMPLATE_VERSION`)와 그 테스트.
+  `pages/LoginPage.tsx`, `App.tsx`, `index.css`, `lib/plainText.ts`, `public/favicon.svg`, `public/apple-touch-icon.png`, `index.html`, `components/home/DemoPreviewCard.tsx`, `backend/reports/output/pdf.py`(`LOGO_SVG`·`TEMPLATE_VERSION`)와 그 테스트.
 
 ## 28. 투자 금액은 사용자가 정한다 · 종목 화면 보유 평가는 실시간 (2026-10-11, 사용자 결정)
 
@@ -1179,3 +1179,11 @@ ju 브랜치 `f2d42db`("인트로 로고 수정")가 15-7의 종이배 로고를
   저장소 루트의 계획·안내 5개(`SETUP_PROMPT.md`·`WSL2_SETUP.md`·`TEAM_DEV_PLAN.md`·`OPS_ADMIN_PLAN.md`·`DEPLOY_SPLIT_PLAN.md`)도 옮겨
   루트에는 `README.md`·`AGENTS.md`만 남는다. 문서 지도는 `docs/README.md`. `교육용문서.md`는 앱 빌드가 그 자리를 가정해서
   (`?raw` import, nginx 이미지의 NFC 이름 정리, `.dockerignore`의 `!docs/*.md`) 옮기지 않는다.
+- **`backend/reports`**: 앱 루트에는 Django가 정한 자리(`models.py`·`migrations/`·`admin.py`·`apps.py`·`urls.py`·`views.py`·`sse.py`·`payloads.py`·`management/`)만 남기고
+  기능 코드를 폴더 6개로 나눴다 — `orchestration/`(orchestrator·runner·registry·state와 YAML 두 개. registry가 YAML을 자기 폴더에서 찾는다),
+  `guardrails/`(guards·contracts·tidy), `autohealing/`(healing·chaos·stats), `autoreport/`(auto·selection·conf), `output/`(pdf·easy_text·alerts·text), `limits/`(quota·budget).
+  `agents/`는 팀별 폴더 `report_team/`·`selection_team/`으로 나누고, 팀 폴더와 이름이 겹치는 등록 파일 둘만 `team.py`로 이름을 바꿨다
+  (`agents/report_team.py` → `agents/report_team/team.py`). Orchestrator는 그대로 `agents.WORKERS`만 본다.
+  테스트도 같은 폴더로 나눴다 (`tests/<폴더>/`. 여러 폴더에 걸친 API·SSE·필드 테스트와 `conftest.py`는 `tests/` 바로 아래).
+  같은 앱 안은 상대 import, 다른 앱에서는 절대 import(`from reports.autohealing import healing`)를 쓴다. import 경로를 문자열로 적은 곳
+  (`orchestrator.TEAM_INPUTS`, `auto_report` 명령, 테스트의 `sys.modules`)과 관리 서버 CI의 경로 조건(`backend/reports/autohealing/stats.py`)도 바꿨다.

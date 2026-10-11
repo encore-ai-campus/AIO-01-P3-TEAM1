@@ -1,7 +1,7 @@
 # 매매 종목 선정 AI Agent 워크플로우
 
 > 2026-10-07 작성 · **2026-10-07 구현 (Claude, 사용자 요청 — `docs/DECISIONS.md` 19장)** · 원래 범위: Worker·계약 담당 2, Orchestrator·Guard 담당 3, 호출 복구(AutoHealing) 담당 4.
-> 구현 위치: `backend/reports/orchestrator.py`·`guards.py`·`runner.py`(1·2·4·5장), `agents/`(Worker 11개), `selection.py`(선정 Guard), `auto.py`(하루 파이프라인, `AUTO_REPORT=on`).
+> 구현 위치: `backend/reports/orchestration/orchestrator.py`·`guards.py`·`runner.py`(1·2·4·5장), `agents/`(Worker 11개), `selection.py`(선정 Guard), `auto.py`(하루 파이프라인, `AUTO_REPORT=on`).
 > 6장(주린이모드 의견 대립)은 제안 그대로 남았다 (미구현).
 > 🟧 AI(제안) · 🟦 코드(검증) · 🟩 사람(최종 결정) · 🟪 복구 동작 · 🟥 실패
 
@@ -351,7 +351,7 @@ flowchart TD
     L4 --> OK4
 ```
 
-### 5-2. LLM 호출 복구 (AutoHealing — `backend/reports/healing.py`)
+### 5-2. LLM 호출 복구 (AutoHealing — `backend/reports/autohealing/healing.py`)
 
 ```mermaid
 flowchart TD
@@ -558,7 +558,7 @@ flowchart LR
 
 | 파일 | 내용 | 담당 |
 |---|---|---|
-| `backend/reports/contracts.py`, `agents/` 프롬프트 | `ReportDraft.conflicts`, `SelectionDraft.plainSummary`·`conflicts`, 검토 AI 대조 항목 | 2 |
+| `backend/reports/guardrails/contracts.py`, `agents/` 프롬프트 | `ReportDraft.conflicts`, `SelectionDraft.plainSummary`·`conflicts`, 검토 AI 대조 항목 | 2 |
 | `frontend/src/lib/reports.ts` | `stancesOf(results)`(입장 지도), `conflictsOf(state, trace)`(AI 풀이 확인 → 없으면 코드 문장), 근거 출처 꼬리표 | 5 또는 Claude |
 | `frontend/src/components/reports/easy/` | `ConflictCard.tsx` 새로, `EasyReport.tsx`에 끼움 (쉬운 보기에서만), `ReasonsRisks.tsx`에 출처 꼬리표 | 5 또는 Claude |
 | `docs/API.md`, `docs/tasks/00-공통.md` 10절 | 계약 필드 추가 | 2 |
@@ -568,8 +568,8 @@ flowchart LR
 <summary>YAML Registry · 구현에서 바꾼 곳 (2026-10-07)</summary>
 
 ```yaml
-# backend/reports/worker_definitions.yaml — fallbacks는 화면에 보이는 대체 모델이다. 호출기는 healing.FALLBACK_POOL에서 고르므로(5-2)
-# 그 모델 하나를 적는다 (tests/test_registry.py가 확인)
+# backend/reports/orchestration/worker_definitions.yaml — fallbacks는 화면에 보이는 대체 모델이다. 호출기는 healing.FALLBACK_POOL에서 고르므로(5-2)
+# 그 모델 하나를 적는다 (tests/orchestration/test_registry.py가 확인)
   news_screen_agent:
     title: 후보 뉴스 점검 Agent
     goal: 후보 종목마다 최근 뉴스에서 재료와 악재를 찾아 출처와 함께 정리하고 테마 이름을 붙인다
@@ -582,7 +582,7 @@ flowchart LR
 ```
 
 ```yaml
-# backend/reports/team_definitions.yaml
+# backend/reports/orchestration/team_definitions.yaml
   stock_selection:
     title: 매매 종목 선정
     failure_policy: required_optional

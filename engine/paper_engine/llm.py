@@ -48,7 +48,7 @@ class LlmClient:
                            timeout: float = TIMEOUT_SEC) -> tuple[dict, float]:
         """재시도 없이 한 번 부른다. (응답 JSON, 이번 호출 비용)을 반환한다.
 
-        재시도·대체 모델은 부르는 쪽(backend/reports/healing.py)이 정한다. LlmTimeout·LlmError는 그대로 올린다
+        재시도·대체 모델은 부르는 쪽(backend/reports/autohealing/healing.py)이 정한다. LlmTimeout·LlmError는 그대로 올린다
         (응답을 받은 뒤의 실패에는 그 비용을 예외의 cost에 단다).
         """
         message, cost = self._post(self._payload(model, system, user), timeout)

@@ -39,7 +39,7 @@ export interface Wording {
  * 서비스 이름 (docs/DECISIONS.md 18장 — 2026-10-07에 바뀜. 전 이름은 '종이배'(15-7), 그 전은 D-5). 붙여 쓰고 꾸밈말을 붙이지 않는다('AI 모매매' 아님).
  * 부제는 이 서비스의 핵심(여러 AI의 교차검증 + 모의투자)을 한 줄로 말한다. 풀이 한 줄은 그것을 풀어 쓰고, 아래 안심 줄('실제 주문은 나가지 않아요')과 같은 말을 되풀이하지 않는다.
  * 문구에 쓰지 않는 말: 배 은어(탑승·승선·선장·출항·순항), 띄우다·접다, 침몰·가라앉다·구조, '배(倍)' 말장난 — 옛 종이배 로고 때 정한 규칙이지만 문구가 깔끔해 그대로 지킨다.
- * 로고는 components/BrandMark.tsx. 백엔드에도 같은 이름이 둘 있다 (notifications/service.py HEADER, reports/pdf.py SERVICE_NAME).
+ * 로고는 components/BrandMark.tsx. 백엔드에도 같은 이름이 둘 있다 (notifications/service.py HEADER, reports/output/pdf.py SERVICE_NAME).
  */
 export const SERVICE_NAME = "모매매";
 
@@ -89,7 +89,7 @@ export const NOT_SUITABILITY = "증권사의 공식 투자 성향 검사가 아�
  * 알림 종은 모바일은 화면 머리·PC는 왼쪽 메뉴에 있다 (Layout).
  */
 export const REPORT_KEEPS_RUNNING = "이 화면을 닫아도 계속 만들어요. 만드는 동안 '리포트' 메뉴에 표시가 붙고, 완성되면 알림으로 알려 드려요";
-// 쉬운 PDF(backend/reports/easy_text.py)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
+// 쉬운 PDF(backend/reports/output/easy_text.py)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
 export const AI_REVIEW_NOTE = "AI 검토는 사실을 보증하지 않아요";
 
 /** 화면 아래 공통 출처 줄 (docs/DECISIONS.md 14-1·17장). quoteProvider는 MarketStatus.quoteProvider. */
@@ -119,7 +119,7 @@ export interface OpinionText {
   tone: "positive" | "neutral" | "negative";
 }
 
-// 쉬운 PDF(backend/reports/easy_text.py OPINION_LINE, 배지는 text.py OPINION_LABEL)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
+// 쉬운 PDF(backend/reports/output/easy_text.py OPINION_LINE, 배지는 text.py OPINION_LABEL)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
 export const OPINION_TEXT: Record<ReportOpinion, OpinionText> = {
   buy: { badge: "긍정적", label: "AI 의견: 긍정적", line: "오를 근거가 더 많다고 봤어요", expert: "매수", tone: "positive" },
   hold: { badge: "지켜보기", label: "AI 의견: 지켜보기", line: "아직 판단하기 이르다고 봤어요", expert: "보유", tone: "neutral" },

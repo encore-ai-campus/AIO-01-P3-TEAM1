@@ -8,7 +8,7 @@ from io import StringIO
 
 import pytest
 from django.core.management import CommandError, call_command
-from reports import auto as screening
+from reports.autoreport import auto as screening
 from trading import market
 
 from autotrade import auto

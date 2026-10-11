@@ -54,7 +54,7 @@ export interface PlanCardProps {
 export const PLAN_CARD_ID = "plan";
 
 // watch·negative·no_plan과 Ready의 쉬운 가격 줄(사는 가격 … 손실이 더 클 수도 있어요)은
-// 쉬운 PDF(backend/reports/easy_text.py PLAN_TEXT)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
+// 쉬운 PDF(backend/reports/output/easy_text.py PLAN_TEXT)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
 const STATE_TEXT: Record<Exclude<PlanCardState, "ready" | "blocked" | "expired">, string> = {
   not_completed: "리포트가 완성되면 이 계좌 기준의 매매 계획을 보여 드려요.",
   watch: "AI는 지금은 지켜보자는 의견이에요. 실행할 계획이 없어요.",

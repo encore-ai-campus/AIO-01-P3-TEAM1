@@ -15,7 +15,7 @@ from rest_framework.views import APIView
 
 from config import engine
 from config.api import LimitExceeded, Rejected, Unavailable, page
-from reports import budget
+from reports.limits import budget
 
 from . import index, quota
 from .jobs import SYMBOL

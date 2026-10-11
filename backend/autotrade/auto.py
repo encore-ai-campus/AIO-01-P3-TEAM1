@@ -1,5 +1,5 @@
 """매일 자동 추천 — 시연용 (docs/tasks/06-추천·자동매매.md T6-6): 국내 거래일 AUTO_RECOMMEND_AT(KST) 이후 하루 한 번
-선별(reports.auto.select) 상위 종목마다 시연 규칙 추천(AI 아님, demo.recommend)을 만들어 팀 전체에 알린다.
+선별(reports.autoreport.auto.select) 상위 종목마다 시연 규칙 추천(AI 아님, demo.recommend)을 만들어 팀 전체에 알린다.
 
 AUTO_RECOMMEND=demo일 때만 돈다 (기본 off — 선별이 증권사 조회를 100번 넘게 한다). 엔진 루프의 "자동 추천" 단계가 tick을 부른다.
 하루 한 번: 시작할 때 시도 표시(RUNS_DIR/autotrade/recommend-<날짜>-<시장>.json)를 먼저 남기고, 표시가 있으면 그날은 다시 하지 않는다.
@@ -10,7 +10,7 @@ import json
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-from reports import auto as screening  # reports 앱 소유 (선별)
+from reports.autoreport import auto as screening  # reports 앱 소유 (선별)
 from trading import market
 
 from config import engine
@@ -78,7 +78,7 @@ def run(market_: str, top: int, now: datetime, log) -> int:
             continue
         ids.append(rec.id)
         log(f"[자동 추천] {rec.name}({rec.symbol}) → 시연 추천 #{rec.id}")
-    with screening.locked():  # 자동 리포트(reports.auto)도 같은 파일을 고친다 — 최신 파일에 더한다
+    with screening.locked():  # 자동 리포트(reports.autoreport.auto)도 같은 파일을 고친다 — 최신 파일에 더한다
         latest = screening.load(market_, day) or result
         latest["recommendationIds"] = [*(latest.get("recommendationIds") or []), *ids]
         screening.save(latest)

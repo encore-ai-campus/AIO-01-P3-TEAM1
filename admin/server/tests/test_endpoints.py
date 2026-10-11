@@ -196,7 +196,7 @@ def test_reports_and_recovery_levels(staff_client, rows):
     rid = rows.report(status="failed")
     rows.event(rid, 1, "market_agent", "agent_failed", ago(minutes=30), status="failed", details={"final": False})
     items = {i["key"]: i for i in staff_client.get("/api/admin/overview").json()["items"]}
-    # 끝나지 않은 run의 장애는 진행 중 (복구도 포기도 아니다 — 서비스 reports.stats와 같다)
+    # 끝나지 않은 run의 장애는 진행 중 (복구도 포기도 아니다 — 서비스 reports.autohealing.stats와 같다)
     assert items["reports"]["level"] == "warn" and items["recovery"]["level"] == "ok"
     assert items["recovery"]["summary"] == "자동 복구율 0.0% · 진행 중 1건"
     rows.event(rid, 2, "market_agent", "agent_failed", ago(minutes=29), status="failed", details={"final": True})
