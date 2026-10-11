@@ -3,6 +3,7 @@
 추천은 팀 전체 공용, 계획은 내 것만 (남의 계획은 404). 지운 추천은 목록·상세·미리 보기·활성화에서 없는 것과 같다 (hide.py).
 활성화 점검에서 막히면 400 {"detail", "reasonCodes"} (Response를 직접 돌려준다 — config.api의 예외는 detail 밖을 버린다).
 넣을 돈은 budgetPercent(1~100 정수) 또는 budgetKrw(양수, 원) 하나다 — 미리 보기는 없어도 되고, 활성화는 하나가 필수다 (2026-10-11).
+시연용 수동 시작(manualStart, DECISIONS 31장): 미리 보기 쿼리·활성화 본문 — 손익비·기대값 사유만 건너뛴다.
 """
 import math
 
@@ -24,6 +25,7 @@ SOURCES = (Recommendation.REPORT, Recommendation.ANALYSIS, Recommendation.DEMO)
 BAD_TOKEN = "링크가 만료되었거나 올바르지 않습니다."
 BAD_PERCENT = "budgetPercent는 1~100 사이의 정수여야 합니다."
 BOTH_BUDGETS = "budgetPercent와 budgetKrw 중 하나만 보냅니다."
+BAD_MANUAL = "manualStart는 true 또는 false여야 합니다."
 
 
 def _body(request) -> dict:
@@ -80,6 +82,26 @@ def _acknowledged(data: dict) -> bool:
     value = data["acknowledged"]
     if not isinstance(value, bool):
         raise Rejected("acknowledged는 true 또는 false여야 합니다.")
+    return value
+
+
+def _manual_query(value) -> bool:
+    """미리 보기 ?manualStart=: 없음·빈 값·0·false는 False, 1·true는 True (대소문자·앞뒤 공백 무시), 그 밖은 400."""
+    text = (value or "").strip().lower()
+    if text in ("", "0", "false"):
+        return False
+    if text in ("1", "true"):
+        return True
+    raise Rejected(BAD_MANUAL)
+
+
+def _manual_body(data: dict) -> bool:
+    """활성화 본문 manualStart: 없으면 False, JSON 불리언이 아니면 400 (acknowledged와 같은 규칙 — 문자열·숫자·null도 400)."""
+    if "manualStart" not in data:
+        return False
+    value = data["manualStart"]
+    if not isinstance(value, bool):
+        raise Rejected(BAD_MANUAL)
     return value
 
 
@@ -146,7 +168,8 @@ class RecommendationPreviewView(APIView):
     def get(self, request, rec_id: int):
         rec = _recommendation(rec_id)
         krw, percent = _budgets(request.query_params)
-        return Response(risk.preview(rec, request.user, krw, budget_percent=percent))
+        manual = _manual_query(request.query_params.get("manualStart"))
+        return Response(risk.preview(rec, request.user, krw, budget_percent=percent, manual_start=manual))
 
 
 class RecommendationActivateView(APIView):
@@ -157,6 +180,7 @@ class RecommendationActivateView(APIView):
         if budget is None and percent is None:
             raise Rejected(executor.NO_BUDGET)
         acknowledged = _acknowledged(data)
+        manual = _manual_body(data)
         token = data.get("token")
         via = "web"
         if token not in (None, ""):
@@ -164,8 +188,9 @@ class RecommendationActivateView(APIView):
                 raise Rejected(BAD_TOKEN)
             via = "discord"
         try:
-            plan = executor.activate(rec, request.user, budget, via, budget_percent=percent, acknowledged=acknowledged)
-        except executor.Blocked as e:  # 실행 불가 사유 (코드 포함)
+            plan = executor.activate(rec, request.user, budget, via, budget_percent=percent, acknowledged=acknowledged,
+                                     manual_start=manual)
+        except executor.Blocked as e:  # 실행 불가 사유 (코드 포함). MANUAL_NOT_NEEDED는 Blocked가 아니라 400 {"detail"}
             return Response(e.body(), status=status.HTTP_400_BAD_REQUEST)
         plan = _my_plan(request, plan.id)
         return Response(payloads.plan_detail(plan, request.user), status=status.HTTP_201_CREATED)

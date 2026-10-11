@@ -9,13 +9,14 @@
 //   토·일이면 앞 금요일 장 마감으로, 보유 기한은 "11월 5일(목)까지 (최대 20거래일)"처럼 날짜와 거래일을 함께 (UX-11).
 //   보유 중 평가는 수수료·세금 빼기 전이라고 밝힌다 (UX-10).
 // 숫자 카드에 "넣은 돈"이 있다 (TradePlan.budgetMode — 2026-10-11부터: 내 자금의 %와 그때 바꾼 금액, 또는 금액. 그 전 계획은 "예산"만).
+// 시연용 수동 시작 계획(TradePlan.manualStart, DECISIONS 31장)은 출처 배지 옆 "시연용 수동 시작" 배지와 머리 카드 안 경고 한 줄 (쉬운·전문가 둘 다).
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigationType, useParams } from "react-router";
 import { useCancelPlan, useExitWatch, useOrderExpireDate } from "../api/autotrade";
 import { ApiError, errorMessage } from "../api/client";
 import { isPlanLive, useMarket, usePlan, useQuotes } from "../api/queries";
 import type { MarketSession, PlanEvent, TradePlanDetail } from "../api/types";
-import { PlanStatusChip, SourceBadge } from "../components/autotrade/Badges";
+import { ManualStartBadge, PlanStatusChip, SourceBadge } from "../components/autotrade/Badges";
 import { EasySteps, OutcomeNote, Pnl, PlanTimeline, WorkflowGraph } from "../components/autotrade/PlanWorkflow";
 import { PriceLadder } from "../components/autotrade/PriceLadder";
 import { Icon } from "../components/Icon";
@@ -48,7 +49,7 @@ import {
   trendClass,
 } from "../lib/format";
 import { holdingValue } from "../lib/holding";
-import { PLAN_STATUS_TEXT, planEventSentence, planExitText, quotePriceName } from "../lib/plainText";
+import { MANUAL_START_TEXT, PLAN_STATUS_TEXT, planEventSentence, planExitText, quotePriceName } from "../lib/plainText";
 
 /**
  * 멈추기(계획 중단) 확인 시트. 문구·버튼은 연 순간의 상태로 고정한다 — 열린 채 5초 폴링으로 상태가 바뀌어도
@@ -655,10 +656,16 @@ export function PlanPage() {
               </p>
               <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[13px] text-sub">
                 <SourceBadge source={p.source} />
+                {p.manualStart && <ManualStartBadge />}
                 <span>
                   {p.via === "discord" ? "Discord 링크로 시작" : "웹에서 시작"} · {formatDateTime(p.activatedAt)}
                 </span>
               </div>
+              {p.manualStart && (
+                <Notice tone="warn" className="mt-3">
+                  {MANUAL_START_TEXT.planNote.easy}
+                </Notice>
+              )}
               {waitingNotice && <Notice className="mt-3">{waitingNotice}</Notice>}
               {live && <LiveLine easy />}
             </Card>
@@ -716,12 +723,18 @@ export function PlanPage() {
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[13px] text-sub">
               <SourceBadge source={p.source} />
+              {p.manualStart && <ManualStartBadge />}
               <span className="inline-flex h-6 items-center gap-1 rounded-md bg-fill px-1.5 font-semibold">
                 <Icon name={p.via === "discord" ? "bell" : "home"} className="size-3.5" />
                 {p.via === "discord" ? "Discord 링크로 활성화" : "웹에서 활성화"}
               </span>
               <span>{formatDateTime(p.activatedAt)}</span>
             </div>
+            {p.manualStart && (
+              <Notice tone="warn" className="mt-3">
+                {MANUAL_START_TEXT.planNote.expert}
+              </Notice>
+            )}
             {waitingNotice && <Notice className="mt-3">{waitingNotice}</Notice>}
             {live && <LiveLine easy={false} />}
           </Card>

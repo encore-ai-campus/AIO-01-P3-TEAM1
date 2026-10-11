@@ -122,6 +122,14 @@ describe("쉬운 문장 표", () => {
     expect(sentence("risk_checked", { approved: true, quantity: 5, limitedBy: "내가 정한 금액" })).toBe(
       "넣은 돈으로 모의 주문 수량 5주를 계산했고, 안전장치가 한도를 확인했어요",
     );
+    // 시연용 수동 시작 (DECISIONS 31장): approved=false를 남기지만 막힌 것이 아니다 — 그 말을 먼저 한다
+    expect(sentence("activated", { budgetMode: "percent", budgetPercent: 10, budgetKrw: 1_000_000, manualStart: true })).toBe(
+      "시연용으로 모의 자동매매를 직접 시작했어요 (넣은 돈: 내 자금의 10% · 1,000,000원)",
+    );
+    expect(sentence("risk_checked", { approved: false, manualStart: true, quantity: 14, limitedBy: "내가 정한 금액" })).toBe(
+      "시연용 수동 시작이라 안전장치의 손익비·기대 수익 점검을 건너뛰고, 넣은 돈으로 모의 주문 수량 14주를 계산했어요",
+    );
+    expect(sentence("risk_checked", { approved: false, quantity: 14 })).toBe("안전장치가 모의 주문을 막았어요");
     expect(made.order_placed).toBe("모의 계좌에서 181,000원 이하에 5주를 사는 주문을 넣었어요");
     expect(made.order_requeued).toContain("(수량 5주 → 4주)");
     expect(made.closed).toBe("손절 가격에 닿아 손실이 더 커지지 않게 모의 계좌에서 98,700원에 팔았어요 (손익 -1,234원)");

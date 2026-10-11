@@ -11,6 +11,9 @@
 // 실행 확인은 투자 금액·체크리스트·시작 버튼 대신 이유와 '다른 계획 제안 보기'만 (UX-2). 금액 때문에 막힌 것(cash_short·total_limit·budget_too_small)은
 // 금액을 고칠 수 있게 입력을 그대로 둔다.
 // 지금 실시간 가격이 사는 가격 이하이고 정규장 중이면 "시작하면 바로 사요"라고 말한다 (UX-3 — 숫자는 넣지 않는다).
+// ?manual=1 (시연용 수동 시작, DECISIONS 31장): 금액 없는 미리 보기가 손익비·기대값으로만 막았으면 그 이유를 보이고, 같은 넣을 돈·확인 넷·
+//   경고색 시작 버튼으로 manualStart: true를 보낸다. 머리 칩·이유 한 줄·카드 제목은 그대로 둔다 (안전장치 판정을 숨기지 않는다).
+//   Discord 링크(?t=)로 같이 왔으면 시연용 띠 대신 Discord 띠가 '시연용'과 실제 시작 버튼 이름을 말한다 (위쪽 이동 버튼은 하나).
 import { type RefObject, useId, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { useActivate, useDeleteRecommendation } from "../api/autotrade";
@@ -34,20 +37,23 @@ import {
   blockedCodes,
   budgetParams,
   buysRightAway,
+  canStartManually,
   closedMarketNotice,
   deadlineMovedEarlier,
   entryDeadlineLabel,
   kstDayOf,
+  manualStartPath,
   nextActionOf,
+  onlyManualSkip,
   parseBudget,
   percentToKrw,
   stickyFit,
   timeLeft,
 } from "../lib/autotrade";
 import { cn } from "../lib/cn";
-import { formatDateTime, formatDayLabel, formatKrw, formatPercent, formatPrice, formatQty, formatRate } from "../lib/format";
+import { formatDateTime, formatDayLabel, formatKrw, formatPercent, formatPrice, formatQty, formatRate, formatSignedKrw } from "../lib/format";
 import { prefersReducedMotion } from "../lib/motion";
-import { blockedShort, priceExpiredText, reasonSentence, rejectionSentences } from "../lib/plainText";
+import { MANUAL_START_TEXT, blockedShort, priceExpiredText, reasonSentence, rejectionSentences } from "../lib/plainText";
 import { useDebounced } from "../hooks/useDebounced";
 
 /** 지표 칸. 값은 줄을 바꾸지 않고(자릿수 중간에서 갈라지지 않게), 보조 줄은 넘치면 줄임표 + 전체는 title (trade-03). */
@@ -202,34 +208,39 @@ function Check({ checked, onChange, children }: { checked: boolean; onChange: (v
 }
 
 /**
- * 쉬운 보기의 체크 셋. 셋 다 켜야 onReady(true). 금액이 바뀌면(수량·손실) 부모가 key로 새로 그려 체크를 지운다.
+ * 쉬운 보기의 체크 셋(시연용 수동 시작이면 넷 — DECISIONS 31장). 다 켜야 onReady(true). 금액이 바뀌면(수량·손실) 부모가 key로 새로 그려 체크를 지운다.
  * disabled: 안전장치가 막았으면 켤 수 없게 흐리게 둔다 (숨기지 않는다 — 무엇을 확인하게 되는지는 미리 읽을 수 있게).
  */
 function Checklist({
   r,
   pv,
+  manual,
   onReady,
   onTouch,
   disabled,
 }: {
   r: Recommendation;
   pv: RiskPreview;
+  /** 시연용 수동 시작: 넷째 확인 (손익비·기대 수익 점검을 건너뛴다는 것) */
+  manual: boolean;
   onReady: (ok: boolean) => void;
   onTouch: () => void;
   disabled: boolean;
 }) {
-  const [checks, setChecks] = useState([false, false, false]);
+  // 칸 수는 항목 수로 정한다 (부모가 key에 manual을 넣어 바뀌면 새로 그린다)
+  const items = [
+    `손절 가격(${formatPrice(r.stopPrice, r.currency)})에 팔리면 약 ${formatKrw(pv.maxLossKrw)}을 잃어요. 가격이 갑자기 크게 떨어지면 더 잃을 수도 있어요.`,
+    `산 뒤 최대 ${r.holdingDays}거래일 보유해요. 그때까지 목표·손절에 닿지 않으면 그날 가격에 팔아요 — 이익일 수도, 손실일 수도 있어요.`,
+    thirdCheck(r),
+    ...(manual ? [MANUAL_START_TEXT.check] : []),
+  ];
+  const [checks, setChecks] = useState(() => items.map(() => false));
   const set = (i: number) => (v: boolean) => {
     const next = checks.map((c, j) => (j === i ? v : c));
     setChecks(next);
     onReady(next.every(Boolean));
     if (v) onTouch();
   };
-  const items = [
-    `손절 가격(${formatPrice(r.stopPrice, r.currency)})에 팔리면 약 ${formatKrw(pv.maxLossKrw)}을 잃어요. 가격이 갑자기 크게 떨어지면 더 잃을 수도 있어요.`,
-    `산 뒤 최대 ${r.holdingDays}거래일 보유해요. 그때까지 목표·손절에 닿지 않으면 그날 가격에 팔아요 — 이익일 수도, 손실일 수도 있어요.`,
-    thirdCheck(r),
-  ];
   return (
     <fieldset disabled={disabled} className={cn("rounded-xl border border-line px-3.5 pt-1.5 pb-2", disabled && "opacity-50")}>
       <legend className="px-1 text-[15px] font-semibold">시작하기 전에 확인해 주세요</legend>
@@ -248,12 +259,15 @@ function Checklist({
 function SummaryCheck({
   r,
   pv,
+  manual,
   checked,
   onChange,
   disabled,
 }: {
   r: Recommendation;
   pv: RiskPreview;
+  /** 시연용 수동 시작: 목록 끝에 건너뛰는 점검 한 줄 (DECISIONS 31장) */
+  manual: boolean;
   checked: boolean;
   onChange: (v: boolean) => void;
   disabled: boolean;
@@ -265,6 +279,7 @@ function SummaryCheck({
         <li>손절 시 손실 -{formatKrw(pv.maxLossKrw)} (급락하면 더 클 수 있음)</li>
         <li>최대 {r.holdingDays}거래일 보유 후 그날 가격에 매도 (손익 무관)</li>
         <li>{r.source === "demo" ? "연습용 예시 계획(AI 아님)" : "AI의 제안"} · 모의 계좌</li>
+        {manual && <li>{MANUAL_START_TEXT.expertCheck}</li>}
       </ul>
       <label htmlFor={id} className="mt-1 flex min-h-11 cursor-pointer items-center gap-2 py-2 in-disabled:cursor-not-allowed">
         <input id={id} type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="size-5 accent-brand" />
@@ -276,13 +291,18 @@ function SummaryCheck({
 
 /** 링크 줄 (다음 행동). */
 const NEXT_LINK = "press mt-2 flex h-11 items-center justify-between rounded-xl bg-fill px-3.5 text-[15px] font-semibold hover:bg-line";
+/** 시연용 수동 시작 링크 줄 (경고색 — NEXT_LINK와 바탕이 달라 따로 둔다. lib/cn은 클래스를 덮어쓰지 않고 잇기만 한다). */
+const MANUAL_LINK = "press mt-2 flex h-11 items-center justify-between rounded-xl bg-warn-soft px-3.5 text-[15px] font-semibold text-warn-ink hover:bg-warn-soft/70";
 
 /**
  * 이 계획을 지금 시작할 수 없을 때 실행 확인 카드의 본문: 이유 목록 + 다음 행동 (투자 금액·체크리스트·꺼진 시작 버튼 대신 — UX-2).
  * 이유는 금액 없는 미리 보기(내 계좌까지 본 결과)가 있으면 그것, 아직 없으면 계좌와 무관한 사유(blockedBy)로.
+ * 금액 없는 미리 보기의 사유가 손익비·기대값뿐이면 '수동매매 (시연용)' 링크 줄(?manual=1, Discord ?t= 이어 붙임 — DECISIONS 31장).
+ * blockedBy만으로는 보이지 않는다 (같은 종목 계획·주문 같은 내 계좌 사유가 나중에 와서 뒤집히지 않게).
  */
-function BlockedBody({ r, pv, codes, easy }: { r: Recommendation; pv: RiskPreview | undefined; codes: string[]; easy: boolean }) {
+function BlockedBody({ r, pv, codes, easy, token }: { r: Recommendation; pv: RiskPreview | undefined; codes: string[]; easy: boolean; token: string | null }) {
   const fromPreview = pv && !pv.activatable && (pv.reasons.length > 0 || pv.reasonCodes.length > 0);
+  const manualOk = fromPreview && onlyManualSkip(pv.reasonCodes);
   const easyReasons = fromPreview ? reasonPairs(pv) : codes.map((c) => ({ code: c, text: reasonSentence(c, null, "plan") }));
   const expertReasons = fromPreview
     ? pv.reasons.length > 0
@@ -324,6 +344,15 @@ function BlockedBody({ r, pv, codes, easy }: { r: Recommendation; pv: RiskPrevie
           <Icon name="chevron" className="size-4" />
         </Link>
       )}
+      {manualOk && (
+        <>
+          <Link to={manualStartPath(r.id, token)} className={MANUAL_LINK}>
+            {MANUAL_START_TEXT.button}
+            <Icon name="chevron" className="size-4" />
+          </Link>
+          <p className="mt-1 px-0.5 text-[12px] leading-snug text-mute">{easy ? MANUAL_START_TEXT.linkHint.easy : MANUAL_START_TEXT.linkHint.expert}</p>
+        </>
+      )}
       <Link to="/recommendations" className={NEXT_LINK}>
         {easy ? "다른 계획 제안 보기" : "다른 추천 보기"}
         <Icon name="chevron" className="size-4" />
@@ -332,17 +361,35 @@ function BlockedBody({ r, pv, codes, easy }: { r: Recommendation; pv: RiskPrevie
   );
 }
 
+/** 시연용 수동 시작 안내 (DECISIONS 31장): 건너뛰는 사유(금액 없는 미리 보기의 사유 — 전부 손익비·기대값) 목록. role은 두지 않는다. */
+function ManualBanner({ pv, easy }: { pv: RiskPreview; easy: boolean }) {
+  const lines = easy ? reasonPairs(pv).map((x) => x.text) : pv.reasons;
+  return (
+    <Notice tone="warn" className="mt-3">
+      <p className="font-semibold">{easy ? MANUAL_START_TEXT.banner.easy : MANUAL_START_TEXT.banner.expert}</p>
+      <ul aria-label={easy ? "건너뛰는 안전장치" : "건너뛰는 점검"} className="mt-1 list-disc space-y-0.5 pl-5 text-[13px]">
+        {lines.map((x) => (
+          <li key={x}>{x}</li>
+        ))}
+      </ul>
+    </Notice>
+  );
+}
+
 function ActivateCard({
   r,
   token,
   titleRef,
   quote,
+  manualRequested,
 }: {
   r: Recommendation;
   token: string | null;
   titleRef: RefObject<HTMLHeadingElement | null>;
   /** 이 종목의 시세 (바로 사는지 판단 — 실시간일 때만) */
   quote: Quote | undefined;
+  /** 주소에 ?manual=1 (시연용 수동 시작 — 자격은 아래에서 금액 없는 미리 보기로 다시 본다) */
+  manualRequested: boolean;
 }) {
   const navigate = useNavigate();
   const toast = useToast();
@@ -360,12 +407,15 @@ function ActivateCard({
   const [dMode, dValue] = debouncedKey?.split(":") ?? [];
   const debounced: BudgetChoice | null = debouncedKey ? { mode: dMode as BudgetMode, value: Number(dValue) } : null;
   const open = r.status === "open";
-  const preview = useRiskPreview(r.id, debounced, open && debounced !== null);
   // 금액 없는 미리 보기 (머리 칩과 같은 쿼리): 이것이 막혔거나 계좌와 무관한 사유가 있으면 이 계획은 지금 시작할 수 없다.
   // 매수 가능 금액(% 기준)도 여기서 읽는다
   const head = useRiskPreview(r.id, null, open);
   const codes = blockedCodes(r);
-  const hardBlocked = open && (codes.length > 0 || head.data?.activatable === false);
+  // 시연용 수동 시작 (DECISIONS 31장): ?manual=1이고, 금액 없는 미리 보기를 받았고 그것이 손익비·기대값으로만 막았을 때만 (blockedBy로는 정하지 않는다)
+  const manual = manualRequested && open && canStartManually(head.data);
+  // 금액을 정한 미리 보기. manual이면 ?manualStart=1로 따로 된 캐시에 받는다 (머리 칩·리포트 카드의 일반 미리 보기와 섞이지 않게)
+  const preview = useRiskPreview(r.id, debounced, open && debounced !== null, manual);
+  const hardBlocked = open && !manual && (codes.length > 0 || head.data?.activatable === false);
   const activate = useActivate(r.id);
   // 금액을 정한 미리 보기만 쓴다: 금액이 비면 같은 키(금액 없음)의 캐시나 이전 값이 남아도 보이지 않는다 (0주 미리 보기가 섞이지 않게)
   const pv = choice && preview.data?.budgetMode === choice.mode ? preview.data : undefined;
@@ -385,6 +435,13 @@ function ActivateCard({
     setAckedFor(null);
     setTouched(false);
   }
+  // 확인 칸이 화면에서 빠지면(평소 막힌 화면) 확인도 지운다. 다시 나타나는 확인 칸은 빈 칸으로 새로 그려지므로, 남아 있으면 빈 칸 아래에서 시작 버튼이 켜진다
+  // (?manual=1에서 뒤로 갔다가 다시 들어오기 — 쿼리만 바뀌어 이 카드는 새로 그려지지 않는다, 중단 스위치를 켰다 끄기 — DECISIONS 31장)
+  if (hardBlocked && (ackedFor !== null || touched || reset)) {
+    setAckedFor(null);
+    setTouched(false);
+    setReset(null);
+  }
   const acked = ackedFor !== null && ackedFor === ackKey;
   const setAcked = (ok: boolean) => setAckedFor(ok ? ackKey : null);
   const touch = () => {
@@ -398,7 +455,7 @@ function ActivateCard({
   const closedNotice = closedMarketNotice(session, r.market);
   const buysNow = buysRightAway(session, quote, r.entryPrice);
   const rejected = activate.isError ? rejectionSentences(activate.error, "plan") : null;
-  const title = easy ? "모의 자동매매 시작" : "계획 활성화";
+  const title = manual ? (easy ? MANUAL_START_TEXT.start.easy : MANUAL_START_TEXT.start.expert) : easy ? "모의 자동매매 시작" : "계획 활성화";
   const priceGone = priceExpiredText(r.expiredReason, easy);
   // 시작할 수 없을 때 버튼 아래의 다음 행동 하나 (진행 중인 내 계획은 위쪽 '내 모의 자동매매 보기'가 이미 잇는다 — trade-15)
   const next = blocked && pv ? nextActionOf(pv.reasonCodes) : null;
@@ -439,9 +496,10 @@ function ActivateCard({
               : `유효 기한(${formatDateTime(r.validUntil)})이 지나 활성화할 수 없습니다.`}
         </Notice>
       ) : hardBlocked ? (
-        <BlockedBody r={r} pv={head.data} codes={codes} easy={easy} />
+        <BlockedBody r={r} pv={head.data} codes={codes} easy={easy} token={token} />
       ) : (
         <>
+          {manual && head.data && <ManualBanner pv={head.data} easy={easy} />}
           <BudgetPicker
             mode={mode}
             raw={raw}
@@ -494,7 +552,7 @@ function ActivateCard({
             ) : (
               <>
                 <div className={cn("transition-opacity duration-fast", settling && "opacity-60")}>
-                  {easy ? <EasyPreview r={r} pv={pv} /> : <ExpertPreview r={r} pv={pv} />}
+                  {easy ? <EasyPreview r={r} pv={pv} /> : <ExpertPreview r={r} pv={pv} manual={manual} />}
                 </div>
                 {settling && <Spinner className="absolute top-3.5 right-3.5 text-mute" />}
               </>
@@ -530,7 +588,7 @@ function ActivateCard({
                   ? "지금 가격이 사는 가격보다 낮아서, 시작하면 모의 계좌에서 바로 사요."
                   : `${formatPrice(r.entryPrice, r.currency)} 이하가 될 때까지 ${entryDeadlineLabel(r.validUntil, r.market)}까지만 기다려요. 그때까지 안 내려오면 사지 않고 끝나요(돈은 그대로).`}
               </p>
-              {pv && <Checklist key={ackKey} r={r} pv={pv} onReady={setAcked} onTouch={touch} disabled={blocked} />}
+              {pv && <Checklist key={`${ackKey}:${manual}`} r={r} pv={pv} manual={manual} onReady={setAcked} onTouch={touch} disabled={blocked} />}
             </div>
           ) : (
             <>
@@ -540,6 +598,7 @@ function ActivateCard({
                 <SummaryCheck
                   r={r}
                   pv={pv}
+                  manual={manual}
                   checked={acked}
                   onChange={(v) => {
                     setAcked(v);
@@ -560,14 +619,18 @@ function ActivateCard({
                   ...(choice ? budgetParams(choice) : {}),
                   ...(token ? { token } : {}),
                   acknowledged: true,
+                  // 시연용 수동 시작은 자격이 될 때만 보낸다 (일반 활성화 본문에는 키를 넣지 않는다)
+                  ...(manual ? { manualStart: true } : {}),
                 },
                 {
                   onSuccess: (plan) => {
+                    // 시연용 수동 시작 계획이면 토스트 앞에 그 표시를 붙인다 (DECISIONS 31장)
+                    const say = (t: string, tone: "success" | "error") => toast(plan.manualStart ? `${MANUAL_START_TEXT.toast}${t}` : t, tone);
                     // 토스트는 응답의 상태로 고른다: 시작하자마자 샀으면(holding) "샀어요" — "주문을 넣었어요"라고 하지 않는다 (UX-3)
-                    if (plan.status === "failed") toast(easy ? "모의 주문을 넣지 못해 계획이 끝났어요." : "첫 주문 접수가 거절되어 계획이 실패했습니다.", "error");
+                    if (plan.status === "failed") say(easy ? "모의 주문을 넣지 못해 계획이 끝났어요." : "첫 주문 접수가 거절되어 계획이 실패했습니다.", "error");
                     else if (plan.status === "holding" && plan.fillPrice != null) {
                       const fill = formatPrice(plan.fillPrice, plan.currency);
-                      toast(
+                      say(
                         easy
                           ? `${plan.name} 모의 자동매매를 시작했어요. 모의 계좌에서 ${formatQty(plan.quantity)}를 ${fill}에 샀어요.`
                           : `${plan.name} 계획을 활성화했습니다. ${formatQty(plan.quantity)} ${fill}에 바로 체결됐습니다.`,
@@ -575,15 +638,19 @@ function ActivateCard({
                       );
                     } else if (plan.status === "active") {
                       // 첫 주문을 일시 오류로 아직 못 냄 — 엔진 루프가 곧 낸다 (합친 알림도 '시작했어요', 리뷰 R-9)
-                      toast(easy ? `${plan.name} 모의 자동매매를 시작했어요. 사는 주문은 곧 넣어요.` : `${plan.name} 계획을 활성화했습니다. 진입 주문은 곧 접수됩니다.`, "success");
-                    } else toast(easy ? `${plan.name} 모의 자동매매를 시작했어요. 사는 주문을 넣었어요.` : `${plan.name} 계획을 활성화했습니다. 진입 주문을 냈습니다.`, "success");
+                      say(easy ? `${plan.name} 모의 자동매매를 시작했어요. 사는 주문은 곧 넣어요.` : `${plan.name} 계획을 활성화했습니다. 진입 주문은 곧 접수됩니다.`, "success");
+                    } else say(easy ? `${plan.name} 모의 자동매매를 시작했어요. 사는 주문을 넣었어요.` : `${plan.name} 계획을 활성화했습니다. 진입 주문을 냈습니다.`, "success");
                     // replace: 뒤로 가기가 이미 쓴 실행 확인·?t= 토큰 주소로 돌아가지 않게. started: 도착 화면의 단계 체크가 한 번 튄다
                     navigate(`/plans/${plan.id}`, { replace: true, state: { started: true } });
                   },
                 },
               )
             }
-            className="press mt-4 flex h-13 w-full items-center justify-center gap-2 rounded-xl bg-brand text-[16px] font-bold text-white hover:bg-brand-dark disabled:opacity-40"
+            className={cn(
+              "press mt-4 flex h-13 w-full items-center justify-center gap-2 rounded-xl text-[16px] font-bold disabled:opacity-40",
+              // 시연용 수동 시작은 경고색 (lib/cn은 덮어쓰지 않으므로 바탕·글자색을 나눠 고른다)
+              manual ? "bg-warn-soft text-warn-ink ring-1 ring-warn/40 hover:bg-warn-soft/70" : "bg-brand text-white hover:bg-brand-dark",
+            )}
           >
             {activate.isPending && <Spinner />}
             {title}
@@ -592,7 +659,11 @@ function ActivateCard({
             <p className="mt-2 text-[13px] text-mute">{easy ? "넣을 돈을 먼저 정해 주세요." : "투자 금액을 정하면 활성화할 수 있습니다."}</p>
           ) : (
             pv?.activatable &&
-            !acked && <p className="mt-2 text-[13px] text-mute">{easy ? "위의 확인 셋을 모두 켜면 시작할 수 있어요." : "확인에 체크하면 활성화할 수 있습니다."}</p>
+            !acked && (
+              <p className="mt-2 text-[13px] text-mute">
+                {easy ? (manual ? MANUAL_START_TEXT.checksHint : "위의 확인 셋을 모두 켜면 시작할 수 있어요.") : "확인에 체크하면 활성화할 수 있습니다."}
+              </p>
+            )
           )}
           {next === "other_plans" && (
             <Link to="/recommendations" className={NEXT_LINK}>
@@ -655,7 +726,10 @@ function EasyPreview({ r, pv }: { r: Recommendation; pv: RiskPreview }) {
       </p>
       <dl className="mt-1">
         <Row label="목표에 팔면">
-          <span className="text-up">+{formatKrw(pv.expectedProfitKrw)}</span>
+          {/* 손익비가 0 이하인 계획(시연용 수동 시작)은 목표에 팔아도 손실이다 — '+-'로 보이지 않게 */}
+          <span className={pv.expectedProfitKrw < 0 ? "text-down" : "text-up"}>
+            {pv.expectedProfitKrw < 0 ? formatSignedKrw(pv.expectedProfitKrw) : `+${formatKrw(pv.expectedProfitKrw)}`}
+          </span>
         </Row>
         <Row label="손절에 팔면">
           <span className="text-down">-{formatKrw(pv.maxLossKrw)}</span>
@@ -692,12 +766,14 @@ function EasyPreview({ r, pv }: { r: Recommendation; pv: RiskPreview }) {
   );
 }
 
-function ExpertPreview({ r, pv }: { r: Recommendation; pv: RiskPreview }) {
+function ExpertPreview({ r, pv, manual }: { r: Recommendation; pv: RiskPreview; manual: boolean }) {
+  // 시연용 수동 시작으로 건너뛰었고 남은 사유가 없을 때만 '기준 미달 — 건너뜀' (cash_short 등이 남았으면 그대로 '거절')
+  const skipped = manual && pv.skippedCodes.length > 0 && pv.activatable;
   return (
     <>
       <p className="flex items-center gap-1.5 pr-6 text-[14px] font-semibold">
-        <Icon name={pv.approved ? "check" : "ban"} className={cn("size-4", pv.approved ? "text-ok" : "text-up")} />
-        {pv.approved ? "리스크 엔진 통과" : "리스크 엔진 거절"}
+        <Icon name={skipped ? "alert" : pv.approved ? "check" : "ban"} className={cn("size-4", skipped ? "text-warn" : pv.approved ? "text-ok" : "text-up")} />
+        {skipped ? MANUAL_START_TEXT.previewSkipped : pv.approved ? "리스크 엔진 통과" : "리스크 엔진 거절"}
       </p>
       <dl className="mt-2">
         <Row label="수량">
@@ -711,7 +787,9 @@ function ExpertPreview({ r, pv }: { r: Recommendation; pv: RiskPreview }) {
           </Flash>
         </Row>
         <Row label="목표 도달 시 이익">
-          <span className="text-up">+{formatKrw(pv.expectedProfitKrw)}</span>
+          <span className={pv.expectedProfitKrw < 0 ? "text-down" : "text-up"}>
+            {pv.expectedProfitKrw < 0 ? formatSignedKrw(pv.expectedProfitKrw) : `+${formatKrw(pv.expectedProfitKrw)}`}
+          </span>
         </Row>
         <Row label="손절 시 손실">
           <span className="text-down">-{formatKrw(pv.maxLossKrw)}</span>
@@ -782,6 +860,8 @@ export function RecommendationPage() {
   const { id } = useParams();
   const [params] = useSearchParams();
   const token = params.get("t");
+  // 시연용 수동 시작 요청 (DECISIONS 31장) — 자격(손익비·기대값으로만 막힘)은 금액 없는 미리 보기로 다시 본다. 자격이 없으면 무시한다
+  const manualRequested = params.get("manual") === "1";
   const { easy } = useViewMode();
   const { data: r, isPending, isError, error, refetch, isFetching } = useRecommendation(Number(id));
   const reveal = useRevealAfterLoading(isPending);
@@ -818,6 +898,7 @@ export function RecommendationPage() {
 
   const src = sourceLink(r, easy);
   const live = r.myPlan != null && isPlanLive(r.myPlan.status);
+  const manualReady = manualRequested && open && canStartManually(head.data);
   const why = blockedLine(r, head.data, easy);
   const weekend = open && easy && deadlineMovedEarlier(r.validUntil, r.market); // 주말·장 시작 전 기한은 앞 거래일 장 마감으로
   const chip =
@@ -848,13 +929,32 @@ export function RecommendationPage() {
       {token && (
         <Notice className="mb-3">
           <b>Discord에서 연 활성화 링크</b> ·{" "}
-          {easy
-            ? "내용을 확인하고 “모의 자동매매 시작”을 누르면 내 모의 계좌에서 시작해요 (Discord로 시작한 것으로 기록해요)."
-            : "내용을 확인하고 “계획 활성화”를 누르면 내 모의 계좌에 계획이 만들어집니다 (Discord로 활성화한 것으로 기록)."}
+          {manualReady
+            ? // 시연용 수동 시작(DECISIONS 31장): 시연용 띠를 따로 두지 않으므로 실제 시작 버튼 이름과 '시연용'을 이 띠가 말한다 (없는 버튼 이름을 말하지 않게)
+              easy
+              ? MANUAL_START_TEXT.discordNote.easy
+              : MANUAL_START_TEXT.discordNote.expert
+            : easy
+              ? "내용을 확인하고 “모의 자동매매 시작”을 누르면 내 모의 계좌에서 시작해요 (Discord로 시작한 것으로 기록해요)."
+              : "내용을 확인하고 “계획 활성화”를 누르면 내 모의 계좌에 계획이 만들어집니다 (Discord로 활성화한 것으로 기록)."}
           <button
             type="button"
             onClick={goActivate}
             className="press mt-2 flex h-10 items-center gap-1 rounded-lg bg-card px-3 text-[14px] font-semibold text-brand-ink hover:bg-card/70 lg:hidden"
+          >
+            {easy ? "실행 확인으로 이동" : "활성화 카드로 이동"}
+            <Icon name="chevron-down" className="size-4" />
+          </button>
+        </Notice>
+      )}
+      {/* 시연용 수동 시작 띠: Discord 띠 자리에, token이 없을 때만 (token이 있으면 Discord 띠의 이동 버튼 하나만 둔다) */}
+      {manualReady && !token && (
+        <Notice tone="warn" className="mb-3">
+          <b>{MANUAL_START_TEXT.badge}</b> · {easy ? MANUAL_START_TEXT.topNote.easy : MANUAL_START_TEXT.topNote.expert}
+          <button
+            type="button"
+            onClick={goActivate}
+            className="press mt-2 flex h-10 items-center gap-1 rounded-lg bg-card px-3 text-[14px] font-semibold text-warn-ink hover:bg-card/70 lg:hidden"
           >
             {easy ? "실행 확인으로 이동" : "활성화 카드로 이동"}
             <Icon name="chevron-down" className="size-4" />
@@ -991,7 +1091,7 @@ export function RecommendationPage() {
         </div>
 
         <div ref={stickyFit} className="space-y-3 lg:sticky" style={{ top: STICKY_FIT_TOP }}>
-          <ActivateCard key={r.id} r={r} token={token} titleRef={titleRef} quote={quote} />
+          <ActivateCard key={r.id} r={r} token={token} titleRef={titleRef} quote={quote} manualRequested={manualRequested} />
           <p className="px-1 text-[13px] text-mute">
             {easy ? `팀에서 이 계획으로 시작한 모의 자동매매 ${r.planCount}건` : `팀에서 이 추천으로 활성화한 계획 ${r.planCount}건`}
           </p>

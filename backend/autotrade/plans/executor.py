@@ -13,6 +13,8 @@
   장중 가격 숫자를 넣지 않는다 (docs/API.md 공통 규칙).
 - 알림 합치기 (docs/API.md "알림 합치기", DECISIONS 23장): 활성화 요청 하나 안에서 이어진 사건(activated → order_placed → filled,
   또는 failed)은 알림을 마지막 상태 하나만 보낸다 (웹·Discord). 사건(PlanEvent)은 다 남긴다. 엔진 루프의 사건은 하나씩 보낸다.
+- 시연용 수동 시작(DECISIONS 31장): activate(manual_start=True)는 손익비·기대값 사유만 건너뛰고 TradePlan.manual_start·사건 details에 남긴다.
+  재주문 점검은 risk.evaluate가 plan.manual_start로 같은 사유를 건너뛴다. 이 계획의 알림 제목에는 _later가 꼬리표를 붙인다.
 """
 import logging
 import math
@@ -46,6 +48,9 @@ UNFILLED = "진입 기한까지 지정가에 체결되지 않음"  # 진입 기�
 CASH_SHORT = "체결 시점 현금 부족"
 USER_CANCEL = "사용자 취소"
 NO_BUDGET = "투자 금액을 정해 주세요 (budgetPercent 또는 budgetKrw)."
+# 시연용 수동 시작 (DECISIONS 31장)
+MANUAL_NOT_NEEDED = "손익비·기대값 점검에 막히지 않은 계획은 수동 시작(시연용) 없이 시작합니다."
+MANUAL_START_NOTE = " (시연용 수동 시작)"  # activated 사건 message 끝
 TRANSIENT = (Unavailable, KiwoomApiError, OSError)  # 다음 번에 다시 시도한다
 VIA_LABEL = {"web": "웹", "discord": "Discord 링크"}
 MAX_STEPS = 4  # step 한 번에 이어서 바꿀 수 있는 상태 수 (주문 → 체결 → 청산)
@@ -117,6 +122,9 @@ def _notify(plan: TradePlan, kind: str, notice: notices.Notice, discord: bool = 
 
 def _later(plan: TradePlan, kind: str, notice: notices.Notice, discord: bool = True) -> None:
     """트랜잭션이 커밋된 뒤에 알린다 (롤백되면 알림 없음). 활성화 요청 안이면 보내지 않고 모은다 (_send_last가 하나만 보낸다)."""
+    # 시연용 수동 시작 계획의 모든 알림 — 합친 알림·엔진 루프 알림이 모두 여기를 지난다 (_notify·_send_last·text 함수에는 따로 붙이지 않는다)
+    if plan.manual_start:
+        notice = texts.manual_tagged(notice)
     merged = _merged.get()
     if merged is None:
         transaction.on_commit(lambda: _notify(plan, kind, notice, discord))
@@ -156,24 +164,29 @@ def _end(plan: TradePlan, frm, to: str, reason: str, details: dict | None = None
 
 def activate(rec: Recommendation, user, budget_krw: float | None = None, via: str = "web",
              now: datetime | None = None, *, budget_percent: int | None = None,
-             acknowledged: bool = False) -> TradePlan:
+             acknowledged: bool = False, manual_start: bool = False) -> TradePlan:
     """사용자가 정한 금액으로 수량을 계산해(리스크 엔진이 점검) 계획을 만들고 그 자리에서 한 번 진행한다(첫 주문).
 
     넣을 돈: budget_percent(1~100, 매수 가능 금액의 %) 또는 budget_krw(원) 중 하나가 필수다 (없으면 Rejected(NO_BUDGET)).
     점검은 미리 보기와 같은 계산(장마감 기준)에 장중 확인을 더한 것이다 (risk.preview live_check). 막히면 Blocked
     (사유와 사유 코드, 아무것도 만들지 않는다). acknowledged: 실행 확인 체크리스트를 모두 켰는지 (activated 사건 details에 남긴다).
+    manual_start: 시연용 수동 시작(DECISIONS 31장) — 손익비·기대값 사유만 건너뛴다. 남은 사유가 있으면 Blocked,
+    건너뛸 것이 없으면 Rejected(MANUAL_NOT_NEEDED) (Blocked 판정 뒤에 본다 — 다른 사유가 먼저 보이게).
     알림은 이 요청 안에서 이어진 사건의 마지막 상태 하나만 보낸다 (시작·주문 접수·체결 → "샀어요" 하나).
     """
     if budget_krw is None and budget_percent is None:
         raise Rejected(NO_BUDGET)
     now = now or timezone.now()
-    preview = risk.preview(rec, user, budget_krw, now, live_check=True, budget_percent=budget_percent)
+    preview = risk.preview(rec, user, budget_krw, now, live_check=True, budget_percent=budget_percent,
+                           manual_start=manual_start)
     if not preview["activatable"]:
         raise Blocked(preview["reasons"], preview["reasonCodes"])
+    if manual_start and not preview["skippedCodes"]:  # 건너뛸 것이 없는 계획에 시연용 표시를 붙이지 않는다
+        raise Rejected(MANUAL_NOT_NEEDED)
     merged: list = []
     token = _merged.set(merged)
     try:
-        plan = _start(rec, user, via, now, preview, acknowledged)
+        plan = _start(rec, user, via, now, preview, acknowledged, manual_start)
         try:
             step(plan, now)
         except Exception:  # 활성화는 성공으로 두고 엔진 루프가 이어 간다
@@ -185,10 +198,12 @@ def activate(rec: Recommendation, user, budget_krw: float | None = None, via: st
     return plan
 
 
-def _start(rec: Recommendation, user, via: str, now: datetime, preview: dict, acknowledged: bool) -> TradePlan:
+def _start(rec: Recommendation, user, via: str, now: datetime, preview: dict, acknowledged: bool,
+           manual_start: bool = False) -> TradePlan:
     """계획을 active로 만들고 activated·risk_checked 사건을 남긴다. 같은 종목 계획이 그사이 생겼으면 Blocked(plan_exists).
 
     넣을 돈(방식·%·원으로 바꾼 금액)은 점검 결과(preview)의 값을 그대로 남긴다 — percent는 점검한 순간의 매수 가능 금액 기준이다.
+    manual_start(시연용 수동 시작 여부)는 이 인자로만 정한다 — preview의 skipped 키는 manual_start일 때만 읽는다.
     """
     try:
         with transaction.atomic():
@@ -199,16 +214,24 @@ def _start(rec: Recommendation, user, via: str, now: datetime, preview: dict, ac
                 recommendation=rec, user=user, symbol=rec.symbol, name=rec.name, market=rec.market,
                 currency=rec.currency, status=TradePlan.ACTIVE, via=via, quantity=preview["quantity"],
                 budget_mode=preview["budgetMode"], budget_percent=preview["budgetPercent"],
-                budget_krw=preview["budgetKrw"], entry_price=rec.entry_price, target_price=rec.target_price,
-                stop_price=rec.stop_price, holding_days=rec.holding_days,
+                budget_krw=preview["budgetKrw"], manual_start=manual_start, entry_price=rec.entry_price,
+                target_price=rec.target_price, stop_price=rec.stop_price, holding_days=rec.holding_days,
                 entry_deadline=rec.valid_until, activated_at=now, updated_at=timezone.now())
-            _event(plan, "activated", f"{VIA_LABEL.get(via, via)}에서 계획 활성화",
-                   {"via": via, "budgetMode": plan.budget_mode, "budgetPercent": plan.budget_percent,
-                    "budgetKrw": plan.budget_krw, "acknowledged": bool(acknowledged)})
-            _event(plan, "risk_checked",
-                   f"리스크 엔진 점검 통과: {_budget_text(plan)}으로 {qty_text(plan.quantity)} (손익비 {rec.reward_risk:.2f})",
-                   {"approved": preview["approved"], "quantity": plan.quantity, "limitedBy": preview["limitedBy"],
-                    "rewardRisk": rec.reward_risk, "reasons": preview["reasons"]})
+            activated = {"via": via, "budgetMode": plan.budget_mode, "budgetPercent": plan.budget_percent,
+                         "budgetKrw": plan.budget_krw, "acknowledged": bool(acknowledged)}
+            checked = {"approved": preview["approved"], "quantity": plan.quantity, "limitedBy": preview["limitedBy"],
+                       "rewardRisk": rec.reward_risk, "reasons": preview["reasons"]}
+            message = f"{VIA_LABEL.get(via, via)}에서 계획 활성화"
+            check = f"리스크 엔진 점검 통과: {_budget_text(plan)}으로 {qty_text(plan.quantity)} (손익비 {rec.reward_risk:.2f})"
+            if manual_start:  # 시연용 수동 시작 (DECISIONS 31장) — 감사 기록. approved는 리스크 엔진의 원래 판정(False)
+                activated |= {"manualStart": True, "skippedCodes": preview["skippedCodes"]}
+                checked |= {"manualStart": True, "skippedCodes": preview["skippedCodes"],
+                            "skippedReasons": preview["skippedReasons"]}
+                message += MANUAL_START_NOTE
+                check = (f"리스크 엔진 점검: {'; '.join(preview['skippedReasons'])} — 시연용 수동 시작으로 건너뜀. "
+                         f"{_budget_text(plan)}으로 {qty_text(plan.quantity)}")
+            _event(plan, "activated", message, activated)
+            _event(plan, "risk_checked", check, checked)
             _later(plan, "plan_activated", texts.plan_activated(plan))
     except IntegrityError:
         raise Blocked([risk.PLAN_EXISTS], ["plan_exists"]) from None

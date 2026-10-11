@@ -283,7 +283,7 @@ export const handlers = [
     "*/api/recommendations/:id/preview",
     route((u, ctx) => {
       const sp = urlOf(ctx).searchParams;
-      return db.riskPreview(u.id, num(ctx.params.id), sp.get("budgetPercent"), sp.get("budgetKrw"));
+      return db.riskPreview(u.id, num(ctx.params.id), sp.get("budgetPercent"), sp.get("budgetKrw"), sp.get("manualStart"));
     }),
   ),
   http.get(

@@ -145,7 +145,8 @@ export function planWorkflow(plan: Pick<TradePlan, "status" | "exitReason" | "fa
     const n = DONE_BY_EVENT[e.kind];
     if (n !== undefined) done = Math.max(done, n);
     if (e.kind === "order_requeued") requeues += 1;
-    if (e.kind === "risk_checked" && e.details.approved === false) riskRejected = true;
+    // 시연용 수동 시작(DECISIONS 31장)은 approved=false를 남기지만 리스크 점검은 지나간 것이다 (끝난 뒤에도 '리스크 점검에서 멈춤'으로 그리지 않게)
+    if (e.kind === "risk_checked" && e.details.approved === false && e.details.manualStart !== true) riskRejected = true;
   }
   const ended = plan.status === "cancelled" || plan.status === "expired" || plan.status === "failed";
   // 끝난 상태에서 멈춘 단계 (리스크 엔진이 거절했으면 리스크 점검에서 멈춘 것)
@@ -295,6 +296,20 @@ export function blockedCodes(r: Pick<Recommendation, "status"> & { blockedBy?: r
 }
 
 export const isRecBlocked = (r: Pick<Recommendation, "status"> & { blockedBy?: readonly string[] }): boolean => blockedCodes(r).length > 0;
+
+/** 시연용 수동 시작(DECISIONS 31장)이 건너뛰는 사유 — 서버 backend/autotrade/plans/risk.py MANUAL_SKIP_CODES와 같다. */
+export const MANUAL_SKIP_CODES: readonly string[] = ["reward_risk_low", "ev_negative"];
+/** 사유가 하나 이상이고 모두 건너뛸 수 있는 것인지. */
+export const onlyManualSkip = (codes: readonly string[]): boolean => codes.length > 0 && codes.every((c) => MANUAL_SKIP_CODES.includes(c));
+/** 금액 없는 미리 보기(내 계좌까지 본 결과)가 손익비·기대값으로만 막았는지 — '수동매매 (시연용)' 자격. */
+export const canStartManually = (pv: Pick<RiskPreview, "activatable" | "reasonCodes"> | undefined): boolean =>
+  Boolean(pv && !pv.activatable && onlyManualSkip(pv.reasonCodes));
+/** 실행 확인의 시연용 수동 시작 주소 (Discord ?t=가 있으면 이어 붙인다). */
+export function manualStartPath(recId: number, token?: string | null): string {
+  const sp = new URLSearchParams({ manual: "1" });
+  if (token) sp.set("t", token);
+  return `/recommendations/${recId}?${sp}`;
+}
 
 /** 시작할 수 있는 것을 먼저 (같은 무리 안에서는 받은 순서 = 최신순 그대로). 목록·홈·모의투자 탭의 압축 목록이 같이 쓴다 (UX-2). */
 export function startableFirst<T extends Pick<Recommendation, "status"> & { blockedBy?: readonly string[] }>(recs: readonly T[]): T[] {

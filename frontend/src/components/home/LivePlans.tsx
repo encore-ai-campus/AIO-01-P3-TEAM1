@@ -2,6 +2,7 @@
 // 전문가 보기 홈은 components/autotrade/HomeSummaries.tsx의 HomePlans (원래 용어·가격).
 // 있고 없음에 따라 자리를 옮기지 않는다: 늘 같은 자리, 비었으면 한 줄 (데이터가 늦게 와도 위쪽이 밀리지 않게).
 // 폴링으로 상태가 바뀐 행은 2초 동안 연한 파랑으로 강조한다 (사용자가 가장 기다리는 소식 — 사는 가격을 기다리는 중 → 목표·손절을 지켜보는 중).
+// 시연용 수동 시작 계획(DECISIONS 31장)은 상태 옆 "시연용 수동 시작" 배지 (링크 설명으로도 읽힌다).
 import { useId } from "react";
 import { Link } from "react-router";
 import { usePlans } from "../../api/queries";
@@ -10,6 +11,7 @@ import { revealList, useRevealAfterLoading } from "../../hooks/useMotionState";
 import { cn } from "../../lib/cn";
 import { formatQty } from "../../lib/format";
 import { PLAN_STATUS_TEXT, SOURCE_TEXT } from "../../lib/plainText";
+import { ManualStartBadge } from "../autotrade/Badges";
 import { Icon } from "../Icon";
 import { useChangedKeys, useShownCount } from "./homeHooks";
 import { EmptyRow, HOME_ROW, RowChevron, RowsSkeleton, SectionError } from "./HomeStates";
@@ -24,7 +26,7 @@ function PlanItem({ p, changed }: { p: TradePlan; changed: boolean }) {
       <Link
         to={`/plans/${p.id}`}
         aria-label={`${p.name} 모의 자동매매 보기`}
-        aria-describedby={`${id}-s ${id}-l`}
+        aria-describedby={`${id}-s ${id}-l${p.manualStart ? ` ${id}-m` : ""}`}
         className={cn(HOME_ROW, changed && "bg-brand-soft/60")}
       >
         <span
@@ -42,6 +44,7 @@ function PlanItem({ p, changed }: { p: TradePlan; changed: boolean }) {
             <span id={`${id}-s`} className="text-[13px] font-semibold text-brand-ink">
               {s?.easy ?? p.status}
             </span>
+            {p.manualStart && <ManualStartBadge id={`${id}-m`} />}
           </span>
           <span id={`${id}-l`} className="mt-0.5 block text-[13px] leading-snug text-sub">
             {s?.line}

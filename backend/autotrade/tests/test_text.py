@@ -5,6 +5,7 @@ DB 없이 저장하지 않은 추천·계획 객체로 문장만 만든다.
 from datetime import datetime
 
 import pytest
+from notifications.service import Notice
 from paper_engine.wording import forbidden_phrases
 
 from autotrade import text
@@ -79,6 +80,20 @@ def test_no_persuasion_in_any_plan_sentence(plan):
         for n in items:
             for sentence in (n.title, n.body, n.expert_title, n.expert_body, n.numbers or ""):
                 assert forbidden_phrases(sentence) == [], (kind, sentence)
+
+
+@pytest.mark.parametrize("plan", PLANS, ids=["kr", "us"])
+def test_manual_tagged_marks_titles_and_keeps_rules(plan):
+    """시연용 수동 시작 계획의 알림 (DECISIONS 31장): 쉬운·전문가 제목 앞에 꼬리표, 본문·숫자 줄은 그대로, 규칙(모의·권유 표현 없음)도 그대로."""
+    for kind, items in plan_notices(plan).items():
+        for n in items:
+            t = text.manual_tagged(n)
+            assert t.title == f"{text.MANUAL_START_TAG} {n.title}" and t.expert_title == f"{text.MANUAL_START_TAG} {n.expert_title}"
+            assert (t.body, t.expert_body, t.numbers) == (n.body, n.expert_body, n.numbers)
+            assert "모의" in t.title and "모의" in t.body, (kind, t)
+            for sentence in (t.title, t.expert_title):
+                assert forbidden_phrases(sentence) == [], (kind, sentence)
+    assert text.manual_tagged(Notice(title="제목", body="본문")).expert_title is None
 
 
 @pytest.mark.parametrize("rec", RECS, ids=["report", "analysis", "demo", "us"])

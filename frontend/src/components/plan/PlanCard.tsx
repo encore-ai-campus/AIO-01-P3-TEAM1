@@ -7,6 +7,7 @@
 // - 상태 (PlanCardState, 계산은 lib/autotrade.ts planCardState): 리포트가 아직 완성 전 · 지켜보기(hold) · 부정적(avoid) ·
 //   계획 준비 중(buy인데 추천이 아직 없음, 완성 직후 10분) · 계획 없음(buy인데 가격 조건이 맞지 않아 추천이 없음) · 기한 지남 ·
 //   실행 가능("실행 준비" → /recommendations/{id}) · 실행 불가(RiskPreview.reasonCodes → lib/plainText.ts reasonSentences).
+//   실행 불가가 손익비·기대값만이면 사유 아래에 시연용 수동매매 → /recommendations/{id}?manual=1 (DECISIONS 31장 — 경고색 상자, "시연용"을 밝힌다).
 //   "AI 의견: 긍정적"인데 실행할 수 없는 경우를 숨기지 않는다 — 안전장치가 다른 말을 하면 그 이유를 쉬운 말로 보인다.
 // - variant "mini": 리포트 상세 위쪽 "계획 미니" — 손절 시 손실·목표 이익·"실행 준비" 한 줄. "full": 쉬운 보기의 매매 계획 카드.
 // - view "expert": 같은 상태에 원래 용어(진입·목표·손절·손익비)와 사유 원문을 보인다.
@@ -20,11 +21,11 @@ import { usePlanCardData } from "../../api/reports";
 import type { Recommendation, ReportSummary, RiskPreview } from "../../api/types";
 import { useRevealAfterLoading } from "../../hooks/useMotionState";
 import type { ViewMode } from "../../hooks/useBeginnerMode";
-import { isRecBlocked, kstDayOf } from "../../lib/autotrade";
+import { canStartManually, isRecBlocked, kstDayOf, manualStartPath } from "../../lib/autotrade";
 import { cn } from "../../lib/cn";
 import { formatDayLabel, formatPrice, formatRate } from "../../lib/format";
 import { prefersReducedMotion } from "../../lib/motion";
-import { priceExpiredText, reasonSentences } from "../../lib/plainText";
+import { MANUAL_START_TEXT, priceExpiredText, reasonSentences } from "../../lib/plainText";
 import { Icon } from "../Icon";
 import { LiveDot, Skeleton, Spinner } from "../ui";
 
@@ -270,6 +271,7 @@ function Ready({ rec, easy }: { rec: Recommendation; easy: boolean }) {
 function Blocked({ rec, preview, easy }: { rec: Recommendation; preview: RiskPreview; easy: boolean }) {
   const lines = easy ? reasonSentences(preview.reasonCodes, preview.reasons) : preview.reasons;
   const planLink = rec.myPlan && preview.reasonCodes.includes("plan_exists") ? rec.myPlan.id : null;
+  const manual = canStartManually(preview); // 손익비·기대값으로만 막혔을 때만 (다른 사유가 섞이면 숨긴다)
   return (
     <>
       <p className="text-[15px] font-semibold">{easy ? "지금은 이 계획을 실행할 수 없어요" : "활성화할 수 없음"}</p>
@@ -288,7 +290,24 @@ function Blocked({ rec, preview, easy }: { rec: Recommendation; preview: RiskPre
           계획 자세히 보기
         </Link>
       </div>
+      {manual && <ManualStartOffer recId={rec.id} easy={easy} />}
     </>
+  );
+}
+
+/** 시연용 수동 시작 (DECISIONS 31장): 손익비·기대값으로만 막힌 계획을 실행 확인(?manual=1)에서 직접 시작하는 길. */
+function ManualStartOffer({ recId, easy }: { recId: number; easy: boolean }) {
+  return (
+    <div className="mt-3 rounded-xl bg-warn-soft p-3">
+      <p className="flex items-start gap-1.5 text-[13px] leading-snug text-warn-ink">
+        <Icon name="alert" className="mt-px size-4 shrink-0" />
+        {easy ? MANUAL_START_TEXT.cardNote.easy : MANUAL_START_TEXT.cardNote.expert}
+      </p>
+      <Link to={manualStartPath(recId)} className={cn(linkBtn, "mt-2 w-full bg-card text-warn-ink ring-1 ring-warn/40 hover:bg-fill")}>
+        <Icon name="play" className="size-4" />
+        {MANUAL_START_TEXT.button}
+      </Link>
+    </div>
   );
 }
 

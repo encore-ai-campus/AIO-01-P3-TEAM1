@@ -1,15 +1,16 @@
 // 계획 한 줄: 종목·상태(진행 중이면 그 아래 4칸 단계 막대)·수량·진입/체결·목표/손절·손익·출처. 누르면 /plans/:id.
 // easy면 쉬운 보기 문구 (사는 가격·목표 가격·손절 가격, 상태는 "사는 가격을 기다리는 중" 등).
 // 진행 중 행은 '지금 어느 단계인지'를 들어가지 않고 본다 (문서 4-2 "진행 중 모의 자동매매(단계 표시)", trade-13). 막대는 움직이지 않는다.
+// 시연용 수동 시작 계획(DECISIONS 31장)은 출처 배지 옆에 "시연용 수동 시작" 배지, 화면 읽기 설명에도 같은 말.
 import { useId } from "react";
 import { Link } from "react-router";
 import type { TradePlan } from "../../api/types";
 import { SOURCE, easySteps, planStatusOf } from "../../lib/autotrade";
 import { cn } from "../../lib/cn";
 import { formatDateTime, formatPrice, formatQty, formatSignedKrw, trendClass } from "../../lib/format";
-import { planStatusText } from "../../lib/plainText";
+import { MANUAL_START_TEXT, planStatusText } from "../../lib/plainText";
 import { Icon } from "../Icon";
-import { PlanStatusChip, SourceBadge } from "./Badges";
+import { ManualStartBadge, PlanStatusChip, SourceBadge } from "./Badges";
 
 const STEP_CELL = { done: "bg-brand", current: "bg-brand/40", stopped: "bg-up/40", todo: "bg-line", skipped: "bg-line" } as const;
 
@@ -40,6 +41,7 @@ export function PlanRow({ p, easy = false, compact = false }: { p: TradePlan; ea
   const summary = [
     easy ? planStatusText(p.status, true) : planStatusOf(p.status).label,
     SOURCE[p.source]?.label ?? p.source,
+    p.manualStart ? MANUAL_START_TEXT.badge : null,
     p.pnlKrw != null ? `손익 ${formatSignedKrw(p.pnlKrw)}` : null,
   ]
     .filter(Boolean)
@@ -60,6 +62,7 @@ export function PlanRow({ p, easy = false, compact = false }: { p: TradePlan; ea
           {/* 요약이라 날짜는 뺀다 (최근 순서로 놓이고, 날짜는 /plans 목록·상세에서 본다). 좁으면 손익이 다음 줄로 (배지는 줄이지 않는다) */}
           <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[13px]">
             <SourceBadge source={p.source} />
+            {p.manualStart && <ManualStartBadge />}
             {p.pnlKrw != null && (
               <span className={cn("font-semibold whitespace-nowrap tabular-nums", trendClass(p.pnlKrw))}>손익 {formatSignedKrw(p.pnlKrw)}</span>
             )}
@@ -107,6 +110,7 @@ export function PlanRow({ p, easy = false, compact = false }: { p: TradePlan; ea
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]">
           <SourceBadge source={p.source} />
+          {p.manualStart && <ManualStartBadge />}
           {/* 목표·손절은 한 덩어리로 (좁은 화면에서 '손절 가격'만 다음 줄로 떨어지지 않게) */}
           <span className="whitespace-nowrap tabular-nums">
             <span className="text-up">

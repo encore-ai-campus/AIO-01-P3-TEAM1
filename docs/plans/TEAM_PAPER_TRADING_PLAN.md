@@ -137,6 +137,7 @@ macOS·Linux·WSL2에서만 돈다. 공유 개발 DB는 `.env`에 `POSTGRES_HOST
 1. **실주문 코드 0건.** 키움은 조회 TR만. `orders.py`·`create_order`·`LIVE_TRADING`·`--live`·`--bypass`는 코드에 나오면 안 된다(CI가 막는다). `tossinvest`는 `engine/paper_engine/data/toss.py` 한 곳에만.
 2. **토스 조회는 로컬 개발 전용**(토큰 발급 말고 GET만), 운영은 키움만. 원본 `toss_trading`에 영향을 주지 않는다 — Redis 키는 `paper:`만, 토스 client는 따로(U19).
 3. **AI는 제안만 한다.** 수량·한도·활성화는 리스크 엔진, 주문·체결은 `trading.service`와 모의 체결기. 최소 손익비(스윙 1.5)는 프롬프트에 넣지 않는다. 손절가는 AI가 아니라 코드가 정한다 (`judge/stops.py`).
+   예외: 시연용 수동 시작(사용자가 '수동매매 (시연용)'을 누르고 확인한 계획만)은 손익비·기대값 점검만 건너뛴다 (2026-10-12 — `docs/DECISIONS.md` 31장).
 4. **엔진은 표준 라이브러리만**, 외부 패키지는 `backend/`에만. 키움 응답 → 내부(토스) 형식 변환은 `data/kiwoom.py` 안에서만.
 5. **DB**: 같은 모델·마이그레이션을 SQLite·PostgreSQL에 쓴다(PostgreSQL 전용 기능 금지).
 6. **계약을 먼저 고친다**: 웹 API는 `docs/API.md`, 워크플로우 약속은 `00-공통.md`. State·Trace는 `backend/reports/orchestration/state.py` 함수로만. "Claude" 파일(`00-공통.md` 2절)은 팀원이 고치지 않고 팀장에게 알린다.

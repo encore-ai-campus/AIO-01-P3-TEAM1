@@ -281,6 +281,41 @@ describe("실행 불가 사유 코드 · 활성화", () => {
   });
 });
 
+describe("시연용 수동 시작 (DECISIONS 31장)", () => {
+  const CODES = ["reward_risk_low", "ev_negative"];
+
+  it("미리 보기·활성화: 손익비·기대값만 skipped로 옮기고, 형식·필요 없음은 400 (사유 코드 없음), 사건·알림에 남긴다", () => {
+    const id = db.addRecommendation({ symbol: "005930", entryPrice: 71_000, targetPrice: 72_000, stopPrice: 69_000 }); // 밥은 보유·주문이 없다
+    expect(db.riskPreview(2, id)).toMatchObject({ activatable: false, reasonCodes: CODES, skippedCodes: [], skippedReasons: [] });
+    const manual = db.riskPreview(2, id, "10", null, "1");
+    expect(manual).toMatchObject({ activatable: true, approved: false, reasons: [], reasonCodes: [], skippedCodes: CODES });
+    expect(manual.skippedReasons).toHaveLength(2);
+    expect(caught(() => db.riskPreview(2, id, null, null, "yes")).status).toBe(400);
+
+    expect(caught(() => db.activate(bob(), id, { budgetPercent: 10 })).extra).toEqual({ reasonCodes: CODES });
+    const notNeeded = caught(() => db.activate(bob(), 91, { budgetPercent: 10, manualStart: true }));
+    expect([notNeeded.status, notNeeded.message, notNeeded.extra]).toEqual([400, "손익비·기대값 점검에 막히지 않은 계획은 수동 시작(시연용) 없이 시작합니다.", null]);
+    for (const bad of ["yes", "true", 1, null]) {
+      const e = caught(() => db.activate(bob(), id, { budgetPercent: 10, manualStart: bad }));
+      expect([e.status, e.extra], String(bad)).toEqual([400, null]);
+    }
+
+    const plan = db.activate(bob(), id, { budgetPercent: 10, acknowledged: true, manualStart: true });
+    expect(plan.manualStart).toBe(true);
+    expect(plan.events[0]).toMatchObject({ kind: "activated", message: "웹에서 계획 활성화 (시연용 수동 시작)", details: { manualStart: true, skippedCodes: CODES } });
+    expect(plan.events[1].details).toMatchObject({ approved: false, manualStart: true });
+    const notes = db.listNotifications(2, false).rows.filter((n) => n.link === `/plans/${plan.id}`);
+    expect(notes.length).toBeGreaterThan(0);
+    for (const n of notes) expect(n.title.startsWith("[시연용 수동 시작] "), n.title).toBe(true);
+  });
+
+  it("다른 사유(매수 유의)는 그대로 막고, 일반 계획은 manualStart false", () => {
+    const warned = db.addRecommendation({ symbol: "196170", entryPrice: 350_000, targetPrice: 355_000, stopPrice: 340_000 });
+    expect(db.riskPreview(2, warned, "10", null, "1")).toMatchObject({ reasonCodes: ["warning_stock"], activatable: false, skippedCodes: CODES });
+    expect(db.activate(alice(), 91, { budgetPercent: 10 }).manualStart).toBe(false);
+  });
+});
+
 describe("보유 방식 style", () => {
   it("목표·손절·기한이 없으면 long, 있으면 swing(둘 다 필요), 모르는 값은 400", () => {
     const long = db.placeOrder(1, { symbol: "005380", quantity: 1, orderType: "MARKET" });

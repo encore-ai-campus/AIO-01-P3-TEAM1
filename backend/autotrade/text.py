@@ -8,6 +8,7 @@
 - PlanEvent.message·failure_reason은 여기서 만들지 않는다 (executor가 원래 용어로 남긴다 — 전문가 보기).
 - 문장에 종목 이름 바로 뒤 조사(을/를)를 붙이지 않는다 (받침에 따라 달라지므로 "삼성전자 3주를"처럼 수량 뒤에 붙인다).
 """
+from dataclasses import replace
 from datetime import datetime
 
 from notifications.service import Notice
@@ -18,7 +19,8 @@ from trading.store import KST
 from .models import Recommendation, TradePlan
 
 __all__ = ["money", "qty_text", "signed_money", "pct", "when", "day_time", "EXIT_LABEL", "REASON_TEXT",
-           "recommendation", "plan_activated", "order_placed", "order_requeued", "filled", "closed", "ended"]
+           "recommendation", "plan_activated", "order_placed", "order_requeued", "filled", "closed", "ended",
+           "MANUAL_START_TAG", "manual_tagged"]
 
 # 청산 사유: 전문가 이름 (docs/API.md "청산 사유" 표의 화면 이름)과 쉬운 문장 앞부분
 EXIT_LABEL = {"TARGET": "목표가 도달", "STOP": "손절가 도달", "EXPIRED": "보유 기한 경과", "MANUAL": "사용자 매도"}
@@ -112,6 +114,20 @@ def recommendation(rec: Recommendation) -> Notice:
         expert_title=f"{head} · {rec.name} ({rec.symbol})", expert_body="\n".join(expert),
         numbers=(f"진입 {entry} · 목표 {target} ({pct(rec.target_return)}) · 손절 {stop} ({pct(rec.stop_loss_rate)}) · "
                  f"손익비 {rec.reward_risk:.2f}"))
+
+
+# --- 시연용 수동 시작 ---
+
+MANUAL_START_TAG = "[시연용 수동 시작]"  # 시연용 수동 시작 계획 알림 제목의 꼬리표 (DECISIONS 31장)
+
+
+def manual_tagged(notice: Notice) -> Notice:
+    """시연용 수동 시작 계획(TradePlan.manual_start)의 알림: 쉬운·전문가 제목 앞에 MANUAL_START_TAG. 본문·숫자 줄은 그대로.
+
+    executor._later 한 곳에서 붙인다 (합친 알림·엔진 루프 알림이 모두 거기를 지난다). Notice는 frozen이라 새 객체를 돌려준다.
+    """
+    return replace(notice, title=f"{MANUAL_START_TAG} {notice.title}",
+                   expert_title=None if notice.expert_title is None else f"{MANUAL_START_TAG} {notice.expert_title}")
 
 
 # --- 계획 ---

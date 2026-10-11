@@ -649,9 +649,11 @@ export type BudgetMode = "percent" | "amount";
  */
 export interface RiskPreview {
   approved: boolean; // 리스크 엔진 통과 (금액이 없으면 크기와 무관한 점검만)
-  activatable: boolean; // approved && 추천이 open && 같은 종목 진행 중 계획·주문 없음 && 중단 스위치 꺼짐 (금액이 없으면 "금액만 정하면 시작 가능")
+  activatable: boolean; // approved && 추천이 open && 같은 종목 진행 중 계획·주문 없음 && 중단 스위치 꺼짐 (금액이 없으면 "금액만 정하면 시작 가능") (manualStart면 skippedCodes를 뺀 남은 사유로)
   reasons: string[]; // 활성화할 수 없는 사유 (activatable이면 [])
   reasonCodes: string[]; // reasons[i]의 코드 = reasonCodes[i] (같은 길이·같은 순서). 값은 ReasonCode
+  skippedReasons: string[]; // 2026-10-12 시연용 수동 시작(?manualStart=1, DECISIONS 31장)으로 건너뛴 사유 원문 — reasons에는 들지 않는다. 일반 미리 보기는 []
+  skippedCodes: string[]; // 같은 길이·순서의 코드(reward_risk_low · ev_negative 중). manual이면 approved는 원래 판정(false), activatable은 남은 사유로만
   quantity: number; // 주문할 수량 (국내는 정수 주)
   amountKrw: number; // 매수 금액 (원화 환산)
   expectedProfitKrw: number; // 목표가 도달 시 이익 (비용 반영)
@@ -681,6 +683,7 @@ export interface TradePlan {
   source: RecommendationSource;
   status: TradePlanStatus;
   via: "web" | "discord";
+  manualStart: boolean; // 2026-10-12 시연용 수동 시작 (DECISIONS 31장) — 손익비·기대값 점검을 건너뛰고 활성화한 계획
   quantity: number;
   budgetMode: BudgetMode | null; // 2026-10-11. null = 그 전에 활성화한 계획 (리스크 엔진이 수량을 정함)
   budgetPercent: number | null; // percent면 그 % (매수 가능 금액 기준)
@@ -703,8 +706,8 @@ export interface TradePlan {
 }
 
 export type PlanEventKind =
-  | "activated" // details: {via, budgetKrw, acknowledged}
-  | "risk_checked"
+  | "activated" // details: {via, budgetKrw, acknowledged} + manual이면 {manualStart, skippedCodes} (시연용 수동 시작, DECISIONS 31장)
+  | "risk_checked" // + manual이면 {manualStart, skippedCodes, skippedReasons} (approved는 false)
   | "order_placed"
   | "order_requeued"
   | "filled"
@@ -775,6 +778,7 @@ export interface ActivateRequest {
   budgetKrw?: number;
   token?: string; // Discord 활성화 링크의 ?t=
   acknowledged?: boolean;
+  manualStart?: boolean; // 시연용 수동 시작 — 자격이 될 때만 true로 보낸다 (일반 활성화는 키를 넣지 않는다)
 }
 
 // ---------------------------------------------------------------- 장기투자 (docs/API.md "장기투자")

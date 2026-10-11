@@ -109,8 +109,12 @@ export const keys = {
   reportQuota: ["reports", "quota"] as const,
   recommendations: (params: RecommendationParams) => ["recommendations", params] as const,
   recommendation: (id: number) => ["recommendation", id] as const,
-  // 넣을 돈 없음(null)은 [..., "preview", null, null] — 머리 칩·리포트 계획 카드·실행 확인이 같은 캐시를 쓴다
-  preview: (id: number, budget: BudgetChoice | null) => ["recommendation", id, "preview", budget?.mode ?? null, budget?.value ?? null] as const,
+  // 넣을 돈 없음(null)은 [..., "preview", null, null] — 머리 칩·리포트 계획 카드·실행 확인이 같은 캐시를 쓴다.
+  // manual(시연용 수동 시작 미리 보기, DECISIONS 31장)은 끝에 "manual"을 붙인 따로 된 캐시 — 머리 칩·리포트 매매 계획 카드(일반 미리 보기)와 섞이지 않게
+  preview: (id: number, budget: BudgetChoice | null, manual = false) =>
+    manual
+      ? (["recommendation", id, "preview", budget?.mode ?? null, budget?.value ?? null, "manual"] as const)
+      : (["recommendation", id, "preview", budget?.mode ?? null, budget?.value ?? null] as const),
   plans: (status: "active" | "all") => ["plans", status] as const,
   plan: (id: number) => ["plan", id] as const,
   notifications: (unread: boolean) => ["notifications", unread] as const,
@@ -327,11 +331,12 @@ export function useRecommendation(id: number) {
 /**
  * 리스크 엔진이 내 계좌로 계산한 활성화 미리 보기. budget: 넣을 돈 (% 또는 원 — budgetPercent·budgetKrw 중 하나만 보낸다).
  * null이면 금액 없이 점검만 한다 (수량 0 — 머리 칩·시작할 수 없는 이유·매수 가능 금액 안내용, docs/API.md 2026-10-11).
+ * manual: 시연용 수동 시작 미리 보기(?manualStart=1, DECISIONS 31장 — 손익비·기대값 사유는 skippedCodes로). 일반 미리 보기에는 붙이지 않는다.
  */
-export function useRiskPreview(id: number, budget: BudgetChoice | null, enabled = true) {
+export function useRiskPreview(id: number, budget: BudgetChoice | null, enabled = true, manual = false) {
   return useQuery({
-    queryKey: keys.preview(id, budget),
-    queryFn: () => api.get<RiskPreview>(`/api/recommendations/${id}/preview${qs(budget ? budgetParams(budget) : {})}`),
+    queryKey: keys.preview(id, budget, manual),
+    queryFn: () => api.get<RiskPreview>(`/api/recommendations/${id}/preview${qs({ ...(budget ? budgetParams(budget) : {}), manualStart: manual ? 1 : null })}`),
     enabled: enabled && Number.isFinite(id),
     placeholderData: (prev) => prev,
   });

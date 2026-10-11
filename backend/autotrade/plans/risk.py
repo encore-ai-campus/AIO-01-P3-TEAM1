@@ -17,6 +17,9 @@ evaluate(RiskPreview)는 **장마감 기준**이다 (docs/API.md 공통 규칙 "
   금액은 그 계획과 같은 수량의 매수 금액을 매수 가능 금액·총 금액 한도 안으로 줄인 값이다 (_requeue_budget — 한도 때문에 막히지 않고 줄어든다).
 사유(reasons)마다 같은 자리에 사유 코드(reasonCodes)를 둔다 — 엔진 RiskAssessment.codes + 여기 코드 (docs/API.md "실행 불가 사유 코드").
 blocked_by(Recommendation.blockedBy)는 그중 계좌와 무관한 코드만 같은 assess_budget·is_open으로 낸다 (목록·상세에서 미리 보이는 용도 — 최종 판단은 evaluate).
+
+시연용 수동 시작(DECISIONS 31장): manual_start(미리 보기·활성화) 또는 plan.manual_start(재주문)면 MANUAL_SKIP_CODES 사유를 reasons/reasonCodes에서 빼
+skippedReasons/skippedCodes로 옮긴다 (activatable은 남은 사유로만, approved는 리스크 엔진의 원래 판정 그대로). 엔진 assess_budget은 그대로다.
 """
 import math
 from datetime import datetime
@@ -41,6 +44,9 @@ from ..text import money
 CLOSE_BASIS = "close"  # RiskPreview.priceBasis
 ASSUMED_PROBABILITY = 0.5
 ACCOUNT_FREE = ("reward_risk_low", "ev_negative")  # assess_budget 사유 중 계좌와 무관한 것 (Recommendation.blockedBy)
+# 시연용 수동 시작(DECISIONS 31장)이 건너뛰는 계획 품질 사유. 지금은 ACCOUNT_FREE와 같지만 따로 둔다
+# (ACCOUNT_FREE가 넓어져도 건너뛰는 범위가 저절로 넓어지지 않게). 넓히려면 docs/API.md·DECISIONS 31장을 먼저 고친다
+MANUAL_SKIP_CODES = ("reward_risk_low", "ev_negative")
 # 재주문 금액에 더하는 아주 작은 비율: 같은 수량의 금액 ÷ 1주 비용이 나눗셈 오차로 정수(미국은 센트)에 모자라 1주 덜 사는 것을 막는다
 SAME_QUANTITY = 1e-9
 
@@ -196,7 +202,7 @@ def _requeue_budget(quantity: float, unit_krw: float, power_krw: float, ctx: Acc
 def evaluate(user, *, symbol: str, name: str, market: str, currency: str, entry: float, target: float, stop: float,
              holding_days: int, budget_krw: float | None = None, budget_percent: int | None = None,
              now: datetime | None = None, plan: TradePlan | None = None, live_check: bool = False,
-             probability: float = ASSUMED_PROBABILITY, rec_open: bool = True) -> dict:
+             probability: float = ASSUMED_PROBABILITY, rec_open: bool = True, manual_start: bool = False) -> dict:
     """RiskPreview: 리스크 엔진이 user의 모의 계좌로 계산한 결과 (장마감 기준). name은 문장용 (지금은 쓰지 않는다).
 
     엔진 LIMITS는 SWING이고, 하루 주문 수·손실은 스윙(style swing) 주문만 센다.
@@ -207,7 +213,10 @@ def evaluate(user, *, symbol: str, name: str, market: str, currency: str, entry:
       금액은 budget 인자를 쓰지 않고 그 계획과 같은 수량으로 정한다 (_requeue_budget, budgetMode None).
     live_check: 활성화 점검 — 장 중(기준일 뒤 정규장이 시작됨)이면 가격 점검을 현재가가 아니라 장중 확인 가격으로 한다.
     probability: 손익비 외 기대값 계산의 확률 (추천 값. 없으면 0.5 가정). rec_open: 추천이 아직 open인지 (아니면 expired).
-    반환: approved · activatable · reasons · reasonCodes(같은 길이·순서, (코드, 문장) 짝 중복 없음) · quantity · amountKrw ·
+    manual_start: 시연용 수동 시작(DECISIONS 31장)의 미리 보기·활성화 — MANUAL_SKIP_CODES 사유를 skipped로 옮긴다.
+      plan.manual_start인 계획의 재주문 점검도 같다 (인자 없이 plan으로 정한다).
+    반환: approved · activatable · reasons · reasonCodes(같은 길이·순서, (코드, 문장) 짝 중복 없음) ·
+      skippedReasons · skippedCodes(시연용 수동 시작으로 건너뛴 짝 — 같은 길이·순서, 일반 점검은 []) · quantity · amountKrw ·
       expectedProfitKrw · maxLossKrw · limitedBy · budgetMode · budgetPercent · budgetKrw · buyingPowerKrw · equityKrw ·
       maxLossRate · largeLoss · lastPrice(종가) · lastPriceAsOf · priceBasis("close").
     """
@@ -271,11 +280,17 @@ def evaluate(user, *, symbol: str, name: str, market: str, currency: str, entry:
         pairs.append(("price_passed", passed))
 
     pairs = list(dict.fromkeys(pairs))
+    # 시연용 수동 시작: 사용자가 고른 활성화(manual_start)나 그렇게 시작한 계획의 재주문(plan.manual_start)이면
+    # 계획 품질 사유만 skipped로 옮긴다. 나머지 사유는 그대로 막는다. approved는 리스크 엔진의 원래 판정 그대로다
+    manual = manual_start or (plan is not None and plan.manual_start)
+    skipped = [pair for pair in pairs if manual and pair[0] in MANUAL_SKIP_CODES]
+    pairs = [pair for pair in pairs if pair not in skipped]
     sized = budget_krw is not None
     max_loss = a.max_loss * fx
     return {
         "approved": a.approved, "activatable": not pairs,
         "reasons": [text for _, text in pairs], "reasonCodes": [code for code, _ in pairs],
+        "skippedReasons": [text for _, text in skipped], "skippedCodes": [code for code, _ in skipped],
         "quantity": a.quantity, "amountKrw": a.amount * fx,
         "expectedProfitKrw": a.expected_profit * fx, "maxLossKrw": max_loss,
         "limitedBy": a.limited_by or None,
@@ -290,12 +305,15 @@ def evaluate(user, *, symbol: str, name: str, market: str, currency: str, entry:
 
 
 def preview(rec: Recommendation, user, budget_krw: float | None = None, now: datetime | None = None,
-            plan: TradePlan | None = None, live_check: bool = False, budget_percent: int | None = None) -> dict:
+            plan: TradePlan | None = None, live_check: bool = False, budget_percent: int | None = None,
+            manual_start: bool = False) -> dict:
     """추천 하나의 RiskPreview (evaluate를 감싼다). plan을 주면 그 계획의 재주문 점검, live_check는 활성화 점검.
 
-    넣을 돈은 budget_krw(원) 또는 budget_percent(매수 가능 금액의 %) 중 하나 (없으면 점검만)."""
+    넣을 돈은 budget_krw(원) 또는 budget_percent(매수 가능 금액의 %) 중 하나 (없으면 점검만).
+    manual_start: 시연용 수동 시작(DECISIONS 31장) — 손익비·기대값 사유만 skippedReasons·skippedCodes로 옮긴다."""
     now = now or timezone.now()
     return evaluate(user, symbol=rec.symbol, name=rec.name, market=rec.market, currency=rec.currency,
                     entry=rec.entry_price, target=rec.target_price, stop=rec.stop_price,
                     holding_days=rec.holding_days, budget_krw=budget_krw, budget_percent=budget_percent, now=now,
-                    plan=plan, live_check=live_check, probability=rec.probability, rec_open=is_open(rec, now))
+                    plan=plan, live_check=live_check, probability=rec.probability, rec_open=is_open(rec, now),
+                    manual_start=manual_start)
