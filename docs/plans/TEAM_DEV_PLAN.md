@@ -1,8 +1,8 @@
 # 팀 개발 계획 (팀원 전달용)
 
-2026-10-02 작성, 같은 날 평가 기준(`docs/프로젝트평가기준.md`)에 맞춰 다시 구성.
+2026-10-02 작성, 같은 날 평가 기준(`docs/evaluation/프로젝트평가기준.md`)에 맞춰 다시 구성.
 지금까지 만들어진 것과 **발표(10월 13일)까지 팀이 개발할 일**, 개발 환경에 붙는 방법을 정리한다.
-전체 배경은 `docs/TEAM_PAPER_TRADING_PLAN.md`, API 계약은 `docs/API.md`, 결정 사항은 `docs/DECISIONS.md`, 규칙과 명령은 `AGENTS.md`.
+전체 배경은 `docs/plans/TEAM_PAPER_TRADING_PLAN.md`, API 계약은 `docs/API.md`, 결정 사항은 `docs/DECISIONS.md`, 규칙과 명령은 `AGENTS.md`.
 
 ## 목차
 
@@ -75,7 +75,7 @@
 
 ## 3. 지금 상태와 이미 들어 있는 복구 로직
 
-지금 상태(기능별 동작 여부·근거)는 **`docs/TEAM_PAPER_TRADING_PLAN.md` 1장 한 곳**에서 관리한다 (2026-10-07 정리 — 이 장에 있던 상태 표는 낡아서 지웠다).
+지금 상태(기능별 동작 여부·근거)는 **`docs/plans/TEAM_PAPER_TRADING_PLAN.md` 1장 한 곳**에서 관리한다 (2026-10-07 정리 — 이 장에 있던 상태 표는 낡아서 지웠다).
 
 **이미 들어 있는 복구 로직** (새로 만들 것이 아니라, 장애 복구 보고서에 실제 구현으로 적고 시험할 것):
 
@@ -441,7 +441,7 @@ Trace에 남길 사건 (`docs/API.md`와 `docs/tasks/00-공통.md` 9절에 확�
 ### 10-4. 화면을 고칠 때
 
 - 디자인 토큰은 `frontend/src/index.css`(라이트·다크 한 쌍 — 색은 토큰만, `src/colors.test.ts`가 검사), 공용 부품은 `frontend/src/components/ui.tsx`·`components/motion/`(접힘·시트·스크롤), 표시 형식은 `frontend/src/lib/format.ts`, 리포트 화면은 `frontend/src/components/reports/`.
-- 360px 폭과 PC 폭 둘 다, **라이트·다크 두 테마**를 확인한다. 상태는 색만으로 구분하지 않는다. 모션·배치 규칙은 `docs/DECISIONS.md` 15장, 화면별 배치와 이유는 `docs/화면배치.md`.
+- 360px 폭과 PC 폭 둘 다, **라이트·다크 두 테마**를 확인한다. 상태는 색만으로 구분하지 않는다. 모션·배치 규칙은 `docs/DECISIONS.md` 15장, 화면별 배치와 이유는 `docs/design/화면배치.md`.
 - 검사: `cd frontend && npx eslint . && npx tsc --noEmit && npx vitest run && npx vite build`
 
 ---
@@ -558,8 +558,8 @@ postgresql://paper:<비밀번호>@<호스트 IP>:5434/paper
 
 가장 쉬운 방법: 호스트 PC 담당자에게 DM으로 받은 **팀원용 견본 `.env.team`**을 AI 코딩 에이전트(Claude Code, Codex 등)에게 주고
 "이 `.env.team` 파일로 세팅해 줘"라고 한다. 파일 머리말의 지시대로 클론 → `.env` → 설치 → 검사 → 계정 → 서버 실행까지 묻지 않고 한다
-(Node.js가 없을 때만 묻는다. 절차는 `SETUP_PROMPT.md`의 견본 모드). 이미 클론했으면 그 폴더에서 "`SETUP_PROMPT.md`를 읽고 그대로 진행해 줘"도 된다.
-macOS·Linux·WSL2에서 돈다 (WSL이 아닌 Windows에서는 돌지 않는다 — Windows는 먼저 `WSL2_SETUP.md`).
+(Node.js가 없을 때만 묻는다. 절차는 `docs/guides/SETUP_PROMPT.md`의 견본 모드). 이미 클론했으면 그 폴더에서 "`docs/guides/SETUP_PROMPT.md`를 읽고 그대로 진행해 줘"도 된다.
+macOS·Linux·WSL2에서 돈다 (WSL이 아닌 Windows에서는 돌지 않는다 — Windows는 먼저 `docs/guides/WSL2_SETUP.md`).
 
 손으로 할 때:
 
@@ -632,5 +632,5 @@ AI가 종목과 진입가·목표가·손절가·기대수익을 추천하고, �
 
 ## 15. 서비스 컨셉과 주린이모드 (2026-10-04 확정)
 
-팀장 결정으로 확정됐다. 결정 원문은 `docs/DECISIONS.md` 13장(서비스 이름은 18장 "모매매"), 화면·계약은 `docs/컨셉변경계획.md`, 주린이모드와 투자 방식은 `docs/투자서비스확장계획.md` 2장,
+팀장 결정으로 확정됐다. 결정 원문은 `docs/DECISIONS.md` 13장(서비스 이름은 18장 "모매매"), 화면·계약은 `docs/plans/컨셉변경계획.md`, 주린이모드와 투자 방식은 `docs/plans/투자서비스확장계획.md` 2장,
 계약 B1~B10은 `docs/API.md`·`docs/tasks/00-공통.md`, 담당별 할 일은 `docs/tasks/` (2026-10-07 정리 — 이 장에 있던 요약 표는 위 문서와 같아서 지웠다).

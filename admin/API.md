@@ -1,7 +1,7 @@
 # 관리자 API 계약 (`/api/admin/*`)
 
 > 관리 서버의 관리자 백엔드(`admin/server/`)가 내고, 관리자 프론트(`admin/web/`)와 MCP 서버(`admin/server/paper_admin/mcp_server.py`)가 부른다.
-> 계획은 루트 `OPS_ADMIN_PLAN.md`. 이 문서를 먼저 고친 뒤 코드를 고친다 (서비스의 `docs/API.md`와 따로다).
+> 계획은 루트 `docs/plans/OPS_ADMIN_PLAN.md`. 이 문서를 먼저 고친 뒤 코드를 고친다 (서비스의 `docs/API.md`와 따로다).
 
 ## 0. 공통 규칙
 

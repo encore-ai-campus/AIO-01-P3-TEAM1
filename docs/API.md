@@ -4,7 +4,7 @@
 바꾸려면 이 파일을 먼저 고치고 양쪽 작업자에게 알린다. 프론트 타입(`frontend/src/api/types.ts`)은 지금은 이 문서를 보고
 손으로 쓰고, OpenAPI 자동 생성(`drf-spectacular` → `openapi-typescript`) 비교는 CI 단계(4E)에서 붙인다.
 
-**2026-10-04 합의 (2026-10-05 구현)**: 서비스 컨셉 변경(`docs/컨셉변경계획.md` 8장, 결정 `docs/DECISIONS.md` 13장)의 계약 변경 B3·B4·B5·B6·B7·B8·B10과
+**2026-10-04 합의 (2026-10-05 구현)**: 서비스 컨셉 변경(`docs/plans/컨셉변경계획.md` 8장, 결정 `docs/DECISIONS.md` 13장)의 계약 변경 B3·B4·B5·B6·B7·B8·B10과
 구현 결정(`docs/DECISIONS.md` 14장: 장마감 기준(2026-10-06부터 시세는 실시간 — 17장) · 보유 방식 · 장기투자 · 리포트 끝 알림 · 하루 리포트 한도)을 아래 각 절에 넣었다.
 "구현 예정(2026-10-04, Claude)"으로 표시했던 것은 **2026-10-05에 모두 만들어** 그 자리를 "구현: 2026-10-05 (Claude)"로 바꿨다 (코드로 하나씩 확인했다).
 만들면서 계약 문장과 달라진 곳은 그 자리에 "2026-10-05 구현"으로 적었다. 앞으로 새로 합의한 것도 "구현 예정(날짜, 담당)" → 만들면 "구현: 날짜 (담당)"로 표시한다.
@@ -406,7 +406,7 @@ interface AnalysisQuota {
 
 #### 투자자 프로필과 주린이모드 (2026-10-04 합의, 컨셉 계획 B10 — 구현: 2026-10-05 (Claude))
 
-마이 메뉴의 투자 성향·경험 진단(7문항)과 주린이모드 스위치. 원문은 `docs/투자서비스확장계획.md` 2장, 결정은 `docs/DECISIONS.md` 13-2(E-1·E-2).
+마이 메뉴의 투자 성향·경험 진단(7문항)과 주린이모드 스위치. 원문은 `docs/plans/투자서비스확장계획.md` 2장, 결정은 `docs/DECISIONS.md` 13-2(E-1·E-2).
 
 - 주린이모드는 **계정(서버)에 저장**한다. 기기를 바꿔도 같고, 웹 알림 문장이 같은 모드를 따른다. 진단 전 기본값은 **켬**(`true`).
   리포트 상세의 "이 화면만 자세히 보기"(`?view=expert`)는 화면만 바꾸고 이 값을 바꾸지 않는다 (서버 변경 없음).
@@ -524,7 +524,7 @@ interface AnalysisQuota {
 
 작성 2026-10-02. 종목별로 AI 리포트를 신청하고, 여러 Agent가 협업하는 과정(Trace)을 화면에서 본다. 배경은 `docs/DECISIONS.md` 9장,
 개념은 `docs/교육용문서.md`(04 Distributed Collaboration)를 그대로 따른다.
-**2026-10-07 구현 (Claude, 사용자 요청 — `docs/AI_AGENT_WORKFLOW.md`, `docs/DECISIONS.md` 19장)**: Agent·Orchestrator가 돈다 (`ExecutionPlan.implemented = true`).
+**2026-10-07 구현 (Claude, 사용자 요청 — `docs/design/AI_AGENT_WORKFLOW.md`, `docs/DECISIONS.md` 19장)**: Agent·Orchestrator가 돈다 (`ExecutionPlan.implemented = true`).
 엔진 루프(`run_engine`)의 "리포트 실행" 단계가 `requested` 리포트를 하나씩 잡아 실행 계획대로 Worker를 돌리고 Shared State·Trace를 남긴다 (`reports/runner.py` → `orchestrator.py`).
 팀(`team`)은 둘이다: **`stock_report`**(종목 리포트 — 팀원 신청과 자동 리포트)와 **`stock_selection`**(하루 한 번 자동 리포트할 종목을 고르는 매매 종목 선정 —
 `symbol`은 시장 코드 `"KR"`, `source: "auto"`). 선정 실행은 리포트 목록에 기본으로 나오지 않는다 (`?team=stock_selection`으로 본다).
@@ -673,7 +673,7 @@ interface ScreeningResult {       // 자동 리포트의 그날 선별 결과 (�
   excluded: Record<string, unknown>[];  // ETF 등 제외 종목과 사유
   reportIds: number[];                  // 그날 만든 자동 리포트 (선정 뒤 auto.request가 채운다)
   recommendationIds: number[];          // 그날 만든 자동 추천 (자동 리포트의 AI 추천, 또는 AUTO_RECOMMEND=demo의 시연 추천 — 아래 "AI 추천" 절)
-  // (구현: 2026-10-07, AUTO_REPORT=on — docs/AI_AGENT_WORKFLOW.md 1·4·5장) 예전 파일에는 없을 수 있다
+  // (구현: 2026-10-07, AUTO_REPORT=on — docs/design/AI_AGENT_WORKFLOW.md 1·4·5장) 예전 파일에는 없을 수 있다
   candidates?: Record<string, unknown>[];   // 규칙을 통과한 후보 전부 (점수 순, 최대 30) — 선정 팀이 보는 후보 표
   selection?: { reportId: number | null; status: "running" | "done"; top: number };   // 선정 실행 (Report team "stock_selection"). top = 고를 종목 수 (AUTO_REPORT_TOP)
   selectedBy?: "ai" | "rule" | null;        // ai: 선정 팀이 고르고 선정 Guard가 거름 · rule: Fallback(규칙 점수 상위 → 선정 Guard) · null: 선정 중
@@ -1060,7 +1060,7 @@ interface NotificationSettings {
 
 # 장기투자 (`backend/longterm`) — 오늘의 내 종목 뉴스 · 산 이유와 펀더멘털 점검
 
-작성 2026-10-04 (2026-10-04 합의 — 구현: 2026-10-05 (Claude)). 확장 1단계다. 원문은 `docs/투자서비스확장계획.md` 3-2, 조사는
+작성 2026-10-04 (2026-10-04 합의 — 구현: 2026-10-05 (Claude)). 확장 1단계다. 원문은 `docs/plans/투자서비스확장계획.md` 3-2, 조사는
 `docs/research/장기투자_뉴스·펀더멘털_조사.md` 4~5장, 결정은 `docs/DECISIONS.md` 14-3.
 
 - 장기 보유(`style: "long"`, "모의 트레이딩" 절의 "보유 방식")에는 자동 매도가 없다. 대신 매일 장 마감 뒤 **오늘의 내 종목 뉴스**를, 정기공시가 나오면 **펀더멘털 점검**을 준다.

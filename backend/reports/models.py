@@ -15,7 +15,7 @@ class Report(models.Model):
     MARKETS = [("KR", "KR"), ("US", "US")]
     USER, AUTO = "user", "auto"
     SOURCES = [(USER, USER), (AUTO, AUTO)]
-    # 어느 팀(team_definitions.yaml)이 실행하나: 종목 리포트 / 하루 한 번의 매매 종목 선정 (docs/AI_AGENT_WORKFLOW.md)
+    # 어느 팀(team_definitions.yaml)이 실행하나: 종목 리포트 / 하루 한 번의 매매 종목 선정 (docs/design/AI_AGENT_WORKFLOW.md)
     STOCK_REPORT, STOCK_SELECTION = "stock_report", "stock_selection"
     TEAMS = [(STOCK_REPORT, STOCK_REPORT), (STOCK_SELECTION, STOCK_SELECTION)]
 

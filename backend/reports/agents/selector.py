@@ -1,4 +1,4 @@
-"""종목 선정 Worker `selector_agent` → SelectionDraft (docs/AI_AGENT_WORKFLOW.md 2~4장).
+"""종목 선정 Worker `selector_agent` → SelectionDraft (docs/design/AI_AGENT_WORKFLOW.md 2~4장).
 
 후보 표(코드 값) + 조사 결과(뉴스·공시·수급)를 보고 스윙 매매로 살펴볼 종목 최대 5개의 순위와 근거를 낸다. 가격은 내지 않는다
 (진입·목표·손절은 뒤의 종목 리포트가 정한다). 검토가 RETRY면 이전 선정안과 수정 지시를 붙여 다시 쓴다.

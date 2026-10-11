@@ -1,4 +1,4 @@
-// 운영 E2E 점검 뒤 고친 계획 제안·실행 확인·계획 진행 화면 (docs/운영E2E점검_UX리뷰_2026-10-08.md, DECISIONS 23장).
+// 운영 E2E 점검 뒤 고친 계획 제안·실행 확인·계획 진행 화면 (docs/records/운영E2E점검_UX리뷰_2026-10-08.md, DECISIONS 23장).
 // UX-2 시작할 수 없는 제안 구별 · UX-3 바로 사는 경우 · UX-10 수수료·세금 빼기 전 · UX-11 기한 날짜 · UX-14 Discord 묶음 접기 · UX-16 7자리 가격 · 문구.
 // 앨리스는 전문가 보기, 밥은 쉬운 보기(주린이모드)다. 배치는 CSS만으로 바뀌므로(JS 폭 분기 없음) 모바일·PC는 같은 내용이 보이는지와 반응형 클래스로 본다.
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";

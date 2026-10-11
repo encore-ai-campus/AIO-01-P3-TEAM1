@@ -2,7 +2,7 @@
 
 Windows 팀원이 이 저장소를 받아 돌리기 **전에** 하는 준비다. 이 프로젝트는 **WSL이 아닌 Windows(PowerShell·cmd·Git Bash)에서는 돌지 않는다**
 (엔진이 Unix 전용 파일 잠금 `fcntl`을 쓰고, `scripts/dev.sh`가 bash·`lsof`·`pgrep`을 쓴다). 그래서 Windows 안의 Linux(WSL2 Ubuntu)에서 코드를 돌리고,
-편집은 Windows의 VS Code가 WSL에 붙어서 한다. 이 문서가 끝나면 [SETUP_PROMPT.md](SETUP_PROMPT.md)로 설치·실행을 이어 간다.
+편집은 Windows의 VS Code가 WSL에 붙어서 한다. 이 문서가 끝나면 [docs/guides/SETUP_PROMPT.md](SETUP_PROMPT.md)로 설치·실행을 이어 간다.
 
 ```mermaid
 flowchart LR
@@ -65,7 +65,7 @@ uv --version && node -v && npm -v      # 확인
 |---|---|---|
 | Google Chrome | 리포트 **A4 PDF**를 이 PC에서 만들어 볼 때 (없으면 PDF 대신 같은 내용의 HTML이 나온다) | `wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && sudo apt install -y ./google-chrome-stable_current_amd64.deb` (Ubuntu의 `chromium`은 snap이라 WSL에서 잘 안 된다) |
 | Docker | 이 PC가 팀 공유 개발 DB(PostgreSQL)를 띄우는 **호스트 PC**일 때만 | Windows에 Docker Desktop 설치 → Settings → Resources → **WSL integration**에서 Ubuntu 켜기. WSL에서 `docker version`으로 확인 |
-| AI 코딩 에이전트 | `SETUP_PROMPT.md`를 에이전트에게 맡길 때 | Claude Code·Codex 등을 **WSL 터미널 안에** 설치한다 (Windows 쪽에 설치한 것은 WSL 파일을 제대로 못 돌린다) |
+| AI 코딩 에이전트 | `docs/guides/SETUP_PROMPT.md`를 에이전트에게 맡길 때 | Claude Code·Codex 등을 **WSL 터미널 안에** 설치한다 (Windows 쪽에 설치한 것은 WSL 파일을 제대로 못 돌린다) |
 
 ## 3. git 설정과 클론
 
@@ -118,7 +118,7 @@ cd paper_trading
 cp /mnt/c/Users/<Windows 사용자>/Downloads/.env.team ~/work/paper_trading/
 ```
 
-그다음은 [SETUP_PROMPT.md](SETUP_PROMPT.md) 그대로다 — WSL 터미널에서 AI 코딩 에이전트를 열고 "`SETUP_PROMPT.md`를 읽고 그대로 진행해 줘", 또는 직접:
+그다음은 [docs/guides/SETUP_PROMPT.md](SETUP_PROMPT.md) 그대로다 — WSL 터미널에서 AI 코딩 에이전트를 열고 "`docs/guides/SETUP_PROMPT.md`를 읽고 그대로 진행해 줘", 또는 직접:
 
 ```bash
 cp .env.team .env          # 이미 .env가 있으면 덮어쓰지 않는다
@@ -169,4 +169,4 @@ WSL2는 기본이 NAT라 `dev.sh`가 `0.0.0.0`에 띄워도 **같은 네트워�
 | PDF 대신 HTML이 내려옴 | WSL에 Chrome이 없다 → 2절 선택 표 |
 | 메모리 부족으로 vitest·빌드가 죽음 | 1절 `.wslconfig`의 `memory`를 올린다 |
 
-공유 개발 DB 접속, 계정, 화면 주소는 [TEAM_DEV_PLAN.md](TEAM_DEV_PLAN.md) 12장. 규칙과 명령은 [AGENTS.md](AGENTS.md).
+공유 개발 DB 접속, 계정, 화면 주소는 [docs/plans/TEAM_DEV_PLAN.md](../plans/TEAM_DEV_PLAN.md) 12장. 규칙과 명령은 [AGENTS.md](../../AGENTS.md).

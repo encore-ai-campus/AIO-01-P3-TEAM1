@@ -1,4 +1,4 @@
-"""수급 해석 Worker `flow_agent` (선택) → FlowResult (docs/AI_AGENT_WORKFLOW.md 2장).
+"""수급 해석 Worker `flow_agent` (선택) → FlowResult (docs/design/AI_AGENT_WORKFLOW.md 2장).
 
 후보마다 투자자별 매매동향(client.investor_trading, 국내만)을 받아 **코드가** 외국인·기관 순매수 수량을 최근 5일·20일로 더한다.
 LLM은 그 합계 표만 보고 해석(signal·note)한다 — 숫자를 다시 계산하지 않는다.

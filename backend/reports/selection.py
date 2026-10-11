@@ -1,4 +1,4 @@
-"""매매 종목 선정 팀의 입력과 선정 Guard (docs/AI_AGENT_WORKFLOW.md 2·4장, 담당 1·3).
+"""매매 종목 선정 팀의 입력과 선정 Guard (docs/design/AI_AGENT_WORKFLOW.md 2·4장, 담당 1·3).
 
 - `team_inputs(report)`: 선정 팀 실행(Report team=stock_selection)이 볼 오늘의 후보 표. Orchestrator가 실행 시작 때 한 번 부른다.
   후보 표는 그날 선별 파일(reports/auto.py)의 `candidates`(규칙을 통과한 후보, 점수 순)다.

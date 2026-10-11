@@ -2,7 +2,7 @@
 
 신청은 requested 행만 만든다 (실행은 엔진 루프의 reports.runner — docs/DECISIONS.md 9-1).
 팀(Report.team)이 둘이다: 팀원이 신청하는 종목 리포트(stock_report)와 하루 한 번 자동으로 도는 매매 종목 선정
-(stock_selection — 엔진이 만든다, docs/AI_AGENT_WORKFLOW.md). 목록·계획은 기본이 종목 리포트이고 ?team=으로 고른다.
+(stock_selection — 엔진이 만든다, docs/design/AI_AGENT_WORKFLOW.md). 목록·계획은 기본이 종목 리포트이고 ?team=으로 고른다.
 신청은 늘 종목 리포트이고, 선정 실행에는 PDF가 없다.
 지운 리포트(deleted_at — 신청한 팀원이 지움, autotrade/hide.py)는 목록·상세·PDF·SSE에서 없는 것과 같다 (비용·한도·복구 통계는 그대로 센다).
 """

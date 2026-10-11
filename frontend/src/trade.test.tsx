@@ -1390,7 +1390,7 @@ const report = (patch: Partial<PlanCardProps["report"]> = {}): PlanCardProps["re
   ...patch,
 });
 
-describe("매매 계획 카드 (docs/컨셉변경계획.md 4-5)", () => {
+describe("매매 계획 카드 (docs/plans/컨셉변경계획.md 4-5)", () => {
   it("실행 가능: 넣을 돈은 실행 확인에서 정하므로 계좌 금액(0주) 대신 계획의 목표·손절 비율(1주 기준, 비용 전)과 '실행 준비'", async () => {
     freezeTime(TUE_MORNING);
     renderCard({ report: report() });

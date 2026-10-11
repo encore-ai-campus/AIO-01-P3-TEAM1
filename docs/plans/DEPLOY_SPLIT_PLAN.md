@@ -289,7 +289,7 @@ front가 멈추면 아예 접속할 수 없다. 발표·평가일까지 세 계�
 
 - `docs/DEPLOY.md`: 0장 서버 현황(서버 3대), 1~7장 전체 (이 계획의 4~6장이 바탕이다)
 - `docs/DECISIONS.md` 11장: 서버 3대·계정 3개, 피어링, back → front 순서, infra 손 배포라는 결정과 그 이유
-- `AGENTS.md`: 구조의 `deploy/` 줄과 실행의 운영 구성 명령. `docs/TEAM_PAPER_TRADING_PLAN.md` 2-2의 CI/CD·서버 줄, `README.md`의 기술 스택
+- `AGENTS.md`: 구조의 `deploy/` 줄과 실행의 운영 구성 명령. `docs/plans/TEAM_PAPER_TRADING_PLAN.md` 2-2의 CI/CD·서버 줄, `README.md`의 기술 스택
 - 배포 및 장애 복구 보고서(평가 산출물 2)의 "배포 구성" 표: 2장 표를 그대로 쓴다
 
 ## 9. 알아 둘 것

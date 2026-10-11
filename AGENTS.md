@@ -2,9 +2,9 @@
 
 **토스증권 API 시세(조회 전용)**로 돌리는 **팀 모의매매 웹 서비스**다. 처음 계획한 키움 REST API 대신 토스 API를 쓴다 (키움 클라이언트는 코드에 남아 있어 `BROKER=kiwoom`으로 바꿀 수 있다). 원본은 토스증권 실주문까지 내던 개인용 스윙 매매 자동화(`toss_trading`)이고,
 이 저장소는 그것을 복제해 실주문을 없애고 가상 현금 계좌로 체결을 흉내 내도록 바꾼 것이다.
-지금 상태·기술 스택·남은 작업은 `docs/TEAM_PAPER_TRADING_PLAN.md`, 팀원이 이어서 개발할 일과 개발 환경 안내는 `TEAM_DEV_PLAN.md`, 과제 평가 기준은 `docs/프로젝트평가기준.md`, 클론 직후 설치·실행 절차는 `SETUP_PROMPT.md`(Windows는 먼저 `WSL2_SETUP.md`), 작업자 간 공통 결정은 `docs/DECISIONS.md`, 웹 API 계약은 `docs/API.md`, 담당별 세부 작업과 담당 간 약속은 `docs/tasks/`(서비스 최종 흐름 AI 추천 → 계획 활성화 → 자동매매 → 알림은 `06-추천·자동매매.md`), 배포와 CI/CD는 `docs/DEPLOY.md`, 엔진 설계는 `docs/DESIGN.md`, 키움 API는 `docs/KIWOOM.md`, 화면별 배치와 근거는 `docs/화면배치.md`(모션·다크모드·색 토큰 규칙은 `docs/DECISIONS.md` 15장).
-합의된 계획(2026-10-04, 팀장 결정 — `docs/DECISIONS.md` 13장): 서비스 이름 **"모매매"**(2026-10-07 바뀜, 전 이름 "종이배"·"AI 리포트 데스크" — `docs/DECISIONS.md` 18장·15-7) — 초보자도 리포트를 만들고·검토하고·모의 자동매매로 실행한다(`docs/컨셉변경계획.md`),
-주린이모드(계정 저장)와 투자 방식 확장 장기·스윙(`docs/투자서비스확장계획.md`, **선물·단타는 폐기** — `docs/DECISIONS.md` 16장), AI 교차검증 분석은 사용자 화면에 남긴다. 조사 근거·약관 검토는 `docs/research/`.
+지금 상태·기술 스택·남은 작업은 `docs/plans/TEAM_PAPER_TRADING_PLAN.md`, 팀원이 이어서 개발할 일과 개발 환경 안내는 `docs/plans/TEAM_DEV_PLAN.md`, 과제 평가 기준은 `docs/evaluation/프로젝트평가기준.md`, 클론 직후 설치·실행 절차는 `docs/guides/SETUP_PROMPT.md`(Windows는 먼저 `docs/guides/WSL2_SETUP.md`), 작업자 간 공통 결정은 `docs/DECISIONS.md`, 웹 API 계약은 `docs/API.md`, 담당별 세부 작업과 담당 간 약속은 `docs/tasks/`(서비스 최종 흐름 AI 추천 → 계획 활성화 → 자동매매 → 알림은 `06-추천·자동매매.md`), 배포와 CI/CD는 `docs/DEPLOY.md`, 엔진 설계는 `docs/design/DESIGN.md`, 키움 API는 `docs/KIWOOM.md`, 화면별 배치와 근거는 `docs/design/화면배치.md`(모션·다크모드·색 토큰 규칙은 `docs/DECISIONS.md` 15장).
+합의된 계획(2026-10-04, 팀장 결정 — `docs/DECISIONS.md` 13장): 서비스 이름 **"모매매"**(2026-10-07 바뀜, 전 이름 "종이배"·"AI 리포트 데스크" — `docs/DECISIONS.md` 18장·15-7) — 초보자도 리포트를 만들고·검토하고·모의 자동매매로 실행한다(`docs/plans/컨셉변경계획.md`),
+주린이모드(계정 저장)와 투자 방식 확장 장기·스윙(`docs/plans/투자서비스확장계획.md`, **선물·단타는 폐기** — `docs/DECISIONS.md` 16장), AI 교차검증 분석은 사용자 화면에 남긴다. 조사 근거·약관 검토는 `docs/research/`.
 구현 상태(2026-10-06): 장마감 기준 가격(시세는 2026-10-06부터 실시간 — `docs/DECISIONS.md` 17장)·보유 방식(스윙·장기)·장기투자(오늘의 내 종목 뉴스·펀더멘털 점검)·주린이모드·리포트 끝 알림·하루 리포트 한도는 만들었다
 (`docs/API.md`의 "구현: 2026-10-05 (Claude)", 결정 `docs/DECISIONS.md` 14장). 리포트 Agent 워크플로우(Orchestrator·Worker 11개·매매 종목 선정 팀)·자동 리포트는 2026-10-07 사용자 요청으로 Claude가 구현했다 (`docs/DECISIONS.md` 19장 — 장애 주입·복구 지표·비용 예산은 팀 몫). (2026-10-05에 만든 단타 연습은 2026-10-06 사용자 결정으로 모두 지웠다 — `docs/DECISIONS.md` 16장.)
 **남은 결정·확인 목록과 다음 세션 시작점은 `docs/결정필요사항.md`** (결정하면 상태를 고치고 원래 문서에 옮긴다).
@@ -36,7 +36,7 @@
 
 - **DB는 `.env`의 `POSTGRES_HOST`로 고른다**: 비어 있으면 SQLite(`backend/db.sqlite3`, 혼자 개발할 때의 기본값), 있으면 PostgreSQL.
   - 팀이 같이 보는 개발 DB: `POSTGRES_HOST=127.0.0.1`이면 `scripts/dev.sh`가 이 PC에 PostgreSQL 컨테이너(`deploy/compose.dev.yml`)를 띄운다.
-    `POSTGRES_BIND=0.0.0.0`이면 같은 네트워크에서 DB에 접속할 수 있다 (**개발할 때만**). 접속 방법은 `TEAM_DEV_PLAN.md` 12장, `scripts/dev.sh status`.
+    `POSTGRES_BIND=0.0.0.0`이면 같은 네트워크에서 DB에 접속할 수 있다 (**개발할 때만**). 접속 방법은 `docs/plans/TEAM_DEV_PLAN.md` 12장, `scripts/dev.sh status`.
   - EC2 운영은 `POSTGRES_HOST=db`와 비밀번호를 EC2의 `.env`에만 둔다. 운영에서는 DB 포트를 밖으로 열지 않는다.
   - 같은 Django 모델·마이그레이션을 두 DB에 쓰므로 PostgreSQL 전용 기능(JSONB 연산자, ArrayField, `DISTINCT ON` 등)은 쓰지 않는다.
   - **테스트는 SQLite 메모리 DB에서 돈다** (`.env`가 공유 PostgreSQL을 가리켜도 그 서버를 건드리지 않는다).
@@ -74,7 +74,8 @@ admin/                 관리 서버 (조회 전용, 서비스와 따로 둔 서
                        web/(관리자 화면, 자기 npm 패키지), deploy/(compose·읽기 전용 DB 계정 SQL·remote_deploy.sh), recovery_cases.json(복구 셈법
                        기준 사례 — backend/reports 테스트도 읽는다). 서비스 코드와 서로 import하지 않는다 (README.md).
                        2026-10-08 별도 저장소 SHS5029/paper_admin으로 뺐다가 같은 날 다시 합침 (그 저장소는 더 쓰지 않는다)
-docs/                  DESIGN.md, DECISIONS.md, API.md, KIWOOM.md, DEPLOY.md, tasks/(담당별 작업·공통 약속)
+docs/                  기준 문서 API.md·DECISIONS.md·DEPLOY.md·KIWOOM.md·결정필요사항.md·교육용문서.md, guides/(설치)·plans/(계획서)·design/(설계)·
+                       records/(시험 기록)·evaluation/(평가 기준·기여)·deliverables/(산출물)·tasks/(담당별 작업·공통 약속)·research/·works/ — 지도는 docs/README.md
 ```
 
 ## 실행
@@ -119,7 +120,7 @@ uv run python -m paper_engine analyze 005930 --buy --by alice           # AI 교
   (루트 `conftest.py`가 키를 비운다. 가짜 클라이언트를 `config.engine`에 끼운다).
 - 검사 명령이나 실행에 필요한 설정 키를 바꾸면 `.github/workflows/ci.yml`, `deploy/.env.docker.example`도 같이 고친다.
   새 파일·폴더가 이미지에 들어가야 하면 루트 `.dockerignore`와 `deploy/Dockerfile`의 `COPY`를 확인한다.
-- 계획이 바뀌면 `docs/TEAM_PAPER_TRADING_PLAN.md`와 이 파일을 함께 고친다.
+- 계획이 바뀌면 `docs/plans/TEAM_PAPER_TRADING_PLAN.md`와 이 파일을 함께 고친다.
 - `docs/works/`의 작업 문서는 파일 이름을 `브랜치명_작업유형_작업내용_날짜.md`로 쓴다.
   브랜치명은 작업한 브랜치(리뷰는 리뷰한 브랜치)이고 `/`는 `-`로 바꾼다 (`feat/2-worker` → `feat-2-worker`).
   작업유형은 `리뷰` 또는 `완료보고서`, 작업내용은 공백 없이 짧게, 날짜는 작성일 `YYYY-MM-DD`.

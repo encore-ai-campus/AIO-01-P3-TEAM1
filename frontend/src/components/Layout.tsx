@@ -20,7 +20,7 @@ import { RouteErrorBoundary } from "./motion/RouteErrorBoundary";
 import { RouteTransition } from "./motion/RouteTransition";
 import { Switch } from "./ui";
 
-/** 만드는 중인 내 리포트가 있을 때 "리포트" 탭에 붙는 표시의 설명 (docs/컨셉변경계획.md 4-6). */
+/** 만드는 중인 내 리포트가 있을 때 "리포트" 탭에 붙는 표시의 설명 (docs/plans/컨셉변경계획.md 4-6). */
 const MAKING_ID = "reports-tab-making";
 const MAKING_TEXT = "만드는 중인 내 리포트가 있어요";
 

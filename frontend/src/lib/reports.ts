@@ -198,7 +198,7 @@ export function eventText(e: TraceEvent, plan: ExecutionPlan | undefined): Event
   }
 }
 
-// ---------------------------------------------------------------- 쉬운 보기 (주린이모드 켬) — docs/컨셉변경계획.md 4-2·4-4·5장·6장
+// ---------------------------------------------------------------- 쉬운 보기 (주린이모드 켬) — docs/plans/컨셉변경계획.md 4-2·4-4·5장·6장
 // 화면 문구와 숫자는 코드가 만든다. LLM이 쓴 문장은 plainSummary·oneLiner·reasons·risks뿐이고, 금액은 리스크 미리 보기 값이다.
 // 주어를 밝히고("AI 의견", "검토 AI", "안전장치"), 권유·명령형을 쓰지 않는다 (docs/API.md "금지 표현").
 
@@ -235,7 +235,7 @@ export interface ProgressStepDef {
 }
 
 /**
- * 쉬운 진행 표시 다섯 단계 (docs/컨셉변경계획.md 4-2 "시세를 보는 중 → … → 검토하는 중").
+ * 쉬운 진행 표시 다섯 단계 (docs/plans/컨셉변경계획.md 4-2 "시세를 보는 중 → … → 검토하는 중").
  * noun: 진행형이 어색한 자리(실패 화면의 "어디서 멈췄는지")에 쓰는 명사형 이름.
  */
 export const PROGRESS_STEPS: readonly ProgressStepDef[] = [
@@ -588,7 +588,7 @@ export interface ScenarioView {
 }
 
 /**
- * 시나리오 세 칸 (docs/컨셉변경계획.md 5장, LLM 숫자 없음). 목표·손절이 맞지 않으면 null.
+ * 시나리오 세 칸 (docs/plans/컨셉변경계획.md 5장, LLM 숫자 없음). 목표·손절이 맞지 않으면 null.
  * 리포트의 추천이 있고 안전장치가 1주 이상을 계산했으면 그 금액(비용 반영), 아니면 1주 기준 비율(비용 전).
  * plan: 매매 계획 카드와 같은 상태 — blocked면 금액은 그대로 두고(막힌 이유가 숫자로 보인다) 표시만 바꾸고, 기한이 지났으면 비율로.
  */
@@ -625,7 +625,7 @@ export function scenarioOf(
 }
 
 // 신뢰 패널(trustOf·dataTimeText)은 쉬운 PDF(backend/reports/easy_text.py trust_lines·data_time_text)도 같은 규칙·문장을 쓴다 — 바꾸면 둘 다 고친다
-/** 신뢰 패널 (docs/컨셉변경계획.md 5장): 검토 통과 · 인용 수 · 자료 기준 시각 / 자동 복구 문장. 점수·고쳐 쓴 횟수는 펼친 곳에. */
+/** 신뢰 패널 (docs/plans/컨셉변경계획.md 5장): 검토 통과 · 인용 수 · 자료 기준 시각 / 자동 복구 문장. 점수·고쳐 쓴 횟수는 펼친 곳에. */
 export interface TrustInfo {
   reviewed: boolean; // 검토 AI가 PASS
   score: number | null;
@@ -740,7 +740,7 @@ export function researchOf(state: Pick<SharedState, "results">): { market: Marke
   };
 }
 
-/** 단계 막대 ① 만들기 ② 검토 ③ 실행 (docs/컨셉변경계획.md 3장 "단계 막대의 뜻"). */
+/** 단계 막대 ① 만들기 ② 검토 ③ 실행 (docs/plans/컨셉변경계획.md 3장 "단계 막대의 뜻"). */
 export const STEP_LABELS = ["만들기", "검토", "실행"] as const;
 /** skipped: 이 리포트로는 실행할 계획이 없다 (③ 없음 — 할 일이 남은 것처럼 보이지 않게). */
 export type StepState = "done" | "current" | "todo" | "failed" | "skipped";
@@ -762,7 +762,7 @@ export function stepsOf(status: ReportStatus, executed: boolean, plan?: PlanCard
 }
 
 /**
- * 완성 화면 머리의 다음 행동 안내 (매매 계획 카드 상태별, docs/컨셉변경계획.md 3장).
+ * 완성 화면 머리의 다음 행동 안내 (매매 계획 카드 상태별, docs/plans/컨셉변경계획.md 3장).
  * 준비 중·불러오는 중에는 없다 — 매매 계획 카드와 반대로 말하지 않게.
  * 실행할 계획이 없는 경우(지켜보기·부정적·계획 없음)도 없다: "실행할 계획이 없어요"는 매매 계획 카드 한 곳에서만 말한다 (UX-8 — 머리·결론·카드에서 세 번 되풀이했다).
  * 머리에서는 단계 막대 ③ '없음'이 같은 뜻을 보인다.
@@ -891,7 +891,7 @@ function recentDurations(reports: Pick<ReportSummary, "status" | "startedAt" | "
     .sort((a, b) => a - b);
 }
 
-/** 진행 화면의 예상 시간: 최근 완성 리포트(최대 take개)의 시작~끝 시간 중앙값. 3건 미만이면 null (docs/컨셉변경계획.md 4-6). */
+/** 진행 화면의 예상 시간: 최근 완성 리포트(최대 take개)의 시작~끝 시간 중앙값. 3건 미만이면 null (docs/plans/컨셉변경계획.md 4-6). */
 export function typicalDurationMs(reports: Pick<ReportSummary, "status" | "startedAt" | "finishedAt">[], take = 10): number | null {
   const ms = recentDurations(reports, take);
   if (ms.length < 3) return null;

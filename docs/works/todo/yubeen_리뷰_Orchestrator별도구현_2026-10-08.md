@@ -89,7 +89,7 @@ yubeen 안만 옮기면 120초에 포기해 단계 시간이 남으므로 409행
   `test_orchestrator.py::test_step_timeout_with_fake_clock`.
 - **장애 주입 시연의 Circuit Breaker**: 호출 한 번에 주 모델 실패가 2번에서 1번으로 줄어, 연속 3번 실패해야 열리는 차단이 늦게 열린다
   (`test_injected_failures_count_in_report_breaker_only` — 두 번째 Worker 뒤에도 안 열림). 담당 4의 장애 주입 결과표(DR)·시연 프리셋을 다시 본다.
-- 문서: `docs/tasks/00-공통.md` 7절, `healing.py` 머리 설명, `docs/tasks/04-autohealing.md` T4-4, `TEAM_DEV_PLAN.md` 5-1·DR-LLM-01, `docs/DECISIONS.md` 19장, `docs/결정필요사항.md` U21.
+- 문서: `docs/tasks/00-공통.md` 7절, `healing.py` 머리 설명, `docs/tasks/04-autohealing.md` T4-4, `docs/plans/TEAM_DEV_PLAN.md` 5-1·DR-LLM-01, `docs/DECISIONS.md` 19장, `docs/결정필요사항.md` U21.
 - 프론트 예시 ③ "모델 실패 → 대체 모델로 복구"(`frontend/src/lib/reportExamples.ts`, `reports.test.tsx`)가 "시간 초과 → 같은 모델 재시도 → 대체 모델"을 보여 준다.
 
 ## 4. 살릴 것과 버릴 것

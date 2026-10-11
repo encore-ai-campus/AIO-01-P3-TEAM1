@@ -70,7 +70,7 @@ docker compose --env-file .env.docker down        # 데이터까지 지우려면
 
 ## 4. 서버 준비 (한 번)
 
-계획한 사양은 Ubuntu, `t3.medium`, 디스크 30GB 이상이다 (`docs/TEAM_PAPER_TRADING_PLAN.md` 2-2).
+계획한 사양은 Ubuntu, `t3.medium`, 디스크 30GB 이상이다 (`docs/plans/TEAM_PAPER_TRADING_PLAN.md` 2-2).
 
 1. **방화벽(보안 그룹)**: 80(HTTP)을 연다. 22(SSH)는 GitHub Actions가 접속할 수 있어야 한다 — GitHub 실행기의 IP는 고정이 아니므로
    22를 전체에 열고 **키 로그인만 허용**한다 (비밀번호 로그인 끔). DB(5432)와 Redis(6379)는 열지 않는다.
@@ -150,7 +150,7 @@ dc exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > backup.sql   
 1. 테스트 하나를 일부러 깨뜨려 `main`에 push한다 (예: `assert False`를 넣은 커밋).
 2. Actions에서 `Deploy` 실행을 연다: `검사`가 실패하고 `이미지 올리기`, `서버 배포`가 건너뛰어진 것을 확인한다. 관리 서버의 배포 기록에는 `blocked`가 남는다.
 3. 서버의 `.deployed_tag`와 화면이 그대로인 것을 확인하고, 되돌리는 커밋을 push한다.
-4. 실행 번호, 커밋, 시각, 링크를 보고서에 적는다 (`TEAM_DEV_PLAN.md` 7장).
+4. 실행 번호, 커밋, 시각, 링크를 보고서에 적는다 (`docs/plans/TEAM_DEV_PLAN.md` 7장).
 
 서버에서 새 버전이 뜨지 않을 때의 되돌리기는 2026-10-02에 이 PC에서 확인했다 (로컬 레지스트리에 정상 이미지와 web이 죽는 이미지를 올려
 `remote_deploy.sh`를 실행: 정상 → 성공, 고장 → 실패로 끝나고 정상 버전으로 복귀).
@@ -162,6 +162,6 @@ dc exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > backup.sql   
 - **HTTPS는 아직 없다** (도메인 없이 IP + HTTP로 시작하는 계획). 도메인이 생기면 nginx 앞에 인증서를 붙이고 Django의 보안 쿠키 설정을 켠다.
 - **web은 프로세스 하나에 스레드 16개**로 돈다. 시세 캐시와 증권사 호출 간격 조절이 프로세스별이라 프로세스를 늘리면 증권사 호출이 늘어난다
   (`docs/DECISIONS.md` 8-6). 늘리려면 먼저 캐시를 Redis로 옮긴다.
-- **엔진 컨테이너에 openclaw는 없다.** 엔진의 Discord 알림(`OPENCLAW_TARGET`)은 콘솔로 나간다. 리포트 발송 방법은 `TEAM_DEV_PLAN.md` 6-4에서 정한다.
+- **엔진 컨테이너에 openclaw는 없다.** 엔진의 Discord 알림(`OPENCLAW_TARGET`)은 콘솔로 나간다. 리포트 발송 방법은 `docs/plans/TEAM_DEV_PLAN.md` 6-4에서 정한다.
 - **비공개 저장소**라 Actions 실행 시간이 계정 한도에서 빠진다 (검사 한 번에 몇 분). 문서만 고친 커밋도 검사가 돈다.
 - 엔진 이미지는 Chromium과 한글 글꼴 때문에 크다 (1GB 이상). 서버 디스크가 작으면 `docker system df`로 확인한다.

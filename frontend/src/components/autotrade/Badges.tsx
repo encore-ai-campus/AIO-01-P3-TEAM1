@@ -1,5 +1,5 @@
 // 추천 출처·리스크 단계·계획 상태·보유 방식 배지. 상태는 색 + 아이콘 + 글자로 같이 보인다.
-// easy면 쉬운 보기 문구(docs/컨셉변경계획.md 4-4, lib/plainText.ts), 아니면 전문가 보기 문구.
+// easy면 쉬운 보기 문구(docs/plans/컨셉변경계획.md 4-4, lib/plainText.ts), 아니면 전문가 보기 문구.
 // 칩은 움직이지 않는다: 며칠씩 이어지는 '체결 대기' 동안 깜빡이면 아무 일 없는 대기에 움직임이 가장 많아진다 (trade-09).
 import type { HoldingStyle, Recommendation, RecommendationSource, RiskLevel } from "../../api/types";
 import { cn } from "../../lib/cn";

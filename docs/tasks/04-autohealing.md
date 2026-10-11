@@ -3,11 +3,11 @@
 > **2026-10-07 — 4의 호출기(T4-2~T4-5) 위에 Orchestrator·Worker를 Claude가 붙였다** (`docs/DECISIONS.md` 19장). `healing.py`는 고치지 않았다. 4에게 남는 것은 그대로: **T4-6 장애 주입(`chaos.py`)·T4-7 복구 지표(`stats.py`, `recovery-stats` API — 화면이 이미 부른다)**, T4-8~T4-11.
 > (2026-10-09: T4-8은 새 코드 없이 확인 테스트로 닫았다 — 아래 표.) (2026-10-08: T4-6은 PR #5로 합쳤다. 주입 리포트는 리포트 전용 Circuit Breaker를 쓴다 — `00-공통.md` 5절. T4-7(`stats.py`·`recovery-stats`)도 `feat/4-stats`로 합쳤다.)
 
-> **할 일 (2026-10-05 단순화 — `TEAM_DEV_PLAN.md` 11장)**: ① 추천 워크플로우: 재시도·대체 모델·Circuit Breaker·장애 주입·복구 지표·`reports` 마이그레이션 0002 · ② UI/UX: 자동 복구 문장·지표 화면 · ③ 추가 기능 논의: ~~키움 실시간(단타 b) 도입 조건~~(2026-10-06 단타 폐기) · ④ 테스트: 장애 주입 시험 결과표(DR).
+> **할 일 (2026-10-05 단순화 — `docs/plans/TEAM_DEV_PLAN.md` 11장)**: ① 추천 워크플로우: 재시도·대체 모델·Circuit Breaker·장애 주입·복구 지표·`reports` 마이그레이션 0002 · ② UI/UX: 자동 복구 문장·지표 화면 · ③ 추가 기능 논의: ~~키움 실시간(단타 b) 도입 조건~~(2026-10-06 단타 폐기) · ④ 테스트: 장애 주입 시험 결과표(DR).
 > 그 밖의 확정된 변경은 Claude가 구현한다(`docs/DECISIONS.md` 14장). 아래 세부 표는 워크플로우 개발의 약속·참고로 남긴다.
 
 목표: LLM 호출의 **실패를 감지·분류하고 재시도 → 대체 모델 전환 → Circuit Breaker로 복구**하며(호출 한 번 최대 4회 시도), 장애를 일부러 일으키는 **장애 주입**과 **복구 지표**를 만든다.
-`TEAM_DEV_PLAN.md` 5-1~5-3. 약속은 `00-공통.md` 3절(모델 열), 5절(장애 주입), 7절(호출기), 9절(Trace와 셈법). 산출물 책임: **장애 복구 보고서 ②**(장애 유형표·감지 조건·복구 전략·지표), 8장 시험 시나리오와 결과표.
+`docs/plans/TEAM_DEV_PLAN.md` 5-1~5-3. 약속은 `00-공통.md` 3절(모델 열), 5절(장애 주입), 7절(호출기), 9절(Trace와 셈법). 산출물 책임: **장애 복구 보고서 ②**(장애 유형표·감지 조건·복구 전략·지표), 8장 시험 시나리오와 결과표.
 
 > **2026-10-05**: `docs/DECISIONS.md` 14-2에 따라 Claude가 맡게 된 줄(일부만이면 그 부분)에 "→ Claude가 구현 (2026-10-05)"을 붙였다 (줄은 지우지 않았다). 표시가 붙은 일은 아래 일정에 있어도 하지 않는다.
 > 특히 **B3 `opinion`·`oneLiner`는 Claude가 `payloads.summary`에 먼저 넣는다** — T4-1은 같은 `summary`·`detail`에 나머지 필드를 더하고, Claude의 두 필드와 그 테스트는 지우지 않는다.
@@ -42,7 +42,7 @@
 
 ## 2026-10-04 합의 — 목록 카드의 결론(B3)·실패 알림 kind(B7)·쉬운 문장과 복구율 이름 (`docs/DECISIONS.md` 13장)
 
-서비스 컨셉이 "주식이 처음인 사람도 리포트를 만들고 · 쉬운 말로 검토하고 · 모의 자동매매로 연습하는 **AI 리포트 데스크**"로 바뀌었다 (`docs/컨셉변경계획.md`). (2026-10-05 이름을 "종이배"로, 2026-10-07 **"모매매"**로 바꿨다 — `docs/DECISIONS.md` 15-7·18장)
+서비스 컨셉이 "주식이 처음인 사람도 리포트를 만들고 · 쉬운 말로 검토하고 · 모의 자동매매로 연습하는 **AI 리포트 데스크**"로 바뀌었다 (`docs/plans/컨셉변경계획.md`). (2026-10-05 이름을 "종이배"로, 2026-10-07 **"모매매"**로 바꿨다 — `docs/DECISIONS.md` 15-7·18장)
 **복구·장애 주입·지표는 그대로다.** 담당 4에게 더해진 것은 아래이고, 이미 있던 줄(T4-1·T4-8·T4-9)을 고치고 T4-11을 더했다.
 
 | 바뀐 곳 | 내용 |
@@ -66,7 +66,7 @@
 | T4-7 | **복구 요약과 지표** — `stats.report_recovery(events: list[TraceEvent]) -> dict`(API의 `RecoverySummary`, 9절 셈법). `payloads.detail`에서 쓴다. `stats.recovery_stats(days, now) -> dict`(API의 `RecoveryStats`): 기간 안의 리포트 Trace를 읽어 유형별·Worker별·최근 20건. `RecoveryStatsView` + `urls.py` 한 줄. 쿼리는 리포트 수에 비례(사건을 리포트별로 한 번에 읽는다) | `stats.py`, `payloads.py`, `views.py`, `urls.py`, `tests/test_stats.py` | 테스트: 가짜 Trace로 복구 1건·포기 1건·주입 1건 → 수치가 셈법대로. `days` 범위 밖은 400 |
 | T4-8 | **엔진 재시작 정리와 알림 연결** — `runner.recover()`(3)가 `running` 리포트를 실패로 정리할 때와 `workflow_failed`일 때 담당자 알림을 보내는 자리: `healing.notify_failure(report, reason)` → `notifications.service.notify(report.user, "report_failed", …)`(웹 알림 + Discord 편지함. Webhook이 없으면 콘솔). **2026-10-04 합의 B7** (사용자 실패 알림 → Claude가 구현 (2026-10-05) — `reports/alerts.py`, `docs/DECISIONS.md` 14-5): kind는 `report_failed`, 실패 알림은 이 함수 한 곳(부르는 자리는 3의 runner — `00-공통.md` 8절), 본문은 사유 코드(`00-공통.md` 9절)의 쉬운 문장, `source == "auto"`면 보내지 않는다 (1의 T1-5). 복구 실패 = "수동 개입 조건" | `healing.py` | DR-LLM-04: 필수 Worker 전부 실패 → 실패 종료 + `report_failed` 알림 1개 (가짜 notifier로 확인). 자동 리포트 실패는 0개. **완료 (2026-10-09, 담당 4)**: 새 코드 없이 닫았다 — 엔진 재시작 정리는 `runner.recover()`(`engine_restarted`), 신청자 실패 알림은 `alerts.py`가 이미 한다. 담당자 쪽 신호는 Discord를 끈 뒤(`docs/DECISIONS.md` 24장) 관리 서버 "리포트 장애" 패널(최근 24시간 장애 주입 없는 `failed` → warn, `admin/API.md`)과 Trace다. 확인 테스트 `tests/test_failure_alerts.py` (DR-LLM-03·04, 자동 리포트 0개) |
 | T4-9 | **장애 복구 보고서 ② 표** — 5-1 표를 실제 상수·동작으로 채운다 (감지 조건 = 예외·상태 코드, 복구 = 코드의 순서, 최종 실패 조건, 수동 개입 조건, 알림). 지표 계산 기준(9절)을 그대로 적는다. **2026-10-04 합의**: 자동 복구율은 ① 시나리오 자동 복구율(DR 결과표) ② 호출 장애 자동 복구율(9절 셈법·`/ops`)로 이름을 나눠 적는다. `plainSummary` 숫자 위반의 `bad_output` 재요청도 장애 1건으로 세어진다는 것을 적는다 | `docs/deliverables/02_배포_및_장애복구_보고서.md` | 10/8 초안 |
-| T4-10 | **시험 시나리오 준비** — `TEAM_DEV_PLAN.md` 8장의 DR-LLM-01~04, DR-CRT-01~02, DR-SEC-01에 맞는 **chaos 설정 값**(workers·errorTypes·scope·seed)을 표로 만들고, 로컬에서 `fake_llm` 없이 실제 모델로 한 번씩 돌려 기대 동작을 확인한다 (비용: 시나리오당 $0.5 안) | `docs/deliverables/02_배포_및_장애복구_보고서.md` | 시나리오마다 "이 설정으로 신청하면 이렇게 된다"가 적혀 있다 |
+| T4-10 | **시험 시나리오 준비** — `docs/plans/TEAM_DEV_PLAN.md` 8장의 DR-LLM-01~04, DR-CRT-01~02, DR-SEC-01에 맞는 **chaos 설정 값**(workers·errorTypes·scope·seed)을 표로 만들고, 로컬에서 `fake_llm` 없이 실제 모델로 한 번씩 돌려 기대 동작을 확인한다 (비용: 시나리오당 $0.5 안) | `docs/deliverables/02_배포_및_장애복구_보고서.md` | 시나리오마다 "이 설정으로 신청하면 이렇게 된다"가 적혀 있다 |
 | T4-11 | **쉬운 문장에 쓰는 `recovery` 값 확인** (2026-10-04 합의, 컨셉 계획 5장·9장) — 주린이모드 화면이 `recovery`(`failures`·`recovered`·`unrecovered`·`models`)와 복구 Trace 사건(`agent_failover`의 `from`·`to`)으로 "뉴스를 읽는 AI가 늦어 다른 AI가 이어받았어요"·신뢰 패널 둘째 줄을 만든다. 실제 Trace(T4-4·T4-7 뒤)로 이 값들이 화면이 기대하는 대로 나오는지 5와 같이 본다 (어느 Worker가 복구됐는지 `recovery.models`와 사건으로 알 수 있는지, 주입한 실패도 같은 문장이 되는지). 바꿀 것이 있으면 `docs/API.md` `RecoverySummary`를 먼저 고친다 | `stats.py` (필요하면) | 5와 예시 Trace ③·실제 Trace로 문장 확인 |
 
 ## 일정

@@ -1,4 +1,4 @@
-"""장애 주입 시험 시나리오의 설정값 (docs/tasks/04-autohealing.md T4-10, TEAM_DEV_PLAN.md 8장 DR-LLM-01~04).
+"""장애 주입 시험 시나리오의 설정값 (docs/tasks/04-autohealing.md T4-10, docs/plans/TEAM_DEV_PLAN.md 8장 DR-LLM-01~04).
 
 docs/deliverables/02_배포_및_장애복구_보고서.md 4장의 시나리오 표가 이 SCENARIOS를 그대로 옮긴다. 시험 때 화면(장애 주입 "직접 설정")에 같은 값을 넣으면
 여기 적은 Trace가 나와야 한다. LLM은 가짜라 실제 모델의 응답 시간·비용은 시험 결과표에서 본다.

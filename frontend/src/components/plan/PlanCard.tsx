@@ -1,4 +1,4 @@
-// 리포트의 매매 계획 카드 (docs/컨셉변경계획.md 4-5). 리포트 상세(F-report)가 <PlanCard report={...} variant="full"|"mini" view />로 쓴다.
+// 리포트의 매매 계획 카드 (docs/plans/컨셉변경계획.md 4-5). 리포트 상세(F-report)가 <PlanCard report={...} variant="full"|"mini" view />로 쓴다.
 //
 // - 자료와 상태는 api/reports.ts usePlanCardData: 이 리포트의 추천(기한이 지난 것까지 — "기한 지남"을 보이려고)과,
 //   열린 추천이면 리스크 미리 보기(넣을 돈 없음 — 시작할 수 있는지만). 쉬운 보기의 단계 막대·안내 문장도 같은 훅이라 서로 다른 말을 하지 않는다.

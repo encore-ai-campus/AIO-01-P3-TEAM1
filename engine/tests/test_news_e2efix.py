@@ -1,4 +1,4 @@
-"""뉴스 출처에서 블로그·개인 콘텐츠 빼기 (docs/운영E2E점검_UX리뷰_2026-10-08.md UX-5).
+"""뉴스 출처에서 블로그·개인 콘텐츠 빼기 (docs/records/운영E2E점검_UX리뷰_2026-10-08.md UX-5).
 
 RSS의 <source url>은 실제 Google 뉴스 응답 모양을 따랐다 (2026-10-08 확인: blog.naver.com "Naver Blog",
 m.blog.naver.com "블로그", contents.premium.naver.com "프리미엄콘텐츠"·"네이버 프리미엄콘텐츠").

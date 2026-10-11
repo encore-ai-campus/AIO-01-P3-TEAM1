@@ -1,4 +1,4 @@
-"""후보 뉴스 점검 Worker `news_screen_agent` → CandidateNewsResult (docs/AI_AGENT_WORKFLOW.md 2장).
+"""후보 뉴스 점검 Worker `news_screen_agent` → CandidateNewsResult (docs/design/AI_AGENT_WORKFLOW.md 2장).
 
 후보마다 최근 NEWS_DAYS일 뉴스 제목(Google 뉴스 RSS, 본문 없음)을 모아 LLM 한 번에 준다. 제목·매체는 guards.clean_text를 거친다.
 LLM은 후보마다 재료·악재·테마를 낸다. 선정 Guard가 "같은 테마 2개까지"를 테마 이름으로 세므로 같은 테마는 같은 글자로 쓰게 한다.

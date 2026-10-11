@@ -1,4 +1,4 @@
-# 관리 서버 검사 (admin/, OPS_ADMIN_PLAN.md 7장): 관리자 백엔드·MCP(admin/server), 관리자 프론트(admin/web), 실제 서비스 스키마에서 읽기 전용 확인(schema).
+# 관리 서버 검사 (admin/, docs/plans/OPS_ADMIN_PLAN.md 7장): 관리자 백엔드·MCP(admin/server), 관리자 프론트(admin/web), 실제 서비스 스키마에서 읽기 전용 확인(schema).
 # 서비스 검사·배포(ci.yml, deploy.yml)와 따로 돈다: 관리자 앱을 고쳐도 유저 앱 검사·배포에 영향이 없다.
 # 서비스 모델·마이그레이션이 바뀌어도 돈다 (관리자 백엔드가 읽는 표·열이 바뀌었는지 확인). main은 admin-deploy.yml이 이 검사를 부른다.
 name: Admin CI

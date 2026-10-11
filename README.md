@@ -6,7 +6,7 @@ AI는 시장·재무·뉴스 데이터를 분석해 투자 근거와 위험 요�
 
 ## 팀원과 역할
 
-다섯 명이 AI 리포트 워크플로우의 한 층씩을 맡아 설계·구현·테스트했습니다. 담당별 기여와 커밋·PR은 **[팀원별 업무 분장과 기여 내용](docs/팀원별_업무분장_기여.md)**에 있습니다.
+다섯 명이 AI 리포트 워크플로우의 한 층씩을 맡아 설계·구현·테스트했습니다. 담당별 기여와 커밋·PR은 **[팀원별 업무 분장과 기여 내용](docs/evaluation/팀원별_업무분장_기여.md)**에 있습니다.
 
 | 담당 | 팀원 | 맡은 일 |
 |---|---|---|
@@ -72,7 +72,7 @@ flowchart LR
 - 정의는 YAML Registry(`backend/reports/team_definitions.yaml`·`worker_definitions.yaml`), Worker 출력 계약은 `contracts.py`.
 - 모든 AI 호출은 `healing.py`를 거친다: 같은 모델 재시도 → 대체 모델 → Circuit Breaker (주 모델이 시간 초과면 다시 기다리지 않고 바로 대체 모델). 호출 한 번은 **최대 4회** 시도한다 (모델마다 2회까지). 진행은 `state.py`가 Shared State·Trace로 남기고 SSE로 화면에 보낸다.
 - 실행은 `orchestrator.py`(병렬·Join Guard·부분 실패·검토 반복·Handoff Guard)와 `runner.py`(엔진 루프에서 한 번에 하나), Worker는 `agents/` (2026-10-07 구현).
-  종목 선정까지 AI 팀으로 하는 하루 파이프라인(규칙 후보 30 → 선정 팀 → 선정 Guard → 자동 리포트 3개, `AUTO_REPORT=on`)은 [docs/AI_AGENT_WORKFLOW.md](docs/AI_AGENT_WORKFLOW.md).
+  종목 선정까지 AI 팀으로 하는 하루 파이프라인(규칙 후보 30 → 선정 팀 → 선정 Guard → 자동 리포트 3개, `AUTO_REPORT=on`)은 [docs/design/AI_AGENT_WORKFLOW.md](docs/design/AI_AGENT_WORKFLOW.md).
 
 ### ERD
 
@@ -206,7 +206,7 @@ erDiagram
 ```
 
 표 이름은 실제 `db_table`이고 열은 핵심만 적었다. 이 밖에 FK 없는 표: `notification_outbox`(Discord 보낼 글), `daily_move_notes`(오늘의 내 종목 뉴스), `analysis_run_files`(분석 파일 색인), `engine_status`(엔진 동작 기록 — 관리 서버가 읽는다).
-워크플로우가 쓰는 표의 자세한 열은 [docs/AI_AGENT_WORKFLOW.md](docs/AI_AGENT_WORKFLOW.md) 0장, 엔진 CLI의 기록 저장소(`data/trading.db`)는 `docs/DECISIONS.md` 4장.
+워크플로우가 쓰는 표의 자세한 열은 [docs/design/AI_AGENT_WORKFLOW.md](docs/design/AI_AGENT_WORKFLOW.md) 0장, 엔진 CLI의 기록 저장소(`data/trading.db`)는 `docs/DECISIONS.md` 4장.
 
 ## 시스템 구조 — 큰 그림에서 한 단계씩 안으로
 
@@ -337,7 +337,7 @@ sequenceDiagram
 ## 평가 기준과 산출물
 
 과제 주제는 **에러 자가 치유(AutoHealing) 워크플로우**다 — 여러 에이전트의 협업 구조를 설계하고, 장애를 감지·판단·복구하는 흐름을 구현해 배포한 뒤
-장애 시험으로 복구 결과를 검증한다 ([평가 기준](docs/프로젝트평가기준.md)). 산출물은 [`docs/deliverables/`](docs/deliverables/)에 번호를 붙여 둔다.
+장애 시험으로 복구 결과를 검증한다 ([평가 기준](docs/evaluation/프로젝트평가기준.md)). 산출물은 [`docs/deliverables/`](docs/deliverables/)에 번호를 붙여 둔다.
 
 ### 필수 산출물
 
@@ -361,9 +361,9 @@ sequenceDiagram
 | 평가 항목 | 배점 | 보여 줄 것 | 근거 |
 |---|---|---|---|
 | 프로젝트 기획 및 목표 달성도 | 25 | 핵심 수행내용 네 가지를 모두 구현해 운영 서버에서 돈다. "AI는 제안, 코드는 검증, 사람이 결정" 원칙으로 초보자의 문제를 푼다 | 위 표, 산출물 1 |
-| 서비스 완성도 및 활용 가능성 | 35 | 운영 주소에서 로그인 → AI 리포트(약 2분) → 계획 활성화 → 모의 자동매매 → 알림까지 실제로 돈다. 매일 08:00 자동 리포트, 주린이모드(쉬운 보기), 모바일 화면, 관리 서버 | [운영 E2E 점검](docs/운영E2E점검_UX리뷰_2026-10-08.md) |
+| 서비스 완성도 및 활용 가능성 | 35 | 운영 주소에서 로그인 → AI 리포트(약 2분) → 계획 활성화 → 모의 자동매매 → 알림까지 실제로 돈다. 매일 08:00 자동 리포트, 주린이모드(쉬운 보기), 모바일 화면, 관리 서버 | [운영 E2E 점검](docs/records/운영E2E점검_UX리뷰_2026-10-08.md) |
 | 프로젝트 수행 과정 및 개선 노력 | 20 | 결정 기록 27장, 브랜치 리뷰 문서, 실패 사례와 개선 이력 — 검사 실패가 실제로 배포를 막은 기록, 리뷰에서 찾아 고친 결함 | [DECISIONS](docs/DECISIONS.md), [docs/works/](docs/works/), 산출물 2의 6장, 산출물 3의 4·8장 |
-| 발표 구성 및 전달력 | 20 | 큰 그림 → 서버 → Agent → 복구 순서로 설명, 시연(정상 → 장애 주입 → 복구 → 배포 차단) | 발표 자료, [TEAM_DEV_PLAN.md](TEAM_DEV_PLAN.md) 9장 시연 순서 |
+| 발표 구성 및 전달력 | 20 | 큰 그림 → 서버 → Agent → 복구 순서로 설명, 시연(정상 → 장애 주입 → 복구 → 배포 차단) | 발표 자료, [docs/plans/TEAM_DEV_PLAN.md](docs/plans/TEAM_DEV_PLAN.md) 9장 시연 순서 |
 
 ### 실행 정보
 
@@ -395,7 +395,7 @@ sequenceDiagram
 | 배포 | Docker Compose · nginx · GitHub Actions · GHCR · AWS EC2 두 대 | 서비스(nginx·web·engine·db·redis)·관리 서버(web·api·mcp·tunnel), 검사 → 이미지 → 서버 배포 → 실패 시 되돌리기 |
 | 검사 도구 | uv · ruff · pytest · ESLint · Vitest · Testing Library · MSW | 파이썬 의존성·린트·테스트, 프론트 린트·테스트·가짜 API(`VITE_MOCK=1`) |
 
-버전·구성의 자세한 내용은 [docs/TEAM_PAPER_TRADING_PLAN.md](docs/TEAM_PAPER_TRADING_PLAN.md) 2장.
+버전·구성의 자세한 내용은 [docs/plans/TEAM_PAPER_TRADING_PLAN.md](docs/plans/TEAM_PAPER_TRADING_PLAN.md) 2장.
 
 ### 수업 기술 대신 React/TS·Django·uv를 쓴 이유
 
@@ -443,14 +443,14 @@ sequenceDiagram
 - 작업 공간(workspace)으로 엔진(`engine/`, 의존성 0개)과 백엔드(`backend/`, Django 등)를 패키지 둘로 나눠 한 번에 설치한다.
   "엔진은 표준 라이브러리만" 규칙이 `engine/pyproject.toml`의 빈 `dependencies`로 드러난다.
 - `uv sync` 한 번이 가상환경(`.venv`) 만들기·파이썬 3.12 받기(없을 때)·의존성 설치를 다 하고, `uv run ...`은 가상환경을 켜지 않고 그 환경에서 실행한다.
-  운영체제마다 다른 `activate` 안내가 필요 없어 설치 안내([SETUP_PROMPT.md](SETUP_PROMPT.md))가 단순해진다. 설치도 pip보다 빠르고 CI는 `uv.lock` 기준으로 캐시한다.
+  운영체제마다 다른 `activate` 안내가 필요 없어 설치 안내([docs/guides/SETUP_PROMPT.md](docs/guides/SETUP_PROMPT.md))가 단순해진다. 설치도 pip보다 빠르고 CI는 `uv.lock` 기준으로 캐시한다.
 - venv·pip과 호환된다. uv가 만드는 `.venv`는 표준 venv 구조이고, `uv pip install ...`처럼 pip 명령도 쓸 수 있다. `requirements.txt`가 필요하면 `uv export --format requirements-txt`로 뽑는다.
 
 **대가와 대응**
 
 | 대가 | 대응 |
 |---|---|
-| 수업 밖 도구라 익히는 시간이 든다 | 실행은 `scripts/dev.sh`, 설치는 `SETUP_PROMPT.md` 한 번으로 끝난다 |
+| 수업 밖 도구라 익히는 시간이 든다 | 실행은 `scripts/dev.sh`, 설치는 `docs/guides/SETUP_PROMPT.md` 한 번으로 끝난다 |
 | 언어·패키지 관리자가 둘씩(Python·TS, uv·npm)이다 | CI가 두 쪽을 함께 검사한다 |
 | 리포트 SSE 연결이 스레드를 하나씩 잡는다 | gunicorn 스레드 16개, 끊기면 3초 폴링으로 바꾼다 |
 
@@ -475,15 +475,15 @@ sequenceDiagram
 | 엔진 CLI·백테스트 | 동작 (웹 계좌와 별개) |
 | ~~단타 연습~~ | 2026-10-06 폐기 |
 
-자세한 상태·근거는 [docs/TEAM_PAPER_TRADING_PLAN.md](docs/TEAM_PAPER_TRADING_PLAN.md), 남은 결정·확인은 [docs/결정필요사항.md](docs/결정필요사항.md).
+자세한 상태·근거는 [docs/plans/TEAM_PAPER_TRADING_PLAN.md](docs/plans/TEAM_PAPER_TRADING_PLAN.md), 남은 결정·확인은 [docs/결정필요사항.md](docs/결정필요사항.md).
 
 ## 설치
 
 **팀원**: 호스트 PC 담당자에게 받은 `.env.team`을 AI 코딩 에이전트(Claude Code, Codex 등)에 주고 "이 `.env.team` 파일로 세팅해 줘"라고 하면
-클론부터 서버 실행까지 진행한다. 이미 클론했으면 "`SETUP_PROMPT.md`를 읽고 그대로 진행해 줘" ([SETUP_PROMPT.md](SETUP_PROMPT.md)).
+클론부터 서버 실행까지 진행한다. 이미 클론했으면 "`docs/guides/SETUP_PROMPT.md`를 읽고 그대로 진행해 줘" ([docs/guides/SETUP_PROMPT.md](docs/guides/SETUP_PROMPT.md)).
 `.env`·`.env.team`에는 비밀 값이 들어가므로 커밋하지 않는다.
 
-**Windows**: 먼저 [WSL2_SETUP.md](WSL2_SETUP.md)로 WSL2 Ubuntu와 VS Code 연결을 준비한다 (WSL이 아닌 Windows에서는 돌지 않는다).
+**Windows**: 먼저 [docs/guides/WSL2_SETUP.md](docs/guides/WSL2_SETUP.md)로 WSL2 Ubuntu와 VS Code 연결을 준비한다 (WSL이 아닌 Windows에서는 돌지 않는다).
 
 직접 하려면 (macOS·Linux·WSL2):
 
@@ -503,7 +503,7 @@ scripts/dev.sh stop       # 전부 내린다          · status · logs [backend
 - 프론트엔드는 `0.0.0.0`에 떠서 같은 네트워크의 휴대폰·다른 PC에서 `http://<이 PC의 IP>:5173`으로 볼 수 있다. Django는 이 PC에서만 접근한다.
 - 8000·5173 포트가 사용 중이면 다음 빈 포트를 알아서 쓴다.
 - DB는 `.env`의 `POSTGRES_HOST`로 고른다: 비어 있으면 SQLite(`backend/db.sqlite3`), `127.0.0.1`이면 이 PC에 PostgreSQL 컨테이너를 띄우고,
-  호스트 PC의 IP면 팀이 같이 보는 개발 DB를 쓴다. 접속 방법은 [TEAM_DEV_PLAN.md](TEAM_DEV_PLAN.md) 12장.
+  호스트 PC의 IP면 팀이 같이 보는 개발 DB를 쓴다. 접속 방법은 [docs/plans/TEAM_DEV_PLAN.md](docs/plans/TEAM_DEV_PLAN.md) 12장.
 - 로그인 아이디·비밀번호는 `team_accounts.txt`에 있다. 팀원마다 모의 계좌(초기 자금 `PAPER_CAPITAL_KRW`)가 하나씩 생긴다.
 
 하나씩 직접 띄우려면:
@@ -541,7 +541,8 @@ frontend/              React + TypeScript + Vite + Tailwind CSS
 admin/                 관리 서버 (EC2 ②): server(FastAPI·MCP) · web(관리자 화면) · deploy(compose·SSH 터널)
 backtest/              백테스트 (AI 없음, DB 없이 단독 실행)
 deploy/                Docker Compose (개발용 Redis·PostgreSQL, 운영 nginx·web·engine·db·redis), 배포 스크립트
-docs/                  deliverables/(산출물 3종) · 설계·결정·API 계약·담당별 작업(tasks/)·리뷰(works/)
+docs/                  기준 문서(API·DECISIONS·DEPLOY·KIWOOM) · guides(설치) · plans(계획서) · design(설계) · records(시험 기록)
+                       · evaluation(평가 기준·기여) · deliverables(산출물 3종) · tasks(담당별 작업) · works(리뷰) — 지도는 docs/README.md
 ```
 
 엔진 자체 계좌(웹 계좌와 별개)는 CLI로 조작한다: `uv run python -m paper_engine --help` (명령은 [AGENTS.md](AGENTS.md) "실행").
@@ -552,16 +553,17 @@ docs/                  deliverables/(산출물 3종) · 설계·결정·API 계�
 |---|---|
 | [docs/deliverables/](docs/deliverables/) | **산출물 3종**: ① 멀티 에이전트 아키텍처 설계서 · ② 배포 및 장애 복구 보고서 · ③ 파이프라인 구현 결과 보고서 |
 | [AGENTS.md](AGENTS.md) | 안전 규칙·명령·작업 방식 (AI 에이전트와 팀원 공통) |
-| [SETUP_PROMPT.md](SETUP_PROMPT.md) · [WSL2_SETUP.md](WSL2_SETUP.md) | 클론 직후 설치·실행 (AI 에이전트용) · Windows의 WSL2·VS Code 준비 |
-| [docs/TEAM_PAPER_TRADING_PLAN.md](docs/TEAM_PAPER_TRADING_PLAN.md) · [docs/결정필요사항.md](docs/결정필요사항.md) | 지금 상태·남은 작업 · 남은 결정과 다음 시작점 |
-| [TEAM_DEV_PLAN.md](TEAM_DEV_PLAN.md) · [docs/tasks/](docs/tasks/) | 팀원이 이어서 할 일과 개발 환경 · 담당별 세부 작업과 담당 간 약속 |
+| [docs/README.md](docs/README.md) | 문서 지도 — 무엇을 어디서 보나, 새 문서는 어느 폴더에 두나 |
+| [docs/guides/SETUP_PROMPT.md](docs/guides/SETUP_PROMPT.md) · [docs/guides/WSL2_SETUP.md](docs/guides/WSL2_SETUP.md) | 클론 직후 설치·실행 (AI 에이전트용) · Windows의 WSL2·VS Code 준비 |
+| [docs/plans/TEAM_PAPER_TRADING_PLAN.md](docs/plans/TEAM_PAPER_TRADING_PLAN.md) · [docs/결정필요사항.md](docs/결정필요사항.md) | 지금 상태·남은 작업 · 남은 결정과 다음 시작점 |
+| [docs/plans/TEAM_DEV_PLAN.md](docs/plans/TEAM_DEV_PLAN.md) · [docs/tasks/](docs/tasks/) | 팀원이 이어서 할 일과 개발 환경 · 담당별 세부 작업과 담당 간 약속 |
 | [docs/API.md](docs/API.md) · [docs/DECISIONS.md](docs/DECISIONS.md) | 웹 API 계약 · 공통 결정 |
-| [docs/교육용문서.md](docs/교육용문서.md) · [docs/AI_AGENT_WORKFLOW.md](docs/AI_AGENT_WORKFLOW.md) | Agent 개념 · 종목 선정 Agent 워크플로우 설계 예시 (오류 복구 포함) |
-| [docs/DESIGN.md](docs/DESIGN.md) · [docs/KIWOOM.md](docs/KIWOOM.md) | 엔진 설계 · 키움 API |
-| [docs/화면배치.md](docs/화면배치.md) | 화면별 배치와 근거 |
+| [docs/교육용문서.md](docs/교육용문서.md) · [docs/design/AI_AGENT_WORKFLOW.md](docs/design/AI_AGENT_WORKFLOW.md) | Agent 개념 · 종목 선정 Agent 워크플로우 설계 예시 (오류 복구 포함) |
+| [docs/design/DESIGN.md](docs/design/DESIGN.md) · [docs/KIWOOM.md](docs/KIWOOM.md) | 엔진 설계 · 키움 API |
+| [docs/design/화면배치.md](docs/design/화면배치.md) | 화면별 배치와 근거 |
 | [docs/DEPLOY.md](docs/DEPLOY.md) · [admin/README.md](admin/README.md) | 배포와 CI/CD 설정 · 관리 서버 |
-| [docs/팀원별_업무분장_기여.md](docs/팀원별_업무분장_기여.md) | 담당별 업무와 기여 (커밋·PR) |
-| [docs/프로젝트평가기준.md](docs/프로젝트평가기준.md) | 과제 평가 기준 |
+| [docs/evaluation/팀원별_업무분장_기여.md](docs/evaluation/팀원별_업무분장_기여.md) | 담당별 업무와 기여 (커밋·PR) |
+| [docs/evaluation/프로젝트평가기준.md](docs/evaluation/프로젝트평가기준.md) | 과제 평가 기준 |
 
 ## 배포와 CI/CD (Docker)
 

@@ -1,4 +1,4 @@
-"""후보 공시 점검 Worker `filing_screen_agent` → FilingCheckResult (docs/AI_AGENT_WORKFLOW.md 2·4장).
+"""후보 공시 점검 Worker `filing_screen_agent` → FilingCheckResult (docs/design/AI_AGENT_WORKFLOW.md 2·4장).
 
 후보마다 최근 FILING_DAYS일 DART 공시 제목(longterm.sources.dart_client)을 모아 LLM 한 번에 준다 (후보마다 최신 PROMPT_FILINGS개).
 제목은 guards.clean_text를 거친다. DART 키가 없거나 조회가 실패한 후보는 "자료 없음"으로 넘긴다.

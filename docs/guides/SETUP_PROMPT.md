@@ -9,7 +9,7 @@
 
 - 저장소를 이미 클론했으면 그 폴더에서 에이전트를 열고 이렇게 말한다 (`.env.team`이 저장소 루트에 있으면 똑같이 견본 모드로 돈다).
 
-  > `SETUP_PROMPT.md`를 읽고 그대로 진행해 줘.
+  > `docs/guides/SETUP_PROMPT.md`를 읽고 그대로 진행해 줘.
 
 아래부터가 에이전트에게 주는 지시다.
 
@@ -35,7 +35,7 @@
 
 - **macOS, Linux, Windows의 WSL2**에서 돈다. **WSL이 아닌 Windows(PowerShell·cmd·Git Bash)에서는 돌지 않는다**
   (엔진이 Unix 전용 파일 잠금 `fcntl`을 쓰고, 실행 스크립트가 bash·`lsof`·`pgrep`을 쓴다).
-  Windows라면 설치를 진행하지 말고, WSL2(Ubuntu)를 설치해 그 안에서 다시 클론하도록 안내하고 멈춘다 (절차: 저장소 루트의 `WSL2_SETUP.md`).
+  Windows라면 설치를 진행하지 말고, WSL2(Ubuntu)를 설치해 그 안에서 다시 클론하도록 안내하고 멈춘다 (절차: 저장소 루트의 `docs/guides/WSL2_SETUP.md`).
 - 필요한 도구:
 
 | 도구 | 조건 | 없을 때 |
@@ -153,7 +153,7 @@ scripts/dev.sh
    scripts/dev.sh stop       # 전부 내린다
    ```
 5. `.env`에서 비어 있어 꺼진 기능 (값은 말하지 않는다).
-6. 다음에 읽을 문서: `TEAM_DEV_PLAN.md`(팀이 이어서 개발할 일, DB 접속 방법), `AGENTS.md`(규칙과 명령), `docs/API.md`(웹 API 계약).
+6. 다음에 읽을 문서: `docs/plans/TEAM_DEV_PLAN.md`(팀이 이어서 개발할 일, DB 접속 방법), `AGENTS.md`(규칙과 명령), `docs/API.md`(웹 API 계약).
 
 ## 하지 않는 것
 

@@ -1,4 +1,4 @@
-"""복구 실패와 알림 (docs/tasks/04-autohealing.md T4-8, TEAM_DEV_PLAN.md 8장 DR-LLM-03·04):
+"""복구 실패와 알림 (docs/tasks/04-autohealing.md T4-8, docs/plans/TEAM_DEV_PLAN.md 8장 DR-LLM-03·04):
 선택 Worker는 모든 모델이 실패해도 빼고 완성, 필수 Worker는 모든 모델이 실패하면 Join 차단 → 실패 종료 → 신청자에게 report_failed 한 번.
 자동 리포트는 신청자 알림을 보내지 않는다. Discord는 꺼져 있어(docs/DECISIONS.md 24장) 담당자 쪽 신호는 관리 서버의 "리포트 장애"와 Trace다.
 """

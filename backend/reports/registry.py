@@ -17,7 +17,7 @@ from . import contracts
 HERE = Path(__file__).resolve().parent
 WORKERS_FILE, TEAMS_FILE = HERE / "worker_definitions.yaml", HERE / "team_definitions.yaml"
 TEAM = "stock_report"                # 팀원이 신청하는 종목 리포트 (기본 팀)
-SELECTION_TEAM = "stock_selection"   # 하루 한 번 자동 리포트할 종목을 고르는 선정 팀 (docs/AI_AGENT_WORKFLOW.md)
+SELECTION_TEAM = "stock_selection"   # 하루 한 번 자동 리포트할 종목을 고르는 선정 팀 (docs/design/AI_AGENT_WORKFLOW.md)
 TEAMS = (TEAM, SELECTION_TEAM)
 # Agent·Orchestrator를 붙이면 True로 바꾼다 (화면이 SSE를 연다. DECISIONS 9-4)
 AGENTS_IMPLEMENTED = True

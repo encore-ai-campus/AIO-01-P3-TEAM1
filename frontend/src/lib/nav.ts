@@ -14,7 +14,7 @@ const under =
 export const HOME: Tab = { to: "/", label: "홈", icon: "home", match: (p) => p === "/" };
 export const STOCKS: Tab = { to: "/search", label: "종목", icon: "search", match: under("/search", "/stocks") };
 export const REPORTS: Tab = { to: "/reports", label: "리포트", icon: "doc", match: under("/reports", "/analyses") };
-// 모의투자 = 진행 중 모의 자동매매 + 보유·주문 + 새 계획 제안 (docs/컨셉변경계획.md 4-1)
+// 모의투자 = 진행 중 모의 자동매매 + 보유·주문 + 새 계획 제안 (docs/plans/컨셉변경계획.md 4-1)
 export const TRADE: Tab = {
   to: "/portfolio",
   label: "모의투자",

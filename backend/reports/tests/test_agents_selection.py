@@ -1,4 +1,4 @@
-"""매매 종목 선정 팀 Worker 5개 (담당 2, docs/AI_AGENT_WORKFLOW.md 2~4장).
+"""매매 종목 선정 팀 Worker 5개 (담당 2, docs/design/AI_AGENT_WORKFLOW.md 2~4장).
 
 실제 LLM·뉴스·DART·증권사를 부르지 않는다: LLM은 가짜 호출기(FakeCaller, 또는 진짜 호출기 + FakeLlm),
 뉴스는 news_screen.fetch_news, DART는 longterm.sources.dart_client, 수급은 가짜 조회 클라이언트로 바꾼다.

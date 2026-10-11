@@ -1,4 +1,4 @@
-"""매매 종목 선정 팀(stock_selection) Worker 등록과 다섯 Worker가 같이 쓰는 도구 (docs/AI_AGENT_WORKFLOW.md 2~4장).
+"""매매 종목 선정 팀(stock_selection) Worker 등록과 다섯 Worker가 같이 쓰는 도구 (docs/design/AI_AGENT_WORKFLOW.md 2~4장).
 
 후보 표는 규칙 선별이 실행 시작 때 한 번 만들어 `ctx.team_inputs["candidates"]`로 준다 (reports.selection.team_inputs).
 항목은 선별 파일의 pick 그대로(snake_case): symbol, name, score, close, rsi, atr_ratio, change20d, trading_amount,

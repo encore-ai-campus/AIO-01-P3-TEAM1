@@ -1,4 +1,4 @@
-"""선정 검토 Worker `selection_review_agent` → ReviewResult (docs/AI_AGENT_WORKFLOW.md 2장).
+"""선정 검토 Worker `selection_review_agent` → ReviewResult (docs/design/AI_AGENT_WORKFLOW.md 2장).
 
 선정안(selector_agent) + 조사 결과 + 후보 표를 주고 근거를 대조하게 한다 (PASS · RETRY · FAIL).
 LLM 뒤에 코드가 한 번 더 본다: 후보 표 밖 종목, 공시 위험 high 종목, 권유 표현, 가격(…원)이 선정안에 있으면

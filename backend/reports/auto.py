@@ -1,4 +1,4 @@
-"""자동 리포트의 하루 파이프라인 (docs/AI_AGENT_WORKFLOW.md 1·4·5장, docs/tasks/01-인프라.md T1-3~T1-6).
+"""자동 리포트의 하루 파이프라인 (docs/design/AI_AGENT_WORKFLOW.md 1·4·5장, docs/tasks/01-인프라.md T1-3~T1-6).
 
     규칙 선별(select) → AI 선정 팀(Report team=stock_selection) → 선정 Guard(selection.py)
     → 종목 리포트(request) → 발송(after_finish) → (손익비 기준을 넘는 추천이 없으면) 다음 종목으로 다시 시도(최대 2번) → 표지

@@ -47,7 +47,7 @@ workers:
     fallbacks: [gpt-5.6-luna]
     output_contract: RiskResult
 
-  # --- 매매 종목 선정 팀 (stock_selection, docs/AI_AGENT_WORKFLOW.md 2장). 후보 표는 규칙 선별(auto.select)이 준다
+  # --- 매매 종목 선정 팀 (stock_selection, docs/design/AI_AGENT_WORKFLOW.md 2장). 후보 표는 규칙 선별(auto.select)이 준다
   news_screen_agent:
     title: 후보 뉴스 점검 Agent
     goal: 후보 종목마다 최근 뉴스에서 재료와 악재를 찾아 출처와 함께 정리하고 테마 이름을 붙인다

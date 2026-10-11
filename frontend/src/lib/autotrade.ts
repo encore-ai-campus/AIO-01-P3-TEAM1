@@ -21,7 +21,7 @@ import type {
 
 /**
  * 추천 출처. demo는 늘 "연습용 예시 · AI 아님"(docs/DECISIONS.md 13-1 D-4), 분석은 "AI 교차검증 분석"(리포트 없음)을 보인다
- * (docs/컨셉변경계획.md 4-3).
+ * (docs/plans/컨셉변경계획.md 4-3).
  */
 export const SOURCE: Record<RecommendationSource, { label: string; chip: string; icon: IconName; hint: string }> = {
   report: { label: "AI 리포트", chip: "bg-brand-soft text-brand-ink", icon: "doc", hint: "AI 리포트의 결론에서 나온 계획" },
@@ -178,7 +178,7 @@ export function planWorkflow(plan: Pick<TradePlan, "status" | "exitReason" | "fa
   return { steps, outcome, requeues };
 }
 
-/** 쉬운 보기의 단계 넷 (docs/컨셉변경계획.md 3장: 주문 → 사는 가격 기다리는 중 → 목표·손절 지켜보는 중 → 팔았어요). */
+/** 쉬운 보기의 단계 넷 (docs/plans/컨셉변경계획.md 3장: 주문 → 사는 가격 기다리는 중 → 목표·손절 지켜보는 중 → 팔았어요). */
 export type EasyStepKey = "order" | "wait" | "hold" | "sold";
 
 export interface EasyStep {
@@ -244,7 +244,7 @@ export function crossCheckSummary(scenarios: Pick<Scenario, "proposer" | "passed
   return { count, passed, selected, sentence: `${head} · 통과 ${passed} · 최종 승인 ${selected ?? "없음"}` };
 }
 
-// ---------------------------------------------------------------- 매매 계획 카드 (docs/컨셉변경계획.md 4-5)
+// ---------------------------------------------------------------- 매매 계획 카드 (docs/plans/컨셉변경계획.md 4-5)
 
 /** 리포트가 끝난 뒤 이 시간 안에 추천이 없으면 "계획 준비 중"(엔진 루프가 곧 만든다), 지나면 "계획 없음". */
 export const PREPARING_MS = 10 * 60_000;

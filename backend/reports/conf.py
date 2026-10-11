@@ -1,4 +1,4 @@
-"""자동 리포트 설정 (docs/AI_AGENT_WORKFLOW.md 1장, docs/tasks/01-인프라.md T1-4). 값은 환경 변수 → 저장소 .env 순으로 읽는다
+"""자동 리포트 설정 (docs/design/AI_AGENT_WORKFLOW.md 1장, docs/tasks/01-인프라.md T1-4). 값은 환경 변수 → 저장소 .env 순으로 읽는다
 (autotrade.conf와 같은 방식).
 
 AUTO_REPORT=on이면 엔진 루프가 국내 거래일 AUTO_REPORT_AT(KST) 이후 하루 한 번 규칙 선별 → AI 선정 팀 → 선정 Guard →

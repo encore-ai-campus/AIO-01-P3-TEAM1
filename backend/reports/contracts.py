@@ -22,7 +22,7 @@ MIN_HOLDING_DAYS = 1
 MAX_HOLDING_DAYS = 20
 OPINIONS = ("buy", "hold", "avoid")
 RISK_LEVELS = ("low", "medium", "high")
-# 매매 종목 선정 팀 (docs/AI_AGENT_WORKFLOW.md 2장)
+# 매매 종목 선정 팀 (docs/design/AI_AGENT_WORKFLOW.md 2장)
 SENTIMENTS = ("positive", "negative", "neutral")
 FILING_SEVERITIES = ("none", "low", "high")
 FLOW_SIGNALS = ("accumulating", "mixed", "distributing")

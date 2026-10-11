@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 
 from .scenario import Scenario
 
-# 매도 시 거래세율 가정. 실제 세율 확인 필요 (docs/DESIGN.md 참고).
+# 매도 시 거래세율 가정. 실제 세율 확인 필요 (docs/design/DESIGN.md 참고).
 SELL_TAX_RATE = {"KR": 0.002, "US": 0.0}
 # 손절 주문가는 감시가보다 이만큼 낮게 본다 (executor의 주문 계획과 예상 손익에 쓴다).
 # 손실은 이 주문가 기준으로 계산해서 손익비와 수량이 최악의 손절 체결을 반영하게 한다.
@@ -38,7 +38,7 @@ class RiskLimits:
 # (AccountContext.max_total_krw, .env의 MAX_TOTAL_INVEST_KRW). assess에서 한 종목의 크기는 건당 위험 한도가 정한다
 # (assess_budget에서는 사용자가 정한 금액이 정한다 — risk_per_trade는 화면의 큰 손실 경고 기준으로만 쓴다, docs/API.md largeLoss).
 # LONG_TERM의 비중 한도 100%는 손절 없는 장기 보유 매수 점검(assess_position)에 쓴다 (docs/DECISIONS.md 14-3, E-4).
-# 스윙 최소 손익비는 2.0이었다가 1.5로 낮췄다 (2026-10-07, 손절가를 코드가 정하게 바꾸면서 — docs/DESIGN.md "리스크 엔진").
+# 스윙 최소 손익비는 2.0이었다가 1.5로 낮췄다 (2026-10-07, 손절가를 코드가 정하게 바꾸면서 — docs/design/DESIGN.md "리스크 엔진").
 LIMITS = {
     "SWING": RiskLimits(risk_per_trade=0.01, max_position=None, min_reward_risk=1.5,
                         max_daily_loss=0.03),

@@ -2,7 +2,7 @@
 
 모의매매 서비스 "모매매"를 운영하는 사람이 보는 **조회 전용** 관리 서버다.
 서비스와 다른 서버에서 돌고, 서비스 DB는 SSH 터널 + 읽기 전용 계정으로만 읽는다.
-계획은 루트 `OPS_ADMIN_PLAN.md`, API 계약은 이 폴더의 `API.md`다 (API를 바꾸면 `API.md`를 먼저 고친다).
+계획은 루트 `docs/plans/OPS_ADMIN_PLAN.md`, API 계약은 이 폴더의 `API.md`다 (API를 바꾸면 `API.md`를 먼저 고친다).
 서비스 코드(`frontend/`, `backend/`)와 서로 import하지 않으며, 검사(`.github/workflows/admin-ci.yml`)와 배포(`admin-deploy.yml`)도 서비스와 따로다.
 
 2026-10-08 이 저장소의 `admin/`으로 만들고(`ea086b9`), 같은 날 별도 저장소 SHS5029/paper_admin으로 옮겼다가 다시 이 폴더로 합쳤다 (이력 포함).

@@ -1,4 +1,4 @@
-"""손절가. AI가 아니라 코드가 정한다 (docs/DESIGN.md "리스크 엔진").
+"""손절가. AI가 아니라 코드가 정한다 (docs/design/DESIGN.md "리스크 엔진").
 
 손절가 = 최근 SWING_LOOKBACK개 완성 봉의 최저가 − ATR14 × LOW_BUFFER_ATR (최근 저점 바로 아래)
 이 값을 기준가에서 ATR14의 MIN_STOP_ATR배 이상, MAX_STOP_ATR배 이하로 떨어지게 맞추고 호가 단위로 내린다.

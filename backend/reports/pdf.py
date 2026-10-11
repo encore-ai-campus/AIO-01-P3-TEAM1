@@ -1,4 +1,4 @@
-"""AI 리포트 A4 PDF (docs/tasks/05-프론트.md T5-11~T5-14, TEAM_DEV_PLAN.md 6-3, docs/DECISIONS.md 14-7 "PDF").
+"""AI 리포트 A4 PDF (docs/tasks/05-프론트.md T5-11~T5-14, docs/plans/TEAM_DEV_PLAN.md 6-3, docs/DECISIONS.md 14-7 "PDF").
 
 `build_report_html`이 종목 리포트 한 쪽(길어도 두 쪽)을, `build_screening_html`이 선별 요약 표지를 HTML 문자열로 만든다.
 가격 차트·점수 막대는 SVG·CSS를 문자열로 직접 만든다 (외부 라이브러리 없음). PDF 변환은 엔진의 `render_pdf`(Chrome headless).
