@@ -1,4 +1,4 @@
-"""매일 자동 추천(시연)을 지금 한 번 돌린다 (엔진 루프의 "자동 추천" 단계와 같은 일. autotrade/auto.py).
+"""매일 자동 추천(시연)을 지금 한 번 돌린다 (엔진 루프의 "자동 추천" 단계와 같은 일. autotrade/recommend/auto.py).
 
     python manage.py auto_recommend [--market KR] [--top 3] [--force]
 
@@ -9,7 +9,8 @@ AUTO_RECOMMEND 값과 상관없이 돈다. --force가 없으면 루프와 같은
 from django.core.management.base import BaseCommand, CommandError
 from trading import service
 
-from autotrade import auto, conf
+from autotrade.recommend import auto
+from autotrade import conf
 from config import engine
 
 

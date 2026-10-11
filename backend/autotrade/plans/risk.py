@@ -35,8 +35,8 @@ from trading.store import KST, AccountStore, account_for
 from config import engine
 from config.api import Unavailable
 
-from .models import Recommendation, TradePlan
-from .text import money
+from ..models import Recommendation, TradePlan
+from ..text import money
 
 CLOSE_BASIS = "close"  # RiskPreview.priceBasis
 ASSUMED_PROBABILITY = 0.5

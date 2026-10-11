@@ -583,7 +583,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 - **일별 자산 기록(`record_equity`)** (2026-10-05 확정): 그날 기록은 **KR 기준일이 오늘이 된 뒤**(국내 거래일 15:40 KST = 정규장 종료 + `CLOSE_SETTLE_MIN`) 하루 한 번 남긴다.
   국내 보유는 그날 종가, **미국 보유는 그때의 최신 미국 종가**(장마감 기준 — `AccountSummary.pricesAsOf.US`와 같은 값, 15:40 KST에는 그날 새벽 끝난 뉴욕 정규장 종가)로 평가한다.
   왜: 15:30 직후에는 일봉 종가가 굳지 않았을 수 있고, 미국 보유를 장중 가격으로 평가하면 화면(종가)과 기록이 어긋난다. 그 전 기록은 기록한 때의 가격 그대로 둔다.
-- **`priceAtCreation`은 출처와 무관하게 만들 때의 종가다** (2026-10-05 확정): 분석에서 나온 추천(`autotrade.sources.from_analysis`)도 분석 시각 가격(`run.price_at_analysis`)이 아니라
+- **`priceAtCreation`은 출처와 무관하게 만들 때의 종가다** (2026-10-05 확정): 분석에서 나온 추천(`autotrade.recommend.sources.from_analysis`)도 분석 시각 가격(`run.price_at_analysis`)이 아니라
   추천을 만들 때의 종가(`market.close_price`)를 넣는다 — 추천 화면의 "추천 때 가격"과 미리 보기(종가)가 같은 기준이 되게. 분석 상세의 `priceAtAnalysis`는 위 예외대로 그대로다.
 - **장중 가격 숫자는 문장에 넣지 않는다**: `400`의 `detail`·`failureReason`·`PlanEvent.message`·알림 문장에 장중 확인 가격이나 그것으로 계산한 금액을 넣지 않는다 (정해진 문장 — `docs/API.md` 공통 규칙 표).
   이유: 일부러 틀린 목표가·손절가를 보내 거절 문장으로 장중 가격을 읽어 내는 길(특히 `PATCH /api/orders/{id}`)을 막아 "화면은 종가"가 실제로 지켜지게. 엔진 `buy_blockers`·`modify`와 재주문 점검 문장을 고친다.
@@ -1187,3 +1187,5 @@ ju 브랜치 `f2d42db`("인트로 로고 수정")가 15-7의 종이배 로고를
   테스트도 같은 폴더로 나눴다 (`tests/<폴더>/`. 여러 폴더에 걸친 API·SSE·필드 테스트와 `conftest.py`는 `tests/` 바로 아래).
   같은 앱 안은 상대 import, 다른 앱에서는 절대 import(`from reports.autohealing import healing`)를 쓴다. import 경로를 문자열로 적은 곳
   (`orchestrator.TEAM_INPUTS`, `auto_report` 명령, 테스트의 `sys.modules`)과 관리 서버 CI의 경로 조건(`backend/reports/autohealing/stats.py`)도 바꿨다.
+- **`backend/autotrade`**: 루트에는 Django 자리와 앱 공통 모듈(`conf.py`·`text.py`·`tokens.py`·`hide.py`)만 두고, 추천 만들기는 `recommend/`(sources·demo·auto),
+  계획 진행은 `plans/`(risk·executor)로 옮겼다. 테스트는 9개라 나누지 않는다. `backend/tests/test_pages.py`(`/`·`/api/health`)는 `backend/config/tests/`로 옮겼다.

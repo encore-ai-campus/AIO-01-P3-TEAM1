@@ -16,9 +16,11 @@ from trading import market
 
 from config.api import LimitExceeded, Rejected
 
-from . import conf, risk, sources
-from .models import Recommendation
-from .text import money, pct
+from .. import conf
+from ..plans import risk
+from . import sources
+from ..models import Recommendation
+from ..text import money, pct
 
 DEMO_SYMBOLS = ("005930", "000660", "035420", "005380", "051910", "035720")
 STOP_ATR, REWARD_RISK, HOLDING_DAYS, PROBABILITY = 1.5, 2.4, 10, 0.45

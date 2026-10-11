@@ -8,7 +8,7 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 from rest_framework.exceptions import APIException
 
-from autotrade import demo
+from autotrade.recommend import demo
 
 
 class Command(BaseCommand):

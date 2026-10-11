@@ -830,7 +830,7 @@ export function deleteReservation(userId: number, id: number) {
   if (i < 0) throw new MockError(404, "예약을 찾을 수 없습니다.");
   const removed = state.reservations[i];
   state.reservations.splice(i, 1);
-  // 서버와 같게: 계획의 전량 매도 예약을 지우면 그 계획은 다시 중단을 받는다 (backend/autotrade/executor.py cancel — 매도 예약이 없으면 다시 매도 요청)
+  // 서버와 같게: 계획의 전량 매도 예약을 지우면 그 계획은 다시 중단을 받는다 (backend/autotrade/plans/executor.py cancel — 매도 예약이 없으면 다시 매도 요청)
   if (removed.kind === "SELL") {
     for (const p of state.plans) if (p.orderId === removed.orderId && p.status === "holding") p.exitRequested = false;
   }
@@ -1483,7 +1483,7 @@ function assessRisk(x: RiskInput): RiskResult {
 
 /**
  * 같은 종목 진행 중 계획·주문, 중단 스위치 (미리 보기·활성화 공통).
- * 서버(autotrade.risk.evaluate)처럼 계획·주문을 따로 본다: 진행 중 계획은 진행 중 주문도 가지므로 둘 다 나온다.
+ * 서버(autotrade.plans.risk.evaluate)처럼 계획·주문을 따로 본다: 진행 중 계획은 진행 중 주문도 가지므로 둘 다 나온다.
  */
 function busyReasons(userId: number, s: MockStock, name: string, out: { reasons: string[]; codes: string[] }) {
   const busyPlan = state.plans.some((p) => p.userId === userId && p.symbol === s.symbol && LIVE.includes(p.status));
@@ -1628,7 +1628,7 @@ function startPlan(user: MockUser, r: MockRec, pv: RiskPreview, via: "web" | "di
   };
   state.plans.push(p);
   const link = `/plans/${p.id}`;
-  // 문장은 서버(backend/autotrade/executor.py _start·_budget_text)와 같은 모양
+  // 문장은 서버(backend/autotrade/plans/executor.py _start·_budget_text)와 같은 모양
   const share = p.budgetMode === "percent" ? `(매수 가능 금액의 ${p.budgetPercent}%)` : "";
   planEvent(p, "activated", `${via === "discord" ? "Discord 링크" : "웹"}에서 계획 활성화`, {
     via,
@@ -1845,7 +1845,7 @@ export function createDemo(user: MockUser, body: { symbol?: unknown }): Recommen
   if (!s) throw new MockError(400, `종목 ${symbol}을(를) 찾을 수 없습니다.`);
   const bars = candles(s).slice(-14);
   const atr = bars.reduce((n, b) => n + (b.high - b.low), 0) / bars.length;
-  const entry = roundTick(s.close, s.currency); // 직전 장마감 종가 그대로 (backend/autotrade/demo.py)
+  const entry = roundTick(s.close, s.currency); // 직전 장마감 종가 그대로 (backend/autotrade/recommend/demo.py)
   const created = new Date();
   const r = makeRec(nextId(), {
     source: "demo",

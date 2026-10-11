@@ -14,7 +14,9 @@ from rest_framework.views import APIView
 
 from config.api import Rejected, page
 
-from . import demo, executor, hide, payloads, risk
+from .recommend import demo
+from .plans import executor, risk
+from . import hide, payloads
 from .models import Recommendation, TradePlan
 from .tokens import check_token
 

@@ -118,7 +118,7 @@ def _auto_report_tick(now, log) -> None:
 
 
 def _collect_recommendations(now, log) -> None:
-    from autotrade import sources  # autotrade 앱 소유 (끝난 리포트·BUY 분석 → 추천, 기한 지난 추천 만료)
+    from autotrade.recommend import sources  # autotrade 앱 소유 (끝난 리포트·BUY 분석 → 추천, 기한 지난 추천 만료)
 
     sources.collect(now, log)
 
@@ -130,13 +130,13 @@ def _report_alerts(now, log) -> None:
 
 
 def _auto_recommend(now, log) -> None:
-    from autotrade import auto  # autotrade 앱 소유 (매일 자동 추천, 시연. AUTO_RECOMMEND=demo일 때만)
+    from autotrade.recommend import auto  # autotrade 앱 소유 (매일 자동 추천, 시연. AUTO_RECOMMEND=demo일 때만)
 
     auto.tick(now, log)
 
 
 def _autotrade_tick(now, log) -> None:
-    from autotrade import executor  # autotrade 앱 소유 (진행 중 계획의 주문·체결 대기·보유 감시·청산)
+    from autotrade.plans import executor  # autotrade 앱 소유 (진행 중 계획의 주문·체결 대기·보유 감시·청산)
 
     executor.tick(now, log)
 

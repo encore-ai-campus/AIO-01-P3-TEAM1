@@ -13,7 +13,7 @@ import re
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 
-from autotrade.sources import _holding_days
+from autotrade.recommend.sources import _holding_days
 from paper_engine.data.ticks import kr_tick, round_price
 
 from ..payloads import KST
@@ -229,7 +229,7 @@ def valid_targets(t: dict) -> bool:
 
 
 def tick_prices(t: dict, currency: str) -> dict:
-    """리포트 제안값을 추천(autotrade.sources.create)이 저장하는 값으로 — 웹 매매 계획 카드·세 가지 경우와 같은 숫자.
+    """리포트 제안값을 추천(autotrade.recommend.sources.create)이 저장하는 값으로 — 웹 매매 계획 카드·세 가지 경우와 같은 숫자.
 
     가격은 호가 단위로 내린다 (0 이하·없는 값은 그대로). 보유 기간은 추천과 같은 규칙(sources._holding_days): 없거나 잘못된 값이면
     기본 10거래일, 정수로 내리고 1~20으로 자른다. 화면 lib/reports.ts floorTargets가 같은 가격 내림을 한다 (추천이 아직 없을 때).

@@ -10,7 +10,9 @@ from reports.limits import quota
 from reports.models import Report
 from rest_framework.exceptions import NotFound
 
-from autotrade import executor, hide, sources
+from autotrade.plans import executor
+from autotrade import hide
+from autotrade.recommend import sources
 from autotrade.models import Recommendation, TradePlan
 
 from .conftest import login, make_rec, set_price

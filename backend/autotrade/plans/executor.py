@@ -34,9 +34,9 @@ from trading.store import KST, account_for
 from config.api import Rejected, Unavailable
 
 from . import risk
-from . import text as texts
-from .models import PlanEvent, Recommendation, TradePlan
-from .text import EXIT_LABEL, money, qty_text, signed_money
+from .. import text as texts
+from ..models import PlanEvent, Recommendation, TradePlan
+from ..text import EXIT_LABEL, money, qty_text, signed_money
 
 logger = logging.getLogger(__name__)
 

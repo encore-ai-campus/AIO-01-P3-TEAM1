@@ -998,7 +998,7 @@ interface NotificationSettings {
 - **Discord로 보내지 않는 알림** (웹 알림만): `daily_move`·`thesis_check`(사용자별 묶음이라 팀 채널 하나에 사람 수만큼 쌓이고, 등락 설명이 공개 채널에서 권유로 읽힐 수 있다). 구현: 2026-10-05 (Claude).
 - **알림 합치기** (2026-10-08, DECISIONS 23장): 한 계획에서 몇 초 안에 이어진 사건(활성화 → 주문 접수 → 체결처럼 활성화 요청 하나 안에서 일어난 것)은
   웹 알림·Discord를 **마지막 상태 하나**로 보낸다 (예: 바로 체결되면 "샀어요" 하나). 사건 기록(`PlanEvent`, 계획 타임라인)은 그대로 다 남긴다.
-  구현 (2026-10-08, `autotrade/executor.py` `activate`): 바로 체결 → `filled` 하나("모의 자동매매를 시작하자마자 모의 계좌에서 … 샀어요"),
+  구현 (2026-10-08, `autotrade/plans/executor.py` `activate`): 바로 체결 → `filled` 하나("모의 자동매매를 시작하자마자 모의 계좌에서 … 샀어요"),
   지정가 대기 → `order_placed` 하나(제목 "{종목} 모의 자동매매를 시작하고 매수 주문을 냈어요", 본문에 매도 규칙·진입 기한), 실패 → `failed` 하나,
   첫 주문을 일시 오류로 못 냄 → `plan_activated` 하나. 엔진 루프가 나중에 만드는 사건(체결·재주문·청산 등)은 지금처럼 하나씩이다.
 - 프론트 폴링: 알림 개수 15초, 진행 중 계획 5초(진행 중 계획이 있을 때만. 없으면 30초 — 2026-10-08), 추천 목록 30초.
@@ -1049,7 +1049,7 @@ interface NotificationSettings {
 - **대상**: 팀원 신청 종목 리포트만 (`team: "stock_report"`). 선정 실행(`stock_selection`)과 자동 리포트(`source: "auto"`. 열이 없으면 `"user"`로 본다)는 건너뛴다 — 자동 리포트의 PDF·Discord 발송은 추천 워크플로우 팀 몫이다
   (B9, 01 T1-5의 자동 리포트 부분 — 팀 파일 `auto.py`의 `auto.after_finish(report)`, runner가 끝난 리포트마다 부른다. `00-공통.md` 8절).
 - **완성** (`completed`): 이 리포트로 추천이 있으면(`verdict` buy이고 `0 < stop < entry < target` — `00-공통.md` 10절) `report_completed`를 보내지 않는다 —
-  추천 알림(`recommendation`)의 본문 첫 줄 "리포트가 완성됐어요"가 그 역할이다. 판단 전에 추천을 만들 수 있으면 먼저 만든다(`autotrade.sources.from_report`, 이미 있으면 그대로).
+  추천 알림(`recommendation`)의 본문 첫 줄 "리포트가 완성됐어요"가 그 역할이다. 판단 전에 추천을 만들 수 있으면 먼저 만든다(`autotrade.recommend.sources.from_report`, 이미 있으면 그대로).
   추천이 없으면(지켜보기·부정적·가격 조건이 맞지 않음) `report_completed` 하나 (`link`: `/reports/{id}`).
 - **실패** (`failed`, 엔진 재시작 정리 포함): `report_failed` 하나 (`link`: `/reports/{id}`). 본문은 실패 사유 코드(`00-공통.md` 9절의 `join_blocked`·`review_failed`·`timeout`·`engine_restarted`·`exception`·`agent_failed`·`no_llm`·`expired`)의
   쉬운 문장 (`backend/reports/output/text.py`). 사유는 Trace의 마지막 `workflow_failed.details.reason`이고, 없거나 모르는 코드면 "리포트를 만들지 못했어요. 다시 만들 수 있어요".

@@ -1,4 +1,4 @@
-"""매일 자동 추천 (시연, autotrade/auto.py): 켜기·시각·휴장일·하루 한 번·종목마다 시연 추천·선별 파일 기록.
+"""매일 자동 추천 (시연, autotrade/recommend/auto.py): 켜기·시각·휴장일·하루 한 번·종목마다 시연 추천·선별 파일 기록.
 
 선별(screen_market)과 장 달력은 가짜다. 실제 증권사를 부르지 않는다.
 """
@@ -11,7 +11,7 @@ from django.core.management import CommandError, call_command
 from reports.autoreport import auto as screening
 from trading import market
 
-from autotrade import auto
+from autotrade.recommend import auto
 from autotrade.models import Recommendation
 from config import engine
 

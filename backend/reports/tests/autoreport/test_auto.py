@@ -419,7 +419,7 @@ DRAFT = {"verdict": "buy", "oneLiner": "실적 개선 흐름", "markdown": "본�
 def recommend(monkeypatch):
     from types import SimpleNamespace
 
-    from autotrade import sources
+    from autotrade.recommend import sources
 
     made = []
 
@@ -558,7 +558,7 @@ MORE = [{"symbol": s, "name": n, "score": v} for s, n, v in (
 def rated(day, monkeypatch):
     """진짜 추천 행을 만드는 from_report (손익비는 state["rr"][symbol], 없으면 0.7 — buy가 아니면 None) + 지금 = 그날 08:50.
     후보는 7개를 더해 12개다."""
-    from autotrade import sources
+    from autotrade.recommend import sources
     from autotrade.models import Recommendation
 
     state = {"rr": {}}

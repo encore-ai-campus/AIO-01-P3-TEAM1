@@ -8,7 +8,7 @@ Orchestrator가 Worker 결과를 출력 계약으로 검증한 뒤 State에 저�
   "이동평균선" → "이동평균선(최근 며칠 동안의 평균 가격)". 검토가 고쳐 쓰게 할 수 있는 동안은 Guard(guards.easy_jargon)가
   RETRY로 고쳐 쓰게 하고, 한도를 넘으면 리포트를 실패시키지 않고 이 풀이를 붙인 채로 통과한다.
 - 출력 계약의 길이 상한을 넘게 되는 글은 바꾸지 않는다 (계약 검증이 뒤를 자르지 않게).
-추천(autotrade.sources.from_report)은 리포트의 oneLiner·reasons·risks를 그대로 옮기므로 추천 문장도 이 후처리를 거친 값이다.
+추천(autotrade.recommend.sources.from_report)은 리포트의 oneLiner·reasons·risks를 그대로 옮기므로 추천 문장도 이 후처리를 거친 값이다.
 """
 import re
 

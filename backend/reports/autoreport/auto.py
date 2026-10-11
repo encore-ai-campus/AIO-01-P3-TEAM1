@@ -11,7 +11,7 @@
 - selection {"reportId", "status": running|done, "top"}: 선정 팀 실행. selectedBy "ai"|"rule"|null(아직 선정 중)과
   fallbackReason(규칙으로 골랐을 때의 사유 코드), aiPicks(AI 선정안 원문), filtered(선정 Guard가 뺀 종목).
 - picks: 선정 중에는 규칙 상위 top개(시연 추천과 호환), 선정이 끝나면 선정 Guard를 거친 최종 종목.
-- reportIds는 자동 리포트 신청(request)이, recommendationIds는 끝난 리포트의 추천(after_finish)과 시연 자동 추천(autotrade.auto)이,
+- reportIds는 자동 리포트 신청(request)이, recommendationIds는 끝난 리포트의 추천(after_finish)과 시연 자동 추천(autotrade.recommend.auto)이,
   coverSent는 그날 리포트가 모두 끝나 표지를 보냈는지.
 - retries: 다시 시도한 횟수(0~RETRY_ROUNDS). 그날 리포트가 모두 끝났는데 손익비가 스윙 기준(리스크 엔진 LIMITS) 이상인 추천이 없으면
   이미 리포트한 종목·선정 Guard가 뺀 종목을 빼고 같은 선정 Guard로 다음 top개를 골라(retryRound 표시) picks에 더해 다시 신청한다
@@ -388,7 +388,7 @@ def _caption(report: Report, trace) -> str:
 
 def _recommend(report: Report) -> int | None:
     """완성된 자동 리포트의 추천 id (from_report로 만들거나, 엔진 루프의 추천 수집이 먼저 만든 것). 없으면 None."""
-    from autotrade import sources
+    from autotrade.recommend import sources
     from autotrade.models import Recommendation
 
     found = sources.from_report(report) or Recommendation.objects.filter(report=report).first()

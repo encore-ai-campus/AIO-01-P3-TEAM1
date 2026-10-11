@@ -13,7 +13,7 @@ from trading import service
 from trading.models import PaperAccount, PaperOrder, Reservation
 from trading.store import account_for
 
-from autotrade import executor, risk
+from autotrade.plans import executor, risk
 from autotrade.models import PlanEvent, Recommendation, TradePlan
 from autotrade.tokens import activation_token
 from config import engine

@@ -9,7 +9,8 @@ from django.db.models import Count
 from django.utils import timezone
 from trading.store import iso
 
-from . import hide, risk
+from . import hide
+from .plans import risk
 from .models import PlanEvent, Recommendation, TradePlan
 
 

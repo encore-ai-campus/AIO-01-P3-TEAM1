@@ -8,7 +8,8 @@ from paper_engine.judge.risk import AccountContext, assess
 from paper_engine.judge.scenario import Scenario
 from reports.models import Report
 
-from autotrade import demo, risk, sources
+from autotrade.recommend import demo, sources
+from autotrade.plans import risk
 from autotrade.models import Recommendation
 from autotrade.tokens import activation_token, check_token
 

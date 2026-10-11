@@ -31,7 +31,7 @@
 | 장기투자 | 장기 보유, "왜 샀나요?", 오늘의 내 종목 뉴스(16:30), 펀더멘털 점검(18:00), 웹 알림 | 동작(10/5 격리 환경). 실제 시각 실행은 아직(U15) | 14-3 |
 | ~~단타 연습~~ | – | **폐기 (2026-10-06, 사용자 결정)**. 코드·API·화면에서 모두 지웠다 | 16장 |
 | 주린이모드·화면 | 계정 저장, 7문항 진단, 홈 3단계 안내, 쉬운 보기, 실행 확인 체크리스트, 하단 탭 다섯, 다크 모드, 로고 | 동작. 쉬운 보기는 가짜 API(`VITE_MOCK=1`)로만 끝까지 봤다. 실기기 확인 전 | 14-7·15장 |
-| 알림 | 웹 알림, Discord Webhook 보낼 편지함(1회 재시도·글만) | 웹은 동작, Discord는 꺼짐(U7). 직접 주문에는 체결 알림이 없다(`filled`는 자동매매 계획만 — `backend/autotrade/executor.py:318`) | 12-4 |
+| 알림 | 웹 알림, Discord Webhook 보낼 편지함(1회 재시도·글만) | 웹은 동작, Discord는 꺼짐(U7). 직접 주문에는 체결 알림이 없다(`filled`는 자동매매 계획만 — `backend/autotrade/plans/executor.py:318`) | 12-4 |
 | `/ops`·오늘의 선별 | 관리자 복구 지표(숨은 입구, staff만), 리포트 탭의 선별 결과 | 예시: 복구 지표 API가 없고 선별 파일도 없다(404). 발표·보고서에 쓰지 않는다 | `frontend/src/components/admin/RecoveryStatsPanel.tsx:177-179` |
 | 엔진 CLI·백테스트 | 엔진 자체 계좌(SQLite)와 CLI, AI 없는 백테스트 | 동작. 웹 계좌와 별개 | `AGENTS.md:93-102` |
 
@@ -176,7 +176,7 @@ macOS·Linux·WSL2에서만 돈다. 공유 개발 DB는 `.env`에 `POSTGRES_HOST
 
 ### 3-1. 핵심 AI Agent 워크플로우 (담당 2·3·4, 자동 리포트는 1)
 
-앞(신청·Registry·State·Trace·SSE·화면)과 뒤(추천 수집·끝 알림 `reports/output/alerts.py`·PDF·한도)는 이어져 있고 가운데(Agent 실행)만 비어 있다. `completed` 리포트의 `report_agent.verdict`가 `"buy"`이고 `0 < stop < entry < target`이면 엔진 루프가 추천을 만든다(`backend/autotrade/sources.py:134-158`).
+앞(신청·Registry·State·Trace·SSE·화면)과 뒤(추천 수집·끝 알림 `reports/output/alerts.py`·PDF·한도)는 이어져 있고 가운데(Agent 실행)만 비어 있다. `completed` 리포트의 `report_agent.verdict`가 `"buy"`이고 `0 < stop < entry < target`이면 엔진 루프가 추천을 만든다(`backend/autotrade/recommend/sources.py:134-158`).
 약속의 원본은 `docs/tasks/00-공통.md`(파일 소유 2절·Trace 9절·출력 계약 10절)와 `docs/API.md` "AI 리포트" 절이다. 바꾸려면 문서를 먼저 고친다. PR 규칙은 2-6 규칙 8.
 **개발 환경**: 팀원 PC에는 증권사 조회 키가 없다고 보고 만든다(토스는 개발자 로컬 전용·client당 토큰 1개, 팀원용 키움 키는 대기 — `docs/plans/TEAM_DEV_PLAN.md:614`, U9). 그래서 신청 API는 503(`backend/reports/views.py:62`), market_agent는 `WorkerError`다. 각자 SQLite에서 가짜 조회 클라이언트·`fake_llm`·`fake_worker`로 만들고, 실제 자료·모델 통합(T2-10·T3-10·T4-10)은 호스트 PC에서 1과 같이 한다.
 

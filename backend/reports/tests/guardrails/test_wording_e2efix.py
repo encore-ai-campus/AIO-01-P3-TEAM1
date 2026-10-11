@@ -235,7 +235,7 @@ def test_jargon_after_retry_limit_passes_with_explanations_and_tidy_text(user, f
     assert report_row.status == Report.COMPLETED and len(writer.calls) == 2
     assert [r["round"] for r in retries] == [1]
     assert report_row.results["review_agent"]["verdict"] == "PASS"
-    draft = report_row.results["report_agent"]  # 추천(autotrade.sources.from_report)이 옮기는 oneLiner·reasons·risks도 이 값
+    draft = report_row.results["report_agent"]  # 추천(autotrade.recommend.sources.from_report)이 옮기는 oneLiner·reasons·risks도 이 값
     assert draft["oneLiner"] == "AI 의견은 지켜보기예요. 이동평균선(최근 며칠 동안의 평균 가격) 아래라 지켜봐요"
     assert draft["reasons"][1] == "지지선(그동안 더 내려가지 않고 버텨 온 가격대) 187,900원 근처"
     assert "AI 의견은 **지켜보기**예요" in report_row.content and "201,000원" in report_row.content

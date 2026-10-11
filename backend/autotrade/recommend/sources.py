@@ -20,10 +20,11 @@ from trading import market
 
 from config.api import Unavailable
 
-from . import conf, risk
-from . import text as texts
-from .models import Recommendation
-from .tokens import activation_token
+from .. import conf
+from ..plans import risk
+from .. import text as texts
+from ..models import Recommendation
+from ..tokens import activation_token
 
 DEFAULT_HOLDING_DAYS = 10
 ASSUMED_PROBABILITY = 0.5

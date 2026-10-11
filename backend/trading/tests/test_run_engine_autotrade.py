@@ -3,7 +3,8 @@ from io import StringIO
 
 import pytest
 from analysis import jobs
-from autotrade import auto, executor, sources
+from autotrade.recommend import auto, sources
+from autotrade.plans import executor
 from django.core.management import call_command
 from longterm import jobs as longterm_jobs
 from notifications import dispatch

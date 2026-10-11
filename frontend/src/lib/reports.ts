@@ -523,7 +523,7 @@ function floorPrice(price: number, currency: Currency): number {
 }
 
 /**
- * 리포트가 제안한 사는·목표·손절 가격을 추천이 저장하는 값으로 (호가 단위 내림, 0 이하·없는 값은 그대로 — autotrade.sources.create와 같다).
+ * 리포트가 제안한 사는·목표·손절 가격을 추천이 저장하는 값으로 (호가 단위 내림, 0 이하·없는 값은 그대로 — autotrade.recommend.sources.create와 같다).
  * 추천이 아직 없을 때 쉬운 보기가 이 값으로 계획 판단·세 가지 경우·차트·'틀리는 경우'의 손절 문장을 그린다 — 쉬운 PDF(easy_text.tick_prices)와 같은 숫자.
  */
 export function floorTargets(targets: ReportTargets, currency: Currency): ReportTargets {

@@ -11,7 +11,8 @@ from notifications.service import notify as real_notify  # 모듈을 읽을 때 
 from paper_engine.wording import forbidden_phrases
 from trading import service
 
-from autotrade import executor, text
+from autotrade.plans import executor
+from autotrade import text
 from autotrade.models import PlanEvent, TradePlan
 from config.api import Rejected, Unavailable
 

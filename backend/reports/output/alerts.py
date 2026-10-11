@@ -1,7 +1,7 @@
 """리포트 끝 알림 (컨셉 계획 B7 — docs/API.md "리포트 끝 알림", docs/DECISIONS.md 14-5). Claude 파일.
 
 리포트 하나가 끝나면 신청자에게 알림이 한 번만 간다 (웹 알림 + Discord, notifications.service.notify):
-- 완성(completed): 이 리포트로 추천이 있으면(먼저 autotrade.sources.from_report로 만들 수 있으면 만든다) 따로 보내지 않는다 —
+- 완성(completed): 이 리포트로 추천이 있으면(먼저 autotrade.recommend.sources.from_report로 만들 수 있으면 만든다) 따로 보내지 않는다 —
   추천 알림(recommendation) 본문의 첫 줄 "리포트가 완성됐어요"가 그 역할이다. 추천이 없으면 report_completed (link /reports/{id}).
 - 실패(failed, 엔진 재시작 정리 포함): report_failed (link /reports/{id}). 본문은 Trace의 마지막 workflow_failed.details.reason의
   쉬운 문장 (reports/output/text.py — 없거나 모르는 코드면 "리포트를 만들지 못했어요. 다시 만들 수 있어요").
@@ -17,7 +17,7 @@ import logging
 import threading
 from datetime import datetime, timedelta
 
-from autotrade import sources
+from autotrade.recommend import sources
 from autotrade.models import Recommendation
 from django.utils import timezone
 from notifications.models import Notification

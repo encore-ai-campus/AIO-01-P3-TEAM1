@@ -72,7 +72,7 @@ def test_completed_buy_makes_recommendation_whose_alert_replaces_completion(user
 def test_completed_with_existing_recommendation_sends_nothing(user):
     """추천 수집(collect)이 같은 바퀴에서 먼저 추천을 만들었으면 그 추천 알림이 완성 알림이다."""
     report = finished(user, draft=DRAFT)
-    from autotrade import sources
+    from autotrade.recommend import sources
     sources.from_report(report, NOW)
     before = len(notes(user))
     assert alerts.sweep_finished(NOW, Log()) == 0 and len(notes(user)) == before

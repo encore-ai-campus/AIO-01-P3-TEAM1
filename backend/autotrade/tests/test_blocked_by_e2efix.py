@@ -7,7 +7,7 @@ from datetime import timedelta
 import pytest
 from django.utils import timezone
 
-from autotrade import risk
+from autotrade.plans import risk
 
 from .conftest import make_rec
 

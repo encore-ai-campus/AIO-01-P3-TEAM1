@@ -35,7 +35,7 @@
 
 서비스 최종 흐름(`06-추천·자동매매.md`)에서 리포트는 **AI 추천의 출처**다. 담당 3이 할 일은 늘지 않는다:
 `finish(completed, content)`로 끝내고 `results["report_agent"]`에 계약을 통과한 `ReportDraft`가 있으면, 엔진 루프의 "추천 수집" 단계
-(`autotrade.sources.collect`, 최근 7일 안에 끝난 리포트를 본다)가 추천을 만들고 신청자에게 웹·Discord로 알린다. 따로 부를 함수가 없다.
+(`autotrade.recommend.sources.collect`, 최근 7일 안에 끝난 리포트를 본다)가 추천을 만들고 신청자에게 웹·Discord로 알린다. 따로 부를 함수가 없다.
 
 - `run_engine.py`에는 이미 단계가 넷 더 있다: … 분석 작업 → 추천 수집 → 자동 추천 → 자동매매 → 알림 발송 (커밋 `09a9ada`).
   T3-4의 `runner.tick()`은 **"분석 작업" 다음, "추천 수집" 앞**에 한 줄로 넣는다 ("알림 발송"이 마지막이게).

@@ -251,8 +251,8 @@ def test_prices_plan_and_scenario():
     assert ez.tick_prices({"entry": 180.129, "target": 0.0, "stop": None}, "USD") == {"entry": 180.12, "target": 0.0,
                                                                                      "stop": None, "holdingDays": 10}
     assert ez.tick_prices({"entry": 0.12345}, "USD")["entry"] == 0.1234   # 1달러 미만은 0.0001 단위 (엔진 round_price)
-    # 보유 기간: 추천(autotrade.sources._holding_days)과 같은 규칙 — 없으면 10거래일, 정수로 내리고 1~20으로 자른다
-    from autotrade.sources import DEFAULT_HOLDING_DAYS
+    # 보유 기간: 추천(autotrade.recommend.sources._holding_days)과 같은 규칙 — 없으면 10거래일, 정수로 내리고 1~20으로 자른다
+    from autotrade.recommend.sources import DEFAULT_HOLDING_DAYS
     from reports.guardrails.contracts import MAX_HOLDING_DAYS, MIN_HOLDING_DAYS
     days = {v: ez.tick_prices({"holdingDays": v}, "KRW")["holdingDays"] for v in (None, 7.5, 0.0, 25.0, 3.0)}
     assert days == {None: DEFAULT_HOLDING_DAYS, 7.5: 7, 0.0: MIN_HOLDING_DAYS, 25.0: MAX_HOLDING_DAYS, 3.0: 3}

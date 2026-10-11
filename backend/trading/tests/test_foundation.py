@@ -8,7 +8,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from analysis import jobs
-from autotrade import auto, executor, sources
+from autotrade.recommend import auto, sources
+from autotrade.plans import executor
 from django.core.management import call_command
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor

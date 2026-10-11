@@ -2,7 +2,7 @@
 
 입력은 Join Guard가 넘긴 조사 결과(`ctx.inputs`의 market_agent·fundamental_agent·news_agent)뿐이다.
 검토가 RETRY면 Orchestrator가 `ctx.instructions`(수정 지시)와 이전 초안(`ctx.inputs["report_agent"]`)을 같이 넣어 다시 부른다.
-`verdict == "buy"`이고 targets가 `0 < stop < entry < target`이면 엔진 루프가 이 초안으로 AI 추천을 만든다 (autotrade.sources.from_report).
+`verdict == "buy"`이고 targets가 `0 < stop < entry < target`이면 엔진 루프가 이 초안으로 AI 추천을 만든다 (autotrade.recommend.sources.from_report).
 손익비 기준은 프롬프트에 넣지 않는다 (리스크 엔진이 거른다). citations는 조사 결과의 evidence에 있는 것만 남긴다.
 손절 가격은 코드가 정한다: 시세 조사의 stop(엔진 judge/stops.py)을 프롬프트로 알려 주고, 초안의 targets.stop은 그 값으로 덮어쓴다.
 쉬운 글(plainSummary·oneLiner·reasons·risks)에는 전문 용어(tidy.JARGON)를 쓰지 않게 한다 — 검토의 쉬운 글 Guard가 확인하고,

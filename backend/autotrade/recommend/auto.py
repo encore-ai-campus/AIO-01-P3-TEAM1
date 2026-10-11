@@ -15,7 +15,8 @@ from trading import market
 
 from config import engine
 
-from . import conf, demo
+from .. import conf
+from . import demo
 
 KST = ZoneInfo("Asia/Seoul")
 MARKET = "KR"

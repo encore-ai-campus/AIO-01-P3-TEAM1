@@ -12,7 +12,8 @@ from trading.models import PaperAccount
 from trading.store import account_for
 from trading.tests.conftest import CFG
 
-from autotrade import executor, risk, views
+from autotrade.plans import executor, risk
+from autotrade import views
 from autotrade.models import PlanEvent, TradePlan
 from config import engine
 from config.api import Rejected
