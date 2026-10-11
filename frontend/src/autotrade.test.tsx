@@ -89,26 +89,62 @@ describe("AI 추천 목록", () => {
 });
 
 describe("추천 상세 · 활성화", () => {
-  it("예산 → 리스크 미리 보기(종가 기준) → 요약 확인 → 계획 활성화 → 계획 화면", async () => {
+  it("투자 금액(% 칩 → 금액) → 리스크 미리 보기(종가 기준) → 요약 확인 → 계획 활성화 → 계획 화면 (요청에는 금액 하나만)", async () => {
+    const previews: URLSearchParams[] = [];
+    const seen: unknown[] = [];
+    server.events.on("request:start", async ({ request }) => {
+      const url = new URL(request.url);
+      if (url.pathname.endsWith("/preview")) previews.push(url.searchParams);
+      if (request.url.endsWith("/activate")) seen.push(await request.clone().json());
+    });
     renderApp("/recommendations/91");
     expect(await screen.findByRole("heading", { name: "SK하이닉스 추천" })).toBeTruthy();
     expect(screen.getByRole("figure", { name: "가격 사다리" })).toBeTruthy();
     expect(screen.getByRole("link", { name: /AI 리포트 #1 보기/ }).getAttribute("href")).toBe("/reports/1");
+    // 머리 안내: 투자 금액은 내가 정한다 (건당 위험 1%로 수량을 정한다는 말은 없다)
+    expect(screen.getByText(/투자 금액은 내가 정하고, 수량 계산과 활성화 가능 여부/)).toBeTruthy();
+    expect(screen.queryByText(/건당 위험 1%/)).toBeNull();
+
+    // 기본값이 없다: 정하기 전에는 미리 보기 대신 빈 상태, 버튼은 꺼지고 아래에 안내. 도움말은 매수 가능 금액만
     const preview = screen.getByRole("region", { name: "리스크 미리 보기" });
-    await within(preview).findByText("리스크 엔진 통과");
-    expect(within(preview).getByText("건당 위험 한도")).toBeTruthy();
+    expect(within(preview).getByText("투자 금액을 정하면 수량·매수 금액·손절 시 손실을 계산합니다.")).toBeTruthy();
+    const button = screen.getByRole("button", { name: "계획 활성화" });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("투자 금액을 정하면 활성화할 수 있습니다.")).toBeTruthy();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    const help = await screen.findByText(/^매수 가능 금액 [\d,]+원$/);
+    const power = Number(help.textContent!.replace(/[^\d]/g, ""));
+
+    // % 칩: 매수 가능 금액의 10%를 원으로 바꿔 보이고, 미리 보기 요청은 budgetPercent 하나
+    const methods = screen.getByRole("group", { name: "투자 금액 방식" });
+    expect(within(methods).getByRole("button", { name: "내 자금의 %" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "10%" }));
+    expect(screen.getByRole("button", { name: "10%" }).getAttribute("aria-pressed")).toBe("true");
+    expect((screen.getByLabelText("직접 입력 (%)") as HTMLInputElement).value).toBe("10");
+    expect(help.textContent).toBe(`매수 가능 금액 ${power.toLocaleString("ko-KR")}원 중 ${Math.floor(power * 0.1).toLocaleString("ko-KR")}원`);
+    await within(preview).findByText("리스크 엔진 통과", undefined, { timeout: 3000 });
+    expect(within(preview).getByText("3주")).toBeTruthy();
+    expect(within(preview).getByText("내가 정한 금액")).toBeTruthy();
+    expect(within(preview).getByText(/^\(총자산의 \d+\.\d+%\)$/)).toBeTruthy();
     expect(within(preview).getByText("직전 종가")).toBeTruthy();
     expect(within(preview).getByText(/장마감 기준$/)).toBeTruthy();
+    const sized = previews.filter((q) => q.size > 0);
+    expect(sized.map((q) => [q.get("budgetPercent"), q.get("budgetKrw")])).toEqual([["10", null]]);
 
-    fireEvent.change(screen.getByLabelText("예산 (원, 선택)"), { target: { value: "1,000,000" } });
-    await waitFor(() => expect(within(preview).getByText("예산")).toBeTruthy(), { timeout: 3000 });
-    expect(within(preview).getByText("5주")).toBeTruthy();
+    // 방식을 바꾸면 입력을 비운다 (10이 10원으로 남지 않게) → 다시 정하기 전 상태
+    fireEvent.click(within(methods).getByRole("button", { name: "금액(원)" }));
+    const amount = screen.getByLabelText("투자 금액 (원)") as HTMLInputElement;
+    expect(amount.value).toBe("");
+    expect(screen.queryByRole("button", { name: "10%" })).toBeNull();
+    expect(within(preview).getByText("투자 금액을 정하면 수량·매수 금액·손절 시 손실을 계산합니다.")).toBeTruthy();
+    expect((button as HTMLButtonElement).disabled).toBe(true);
 
-    const seen: unknown[] = [];
-    server.events.on("request:start", async ({ request }) => {
-      if (request.url.endsWith("/activate")) seen.push(await request.clone().json());
-    });
-    const button = screen.getByRole("button", { name: "계획 활성화" });
+    // 금액(원): 쉼표 허용, 미리 보기 요청은 budgetKrw 하나
+    fireEvent.change(amount, { target: { value: "1,000,000" } });
+    await waitFor(() => expect(within(preview).getByText("5주")).toBeTruthy(), { timeout: 3000 });
+    expect(help.textContent).toMatch(/^매수 가능 금액 [\d,]+원 중 1,000,000원 \(\d+\.\d%\)$/);
+    expect(previews.filter((q) => q.size > 0).map((q) => [q.get("budgetPercent"), q.get("budgetKrw")]).at(-1)).toEqual([null, "1000000"]);
+
     // 전문가 보기는 체크 셋(손절 시 손실·보유 기간 끝 매도·AI 제안/모의)을 한 줄 요약 확인으로 켠다
     expect((button as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("checkbox", { name: "위 내용을 확인했습니다" }));
@@ -116,7 +152,7 @@ describe("추천 상세 · 활성화", () => {
     fireEvent.click(button);
     expect(await screen.findByRole("heading", { name: "SK하이닉스 자동매매" })).toBeTruthy();
     server.events.removeAllListeners();
-    expect(seen).toEqual([{ budgetKrw: 1_000_000, acknowledged: true }]);
+    expect(seen).toEqual([{ budgetKrw: 1_000_000, acknowledged: true }]); // budgetPercent는 보내지 않는다
     expect(screen.getAllByText("체결 대기").length).toBeGreaterThan(0);
     const events = screen.getByRole("list", { name: "계획 사건" });
     expect(within(events).getByText("SK하이닉스 5주 181,000원 지정가 매수 주문 접수")).toBeTruthy();
@@ -133,14 +169,15 @@ describe("추천 상세 · 활성화", () => {
     });
     renderApp("/recommendations/92?t=demo-92");
     expect(await screen.findByText("Discord에서 연 활성화 링크")).toBeTruthy();
-    await within(screen.getByRole("region", { name: "리스크 미리 보기" })).findByText("리스크 엔진 통과");
+    fireEvent.click(await screen.findByRole("button", { name: "10%" }));
+    await within(screen.getByRole("region", { name: "리스크 미리 보기" })).findByText("리스크 엔진 통과", undefined, { timeout: 3000 });
     fireEvent.click(screen.getByRole("checkbox", { name: "위 내용을 확인했습니다" }));
     const button = screen.getByRole("button", { name: "계획 활성화" });
     await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(button);
     expect(await screen.findByRole("heading", { name: "에코프로비엠 자동매매" })).toBeTruthy();
     server.events.removeAllListeners();
-    expect(seen).toEqual([{ token: "demo-92", acknowledged: true }]);
+    expect(seen).toEqual([{ budgetPercent: 10, token: "demo-92", acknowledged: true }]);
     expect(screen.getByText("Discord 링크로 활성화")).toBeTruthy();
   });
 
@@ -159,7 +196,8 @@ describe("추천 상세 · 활성화", () => {
     const reasons = await screen.findByRole("list", { name: "활성화할 수 없는 사유" });
     expect(within(reasons).getByText("새 모의 매수가 중단되어 있습니다.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "계획 활성화" })).toBeNull();
-    expect(screen.queryByLabelText("예산 (원, 선택)")).toBeNull();
+    expect(screen.queryByRole("group", { name: "투자 금액 방식" })).toBeNull();
+    expect(screen.queryByLabelText("직접 입력 (%)")).toBeNull();
     expect(screen.getByRole("link", { name: /다른 추천 보기/ }).getAttribute("href")).toBe("/recommendations");
   });
 
@@ -186,7 +224,7 @@ describe("추천 상세 · 활성화", () => {
     blocked.unmount();
 
     db.options.halted = false;
-    db.activate(alice(), 92, {});
+    db.activate(alice(), 92, { budgetPercent: 10 });
     renderApp("/recommendations/92");
     expect(await screen.findByText("진행 중 계획 있음")).toBeTruthy();
   });
@@ -211,6 +249,7 @@ describe("추천 상세 · 활성화", () => {
       http.get("*/api/recommendations/91/preview", () => (fail ? HttpResponse.json({ detail: "증권사 조회를 할 수 없습니다." }, { status: 503 }) : undefined)),
     );
     renderApp("/recommendations/91");
+    // 금액을 정하기 전: 금액 없는 미리 보기(머리 칩과 같은 쿼리)의 오류를 실행 확인 카드가 보이고 거기서 다시 받는다
     const preview = await screen.findByRole("region", { name: "리스크 미리 보기" });
     expect(await within(preview).findByText("증권사 조회를 할 수 없습니다.")).toBeTruthy();
     const head = screen.getByText("SK하이닉스", { selector: "p" }).closest("section")!;
@@ -218,8 +257,50 @@ describe("추천 상세 · 활성화", () => {
     expect(within(head).getByText(/^유효/)).toBeTruthy();
     fail = false;
     fireEvent.click(within(preview).getByRole("button", { name: "다시 시도" }));
-    expect(await within(preview).findByText("리스크 엔진 통과")).toBeTruthy();
     expect(await within(head).findByText("활성화 가능")).toBeTruthy();
+    expect(await within(preview).findByText("투자 금액을 정하면 수량·매수 금액·손절 시 손실을 계산합니다.")).toBeTruthy();
+    // 금액을 정한 미리 보기가 실패해도 같은 자리에서 다시 받는다
+    fail = true;
+    fireEvent.click(screen.getByRole("button", { name: "10%" }));
+    expect(await within(preview).findByText("증권사 조회를 할 수 없습니다.", undefined, { timeout: 3000 })).toBeTruthy();
+    expect(screen.getByLabelText("직접 입력 (%)")).toBeTruthy(); // 입력은 그대로
+    fail = false;
+    fireEvent.click(within(preview).getByRole("button", { name: "다시 시도" }));
+    expect(await within(preview).findByText("리스크 엔진 통과")).toBeTruthy();
+  });
+
+  it("손절 시 손실이 총자산 1%를 넘으면 경고 한 줄만 보이고 막지 않는다 (largeLoss)", async () => {
+    server.use(
+      http.get("*/api/recommendations/91/preview", ({ request }) => {
+        const budget = new URL(request.url).searchParams.get("budgetKrw");
+        if (!budget) return undefined;
+        return HttpResponse.json({ ...db.riskPreview(1, 91, null, budget), largeLoss: true, maxLossRate: 0.0123 });
+      }),
+    );
+    renderApp("/recommendations/91");
+    fireEvent.click(await screen.findByRole("button", { name: "금액(원)" }));
+    fireEvent.change(screen.getByLabelText("투자 금액 (원)"), { target: { value: "1000000" } });
+    expect(await screen.findByText("손절 시 손실이 총자산의 1.2%로 건당 위험 기준 1%를 넘습니다 (경고만, 활성화는 가능).", undefined, { timeout: 3000 })).toBeTruthy();
+    fireEvent.click(screen.getByRole("checkbox", { name: "위 내용을 확인했습니다" }));
+    await waitFor(() => expect((screen.getByRole("button", { name: "계획 활성화" }) as HTMLButtonElement).disabled).toBe(false));
+  });
+
+  it("금액이 한도를 넘어 막혀도(cash_short·total_limit) 입력 블록은 그대로 — 줄이지 않고 사유와 '바꾸면 다시 계산'", async () => {
+    renderApp("/recommendations/91");
+    fireEvent.click(await screen.findByRole("button", { name: "금액(원)" }));
+    const amount = screen.getByLabelText("투자 금액 (원)") as HTMLInputElement;
+    fireEvent.change(amount, { target: { value: "50,000,000" } });
+    const reasons = await screen.findByRole("list", { name: "활성화할 수 없는 사유" }, { timeout: 3000 });
+    expect(within(reasons).getByText(/보다 큼$/)).toBeTruthy(); // cash_short (서버 원문)
+    expect(within(reasons).getByText(/^총 금액 한도/)).toBeTruthy();
+    expect(screen.getByText("투자 금액을 바꾸면 다시 계산합니다.")).toBeTruthy();
+    expect(screen.getByText("리스크 엔진 거절")).toBeTruthy();
+    expect(amount.value).toBe("50,000,000");
+    expect((screen.getByRole("button", { name: "계획 활성화" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole("link", { name: /다른 추천 보기/ })).toBeNull(); // 금액을 고치면 되므로 다른 곳으로 보내지 않는다
+    // 금액을 줄이면 다시 계산해 시작할 수 있다
+    fireEvent.change(amount, { target: { value: "500000" } });
+    expect(await screen.findByText("리스크 엔진 통과", undefined, { timeout: 3000 })).toBeTruthy();
   });
 
   it("Discord 링크로 열면 띠의 '활성화 카드로 이동'이 실행 확인 제목으로 데려간다 (모바일에서 2,000px 아래)", async () => {
@@ -240,7 +321,7 @@ describe("내 자동매매", () => {
   });
 
   it("체결 대기 중 계획 중단: 확인 → 주문 취소 → 중단됨", async () => {
-    const plan = db.activate(alice(), 91, {});
+    const plan = db.activate(alice(), 91, { budgetPercent: 10 });
     renderApp(`/plans/${plan.id}`);
     fireEvent.click(await screen.findByRole("button", { name: "계획 중단" }));
     const dialog = screen.getByRole("dialog", { name: "SK하이닉스 계획을 중단할까요?" });
@@ -254,7 +335,7 @@ describe("내 자동매매", () => {
   });
 
   it("보유 중 계획 중단은 전량 매도 안내 → 청산 완료(사용자 매도)", async () => {
-    const plan = db.activate(alice(), 91, {});
+    const plan = db.activate(alice(), 91, { budgetPercent: 10 });
     db.setPrice("000660", 180_000); // 진입가 아래 → 지정가 체결
     renderApp(`/plans/${plan.id}`);
     fireEvent.click(await screen.findByRole("button", { name: "계획 중단" }));
@@ -266,7 +347,7 @@ describe("내 자동매매", () => {
 
   it("시간이 지나면 체결 → 목표가 청산까지 진행하고 사건·알림이 쌓인다", async () => {
     db.options.planStepMs = 0;
-    const plan = db.activate(alice(), 92, {});
+    const plan = db.activate(alice(), 92, { budgetPercent: 10 });
     renderApp(`/plans/${plan.id}`);
     const events = await screen.findByRole("list", { name: "계획 사건" });
     await waitFor(() => expect(within(events).getAllByRole("listitem")).toHaveLength(5));
@@ -278,7 +359,7 @@ describe("내 자동매매", () => {
   });
 
   it("중단 확인: 처음 포커스는 안전한 '닫기', Esc로 닫으면 계획 중단 버튼으로 돌아간다", async () => {
-    const plan = db.activate(alice(), 91, {});
+    const plan = db.activate(alice(), 91, { budgetPercent: 10 });
     renderApp(`/plans/${plan.id}`);
     const stop = await screen.findByRole("button", { name: "계획 중단" });
     stop.focus();
@@ -291,7 +372,7 @@ describe("내 자동매매", () => {
   });
 
   it("대화상자가 열린 채 체결되면 문구를 새 상태로 바꾸고 주의를 띄운 뒤 확인 버튼을 잠깐 막는다 (읽은 내용 = 실행되는 내용)", async () => {
-    const plan = db.activate(alice(), 91, {});
+    const plan = db.activate(alice(), 91, { budgetPercent: 10 });
     const { client } = renderApp(`/plans/${plan.id}`);
     fireEvent.click(await screen.findByRole("button", { name: "계획 중단" }));
     const dialog = screen.getByRole("dialog", { name: "SK하이닉스 계획을 중단할까요?" });
@@ -306,7 +387,7 @@ describe("내 자동매매", () => {
   });
 
   it("대화상자가 열린 채 계획이 끝나면(내 주식에서 사는 주문을 취소 등) 닫고 결과를 한 줄로 알린다", async () => {
-    const plan = db.activate(alice(), 91, {});
+    const plan = db.activate(alice(), 91, { budgetPercent: 10 });
     const { client } = renderApp(`/plans/${plan.id}`);
     fireEvent.click(await screen.findByRole("button", { name: "계획 중단" }));
     expect(screen.getByRole("dialog")).toBeTruthy();
@@ -317,7 +398,7 @@ describe("내 자동매매", () => {
   });
 
   it("매도 예약을 내 주식에서 취소하면 '매도 요청됨'에 멈추지 않고 다시 중단할 수 있다 (지금 예약이 있는지로 본다)", async () => {
-    const plan = db.activate(alice(), 91, {});
+    const plan = db.activate(alice(), 91, { budgetPercent: 10 });
     db.setPrice("000660", 180_000); // 진입가 아래 → 지정가 체결
     const { client } = renderApp(`/plans/${plan.id}`);
     fireEvent.click(await screen.findByRole("button", { name: "계획 중단" }));
@@ -373,7 +454,7 @@ describe("내 자동매매", () => {
   };
 
   it("장 시작에 예약 매도가 실행된 순간 예약 조회가 계획 조회보다 먼저 와도 '취소됨'이라 하지 않고 멈추기를 다시 켜지 않는다", async () => {
-    const plan = db.activate(alice(), 91, {});
+    const plan = db.activate(alice(), 91, { budgetPercent: 10 });
     db.setPrice("000660", 180_000); // 진입가 아래 → 지정가 체결
     const { client } = renderApp(`/plans/${plan.id}`);
     await stopOutsideHours(client, plan.id);
@@ -406,7 +487,7 @@ describe("내 자동매매", () => {
   });
 
   it("내 주식에서 예약 목록을 본 적이 있어도(예약 없음 캐시) 장 밖 멈추기 직후 '취소됨'이 깜빡이지 않는다", async () => {
-    const plan = db.activate(alice(), 91, {});
+    const plan = db.activate(alice(), 91, { budgetPercent: 10 });
     db.setPrice("000660", 180_000);
     const { client } = renderApp(`/plans/${plan.id}`);
     await screen.findByRole("button", { name: "계획 중단" });
@@ -430,7 +511,7 @@ describe("내 자동매매", () => {
   });
 
   it("장이 열려 있을 때는 예약이 한 번 안 보인 것만으로 '취소됨'이라 하지 않는다 (엔진이 실행하는 동안 잠깐 없을 수 있다) — 다음에도 없으면 알린다", async () => {
-    const plan = db.activate(alice(), 91, {});
+    const plan = db.activate(alice(), 91, { budgetPercent: 10 });
     db.setPrice("000660", 180_000);
     const { client } = renderApp(`/plans/${plan.id}`);
     await stopOutsideHours(client, plan.id);
@@ -452,7 +533,7 @@ describe("내 자동매매", () => {
   });
 
   it("대화상자를 닫아 둔 사이 체결됐으면 처음 열 때는 주의·잠금 없이 지금 상태(전량 매도) 문구로 연다 (주의는 열린 동안 바뀐 때만)", async () => {
-    const plan = db.activate(alice(), 91, {});
+    const plan = db.activate(alice(), 91, { budgetPercent: 10 });
     const { client } = renderApp(`/plans/${plan.id}`);
     await screen.findByRole("button", { name: "계획 중단" });
     db.setPrice("000660", 180_000); // 다음 조회에서 체결된다 (대화상자를 열기 전)
@@ -466,7 +547,7 @@ describe("내 자동매매", () => {
   });
 
   it("중단 요청이 실패했는데 그사이 계획이 끝났으면(서버 '이미 끝난 계획') 대화상자를 닫고 결과를 한 줄로 알린다", async () => {
-    const plan = db.activate(alice(), 91, {});
+    const plan = db.activate(alice(), 91, { budgetPercent: 10 });
     const { client } = renderApp(`/plans/${plan.id}`);
     fireEvent.click(await screen.findByRole("button", { name: "계획 중단" }));
     const dialog = screen.getByRole("dialog", { name: "SK하이닉스 계획을 중단할까요?" });
@@ -479,7 +560,7 @@ describe("내 자동매매", () => {
   });
 
   it("중단 요청이 실패한 안내는 대화상자를 다시 열면 남아 있지 않다", async () => {
-    const plan = db.activate(alice(), 91, {});
+    const plan = db.activate(alice(), 91, { budgetPercent: 10 });
     server.use(http.post(`*/api/trade-plans/${plan.id}/cancel`, () => HttpResponse.json({ detail: "잠시 뒤 다시 시도해 주세요." }, { status: 503 })));
     renderApp(`/plans/${plan.id}`);
     const stop = await screen.findByRole("button", { name: "계획 중단" });
@@ -645,7 +726,7 @@ describe("알림 설정 (My Page)", () => {
 
 describe("다른 화면과 잇기", () => {
   it("홈에 AI 추천 요약과 진행 중 자동매매", async () => {
-    db.activate(alice(), 91, {});
+    db.activate(alice(), 91, { budgetPercent: 10 });
     renderApp("/");
     const recs = await screen.findByRole("list", { name: "AI 추천 요약" });
     expect(within(recs).getAllByRole("listitem")).toHaveLength(3);
@@ -680,7 +761,7 @@ describe("다른 화면과 잇기", () => {
   });
 
   it("모의투자 탭 위쪽에 진행 중 자동매매와 전체 보기 링크", async () => {
-    db.activate(alice(), 91, {});
+    db.activate(alice(), 91, { budgetPercent: 10 });
     renderApp("/portfolio");
     const live = await screen.findByRole("list", { name: "진행 중 계획" });
     expect(within(live).getByRole("link", { name: "SK하이닉스 계획 보기" })).toBeTruthy();
@@ -689,7 +770,7 @@ describe("다른 화면과 잇기", () => {
   });
 
   it("내 주식: 자동매매에 묶인 대기 주문은 '취소' 대신 계획 보기 (바로 취소하면 계획까지 끝나므로), 일반 주문은 그대로 취소", async () => {
-    const plan = db.activate(alice(), 91, {});
+    const plan = db.activate(alice(), 91, { budgetPercent: 10 });
     renderApp("/portfolio?tab=orders");
     const link = await screen.findByRole("link", { name: "SK하이닉스 자동매매 계획 보기" });
     expect(link.getAttribute("href")).toBe(`/plans/${plan.id}`);
@@ -713,7 +794,7 @@ describe("다른 화면과 잇기", () => {
       if (document.querySelector('[aria-label="SK하이닉스 주문 취소"]')) shown.push("cancel");
     });
     watch.observe(document.body, { subtree: true, childList: true, attributes: true });
-    const plan = db.activate(alice(), 91, {}); // 화면 밖(다른 탭·Discord 링크)에서 시작
+    const plan = db.activate(alice(), 91, { budgetPercent: 10 }); // 화면 밖(다른 탭·Discord 링크)에서 시작
     await act(() => client.invalidateQueries({ queryKey: ["orders"] })); // 5초 폴링 둘 중 주문 목록이 먼저
     const checking = (await screen.findByRole("button", { name: "SK하이닉스 주문 확인 중" })) as HTMLButtonElement;
     expect(checking.disabled).toBe(true);
@@ -725,7 +806,7 @@ describe("다른 화면과 잇기", () => {
   });
 
   it("내 주식: '취소'를 누른 순간 계획 목록을 다시 받아, 계획의 주문이면 취소하지 않고 '계획 보기'로 안내한다 (확인 없이 계획이 끝나지 않게)", async () => {
-    const plan = db.activate(alice(), 91, {});
+    const plan = db.activate(alice(), 91, { budgetPercent: 10 });
     let stale = true; // 처음 받은 계획 목록이 이 계획을 모른다 (다른 화면이 남긴 오래된 목록 등)
     server.use(http.get("*/api/trade-plans", () => (stale ? HttpResponse.json({ count: 0, results: [] }) : undefined)));
     renderApp("/portfolio?tab=orders");
@@ -741,7 +822,7 @@ describe("다른 화면과 잇기", () => {
   });
 
   it("내 주식: 자동매매의 매도 예약 취소는 확인을 거친다 — 취소하면 계획은 보유 감시를 계속하고, 포커스는 예약 목록 제목으로", async () => {
-    const plan = db.activate(alice(), 91, {});
+    const plan = db.activate(alice(), 91, { budgetPercent: 10 });
     db.setPrice("000660", 180_000); // 진입가 아래 → 다음 조회에서 체결
     db.getPlan(1, plan.id);
     db.options.marketOpen = { KR: false, US: false }; // 장이 닫혀 있으면 멈추기가 다음 장 시작 매도 예약이 된다
@@ -824,7 +905,7 @@ describe("다른 화면과 잇기", () => {
   });
 
   it("내 주식: 확인 시트로 자동매매의 매도 예약을 취소해도 시트가 닫힌 뒤 사라진 행 대신 이웃 행으로 포커스 (a11y-11)", async () => {
-    const plan = db.activate(alice(), 91, {});
+    const plan = db.activate(alice(), 91, { budgetPercent: 10 });
     db.setPrice("000660", 180_000); // 진입가 아래 → 다음 조회에서 체결
     db.getPlan(1, plan.id);
     db.options.marketOpen = { KR: false, US: false }; // 장이 닫혀 있으면 멈추기가 다음 장 시작 매도 예약이 된다

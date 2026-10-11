@@ -8,7 +8,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { keys } from "./api/queries";
 import type { Market, QuoteBasis, ReportDetail, ReportSummary, RiskPreview, TraceEvent } from "./api/types";
 import { ResearchCards } from "./components/reports/easy/ResearchCards";
-import { formatSignedKrw } from "./lib/format";
 import { AI_REVIEW_NOTE, DISCLAIMER, OPINION_TEXT, REPORT_FAILURE_TEXT, REPORT_KEEPS_RUNNING } from "./lib/plainText";
 import { SCENARIOS } from "./lib/reportExamples";
 import * as lib from "./lib/reports";
@@ -321,15 +320,16 @@ describe("쉬운 보기 — 리포트 상세", () => {
     expect(wrong.textContent).not.toContain("다시 봐야 한다");
     expect(screen.getByText(/이 리포트가 인용한 자료 3개: DART 반기보고서 · KRX 일봉 · 연합뉴스/)).toBeTruthy();
 
-    // 시나리오 세 칸: 리스크 미리 보기 금액 (이 계좌로 계산한 수량, 장마감 기준). 막힌 계획이라 '정했다'고 하지 않는다 — 금액이 막힌 이유(손익비)를 보여 준다
-    expect(preview.quantity).toBeGreaterThan(0);
+    // 시나리오 세 칸: 넣을 돈은 실행 확인에서 정하므로(2026-10-11 DECISIONS 28장) 금액 없는 리스크 미리 보기는 0주다 —
+    // 계좌 금액 대신 1주 기준 비율(비용 전)로 보인다 (lib/reports.ts scenarioOf, 매매 계획 카드와 같은 말)
+    expect(preview.quantity).toBe(0);
     const cases = await screen.findByRole("list", { name: "세 가지 경우" });
-    expect(await within(cases).findByText(formatSignedKrw(preview.expectedProfitKrw))).toBeTruthy();
-    expect(within(cases).getByText(formatSignedKrw(-preview.maxLossKrw))).toBeTruthy();
+    expect(await within(cases).findByText(/^\+\d+\.\d{2}%$/)).toBeTruthy();
+    expect(within(cases).getByText(/^-\d+\.\d{2}%$/)).toBeTruthy();
+    expect(within(cases).queryByText(/원$/)).toBeNull();
     expect(within(cases).getByText(`${rec.holdingDays}거래일 뒤`)).toBeTruthy();
     const scenarioCard = screen.getByRole("region", { name: "세 가지 경우" });
-    expect(within(scenarioCard).getByText(CLOSE_LABEL)).toBeTruthy();
-    expect(within(scenarioCard).getByText(`이 계획의 수량(${preview.quantity}주)으로 계산 · 수수료·세금 반영 — 지금은 안전장치가 실행을 막았어요`)).toBeTruthy();
+    expect(within(scenarioCard).getByText("1주 기준 비율 · 수수료·세금 빼기 전")).toBeTruthy();
 
     // 계획 미니의 '자세히'는 다른 화면으로 나가지 않고 아래 매매 계획 카드로 내려간다 (포커스도 그 카드로)
     const mini = screen.getByLabelText("계획 미니");

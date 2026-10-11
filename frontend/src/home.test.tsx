@@ -166,7 +166,7 @@ describe("홈 · 쉬운 보기 (주린이모드 켬)", () => {
 
   it("진행 중인 모의 자동매매는 쉬운 상태 이름과 출처", async () => {
     db.setInvestorProfile("alice", { beginnerMode: true });
-    db.activate(alice(), 91, {});
+    db.activate(alice(), 91, { budgetPercent: 10 });
     renderApp("/");
     const live = await screen.findByRole("list", { name: "진행 중인 모의 자동매매 목록" });
     const row = within(live).getByRole("link", { name: "SK하이닉스 모의 자동매매 보기" });
@@ -335,7 +335,7 @@ describe("홈 · 3단계 안내는 지금 단계를 따라간다", () => {
 
   it("계획을 하나라도 만들었으면 '3단계를 모두 해 봤어요' 한 줄과 닫기 버튼만", async () => {
     db.setInvestorProfile("alice", { beginnerMode: true });
-    db.activate(alice(), 91, {});
+    db.activate(alice(), 91, { budgetPercent: 10 });
     renderApp("/");
     const done = await screen.findByRole("region", { name: "3단계를 모두 해 봤어요" });
     expect(within(done).getByText("리포트 만들기 → 검토 → 모의 자동매매")).toBeTruthy();
@@ -390,7 +390,7 @@ describe("홈 · 3단계 안내는 지금 단계를 따라간다", () => {
   // 한 줄로 줄며 아래 내용이 수백 px 올라오고, 리포트가 있는 사람에게는 틀린 버튼·예시가 잠깐 보인다 — 지난번에 본 진행으로 먼저 그린다
   it("받기 전에는 지난번에 본 진행으로 그린다: 다 해 본 사람은 처음부터 한 줄", async () => {
     db.setInvestorProfile("alice", { beginnerMode: true });
-    db.activate(alice(), 91, {});
+    db.activate(alice(), 91, { budgetPercent: 10 });
     localStorage.setItem("home-guide-progress:1", "done");
     server.use(http.get("*/api/trade-plans", async () => void (await delay(150)))); // 계획이 늦게 온다 (그 뒤 원래 응답)
     const { client } = renderApp("/");
@@ -479,7 +479,7 @@ describe("홈 · 3단계 안내는 지금 단계를 따라간다", () => {
     expect(review.getAttribute("href")).toBe("/reports/1");
     expect(document.activeElement).toBe(review);
     // 계획을 만들었다 → '3단계를 모두 해 봤어요' 한 줄 (버튼이 없다) — 포커스는 그 제목으로
-    db.activate(db.sessionUser()!, 91, {});
+    db.activate(db.sessionUser()!, 91, { budgetPercent: 10 });
     await act(() => client.refetchQueries({ queryKey: keys.plans("all") }));
     const done = await screen.findByRole("region", { name: "3단계를 모두 해 봤어요" });
     expect(document.activeElement).toBe(within(done).getByRole("heading", { name: "3단계를 모두 해 봤어요" }));
@@ -578,7 +578,7 @@ describe("홈 · 받기 전 자리는 지난번에 본 만큼", () => {
     for (const rec of db.listRecommendations(me.id, { status: "open" })) {
       if (made === n) break;
       try {
-        db.activate(me, rec.id, {});
+        db.activate(me, rec.id, { budgetPercent: 10 });
         made++;
       } catch {
         // 활성화할 수 없는 추천은 건너뛴다

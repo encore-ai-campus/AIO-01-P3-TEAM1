@@ -572,15 +572,16 @@ describe("주문: 보유 방식(스윙·장기 보유)", () => {
     expect(screen.queryByRole("dialog", { name: "왜 샀나요?" })).toBeNull();
   });
 
-  it("장기 보유 중이면 '장기' 배지·자동 매도 없음·종가 기준 시각, 산 이유를 열 수 있다", async () => {
+  it("장기 보유 중이면 '장기' 배지·자동 매도 없음·현재가와 실시간 기준 시각, 산 이유를 열 수 있다", async () => {
     freezeTime(TUE_MORNING);
     renderApp("/stocks/068270");
     const panel = await screen.findByRole("region", { name: "주문" });
     expect(await within(panel).findByText("보유 중")).toBeTruthy();
     expect(within(panel).getByText("장기")).toBeTruthy();
     expect(within(panel).getByText("없음 (내가 팔 때까지 보유)")).toBeTruthy();
-    expect(within(panel).getByText("종가")).toBeTruthy();
-    expect(within(panel).getByText(KR_ASOF)).toBeTruthy();
+    expect(within(panel).getByText("현재가")).toBeTruthy(); // 보유 평가는 시세 (종목 화면 — 2026-10-11)
+    expect(within(panel).getByText(LIVE_ASOF)).toBeTruthy();
+    expect(within(panel).queryByText("종가")).toBeNull();
     // 산 이유가 이미 있으면 버튼은 "산 이유 보기·고치기" (펀더멘털 조회가 끝난 뒤)
     fireEvent.click(await within(panel).findByRole("button", { name: "산 이유 보기·고치기" }));
     const dialog = await screen.findByRole("dialog", { name: "왜 샀나요?" });
@@ -765,19 +766,30 @@ describe("새 계획 제안 · 실행 확인 (쉬운 보기)", () => {
     expect(screen.getByRole("button", { name: /다른 계획 2개/ })).toBeTruthy();
   });
 
-  it("예산 → 안전장치가 정한 수량·금액(장마감 기준) → 체크 셋을 모두 켜야 '모의 자동매매 시작'(acknowledged: true)", async () => {
+  it("넣을 돈(% 칩) → 이 금액으로 사는 수량·금액(장마감 기준) → 체크 셋을 모두 켜야 '모의 자동매매 시작'(acknowledged: true, 금액은 하나만)", async () => {
     freezeTime(TUE_MORNING);
     const seen = recordBodies("/activate");
     renderApp("/recommendations/91", "bob");
     expect(await screen.findByRole("heading", { name: "SK하이닉스 계획 제안" })).toBeTruthy();
-    const box = screen.getByRole("region", { name: "안전장치가 정한 수량" });
-    expect(await within(box).findByText(/^이 계좌로는 \d+주 · /)).toBeTruthy();
-    expect(screen.getByText("시작할 수 있음")).toBeTruthy(); // 머리 칩 = 안전장치 미리 보기 결과
-    expect(within(box).getByText(KR_ASOF)).toBeTruthy();
-    expect(within(box).getByText(/안전장치: 손절에 팔려도 계좌의 약 1%만 잃게 정했어요/)).toBeTruthy();
+    expect(screen.getByText("AI는 제안만 해요. 넣을 돈은 내가 정하고, 모의 자동매매를 시작할 수 있는지는 안전장치가 확인해요.")).toBeTruthy();
+    expect(await screen.findByText("시작할 수 있음")).toBeTruthy(); // 머리 칩 = 금액 없는 안전장치 미리 보기 결과
+    // 기본값 없음: 정하기 전에는 빈 상태·확인 칸 없음·꺼진 시작 버튼과 안내. 언제 사는지는 미리 보인다
+    expect(screen.getByText("얼마를 넣을까요?")).toBeTruthy();
+    const box = screen.getByRole("region", { name: "이 금액으로 사는 수량" });
+    expect(within(box).getByText("금액을 정하면 몇 주를 사는지 보여 드려요.")).toBeTruthy();
+    const start = screen.getByRole("button", { name: "모의 자동매매 시작" }) as HTMLButtonElement;
+    expect(start.disabled).toBe(true);
+    expect(screen.getByText("넣을 돈을 먼저 정해 주세요.")).toBeTruthy();
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
     expect(screen.getByText(/181,000원 이하가 될 때까지 .+까지만 기다려요/)).toBeTruthy();
 
-    const start = screen.getByRole("button", { name: "모의 자동매매 시작" }) as HTMLButtonElement;
+    fireEvent.click(screen.getByRole("button", { name: "10%" }));
+    expect(await within(box).findByText(/^이 금액으로 5주 · 905,000원$/, undefined, { timeout: 3000 })).toBeTruthy();
+    expect(within(box).getByText(KR_ASOF)).toBeTruthy();
+    expect(within(box).getByText(/^\(내 자산의 0\.\d+%\)$/)).toBeTruthy();
+    expect(within(box).getByText(/^내가 정한 금액으로 계산했어요\. 가격이 갑자기 크게 떨어지면 손실이 더 클 수도 있어요\.$/)).toBeTruthy();
+    expect(screen.queryByText("넣을 돈을 먼저 정해 주세요.")).toBeNull();
+
     const checks = screen.getAllByRole("checkbox");
     expect(checks).toHaveLength(3);
     expect(screen.getByLabelText(/^손절 가격\(173,000원\)에 팔리면 약 [\d,]+원을 잃어요/)).toBeTruthy();
@@ -792,66 +804,112 @@ describe("새 계획 제안 · 실행 확인 (쉬운 보기)", () => {
 
     expect(await screen.findByRole("heading", { name: "SK하이닉스 모의 자동매매" })).toBeTruthy();
     server.events.removeAllListeners();
-    expect(seen).toEqual([{ acknowledged: true }]);
+    expect(seen).toEqual([{ budgetPercent: 10, acknowledged: true }]);
     const steps = screen.getByRole("list", { name: "모의 자동매매 단계" });
     expect(within(steps).getByText("사는 가격 기다리는 중").closest("li")?.getAttribute("aria-current")).toBe("step");
     const events = screen.getByRole("list", { name: "계획 사건" });
-    expect(within(events).getByText(/^모의 계좌에서 181,000원 이하에 \d+주를 사는 주문을 넣었어요$/)).toBeTruthy();
-    expect(within(events).getByText("모의 자동매매를 시작했어요")).toBeTruthy();
+    expect(within(events).getByText(/^모의 계좌에서 181,000원 이하에 5주를 사는 주문을 넣었어요$/)).toBeTruthy();
+    expect(within(events).getByText(/^모의 자동매매를 시작했어요 \(넣은 돈: 내 자금의 10% · [\d,]+원\)$/)).toBeTruthy();
   });
 
-  it("예산을 바꿔 금액이 바뀌면 체크를 다시 해야 한다", async () => {
+  it("넣을 돈을 바꿔 금액이 바뀌면 체크를 다시 해야 한다", async () => {
     renderApp("/recommendations/91", "bob");
-    const box = await screen.findByRole("region", { name: "안전장치가 정한 수량" });
-    await within(box).findByText(/^이 계좌로는/);
+    const box = await screen.findByRole("region", { name: "이 금액으로 사는 수량" });
+    fireEvent.click(await screen.findByRole("button", { name: "10%" }));
+    await within(box).findByText(/^이 금액으로 5주/, undefined, { timeout: 3000 });
     for (const c of screen.getAllByRole("checkbox")) fireEvent.click(c);
     const start = screen.getByRole("button", { name: "모의 자동매매 시작" }) as HTMLButtonElement;
     await waitFor(() => expect(start.disabled).toBe(false));
-    fireEvent.change(screen.getByLabelText("예산 (원, 선택)"), { target: { value: "1,000,000" } });
-    await waitFor(() => expect(within(box).getByText(/이 계좌로는 5주/)).toBeTruthy(), { timeout: 3000 });
+    fireEvent.click(screen.getByRole("button", { name: "25%" }));
+    await waitFor(() => expect(within(box).getByText(/이 금액으로 14주/)).toBeTruthy(), { timeout: 3000 });
     await waitFor(() => expect(screen.getAllByRole("checkbox").every((c) => !(c as HTMLInputElement).checked)).toBe(true));
     expect(start.disabled).toBe(true);
     // 말없이 지워지면 '고장'으로 읽힌다: 왜 지워졌는지 한 번 알린다 (trade-16)
     expect(screen.getByText(/^금액이 바뀌어 다시 확인해 주세요 · 손절 시 약 [\d,]+원 → [\d,]+원$/)).toBeTruthy();
   });
 
-  it("예산을 지워 금액이 처음 값으로 돌아와도 체크는 다시 해야 한다 (확인 상태가 남지 않는다)", async () => {
+  it("금액이 처음 값으로 돌아와도(A → B → A) 체크는 다시 해야 하고, 금액을 지우면 다시 '먼저 정해 주세요'", async () => {
     renderApp("/recommendations/91", "bob");
-    const box = await screen.findByRole("region", { name: "안전장치가 정한 수량" });
-    const first = (await within(box).findByText(/^이 계좌로는/)).textContent ?? "";
+    const box = await screen.findByRole("region", { name: "이 금액으로 사는 수량" });
+    const input = (await screen.findByLabelText("직접 입력 (%)")) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "10" } });
+    expect(screen.getByRole("button", { name: "10%" }).getAttribute("aria-pressed")).toBe("true"); // 칩은 입력 칸과 같은 값
+    const first = (await within(box).findByText(/^이 금액으로/, undefined, { timeout: 3000 })).textContent ?? "";
     for (const c of screen.getAllByRole("checkbox")) fireEvent.click(c);
     const start = screen.getByRole("button", { name: "모의 자동매매 시작" }) as HTMLButtonElement;
     await waitFor(() => expect(start.disabled).toBe(false));
-    const budget = screen.getByLabelText("예산 (원, 선택)");
-    fireEvent.change(budget, { target: { value: "1,000,000" } });
-    await waitFor(() => expect(within(box).getByText(/이 계좌로는 5주/)).toBeTruthy(), { timeout: 3000 });
-    fireEvent.change(budget, { target: { value: "" } });
-    await waitFor(() => expect(within(box).getByText(/^이 계좌로는/).textContent).toBe(first), { timeout: 3000 });
+    fireEvent.change(input, { target: { value: "25" } });
+    await waitFor(() => expect(within(box).getByText(/이 금액으로 14주/)).toBeTruthy(), { timeout: 3000 });
+    fireEvent.change(input, { target: { value: "10" } });
+    await waitFor(() => expect(within(box).getByText(/^이 금액으로/).textContent).toBe(first), { timeout: 3000 });
     await waitFor(() => expect(box.getAttribute("aria-busy")).toBe("false"), { timeout: 3000 });
     expect(screen.getAllByRole("checkbox").every((c) => !(c as HTMLInputElement).checked)).toBe(true);
     expect(start.disabled).toBe(true);
     expect(screen.getByText("위의 확인 셋을 모두 켜면 시작할 수 있어요.")).toBeTruthy();
     // 처음 금액으로 돌아왔으면 'A → A' 같은 안내는 남기지 않는다
     expect(screen.queryByText(/^금액이 바뀌어 다시 확인해 주세요/)).toBeNull();
+    // 지우면 정하기 전으로 (확인 칸·미리 보기가 사라지고 버튼 아래 안내)
+    fireEvent.change(input, { target: { value: "" } });
+    expect(within(box).getByText("금액을 정하면 몇 주를 사는지 보여 드려요.")).toBeTruthy();
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+    expect(screen.getByText("넣을 돈을 먼저 정해 주세요.")).toBeTruthy();
+    // 범위 밖 %는 입력 아래 오류 (요청을 보내지 않는다)
+    fireEvent.change(input, { target: { value: "150" } });
+    expect(screen.getByText("1~100 사이의 정수로 입력해 주세요.")).toBeTruthy();
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(start.disabled).toBe(true);
   });
 
   it("'금액이 바뀌어 다시 확인' 안내가 떠 있는 채로 금액이 또 바뀌면 안내도 지금 금액으로 (확인한 금액 → 지금 금액)", async () => {
     renderApp("/recommendations/91", "bob");
-    const box = await screen.findByRole("region", { name: "안전장치가 정한 수량" });
-    // 미리 보기가 처음 도착한 것은 '바뀐 금액'이 아니다 → 중립 강조 없음. 예산으로 바뀐 뒤에만 강조
-    expect((await within(box).findByText(/^이 계좌로는/)).className).not.toContain("animate-flash-neutral");
+    const box = await screen.findByRole("region", { name: "이 금액으로 사는 수량" });
+    fireEvent.click(await screen.findByRole("button", { name: "10%" }));
+    // 미리 보기가 처음 도착한 것은 '바뀐 금액'이 아니다 → 중립 강조 없음. 넣을 돈을 바꾼 뒤에만 강조
+    expect((await within(box).findByText(/^이 금액으로/, undefined, { timeout: 3000 })).className).not.toContain("animate-flash-neutral");
     for (const c of screen.getAllByRole("checkbox")) fireEvent.click(c);
-    const budget = screen.getByLabelText("예산 (원, 선택)");
-    fireEvent.change(budget, { target: { value: "1,000,000" } });
-    await waitFor(() => expect(within(box).getByText(/이 계좌로는 5주/)).toBeTruthy(), { timeout: 3000 });
-    expect(within(box).getByText(/이 계좌로는 5주/).className).toContain("animate-flash-neutral"); // 방향 없는 중립 강조 (파랑·빨강 아님)
-    expect(within(box).getByText(/이 계좌로는 5주/).className).not.toMatch(/animate-flash-(up|down)/);
-    const [, from, five] =screen.getByText(/^금액이 바뀌어 다시 확인해 주세요/).textContent!.match(/약 ([\d,]+원) → ([\d,]+원)$/)!;
-    fireEvent.change(budget, { target: { value: "600,000" } });
-    await waitFor(() => expect(within(box).getByText(/이 계좌로는 3주/)).toBeTruthy(), { timeout: 3000 });
+    fireEvent.click(screen.getByRole("button", { name: "25%" }));
+    await waitFor(() => expect(within(box).getByText(/이 금액으로 14주/)).toBeTruthy(), { timeout: 3000 });
+    expect(within(box).getByText(/이 금액으로 14주/).className).toContain("animate-flash-neutral"); // 방향 없는 중립 강조 (파랑·빨강 아님)
+    expect(within(box).getByText(/이 금액으로 14주/).className).not.toMatch(/animate-flash-(up|down)/);
+    const [, from, second] = screen.getByText(/^금액이 바뀌어 다시 확인해 주세요/).textContent!.match(/약 ([\d,]+원) → ([\d,]+원)$/)!;
+    fireEvent.change(screen.getByLabelText("직접 입력 (%)"), { target: { value: "15" } });
+    await waitFor(() => expect(within(box).getByText(/이 금액으로 8주/)).toBeTruthy(), { timeout: 3000 });
     const note = screen.getByText(/^금액이 바뀌어 다시 확인해 주세요/).textContent!;
     expect(note).toContain(`약 ${from} → `);
-    expect(note).not.toContain(`→ ${five}`);
+    expect(note).not.toContain(`→ ${second}`);
+  });
+
+  it("넣을 돈이 한도를 넘으면 줄이지 않고 계획 문장으로 막는다 — 입력은 그대로 고칠 수 있다 (cash_short·total_limit)", async () => {
+    renderApp("/recommendations/91", "bob");
+    fireEvent.click(await screen.findByRole("button", { name: "금액(원)" }));
+    const amount = screen.getByLabelText("넣을 금액 (원)") as HTMLInputElement;
+    expect(amount.value).toBe("");
+    fireEvent.change(amount, { target: { value: "20,000,000" } });
+    const reasons = await screen.findByRole("list", { name: "시작할 수 없는 이유" }, { timeout: 3000 });
+    expect(within(reasons).getByText("넣을 돈이 매수 가능 금액보다 많아요")).toBeTruthy();
+    expect(within(reasons).getByText("모의 자동매매에 넣을 수 있는 총 금액 한도를 넘어요")).toBeTruthy();
+    expect(screen.getByText("위에서 넣을 돈을 바꾸면 다시 계산해요.")).toBeTruthy();
+    expect(screen.getByText(/^매수 가능 금액 [\d,]+원 중 20,000,000원 \(\d+\.\d%\)$/)).toBeTruthy();
+    expect(amount.value).toBe("20,000,000");
+    expect((screen.getByRole("button", { name: "모의 자동매매 시작" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole("link", { name: /다른 계획 제안 보기/ })).toBeNull();
+    // 같은 사유 코드라도 장기 매수 주문 화면의 문장은 그대로다 (lib/plainText.ts ReasonContext)
+    expect(screen.queryByText("매수 가능 금액보다 사려는 금액이 커요")).toBeNull();
+    // 막혔을 때는 사유 상자가 말한다 — 손실 경고('막지 않는다')를 같이 보이지 않는다
+    expect(screen.queryByText(/^손절되면 내 자산의/)).toBeNull();
+  });
+
+  it("손절 시 손실이 내 자산의 1%를 넘으면 경고 한 줄 — 막지 않는다 (largeLoss)", async () => {
+    renderApp("/recommendations/91", "bob");
+    fireEvent.click(await screen.findByRole("button", { name: "25%" }));
+    expect(
+      await screen.findByText(/^손절되면 내 자산의 1\.\d%를 잃어요\. 안전장치 기준\(1%\)보다 커요\. 금액을 줄이면 손실도 줄어요\.$/, undefined, { timeout: 3000 }),
+    ).toBeTruthy();
+    for (const c of screen.getAllByRole("checkbox")) fireEvent.click(c);
+    await waitFor(() => expect((screen.getByRole("button", { name: "모의 자동매매 시작" }) as HTMLButtonElement).disabled).toBe(false));
+    // 금액을 줄이면 경고가 사라진다
+    fireEvent.click(screen.getByRole("button", { name: "10%" }));
+    await waitFor(() => expect(screen.queryByText(/^손절되면 내 자산의/)).toBeNull(), { timeout: 3000 });
   });
 
   it("장이 닫혀 있으면 다음 장 시작 안내 (opensAt)", async () => {
@@ -865,9 +923,9 @@ describe("새 계획 제안 · 실행 확인 (쉬운 보기)", () => {
     renderApp("/recommendations/93", "bob");
     const reasons = await screen.findByRole("list", { name: "시작할 수 없는 이유" });
     expect(within(reasons).getByText("지금은 새 모의 매수를 멈춰 두었어요")).toBeTruthy();
-    // 시작할 수 없으면 예산·확인 칸·시작 버튼 대신 이유와 '다른 계획 제안 보기' (UX-2). 머리 칩도 같은 말을 한다 (기한이 남았다고 '시작할 수 있음'이라 하지 않는다)
+    // 시작할 수 없으면 넣을 돈·확인 칸·시작 버튼 대신 이유와 '다른 계획 제안 보기' (UX-2). 머리 칩도 같은 말을 한다 (기한이 남았다고 '시작할 수 있음'이라 하지 않는다)
     expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
-    expect(screen.queryByLabelText("예산 (원, 선택)")).toBeNull();
+    expect(screen.queryByRole("group", { name: "넣을 돈 정하는 방식" })).toBeNull();
     expect(screen.queryByRole("button", { name: "모의 자동매매 시작" })).toBeNull();
     expect(screen.getByRole("link", { name: /다른 계획 제안 보기/ }).getAttribute("href")).toBe("/recommendations");
     expect(await screen.findByText("지금은 시작할 수 없음")).toBeTruthy();
@@ -876,7 +934,8 @@ describe("새 계획 제안 · 실행 확인 (쉬운 보기)", () => {
 
   it("활성화 400(장중 확인 price_passed)은 쉬운 문장으로", async () => {
     renderApp("/recommendations/91", "bob");
-    await within(await screen.findByRole("region", { name: "안전장치가 정한 수량" })).findByText(/^이 계좌로는/);
+    fireEvent.click(await screen.findByRole("button", { name: "10%" }));
+    await within(await screen.findByRole("region", { name: "이 금액으로 사는 수량" })).findByText(/^이 금액으로/, undefined, { timeout: 3000 });
     // 미리 보기를 본 뒤 장중 가격이 목표가(203,000원)를 넘었다 — 활성화의 장중 확인이 막는다
     db.setPrice("000660", 210_000);
     for (const c of screen.getAllByRole("checkbox")) fireEvent.click(c);
@@ -890,7 +949,7 @@ describe("새 계획 제안 · 실행 확인 (쉬운 보기)", () => {
 
 describe("모의 자동매매 상세 (쉬운 보기)", () => {
   it("체결 대기 중 멈추기: 대화상자 문구 → 쉬운 문장 토스트", async () => {
-    const plan = db.activate(userOf("bob"), 91, { acknowledged: true });
+    const plan = db.activate(userOf("bob"), 91, { budgetPercent: 10, acknowledged: true });
     renderApp(`/plans/${plan.id}`, "bob");
     expect(await screen.findByRole("heading", { name: "SK하이닉스 모의 자동매매" })).toBeTruthy();
     expect(screen.getByText("사는 가격 이하가 되면 모의 계좌에서 사요")).toBeTruthy();
@@ -903,7 +962,7 @@ describe("모의 자동매매 상세 (쉬운 보기)", () => {
   });
 
   it("보유 중 멈추기는 '지금 가지고 있는 ○주를 모두 팔고 끝낼까요?'", async () => {
-    const plan = db.activate(userOf("bob"), 91, {});
+    const plan = db.activate(userOf("bob"), 91, { budgetPercent: 10 });
     db.setPrice("000660", 180_000); // 진입가 아래 → 지정가 체결
     renderApp(`/plans/${plan.id}`, "bob");
     await screen.findByText("목표·손절을 지켜보는 중", { selector: "span" });
@@ -917,7 +976,7 @@ describe("모의 자동매매 상세 (쉬운 보기)", () => {
   });
 
   it("진행 중: 도는 스피너 대신 차분한 점과 알림 약속, 가격 사다리와 '사는 가격까지 얼마나' (지금 가격 기준 · 실시간)", async () => {
-    const plan = db.activate(userOf("bob"), 91, {});
+    const plan = db.activate(userOf("bob"), 91, { budgetPercent: 10 });
     renderApp(`/plans/${plan.id}`, "bob");
     expect(await screen.findByText("자동으로 새로 받아요 · 단계가 바뀌면 알림으로 알려 드려요")).toBeTruthy();
     expect(screen.queryByText(/5초마다/)).toBeNull(); // 구현 세부는 title로만
@@ -1332,28 +1391,31 @@ const report = (patch: Partial<PlanCardProps["report"]> = {}): PlanCardProps["re
 });
 
 describe("매매 계획 카드 (docs/컨셉변경계획.md 4-5)", () => {
-  it("실행 가능: 이 계좌 기준 금액(장마감 기준)과 '실행 준비'", async () => {
+  it("실행 가능: 넣을 돈은 실행 확인에서 정하므로 계좌 금액(0주) 대신 계획의 목표·손절 비율(1주 기준, 비용 전)과 '실행 준비'", async () => {
     freezeTime(TUE_MORNING);
     renderCard({ report: report() });
     const card = await screen.findByRole("region", { name: "매매 계획" });
     await waitFor(() => expect(card.getAttribute("data-state")).toBe("ready"));
-    expect(within(card).getByText(/^이 계좌로는 \d+주 · [\d,]+원$/)).toBeTruthy();
+    expect(within(card).getByText("넣을 돈은 실행 확인에서 정해요")).toBeTruthy();
+    expect(within(card).getByText("1주 기준 비율 · 수수료·세금 빼기 전")).toBeTruthy(); // '세 가지 경우'의 1주 기준 칸과 같은 말
     expect(within(card).getByText("목표에 팔면")).toBeTruthy();
-    expect(within(card).getByText(KR_ASOF)).toBeTruthy();
+    expect(within(card).getByText("+12.15%")).toBeTruthy(); // 203,000 / 181,000 − 1
+    expect(within(card).getByText("-4.42%")).toBeTruthy(); // 173,000 / 181,000 − 1
+    expect(within(card).queryByText(/0주|이 계좌로는/)).toBeNull();
     expect(within(card).getByRole("link", { name: /실행 준비/ }).getAttribute("href")).toBe("/recommendations/91");
   });
 
-  it("계획 미니: 손절 시 손실·목표 이익·실행 준비 한 줄", async () => {
+  it("계획 미니: 손절·목표 비율과 실행 준비 한 줄", async () => {
     renderCard({ report: report(), variant: "mini" });
     const mini = await screen.findByLabelText("계획 미니");
     await waitFor(() => expect(mini.getAttribute("data-state")).toBe("ready"));
-    expect(within(mini).getByText(/^-[\d,]+원$/)).toBeTruthy();
-    expect(within(mini).getByText(/^\+[\d,]+원$/)).toBeTruthy();
+    expect(within(mini).getByText("-4.42%")).toBeTruthy();
+    expect(within(mini).getByText("+12.15%")).toBeTruthy();
     expect(within(mini).getByRole("link", { name: "실행 준비" })).toBeTruthy();
   });
 
   it("실행 불가: 사유 코드 문장, 진행 중인 계획이 있으면 보기 링크", async () => {
-    const plan = db.activate(userOf("bob"), 91, {});
+    const plan = db.activate(userOf("bob"), 91, { budgetPercent: 10 });
     renderCard({ report: report() });
     const card = await screen.findByRole("region", { name: "매매 계획" });
     await waitFor(() => expect(card.getAttribute("data-state")).toBe("blocked"));

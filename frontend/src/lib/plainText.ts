@@ -188,7 +188,7 @@ export const REASON_TEXT: Record<ReasonCode, string> = {
   daily_trades_limit: "오늘 할 수 있는 주문 수를 다 썼어요. 내일 다시 할 수 있어요",
   warning_stock: "투자경고 같은 매수 유의 종목이라 안전장치가 막았어요",
   size_too_small: "안전장치가 정한 수량이 1주도 안 돼요(계좌 크기에 비해 손절 폭이 커요)",
-  budget_too_small: "예산으로는 1주도 살 수 없어요",
+  budget_too_small: "이 금액으로는 1주도 살 수 없어요",
   expired: "이 계획은 기한이 끝났어요. 가격이 바뀌었을 수 있으니 새로 만들어 보세요",
   plan_exists: "이미 이 종목으로 진행 중인 계획이 있어요",
   position_exists: "이미 이 종목의 모의 주문이나 보유가 있어요(한 종목은 하나만 진행해요)",
@@ -200,6 +200,18 @@ export const REASON_TEXT: Record<ReasonCode, string> = {
 };
 
 export const isReasonCode = (code: string): code is ReasonCode => code in REASON_TEXT;
+
+/**
+ * 사유 문장을 고르는 문맥: order = 장기 매수 주문(POST /api/orders long — assess_position), plan = 계획 미리 보기·활성화(assess_budget).
+ * 같은 코드(cash_short·total_limit)를 두 곳이 쓰지만 계획에서는 '내가 정한 금액(넣을 돈)'을 말한다 (2026-10-11 DECISIONS 28장).
+ */
+export type ReasonContext = "order" | "plan";
+
+/** 계획 문맥에서만 다른 문장 (없는 코드는 REASON_TEXT 그대로). */
+export const PLAN_REASON_TEXT: Partial<Record<ReasonCode, string>> = {
+  cash_short: "넣을 돈이 매수 가능 금액보다 많아요",
+  total_limit: "모의 자동매매에 넣을 수 있는 총 금액 한도를 넘어요",
+};
 
 /**
  * 목록 카드의 '지금은 시작할 수 없음 · …' 뒤에 붙는 한 마디 (Recommendation.blockedBy — 계좌와 무관한 사유만, DECISIONS 23장).
@@ -243,18 +255,18 @@ export function blockedShort(codes: readonly string[] | null | undefined, easy =
   return w ? (easy ? w.easy : w.expert) : reasonSentence(code);
 }
 
-/** 사유 코드 → 쉬운 문장. 모르는 코드면 같은 자리의 원문(fallback), 그것도 없으면 코드 그대로. */
-export function reasonSentence(code: string | null | undefined, fallback?: string | null): string {
-  if (code && isReasonCode(code)) return REASON_TEXT[code];
+/** 사유 코드 → 쉬운 문장. 모르는 코드면 같은 자리의 원문(fallback), 그것도 없으면 코드 그대로. context가 plan이면 계획 문장(PLAN_REASON_TEXT)을 먼저. */
+export function reasonSentence(code: string | null | undefined, fallback?: string | null, context: ReasonContext = "order"): string {
+  if (code && isReasonCode(code)) return (context === "plan" ? PLAN_REASON_TEXT[code] : undefined) ?? REASON_TEXT[code];
   return fallback || code || "";
 }
 
 /** reasonCodes와 원문 reasons(같은 길이·순서)를 쉬운 문장 목록으로 (같은 문장은 한 번만). 코드가 모자라면 원문을 그대로. */
-export function reasonSentences(codes: readonly string[] | null | undefined, raws: readonly string[] = []): string[] {
+export function reasonSentences(codes: readonly string[] | null | undefined, raws: readonly string[] = [], context: ReasonContext = "order"): string[] {
   const out: string[] = [];
   const n = Math.max(codes?.length ?? 0, raws.length);
   for (let i = 0; i < n; i++) {
-    const s = reasonSentence(codes?.[i], raws[i]);
+    const s = reasonSentence(codes?.[i], raws[i], context);
     if (s && !out.includes(s)) out.push(s);
   }
   return out;
@@ -264,9 +276,9 @@ export function reasonSentences(codes: readonly string[] | null | undefined, raw
  * 400 {detail, reasonCodes} 오류 → 쉬운 사유 문장 목록. 사유 코드가 없는 오류(입력 오류 등)는 null —
  * 그때는 ApiError.detail을 그대로 보인다.
  */
-export function rejectionSentences(err: unknown): string[] | null {
+export function rejectionSentences(err: unknown, context: ReasonContext = "order"): string[] | null {
   if (!isBlocked(err)) return null;
-  return reasonSentences(err.reasonCodes, err.detail.split("; "));
+  return reasonSentences(err.reasonCodes, err.detail.split("; "), context);
 }
 
 /** 오류를 화면 한 줄로: 실행 불가 사유면 쉬운 문장을 이어서, 아니면 서버 detail. */
@@ -343,11 +355,23 @@ export function planEventSentence(e: Pick<PlanEvent, "kind" | "details" | "messa
   const price = (v: unknown) => formatPrice(numOf(v), currency);
   switch (e.kind) {
     case "activated": {
+      // 2026-10-11부터 넣을 돈(budgetMode·budgetPercent·budgetKrw)을 남긴다. 그 전 계획은 선택 예산(budgetKrw)만
       const budget = numOf(d.budgetKrw);
-      return `모의 자동매매를 시작했어요${budget ? ` (예산 ${formatKrw(budget)})` : ""}`;
+      const percent = numOf(d.budgetPercent);
+      const put =
+        d.budgetMode === "percent" && percent !== null
+          ? ` (넣은 돈: 내 자금의 ${percent}%${budget !== null ? ` · ${formatKrw(budget)}` : ""})`
+          : d.budgetMode === "amount" && budget !== null
+            ? ` (넣은 돈: ${formatKrw(budget)})`
+            : budget
+              ? ` (예산 ${formatKrw(budget)})`
+              : "";
+      return `모의 자동매매를 시작했어요${put}`;
     }
     case "risk_checked":
       if (d.approved === false) return "안전장치가 모의 주문을 막았어요";
+      // 2026-10-11부터 수량은 내가 정한 금액으로 계산하고 안전장치는 한도를 점검만 한다 (limitedBy "내가 정한 금액")
+      if (d.limitedBy === "내가 정한 금액" && qty !== null) return `넣은 돈으로 모의 주문 수량 ${formatQty(qty)}를 계산했고, 안전장치가 한도를 확인했어요`;
       return qty !== null ? `안전장치가 모의 주문 수량을 ${formatQty(qty)}로 정했어요` : "안전장치가 모의 주문 수량을 정했어요";
     case "order_placed":
       if (qty === null || numOf(d.limitPrice) === null) break;

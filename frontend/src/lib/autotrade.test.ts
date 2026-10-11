@@ -2,12 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import type { PlanEvent, TradePlan } from "../api/types";
 import {
   STICKY_FIT_TOP,
+  budgetParams,
   checkDiscordId,
   easySteps,
   ladderDistances,
   nextActionOf,
   otherKinds,
   parseBudget,
+  percentToKrw,
   plansByOrder,
   planWorkflow,
   priceLadder,
@@ -120,11 +122,27 @@ describe("입력·시각", () => {
     expect(checkDiscordId("abc").error).toBe("Discord 사용자 ID는 숫자만 입력합니다.");
   });
 
-  it("parseBudget: 쉼표·원 허용, 0 이하는 오류", () => {
+  it("parseBudget(금액): 쉼표·원 허용, 원 미만은 버림, 0 이하는 오류", () => {
     expect(parseBudget("1,000,000원")).toEqual({ value: 1_000_000, error: null });
+    expect(parseBudget("1,000,000원", "amount")).toEqual({ value: 1_000_000, error: null });
+    expect(parseBudget("1500.7", "amount")).toEqual({ value: 1500, error: null });
     expect(parseBudget("")).toEqual({ value: null, error: null });
     expect(parseBudget("0").error).toBeTruthy();
     expect(parseBudget("abc").error).toBeTruthy();
+  });
+
+  it("parseBudget(%): 1~100 정수만 ('%' 허용), 비우면 정하지 않음", () => {
+    expect(parseBudget("25", "percent")).toEqual({ value: 25, error: null });
+    expect(parseBudget(" 100% ", "percent")).toEqual({ value: 100, error: null });
+    expect(parseBudget("", "percent")).toEqual({ value: null, error: null });
+    for (const bad of ["0", "101", "12.5", "abc", "-5"]) expect(parseBudget(bad, "percent"), bad).toEqual({ value: null, error: "1~100 사이의 정수로 입력해 주세요." });
+  });
+
+  it("budgetParams: 요청에는 budgetPercent·budgetKrw 중 하나만, percentToKrw는 원 단위로 내림 (서버와 같은 계산)", () => {
+    expect(budgetParams({ mode: "percent", value: 25 })).toEqual({ budgetPercent: 25 });
+    expect(budgetParams({ mode: "amount", value: 1_000_000 })).toEqual({ budgetKrw: 1_000_000 });
+    expect(percentToKrw(6_282_505, 25)).toBe(1_570_626);
+    expect(percentToKrw(-10, 50)).toBe(0); // 매수 가능 금액이 음수면 0
   });
 });
 
@@ -169,6 +187,8 @@ describe("모의투자 화면 도우미", () => {
     expect(nextActionOf(["halted"])).toBeNull();
     expect(nextActionOf(["daily_loss_limit"])).toBeNull();
     expect(nextActionOf(["budget_too_small"])).toBeNull();
+    // 넣을 돈 때문에 막힌 것은 금액을 고치면 풀린다 — 다른 화면으로 보내지 않는다 (2026-10-11)
+    expect(nextActionOf(["cash_short", "total_limit"])).toBeNull();
     expect(nextActionOf([])).toBeNull();
   });
 

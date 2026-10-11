@@ -639,21 +639,34 @@ export type ReasonCode =
   | "position_limit"
   | "total_limit";
 
-/** 리스크 엔진이 "내 계좌"로 계산한 결과 (활성화 전 확인용). 가격·자산은 장마감 기준. */
+/** 넣을 돈을 정한 방식 (2026-10-11, docs/DECISIONS.md 28장): percent = 매수 가능 금액의 %, amount = 원. */
+export type BudgetMode = "percent" | "amount";
+
+/**
+ * 리스크 엔진이 "내 계좌"로 계산한 결과 (활성화 전 확인용). 자산은 장마감 기준.
+ * 2026-10-11: 수량 = 내가 정한 금액 ÷ 1주 매수 비용(진입가 × (1 + 수수료) × 환율). 금액이 없으면 크기 계산 없이 점검만
+ * (quantity·amountKrw·expectedProfitKrw·maxLossKrw 0, limitedBy·maxLossRate null, largeLoss false).
+ */
 export interface RiskPreview {
-  approved: boolean; // 리스크 엔진 통과
-  activatable: boolean; // approved && 추천이 open && 같은 종목 진행 중 계획·주문 없음 && 중단 스위치 꺼짐
+  approved: boolean; // 리스크 엔진 통과 (금액이 없으면 크기와 무관한 점검만)
+  activatable: boolean; // approved && 추천이 open && 같은 종목 진행 중 계획·주문 없음 && 중단 스위치 꺼짐 (금액이 없으면 "금액만 정하면 시작 가능")
   reasons: string[]; // 활성화할 수 없는 사유 (activatable이면 [])
   reasonCodes: string[]; // reasons[i]의 코드 = reasonCodes[i] (같은 길이·같은 순서). 값은 ReasonCode
   quantity: number; // 주문할 수량 (국내는 정수 주)
   amountKrw: number; // 매수 금액 (원화 환산)
   expectedProfitKrw: number; // 목표가 도달 시 이익 (비용 반영)
   maxLossKrw: number; // 손절 시 손실 (비용 반영, 양수)
-  limitedBy: string; // "건당 위험 한도" | "매수 가능 금액" | "총 금액 한도" | "유동성 한도" | "예산"
-  budgetKrw: number | null;
+  limitedBy: string | null; // "내가 정한 금액" (2026-10-11). 금액이 없으면 null
+  budgetMode: BudgetMode | null; // 요청이 budgetPercent면 "percent", budgetKrw면 "amount", 없으면 null
+  budgetPercent: number | null; // 요청한 % (1~100 정수, 매수 가능 금액 기준)
+  budgetKrw: number | null; // 내가 정한 금액 (원). percent면 floor(buyingPowerKrw × % / 100)
+  buyingPowerKrw: number; // 매수 가능 금액 = 현금 − 대기 매수 (음수면 0). budgetPercent의 기준
+  equityKrw: number; // 총자산 (장마감 기준). maxLossRate의 분모
+  maxLossRate: number | null; // maxLossKrw ÷ equityKrw. 금액이 없거나 총자산이 0 이하면 null
+  largeLoss: boolean; // 손절 시 손실이 총자산의 1%를 넘음 — 경고만 (막지 않는다)
   lastPrice: number | null; // 직전 정규장 종가 (못 받으면 null). 목표가·손절가와 비교하는 가격 (price_passed)
   lastPriceAsOf: string | null; // lastPrice의 기준 시각 (Quote.asOf와 같은 규칙)
-  priceBasis: "close"; // 가격 기준. 지금은 "close" 하나뿐
+  priceBasis: "close"; // 가격 기준. 지금은 "close" 하나뿐 (총자산 평가 — 수량·금액은 진입가로 계산)
 }
 
 export type TradePlanStatus = "active" | "entry_pending" | "holding" | "closed" | "cancelled" | "expired" | "failed";
@@ -669,7 +682,9 @@ export interface TradePlan {
   status: TradePlanStatus;
   via: "web" | "discord";
   quantity: number;
-  budgetKrw: number | null;
+  budgetMode: BudgetMode | null; // 2026-10-11. null = 그 전에 활성화한 계획 (리스크 엔진이 수량을 정함)
+  budgetPercent: number | null; // percent면 그 % (매수 가능 금액 기준)
+  budgetKrw: number | null; // 내가 정한 금액 (원, percent면 활성화 순간 바꾼 값)
   entryPrice: number;
   targetPrice: number;
   stopPrice: number;
@@ -754,7 +769,9 @@ export interface NotificationTestResult {
 }
 
 /** POST /api/recommendations/{id}/activate 본문. acknowledged: 실행 확인 체크리스트를 모두 켰는지 (없으면 false). */
+/** budgetPercent(1~100 정수)와 budgetKrw(원) 중 하나가 필수 (2026-10-11). */
 export interface ActivateRequest {
+  budgetPercent?: number;
   budgetKrw?: number;
   token?: string; // Discord 활성화 링크의 ?t=
   acknowledged?: boolean;

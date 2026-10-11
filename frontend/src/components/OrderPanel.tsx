@@ -3,7 +3,9 @@
 //   layout "inline" — 쉬운 보기: 본문 안 '직접 주문(고급)'을 펼친 곳
 // 상태별 본문: 매수 입력(보유 방식 스윙·장기 보유) · 보유(전량 매도 — 쉬운 보기 '모두 팔기') · 체결 대기(취소) · 매수 예약(취소).
 // - 결과 토스트: 전문가 보기는 서버 원문, 쉬운 보기는 응답 숫자로 만든 정해진 문장 (lib/orderText — "모의 계좌에서 카카오 1주를 32,450원에 샀어요").
-// - 오늘 산 보유(Position.priceBasis "today_fill")는 종가·손익 대신 "오늘 산 종목 · 장 마감(15:40) 뒤에 평가돼요".
+// - 보유 평가(평가 금액·손익·수익률)는 시세(stock.quote, 5초)와 체결가·수량으로 종목 통화로 계산한다 (lib/holding — 계획 화면의 현재 손익과 같은 식).
+//   오늘 산 종목도 실시간 숫자다. 시세 가격을 받지 못하면(또는 오늘 산 종목인데 시세가 직전 종가면) 장마감 기준 Position 값:
+//   오늘 산 보유(Position.priceBasis "today_fill")는 종가·손익 대신 "오늘 산 종목 · 장 마감(15:40) 뒤에 평가돼요".
 // - 주문이 접수돼 상태가 바뀌면 새 본문이 페이드로 들어오고, 누른 버튼이 사라졌으면 새 본문 제목으로 포커스를 옮긴다 (키보드·화면 읽기 사용자가 자리를 잃지 않게).
 // - dock: [문제 문구 · 예상 금액 · 매수 버튼]을 스크롤 영역 바닥에 붙인다 — 입력 → 금액 확인 → 제출이 늘 엄지 영역에 있고, 버튼이 화면 밖으로 밀리지 않는다.
 // - 쉬운 보기(easy): 매수 전에 확인 상자(무엇을·얼마에·언제)를 거치고, 라벨 옆 용어를 눌러 풀이를 본다.
@@ -16,7 +18,7 @@ import { api, errorMessage } from "../api/client";
 import { useFundamentals } from "../api/longterm";
 import { useMarket } from "../api/queries";
 import { type SymbolState, useRefreshTrading, useSymbolTrading } from "../api/trading";
-import type { HoldingStyle, Market, MarketStatus, Order, OrderRequest, OrderResult, Position, PricesAsOf, Reservation, StockDetail } from "../api/types";
+import type { HoldingStyle, Market, MarketStatus, Order, OrderRequest, OrderResult, Position, PricesAsOf, Quote, Reservation, StockDetail } from "../api/types";
 import { useChanged, useRevealAfterLoading } from "../hooks/useMotionState";
 import { formatOpensAt } from "../lib/autotrade";
 import { cn } from "../lib/cn";
@@ -29,9 +31,11 @@ import {
   formatQty,
   formatRate,
   formatSignedKrw,
+  formatSignedPrice,
   trendClass,
 } from "../lib/format";
 import type { GlossaryKey } from "../lib/glossary";
+import { quoteHolding } from "../lib/holding";
 import { CAN_ANIMATE, DURATION, prefersReducedMotion } from "../lib/motion";
 import { CANCEL_TEXT, buyResultText, isTodayFill, sellResultText, todayFillText } from "../lib/orderText";
 import { HOLDING_STYLE_TEXT, errorSentence, marketOrderEstimate, quotePriceName } from "../lib/plainText";
@@ -193,6 +197,7 @@ export function OrderPanel({
       <Holding
         order={t.order}
         position={t.position}
+        quote={stock.quote}
         pricesAsOf={t.account?.pricesAsOf ?? {}}
         session={session}
         sellReservation={t.sellReservation}
@@ -852,6 +857,7 @@ function BuyForm({
 function Holding({
   order,
   position,
+  quote,
   pricesAsOf,
   session,
   sellReservation,
@@ -863,6 +869,8 @@ function Holding({
 }: {
   order: Order;
   position: Position | null;
+  /** 종목 시세 (5초마다 새로 받는다) — 보유 평가의 가격. 가격이 없으면 장마감 기준 Position 값으로 돌아간다. */
+  quote: Quote;
   pricesAsOf: PricesAsOf;
   session: Session;
   sellReservation: Reservation | null;
@@ -901,8 +909,12 @@ function Holding({
   );
   const c = order.currency;
   const style = position?.style ?? order.style;
-  // 오늘 산 보유: 체결가로 평가한 값이라(손익 0) 종가·손익·장마감 기준 시각 대신 언제 평가되는지 알린다
-  const today = isTodayFill(position);
+  // 시세로 평가한 보유 (종목 통화, 비용 전). 오늘 산 종목도 실시간 가격이면 그대로 계산한다. null이면 장마감 기준 Position 값
+  // 계좌(Position)를 아직 받지 못했으면 오늘 산 종목인지 모른다 — 시세가 직전 종가일 때 체결가와 견주지 않게 오늘 산 것으로 본다 (독립 리뷰)
+  const hv = quoteHolding(quote, { avgPrice: position?.avgPrice ?? order.fillPrice, quantity: order.quantity, todayFill: !position || isTodayFill(position) });
+  // 장마감 기준 값으로 돌아갔을 때의 오늘 산 보유: 체결가로 평가한 값이라(손익 0) 종가·손익·장마감 기준 시각 대신 언제 평가되는지 알린다
+  const today = hv === null && isTodayFill(position);
+  const liveQuote = hv !== null && quote.basis === "live";
   const sellLabel = easy ? "모두 팔기" : "전량 매도";
 
   // 확인 상자가 열리면 그 질문으로, 닫혀서 포커스를 잃었으면 '전량 매도'(없으면 제목)로
@@ -927,9 +939,23 @@ function Holding({
           보유 중 <StyleBadge style={style} />
         </h3>
         <p className="mt-1 text-[22px] font-bold tabular-nums">
-          <Flash value={position?.valueKrw}>{formatKrw(position?.valueKrw ?? null)}</Flash>
+          {hv ? (
+            <Flash value={hv.value}>{formatPrice(hv.value, c)}</Flash>
+          ) : (
+            <Flash value={position?.valueKrw}>{formatKrw(position?.valueKrw ?? null)}</Flash>
+          )}
         </p>
-        {position &&
+        {hv ? (
+          hv.profit !== null && (
+            <p className="tabular-nums">
+              <span className={cn("text-[15px] font-semibold", trendClass(hv.profit))}>
+                {formatSignedPrice(hv.profit, c)} ({formatRate(hv.rate)})
+              </span>{" "}
+              <span className="text-[12px] text-mute">수수료·세금 빼기 전</span>
+            </p>
+          )
+        ) : (
+          position &&
           (today ? (
             <p className="text-[14px] font-medium text-sub">{todayFillText(order.market, easy)}</p>
           ) : (
@@ -939,14 +965,28 @@ function Holding({
               </span>{" "}
               <span className="text-[12px] text-mute">수수료·세금 빼기 전</span>
             </p>
-          ))}
-        {!today && <AsOf at={pricesAsOf[order.market]} market={order.market} className="block" />}
+          ))
+        )}
+        {hv ? (
+          <AsOf at={quote.asOf} market={order.market} basis={quote.basis} className="block" />
+        ) : (
+          !today && <AsOf at={pricesAsOf[order.market]} market={order.market} className="block" />
+        )}
+        {hv && order.market === "US" && (
+          <p className="mt-0.5 text-[12px] leading-snug text-mute">
+            {easy ? "가격·손익은 달러예요 (산 금액만 원화예요)." : "평가·손익은 달러 기준이에요 (매수 원금은 원화)."}
+          </p>
+        )}
         <p className="mt-1 text-[12px] leading-snug text-mute">팔 때 수수료와 세금이 빠져서 받는 돈은 조금 적어요.</p>
       </div>
       <dl className="border-t border-line pt-2">
         <Row label="보유 수량">{formatQty(order.quantity)}</Row>
         <Row label={easy ? "산 가격" : "평균 체결가"}>{formatPrice(position?.avgPrice ?? order.fillPrice, c)}</Row>
-        {!today && <Row label="종가">{formatPrice(position?.lastPrice ?? null, c)}</Row>}
+        {hv ? (
+          <Row label={quotePriceName(quote.basis, easy)}>{formatPrice(quote.price, c)}</Row>
+        ) : (
+          !today && <Row label="종가">{formatPrice(position?.lastPrice ?? null, c)}</Row>
+        )}
         <Row label={easy ? "산 금액" : "매수 원금"}>{formatKrw(position?.costKrw ?? null)}</Row>
         {style === "long" ? (
           <Row label="자동 매도">없음 (내가 팔 때까지 보유)</Row>
@@ -1029,9 +1069,13 @@ function Holding({
         )}
       </div>
       <p className="text-[12px] text-mute">
-        {easy
-          ? "같은 종목은 한 번에 하나만 가질 수 있고, 팔 때는 가진 수량을 모두 팔아요. 평가는 지난 장 마감 가격으로 해요 (오늘 산 종목은 장 마감 뒤에)."
-          : "같은 종목은 포지션 하나만 가질 수 있고, 매도는 전량만 돼요. 평가는 직전 장마감 종가 기준이에요 (당일 매수는 장 마감 뒤에)."}
+        {liveQuote
+          ? easy
+            ? "같은 종목은 한 번에 하나만 가질 수 있고, 팔 때는 가진 수량을 모두 팔아요. 여기 평가는 지금 가격이에요 (내 자산·랭킹은 장 마감 가격)."
+            : "같은 종목은 포지션 하나만 가질 수 있고, 매도는 전량만 돼요. 여기 평가는 실시간이에요 (자산·랭킹은 직전 장마감 기준)."
+          : easy
+            ? "같은 종목은 한 번에 하나만 가질 수 있고, 팔 때는 가진 수량을 모두 팔아요. 평가는 지난 장 마감 가격으로 해요 (오늘 산 종목은 장 마감 뒤에)."
+            : "같은 종목은 포지션 하나만 가질 수 있고, 매도는 전량만 돼요. 평가는 직전 장마감 종가 기준이에요 (당일 매수는 장 마감 뒤에)."}
       </p>
     </div>
   );

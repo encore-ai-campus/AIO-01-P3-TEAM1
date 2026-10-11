@@ -8,6 +8,7 @@
 주문은 상태를 먼저 잡은 쪽만 낸다. 상태 전이와 그 사건은 한 트랜잭션으로 쓰고, 알림은 커밋된 뒤에 보낸다 (롤백되면 알림 없음).
 
 - 활성화 점검 = 미리 보기와 같은 계산(장마감 기준) + 장중 확인(risk.preview live_check). 막히면 Blocked → 400 {"detail", "reasonCodes"}.
+  넣을 돈은 사용자가 정한다 (budget_percent 또는 budget_krw 하나가 필수 — 2026-10-11, docs/API.md "넣을 돈"). 수량은 그 금액으로 계산한다.
 - 알림 문장은 autotrade/text.py (쉬운 문장·전문가 문장·Discord 숫자 한 줄). PlanEvent.message·failure_reason은 원래 용어이고
   장중 가격 숫자를 넣지 않는다 (docs/API.md 공통 규칙).
 - 알림 합치기 (docs/API.md "알림 합치기", DECISIONS 23장): 활성화 요청 하나 안에서 이어진 사건(activated → order_placed → filled,
@@ -44,6 +45,7 @@ DAY_END = "정규장이 끝날 때까지 지정가에 체결되지 않음"
 UNFILLED = "진입 기한까지 지정가에 체결되지 않음"  # 진입 기한이 지나 계획이 expired될 때의 사유
 CASH_SHORT = "체결 시점 현금 부족"
 USER_CANCEL = "사용자 취소"
+NO_BUDGET = "투자 금액을 정해 주세요 (budgetPercent 또는 budgetKrw)."
 TRANSIENT = (Unavailable, KiwoomApiError, OSError)  # 다음 번에 다시 시도한다
 VIA_LABEL = {"web": "웹", "discord": "Discord 링크"}
 MAX_STEPS = 4  # step 한 번에 이어서 바꿀 수 있는 상태 수 (주문 → 체결 → 청산)
@@ -153,21 +155,25 @@ def _end(plan: TradePlan, frm, to: str, reason: str, details: dict | None = None
 # --- 활성화 ---
 
 def activate(rec: Recommendation, user, budget_krw: float | None = None, via: str = "web",
-             now: datetime | None = None, *, acknowledged: bool = False) -> TradePlan:
-    """리스크 엔진으로 수량을 정해 계획을 만들고 그 자리에서 한 번 진행한다(첫 주문).
+             now: datetime | None = None, *, budget_percent: int | None = None,
+             acknowledged: bool = False) -> TradePlan:
+    """사용자가 정한 금액으로 수량을 계산해(리스크 엔진이 점검) 계획을 만들고 그 자리에서 한 번 진행한다(첫 주문).
 
+    넣을 돈: budget_percent(1~100, 매수 가능 금액의 %) 또는 budget_krw(원) 중 하나가 필수다 (없으면 Rejected(NO_BUDGET)).
     점검은 미리 보기와 같은 계산(장마감 기준)에 장중 확인을 더한 것이다 (risk.preview live_check). 막히면 Blocked
     (사유와 사유 코드, 아무것도 만들지 않는다). acknowledged: 실행 확인 체크리스트를 모두 켰는지 (activated 사건 details에 남긴다).
     알림은 이 요청 안에서 이어진 사건의 마지막 상태 하나만 보낸다 (시작·주문 접수·체결 → "샀어요" 하나).
     """
+    if budget_krw is None and budget_percent is None:
+        raise Rejected(NO_BUDGET)
     now = now or timezone.now()
-    preview = risk.preview(rec, user, budget_krw, now, live_check=True)
+    preview = risk.preview(rec, user, budget_krw, now, live_check=True, budget_percent=budget_percent)
     if not preview["activatable"]:
         raise Blocked(preview["reasons"], preview["reasonCodes"])
     merged: list = []
     token = _merged.set(merged)
     try:
-        plan = _start(rec, user, budget_krw, via, now, preview, acknowledged)
+        plan = _start(rec, user, via, now, preview, acknowledged)
         try:
             step(plan, now)
         except Exception:  # 활성화는 성공으로 두고 엔진 루프가 이어 간다
@@ -179,9 +185,11 @@ def activate(rec: Recommendation, user, budget_krw: float | None = None, via: st
     return plan
 
 
-def _start(rec: Recommendation, user, budget_krw: float | None, via: str, now: datetime, preview: dict,
-           acknowledged: bool) -> TradePlan:
-    """계획을 active로 만들고 activated·risk_checked 사건을 남긴다. 같은 종목 계획이 그사이 생겼으면 Blocked(plan_exists)."""
+def _start(rec: Recommendation, user, via: str, now: datetime, preview: dict, acknowledged: bool) -> TradePlan:
+    """계획을 active로 만들고 activated·risk_checked 사건을 남긴다. 같은 종목 계획이 그사이 생겼으면 Blocked(plan_exists).
+
+    넣을 돈(방식·%·원으로 바꾼 금액)은 점검 결과(preview)의 값을 그대로 남긴다 — percent는 점검한 순간의 매수 가능 금액 기준이다.
+    """
     try:
         with transaction.atomic():
             # 추천 행을 잠그고 숨김을 본다 — 지우기(hide.py)도 같은 행을 잠그고 진행 중 계획을 확인한다
@@ -190,20 +198,27 @@ def _start(rec: Recommendation, user, budget_krw: float | None, via: str, now: d
             plan = TradePlan.objects.create(
                 recommendation=rec, user=user, symbol=rec.symbol, name=rec.name, market=rec.market,
                 currency=rec.currency, status=TradePlan.ACTIVE, via=via, quantity=preview["quantity"],
-                budget_krw=budget_krw, entry_price=rec.entry_price, target_price=rec.target_price,
+                budget_mode=preview["budgetMode"], budget_percent=preview["budgetPercent"],
+                budget_krw=preview["budgetKrw"], entry_price=rec.entry_price, target_price=rec.target_price,
                 stop_price=rec.stop_price, holding_days=rec.holding_days,
                 entry_deadline=rec.valid_until, activated_at=now, updated_at=timezone.now())
             _event(plan, "activated", f"{VIA_LABEL.get(via, via)}에서 계획 활성화",
-                   {"via": via, "budgetKrw": budget_krw, "acknowledged": bool(acknowledged)})
+                   {"via": via, "budgetMode": plan.budget_mode, "budgetPercent": plan.budget_percent,
+                    "budgetKrw": plan.budget_krw, "acknowledged": bool(acknowledged)})
             _event(plan, "risk_checked",
-                   f"리스크 엔진 통과: {qty_text(plan.quantity)} (수량을 정한 제약: {preview['limitedBy']}, "
-                   f"손익비 {rec.reward_risk:.2f})",
+                   f"리스크 엔진 점검 통과: {_budget_text(plan)}으로 {qty_text(plan.quantity)} (손익비 {rec.reward_risk:.2f})",
                    {"approved": preview["approved"], "quantity": plan.quantity, "limitedBy": preview["limitedBy"],
                     "rewardRisk": rec.reward_risk, "reasons": preview["reasons"]})
             _later(plan, "plan_activated", texts.plan_activated(plan))
     except IntegrityError:
         raise Blocked([risk.PLAN_EXISTS], ["plan_exists"]) from None
     return plan
+
+
+def _budget_text(plan: TradePlan) -> str:
+    """risk_checked 문장의 넣을 돈: "내가 정한 금액 1,000,000원" · "내가 정한 금액(매수 가능 금액의 25%) 250,000원"."""
+    share = f"(매수 가능 금액의 {plan.budget_percent}%)" if plan.budget_mode == TradePlan.PERCENT else ""
+    return f"내가 정한 금액{share} {money(plan.budget_krw or 0, 'KRW')}"
 
 
 # --- 진행 ---
@@ -372,25 +387,36 @@ def _watch_entry(plan: TradePlan, now: datetime, log) -> None:
              why="unfilled_by_deadline")
 
 
+def _requeue_quantity(planned: float, checked: float) -> float:
+    """재주문 수량: 점검 수량이 계획 수량과 나눗셈 오차 안이면 계획 수량 그대로, 그보다 적으면 점검 수량 (늘리지 않는다).
+
+    2026-10-11 전에 활성화한 미국 정수 주 계획은 금액을 센트로 내렸다가 다시 나누면 24 → 23.999…주가 된다 (독립 리뷰 2026-10-11).
+    """
+    return planned if checked >= planned * (1 - risk.SAME_QUANTITY) else checked
+
+
 def _requeue(plan: TradePlan, old: PaperOrder, now: datetime, log) -> None:
     """그날 체결되지 않아 취소된 진입 주문을 다시 낸다. 리스크 점검을 다시 해 안 되면 failed.
 
-    수량은 점검이 새로 정한 수량을 넘지 않게 줄인다 (늘리지는 않는다). 1주 미만(미국 종목은 0)이 되면 failed.
+    수량은 계획과 같다 — 매수 가능 금액·총 금액 한도가 모자라면 그 안으로 줄이기만 한다 (늘리지 않는다, risk.evaluate plan).
+    줄인 수량이 1주(미국 종목은 최소 주문 금액) 미만이면 budget_too_small로 막혀 failed. 2026-10-11 전 계획(budget_mode None)도 같다.
     """
     try:
-        preview = risk.preview(plan.recommendation, plan.user, plan.budget_krw, now, plan=plan)
+        preview = risk.preview(plan.recommendation, plan.user, now=now, plan=plan)
     except TRANSIENT as e:
         log(f"[자동매매] 계획 #{plan.id} {plan.name} 재주문 점검 실패, 다음 번에 다시: {e}")
         return
     linked = {"order_id": old.id}
     if not preview["activatable"]:
+        codes = preview["reasonCodes"]
+        small = "budget_too_small" in codes  # 한도 안으로 줄인 수량이 1주 미만 — 쉬운 문장은 requeue_too_small로
         _end(plan, TradePlan.ENTRY_PENDING, TradePlan.FAILED, "다시 주문할 수 없음: " + "; ".join(preview["reasons"]),
-             {"orderId": old.id, "reasonCodes": preview["reasonCodes"]}, linked, why="requeue_blocked",
-             codes=preview["reasonCodes"])
+             {"orderId": old.id, "reasonCodes": codes}, linked, why="requeue_too_small" if small else "requeue_blocked",
+             codes=[code for code in codes if code != "budget_too_small"])
         return
-    quantity = min(plan.quantity, preview["quantity"])
+    quantity = _requeue_quantity(plan.quantity, preview["quantity"])
     if quantity <= 0 or (plan.market != "US" and quantity < 1):
-        _end(plan, TradePlan.ENTRY_PENDING, TradePlan.FAILED, "다시 주문할 수 없음: 리스크 엔진이 정한 수량이 1주 미만",
+        _end(plan, TradePlan.ENTRY_PENDING, TradePlan.FAILED, "다시 주문할 수 없음: 다시 낼 수량이 1주 미만",
              {"orderId": old.id, "quantity": quantity}, linked, why="requeue_too_small")
         return
     claimed = TradePlan.objects.filter(pk=plan.pk, status=TradePlan.ENTRY_PENDING, order_id=old.id).update(

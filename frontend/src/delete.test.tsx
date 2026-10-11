@@ -136,7 +136,7 @@ describe("계획 제안 지우기", () => {
 
   it("진행 중인 계획이 있으면 서버의 400 문장을 보이고 지우지 않는다", async () => {
     const { rec } = samples();
-    db.activate(db.login("dave", "dave1234"), rec.id, { acknowledged: true });
+    db.activate(db.login("dave", "dave1234"), rec.id, { budgetPercent: 10, acknowledged: true });
     renderApp(`/recommendations/${rec.id}`, "dave");
     const dialog = await openConfirm("이 제안 지우기");
     fireEvent.click(within(dialog).getByRole("button", { name: "지우기" }));

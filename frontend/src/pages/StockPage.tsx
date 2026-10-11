@@ -4,6 +4,8 @@
 // PC 2단: 왼쪽은 '보기'(시세·차트·펀더멘털), 오른쪽 sticky는 '하기' — 전문가 보기는 주문 패널, 쉬운 보기는 AI 리포트 묶음(그 사람의 주 행동).
 //   쉬운 보기의 직접 주문(고급)은 왼쪽 맨 아래 (펼치면 길어지므로 sticky 열에 두지 않는다). 같은 요소를 두 번 그리지 않고 grid 자리만 바꾼다.
 // 시세는 실시간(5초마다 새로 받음, Quote.basis "live" → "실시간 · 15:20:31"), 현재가를 받지 못한 종목만 직전 종가("장마감 기준").
+// 내 보유 평가('내 모의 주문' 한 줄·주문 패널의 보유 블록)도 이 시세와 체결가·수량으로 종목 통화로 계산한다 (lib/holding — 오늘 산 종목도 실시간 숫자).
+//   시세 가격을 받지 못하면 장마감 기준 계좌 값 (홈·마이·랭킹은 늘 장마감 기준).
 // 차트: 쉬운 보기는 종가 선(낮게 — 360×740에서 큰 버튼이 첫 화면에 들어오게), 전문가 보기는 캔들·이동평균·거래량.
 // 전문가 보기 모바일은 하단 고정 버튼 → 주문 바텀시트 (.order-dock: PC 패널과 한 벌 DOM, 열린 동안만 모달 — hooks/useModal).
 import { Suspense, lazy, type MouseEvent, type ReactNode, type RefObject, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
@@ -29,6 +31,7 @@ import { cn } from "../lib/cn";
 import { formatDateTime, formatDayLabel, formatKrw, formatPercent, formatPrice, formatQty, formatRate, formatRequester, trendClass } from "../lib/format";
 import { prefersReducedMotion } from "../lib/motion";
 import { useOrderBarPresence } from "../lib/orderBar";
+import { quoteHolding } from "../lib/holding";
 import { isTodayFill, todayFillText } from "../lib/orderText";
 import { quotePriceName, reportStatusText } from "../lib/plainText";
 import { stockAsOfBasis } from "../lib/quote";
@@ -240,17 +243,42 @@ function ReportCta({ stock, easy }: { stock: StockDetail; easy: boolean }) {
 
 type Trading = ReturnType<typeof useSymbolTrading>;
 
+/** 이 종목의 보유를 시세로 평가한 값 (종목 통화). 시세 가격이 없으면 null — 장마감 기준 계좌 값으로 돌아간다. */
+function holdingNow(t: Trading, stock: StockDetail) {
+  if (t.state !== "holding" || !t.order) return null;
+  return quoteHolding(stock.quote, {
+    avgPrice: t.position?.avgPrice ?? t.order.fillPrice,
+    quantity: t.order.quantity,
+    // 계좌를 아직 받지 못했으면 오늘 산 종목인지 모른다 — 시세가 직전 종가일 때 체결가와 견주지 않게 오늘 산 것으로 본다 (독립 리뷰)
+    todayFill: !t.position || isTodayFill(t.position),
+  });
+}
+
 /**
  * 내 모의 주문 한 줄 (보유·체결 대기·매수 예약). 한 줄 문장으로 — 시세 카드의 가격 이름('현재가'·'종가')·가격 글자와 겹치지 않게.
- * 오늘 산 보유(priceBasis "today_fill")는 수익률 대신 언제 평가되는지 (체결가로 평가해 손익이 0이다 — 어제 종가와 비교한 가짜 손익을 보이지 않는다).
+ * 보유는 시세로 평가한다 (오늘 산 종목도 실시간 숫자). 시세 가격이 없으면 장마감 기준 계좌 값이고, 그때 오늘 산 보유(priceBasis "today_fill")는
+ * 수익률 대신 언제 평가되는지 (체결가로 평가해 손익이 0이다 — 어제 종가와 비교한 가짜 손익을 보이지 않는다).
  */
 function summaryLine(t: Trading, stock: StockDetail, easy: boolean): ReactNode | null {
   if (t.state === "holding" && t.order) {
     const p = t.position;
+    const hv = holdingNow(t, stock);
     return (
       <span className="min-w-0 tabular-nums">
         <b className="font-semibold">모의 보유</b> {formatQty(t.order.quantity)}
-        {p &&
+        {hv ? (
+          <>
+            {" "}
+            · {formatPrice(hv.value, stock.currency)}
+            {hv.rate !== null && (
+              <>
+                {" "}
+                <span className={trendClass(hv.rate)}>{formatRate(hv.rate)}</span>
+              </>
+            )}
+          </>
+        ) : (
+          p &&
           (isTodayFill(p) ? (
             <>
               {" "}
@@ -261,7 +289,8 @@ function summaryLine(t: Trading, stock: StockDetail, easy: boolean): ReactNode |
               {" "}
               · {formatKrw(p.valueKrw)} <span className={trendClass(p.profitKrw)}>{formatRate(p.profitRate)}</span>
             </>
-          ))}
+          ))
+        )}
         {t.sellReservation && " · 매도 예약됨"}
       </span>
     );
@@ -285,9 +314,10 @@ function summaryLine(t: Trading, stock: StockDetail, easy: boolean): ReactNode |
 }
 
 /** 한 줄 요약이 바뀌었는지 가리는 열쇠 (같은 내용이면 같은 문자열). */
-function summaryKey(t: Trading): string | null {
+function summaryKey(t: Trading, stock: StockDetail): string | null {
   if (t.state === "holding") {
-    return `h:${t.order?.quantity}:${t.position?.valueKrw}:${t.position?.profitKrw}:${t.position?.priceBasis}:${Boolean(t.sellReservation)}`;
+    const hv = holdingNow(t, stock);
+    return `h:${t.order?.quantity}:${hv ? `${hv.value}:${hv.rate}` : `${t.position?.valueKrw}:${t.position?.profitKrw}:${t.position?.priceBasis}`}:${Boolean(t.sellReservation)}`;
   }
   if (t.state === "pending") return `p:${t.order?.quantity}:${t.order?.limitPrice}`;
   if (t.state === "reserved") return `r:${t.buyReservation?.quantity}:${t.buyReservation?.runAt}`;
@@ -309,7 +339,7 @@ function MySummary({
   className?: string;
 }) {
   const line = summaryLine(t, stock, easy);
-  const key = summaryKey(t);
+  const key = summaryKey(t, stock);
   // 접히는 동안 보일 마지막 내용 (요약이 바뀐 때만 새로 담는다 — 새 엘리먼트를 그대로 비교하면 매번 달라 끝없이 다시 그린다)
   const [last, setLast] = useState<{ key: string | null; line: ReactNode }>({ key, line });
   if (key !== null && key !== last.key) setLast({ key, line }); // 렌더 중 조건부 파생 상태

@@ -185,7 +185,7 @@ describe("실행 불가 사유 코드 · 활성화", () => {
 
     db.options.halted = true;
     db.setClose("000660", 205_000); // 종가가 목표가(203,000) 이상
-    const bad = db.riskPreview(1, 91, "100");
+    const bad = db.riskPreview(1, 91, null, "100");
     expect(bad.reasonCodes).toEqual(["budget_too_small", "price_passed", "halted"]);
     expect(bad.reasons).toHaveLength(bad.reasonCodes.length);
     expect(bad.reasons[1]).toBe("직전 종가 205,000원가 이미 목표가 이상");
@@ -194,39 +194,90 @@ describe("실행 불가 사유 코드 · 활성화", () => {
 
   it("활성화가 막히면 400 {detail, reasonCodes}, 입력 오류는 reasonCodes 없이", () => {
     db.options.halted = true;
-    const e = caught(() => db.activate(alice(), 91, {}));
+    const e = caught(() => db.activate(alice(), 91, { budgetPercent: 10 }));
     expect(e.status).toBe(400);
     expect(e.extra).toEqual({ reasonCodes: ["halted"] });
     db.options.halted = false;
-    const input = caught(() => db.activate(alice(), 91, { acknowledged: "yes" }));
+    const input = caught(() => db.activate(alice(), 91, { budgetPercent: 10, acknowledged: "yes" }));
     expect(input.status).toBe(400);
     expect(input.extra).toBeNull();
+  });
+
+  it("넣을 돈 (2026-10-11): 활성화는 budgetPercent·budgetKrw 중 하나가 필수, 둘 다·범위 밖은 reasonCodes 없는 400", () => {
+    db.options.marketOpen = { KR: false };
+    const none = caught(() => db.activate(alice(), 91, { acknowledged: true }));
+    expect([none.status, none.message, none.extra]).toEqual([400, "투자 금액을 정해 주세요 (budgetPercent 또는 budgetKrw).", null]);
+    const both = caught(() => db.activate(alice(), 91, { budgetPercent: 10, budgetKrw: 1_000_000 }));
+    expect([both.status, both.message, both.extra]).toEqual([400, "budgetPercent와 budgetKrw 중 하나만 보냅니다.", null]);
+    for (const bad of [0, 101, 12.5, "abc"]) expect(caught(() => db.riskPreview(1, 91, String(bad))).status).toBe(400);
+    expect(caught(() => db.riskPreview(1, 91, null, "0")).status).toBe(400);
+    expect(caught(() => db.riskPreview(1, 91, "10", "1000")).status).toBe(400);
+  });
+
+  it("미리 보기: 금액이 없으면 크기 없이 점검만, %는 매수 가능 금액 × % / 100을 원으로 내린 금액으로 수량을 계산한다", () => {
+    db.options.marketOpen = { KR: false };
+    const head = db.riskPreview(1, 91);
+    expect(head).toMatchObject({ activatable: true, quantity: 0, amountKrw: 0, maxLossKrw: 0, limitedBy: null, budgetMode: null, budgetKrw: null, maxLossRate: null, largeLoss: false });
+    expect(head.buyingPowerKrw).toBeGreaterThan(0);
+    const pct = db.riskPreview(1, 91, "10");
+    expect(pct).toMatchObject({ activatable: true, budgetMode: "percent", budgetPercent: 10, budgetKrw: Math.floor(head.buyingPowerKrw * 0.1), limitedBy: "내가 정한 금액" });
+    expect(pct.quantity).toBeGreaterThanOrEqual(1);
+    expect(Number.isInteger(pct.quantity)).toBe(true);
+    expect(pct.amountKrw).toBeLessThanOrEqual(pct.budgetKrw!); // 금액 안에서 산다 (수수료 포함)
+    expect(pct.maxLossRate).toBeCloseTo(pct.maxLossKrw / pct.equityKrw);
+    // 같은 원 금액이면 같은 수량 (미리 보기 수량 = 활성화 수량)
+    const amount = db.riskPreview(1, 91, null, String(pct.budgetKrw));
+    expect(amount).toMatchObject({ budgetMode: "amount", budgetPercent: null, quantity: pct.quantity });
+    const plan = db.activate(alice(), 91, { budgetPercent: 10, acknowledged: true });
+    expect(plan).toMatchObject({ quantity: pct.quantity, budgetMode: "percent", budgetPercent: 10, budgetKrw: pct.budgetKrw });
+  });
+
+  it("미리 보기: 한도를 넘으면 줄이지 않고 막는다 (cash_short·total_limit), 손절 손실이 총자산 1%를 넘으면 largeLoss 경고만", () => {
+    db.options.marketOpen = { KR: false };
+    const head = db.riskPreview(1, 91);
+    const over = db.riskPreview(1, 91, null, String(head.buyingPowerKrw + 1_000_000));
+    expect(over.reasonCodes).toEqual(expect.arrayContaining(["cash_short", "total_limit"]));
+    expect(over.activatable).toBe(false);
+    expect(over.amountKrw).toBeGreaterThan(head.buyingPowerKrw); // 줄이지 않았다
+    // 앨리스는 보유·대기 주문이 있어 총 금액 한도(5,000,000원)까지 남은 금액이 적다 — 25%부터 total_limit
+    expect(db.riskPreview(1, 91, "25").reasonCodes).toEqual(["total_limit"]);
+    const big = db.riskPreview(1, 91, null, "2000000"); // 손절 손실이 총자산 1%를 넘는다
+    expect(big.largeLoss).toBe(true);
+    expect(big.maxLossRate!).toBeGreaterThan(0.01);
+    expect(big.reasonCodes).toEqual(["total_limit"]); // largeLoss는 사유가 아니다 (경고만)
+    expect(db.riskPreview(1, 91, null, "1000000")).toMatchObject({ activatable: true, largeLoss: false });
   });
 
   it("정규장이면 미리 보기·활성화가 장중 가격으로 본다 (문장에 장중 가격 숫자가 없다)", () => {
     db.setPrice("000660", 205_000); // 종가는 그대로 (182,300)
     expect(db.riskPreview(1, 91, null)).toMatchObject({ activatable: false, reasons: ["장중 가격이 이미 목표가 이상이에요"], lastPrice: 182_300 });
-    const e = caught(() => db.activate(alice(), 91, {}));
+    const e = caught(() => db.activate(alice(), 91, { budgetPercent: 10 }));
     expect(e.message).toBe("장중 가격이 이미 목표가 이상이에요");
     expect(e.extra).toEqual({ reasonCodes: ["price_passed"] });
     // 장이 닫혀 있으면 종가 판단만
     db.options.marketOpen = { KR: false };
-    expect(db.activate(alice(), 91, { acknowledged: true }).status).toBe("entry_pending");
+    expect(db.activate(alice(), 91, { budgetPercent: 10, acknowledged: true }).status).toBe("entry_pending");
   });
 
   it("같은 추천을 다시 활성화하면 plan_exists와 position_exists가 둘 다 나온다 (서버 risk.evaluate와 같다)", () => {
     db.options.marketOpen = { KR: false }; // 장중 확인 없이 종가 판단만
-    db.activate(alice(), 91, { budgetKrw: "1000000", acknowledged: true }); // 일반 활성화는 숫자 문자열 예산도 받는다
+    db.activate(alice(), 91, { budgetKrw: "1000000", acknowledged: true }); // 일반 활성화는 숫자 문자열 금액도 받는다
     expect(db.riskPreview(1, 91, null).reasonCodes).toEqual(["plan_exists", "position_exists"]);
-    const e = caught(() => db.activate(alice(), 91, { acknowledged: true }));
+    const e = caught(() => db.activate(alice(), 91, { budgetKrw: 200_000, acknowledged: true }));
     expect(e.extra).toEqual({ reasonCodes: ["plan_exists", "position_exists"] });
     expect(e.message.split("; ")).toHaveLength(2);
   });
 
-  it("acknowledged는 activated 사건에 남는다 (없으면 false)", () => {
+  it("acknowledged·넣을 돈은 activated 사건에 남는다 (acknowledged가 없으면 false)", () => {
     const plan = db.activate(alice(), 91, { budgetKrw: 1_000_000, acknowledged: true });
-    expect(plan.events[0]).toMatchObject({ kind: "activated", details: { via: "web", budgetKrw: 1_000_000, acknowledged: true } });
-    expect(db.activate(alice(), 92, {}).events[0].details.acknowledged).toBe(false);
+    expect(plan.events[0]).toMatchObject({
+      kind: "activated",
+      details: { via: "web", budgetMode: "amount", budgetPercent: null, budgetKrw: 1_000_000, acknowledged: true },
+    });
+    expect(Object.keys(plan.events[0].details).sort()).toEqual(["acknowledged", "budgetKrw", "budgetMode", "budgetPercent", "via"]);
+    const pct = db.activate(alice(), 92, { budgetPercent: 4 }); // 총 금액 한도 안
+    expect(pct.events[0].details).toMatchObject({ budgetMode: "percent", budgetPercent: 4, acknowledged: false });
+    expect(pct.events[0].details.budgetKrw).toBe(pct.budgetKrw);
   });
 });
 
@@ -432,7 +483,7 @@ describe("계약 모양 (docs/API.md)", () => {
 
   it("보유 중 계획 중단 → 청산 사건·알림 문구는 청산 사유 표(사용자 매도)를 따른다", () => {
     at("2026-10-06T10:00:00+09:00");
-    const plan = db.activate(alice(), 91, {});
+    const plan = db.activate(alice(), 91, { budgetPercent: 10 });
     db.setPrice("000660", 180_000); // 진입가 아래 → 지정가 체결
     expect(db.getPlan(1, plan.id).status).toBe("holding");
     const closed = db.cancelPlan(1, plan.id);
@@ -452,7 +503,7 @@ describe("HTTP (MSW 핸들러 + api 클라이언트)", () => {
 
     db.setSession("alice");
     db.options.halted = true;
-    const blocked = await api.post("/api/recommendations/91/activate", { acknowledged: true }).catch((e: unknown) => e);
+    const blocked = await api.post("/api/recommendations/91/activate", { budgetPercent: 10, acknowledged: true }).catch((e: unknown) => e);
     expect(blocked).toBeInstanceOf(ApiError);
     expect((blocked as ApiError).reasonCodes).toEqual(["halted"]);
     expect((blocked as ApiError).detail).toBe("새 모의 매수가 중단되어 있습니다.");

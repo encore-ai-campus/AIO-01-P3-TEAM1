@@ -18,7 +18,8 @@
   `DJANGO_DEBUG=off`인 운영은 `ALLOW_TOSS_BROKER=on`이 있어야 `BROKER=toss`를 받는다 (`docs/DECISIONS.md` 3-1·23장). `data/toss.py`에 계좌·주문 메서드를 넣지 않는다 (토큰 발급 말고는 GET만).
   설명은 `docs/DECISIONS.md` 3-1장.
 - **AI는 제안만 한다.** 지표 계산, 사실 검증, 수량·한도·체결 가능 여부는 결정론적 코드(리스크 엔진, 모의 체결기)가 판단한다.
-  AI 추천을 활성화한 매매 계획(`backend/autotrade`)도 같다: 수량·활성화 여부는 리스크 엔진, 주문·체결은 `trading.service`와 모의 체결기.
+  AI 추천을 활성화한 매매 계획(`backend/autotrade`)도 같다: 넣을 돈은 사용자가 정하고(매수 가능 금액의 % 또는 원, 2026-10-11 — `docs/DECISIONS.md` 28장),
+  수량 계산·한도 점검·활성화 여부는 리스크 엔진, 주문·체결은 `trading.service`와 모의 체결기.
   최소 손익비(스윙 1.5)는 AI 프롬프트에 노출하지 않는다. 손절가는 AI가 아니라 코드가 정한다 (`engine/paper_engine/judge/stops.py`).
 - **엔진 내부 데이터 형식은 토스 형식을 유지한다.** 키움 응답 → 내부 형식 변환은 `engine/paper_engine/data/kiwoom.py` 안에서만 한다.
   조회 클라이언트는 `data/broker.make_client`로만 만들고, `KiwoomClient`와 `TossClient`의 공개 메서드 이름·인자·반환 형식은 같게 둔다.

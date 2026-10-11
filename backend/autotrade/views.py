@@ -2,6 +2,7 @@
 
 추천은 팀 전체 공용, 계획은 내 것만 (남의 계획은 404). 지운 추천은 목록·상세·미리 보기·활성화에서 없는 것과 같다 (hide.py).
 활성화 점검에서 막히면 400 {"detail", "reasonCodes"} (Response를 직접 돌려준다 — config.api의 예외는 detail 밖을 버린다).
+넣을 돈은 budgetPercent(1~100 정수) 또는 budgetKrw(양수, 원) 하나다 — 미리 보기는 없어도 되고, 활성화는 하나가 필수다 (2026-10-11).
 """
 import math
 
@@ -19,6 +20,8 @@ from .tokens import check_token
 
 SOURCES = (Recommendation.REPORT, Recommendation.ANALYSIS, Recommendation.DEMO)
 BAD_TOKEN = "링크가 만료되었거나 올바르지 않습니다."
+BAD_PERCENT = "budgetPercent는 1~100 사이의 정수여야 합니다."
+BOTH_BUDGETS = "budgetPercent와 budgetKrw 중 하나만 보냅니다."
 
 
 def _body(request) -> dict:
@@ -40,6 +43,32 @@ def _budget(value) -> float | None:
     if not math.isfinite(number) or number <= 0:
         raise Rejected("budgetKrw는 양수여야 합니다.")
     return number
+
+
+def _percent(value) -> int | None:
+    """budgetPercent: 없으면 None. 1~100 정수(JSON 정수, 정수 값인 실수, 쿼리 문자열 "25")가 아니면 400 (불리언·소수도 400)."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        number = int(text) if text.isascii() and text.isdigit() and len(text) <= 3 else None  # 아주 긴 숫자열도 400
+    elif isinstance(value, float):
+        number = int(value) if value.is_integer() else None  # 2.5·nan·inf는 정수가 아니다
+    elif isinstance(value, int) and not isinstance(value, bool):
+        number = value
+    else:
+        number = None
+    if number is None or not 1 <= number <= 100:
+        raise Rejected(BAD_PERCENT)
+    return number
+
+
+def _budgets(data) -> tuple[float | None, int | None]:
+    """(budgetKrw, budgetPercent). 둘 다 보내면 400 (둘 다 없으면 (None, None))."""
+    krw, percent = _budget(data.get("budgetKrw")), _percent(data.get("budgetPercent"))
+    if krw is not None and percent is not None:
+        raise Rejected(BOTH_BUDGETS)
+    return krw, percent
 
 
 def _acknowledged(data: dict) -> bool:
@@ -114,14 +143,17 @@ class RecommendationView(APIView):
 class RecommendationPreviewView(APIView):
     def get(self, request, rec_id: int):
         rec = _recommendation(rec_id)
-        return Response(risk.preview(rec, request.user, _budget(request.query_params.get("budgetKrw"))))
+        krw, percent = _budgets(request.query_params)
+        return Response(risk.preview(rec, request.user, krw, budget_percent=percent))
 
 
 class RecommendationActivateView(APIView):
     def post(self, request, rec_id: int):
         rec = _recommendation(rec_id)
         data = _body(request)
-        budget = _budget(data.get("budgetKrw"))
+        budget, percent = _budgets(data)
+        if budget is None and percent is None:
+            raise Rejected(executor.NO_BUDGET)
         acknowledged = _acknowledged(data)
         token = data.get("token")
         via = "web"
@@ -130,7 +162,7 @@ class RecommendationActivateView(APIView):
                 raise Rejected(BAD_TOKEN)
             via = "discord"
         try:
-            plan = executor.activate(rec, request.user, budget, via, acknowledged=acknowledged)
+            plan = executor.activate(rec, request.user, budget, via, budget_percent=percent, acknowledged=acknowledged)
         except executor.Blocked as e:  # 실행 불가 사유 (코드 포함)
             return Response(e.body(), status=status.HTTP_400_BAD_REQUEST)
         plan = _my_plan(request, plan.id)

@@ -1,4 +1,8 @@
-"""리스크 미리 보기, 계획 활성화·진행·중단 (executor), 추천·계획 API."""
+"""리스크 미리 보기, 계획 활성화·진행·중단 (executor), 추천·계획 API.
+
+넣을 돈은 사용자가 정한다 (2026-10-11, docs/API.md "넣을 돈"): 활성화는 budgetPercent·budgetKrw 중 하나가 필수다.
+여기 활성화 도우미는 금액을 주지 않으면 BUDGET_KRW(삼성전자 25주)로 보낸다. 넣을 돈 규칙 자체는 test_budget.py가 본다.
+"""
 from datetime import timedelta
 
 import pytest
@@ -23,7 +27,13 @@ def sync():
     service.sync_accounts(timezone.now(), lambda text: None)
 
 
+BUDGET_KRW = 1_760_000  # 진입 69,000원(1주 69,069원)·70,000원(70,070원)이면 25주
+
+
 def activate(api, rec, **body):
+    """활성화 요청. 넣을 돈(budgetPercent·budgetKrw)이 없으면 BUDGET_KRW로 보낸다 (금액 없음은 api.post로 직접 본다)."""
+    if "budgetPercent" not in body and "budgetKrw" not in body:
+        body["budgetKrw"] = BUDGET_KRW
     return api.post(f"/api/recommendations/{rec.id}/activate", body, format="json")
 
 
@@ -51,32 +61,32 @@ def plan_in(status, rec, user, **fields) -> TradePlan:
 
 # --- 미리 보기 ---
 
-def test_preview_passes(api, fake):
+LOSS_PER_SHARE = 69000 * 1.001 - 66000 * 0.99 * 0.997  # make_rec() 1주 손절 손실 (비용·손절 주문가 반영)
+
+
+def test_preview_without_budget_checks_only(api, fake):
+    """금액이 없으면 크기 계산 없이 점검만 한다 — activatable은 "금액만 정하면 시작할 수 있음"의 뜻."""
     rec = make_rec()
     body = api.get(f"/api/recommendations/{rec.id}/preview")
     assert body.status_code == 200, body.json()
     p = body.json()
-    assert p["approved"] and p["activatable"] and p["reasons"] == []
-    assert p["limitedBy"] == "건당 위험 한도" and p["quantity"] == 25  # 자산 1천만 × 1% ÷ 1주 손실
-    assert p["amountKrw"] == pytest.approx(25 * 69000)
-    assert p["maxLossKrw"] == pytest.approx(25 * (69000 * 1.001 - 66000 * 0.99 * 0.997))
-    assert p["reasonCodes"] == [] and p["priceBasis"] == "close"
-    assert p["budgetKrw"] is None and p["lastPrice"] == close_of(70000)  # 직전 정규장 종가 (장마감 기준)
+    assert p["approved"] and p["activatable"] and p["reasons"] == [] and p["reasonCodes"] == []
+    assert p["quantity"] == 0 and p["amountKrw"] == 0 and p["expectedProfitKrw"] == 0 and p["maxLossKrw"] == 0
+    assert p["limitedBy"] is None and p["maxLossRate"] is None and p["largeLoss"] is False
+    assert (p["budgetMode"], p["budgetPercent"], p["budgetKrw"]) == (None, None, None)
+    assert p["buyingPowerKrw"] == 10_000_000 and p["equityKrw"] == 10_000_000 and p["priceBasis"] == "close"
+    assert p["lastPrice"] == close_of(70000)  # 직전 정규장 종가 (장마감 기준)
     assert p["lastPriceAsOf"]  # 그 종가 봉 날짜의 정규장 종료 시각 (가짜 장 달력 기준)
 
 
-def test_preview_budget_limits_quantity(api, fake):
+def test_preview_with_amount(api, fake):
     rec = make_rec()
     p = api.get(f"/api/recommendations/{rec.id}/preview?budgetKrw=700000").json()
-    assert p["quantity"] == 10 and p["limitedBy"] == "예산" and p["budgetKrw"] == 700000  # 700,000 ÷ 69,069
-    assert p["amountKrw"] == pytest.approx(10 * 69000) and p["activatable"]
-    big = api.get(f"/api/recommendations/{rec.id}/preview?budgetKrw=100000000").json()
-    assert big["quantity"] == 25 and big["limitedBy"] == "건당 위험 한도"  # 늘리지는 않는다
-    small = api.get(f"/api/recommendations/{rec.id}/preview?budgetKrw=1000").json()
-    assert not small["activatable"] and "1주도 살 수 없음" in small["reasons"][0]
-    assert small["reasonCodes"] == ["budget_too_small"]
-    for bad in ("abc", "0", "-5"):
-        assert api.get(f"/api/recommendations/{rec.id}/preview?budgetKrw={bad}").status_code == 400
+    assert p["activatable"] and p["quantity"] == 10 and p["limitedBy"] == "내가 정한 금액"  # 700,000 ÷ 69,069
+    assert (p["budgetMode"], p["budgetPercent"], p["budgetKrw"]) == ("amount", None, 700000)
+    assert p["amountKrw"] == pytest.approx(10 * 69000)
+    assert p["maxLossKrw"] == pytest.approx(10 * LOSS_PER_SHARE)
+    assert p["maxLossRate"] == pytest.approx(10 * LOSS_PER_SHARE / 10_000_000) and p["largeLoss"] is False
 
 
 def test_preview_blockers(api, fake):
@@ -152,7 +162,13 @@ def test_activate_places_limit_order(api, clock, user, sent, at):
                                                                                "status": "entry_pending"}
     assert [e["kind"] for e in plan["events"]] == ["activated", "risk_checked", "order_placed"]
     assert [e["step"] for e in plan["events"]] == [1, 2, 3]
-    assert plan["events"][0]["details"] == {"via": "web", "budgetKrw": None, "acknowledged": False}
+    assert plan["events"][0]["details"] == {"via": "web", "budgetMode": "amount", "budgetPercent": None,
+                                            "budgetKrw": BUDGET_KRW, "acknowledged": False}
+    assert plan["events"][1]["message"] == (f"리스크 엔진 점검 통과: 내가 정한 금액 1,760,000원으로 25주 "
+                                            f"(손익비 {rec.reward_risk:.2f})")
+    assert plan["events"][1]["details"] == {"approved": True, "quantity": 25, "limitedBy": "내가 정한 금액",
+                                            "rewardRisk": rec.reward_risk, "reasons": []}
+    assert (plan["budgetMode"], plan["budgetPercent"], plan["budgetKrw"]) == ("amount", None, BUDGET_KRW)
     assert plan["events"][2]["message"] == "삼성전자 25주 69,000원 지정가 매수 주문 접수"
     order = PaperOrder.objects.get(pk=plan["orderId"])
     assert order.order_type == "LIMIT" and order.limit_price == 69000 and order.quantity == 25
@@ -484,9 +500,10 @@ def test_preview_function_excludes_own_plan_when_requeueing(fake, user):
 
 def test_preview_us_converts_to_krw(api, fake):
     rec = make_rec(symbol="AAPL", name="Apple", market_="US", entry=190, target=230, stop=180, price_at_creation=200)
-    p = api.get(f"/api/recommendations/{rec.id}/preview").json()
+    p = api.get(f"/api/recommendations/{rec.id}/preview?budgetKrw=1400000").json()  # $1,000
     assert p["activatable"], p["reasons"]
-    assert p["quantity"] == 5 and p["amountKrw"] == pytest.approx(5 * 190 * 1400)
+    # 매수 금액 = $1,000 ÷ 1.002를 센트로 내린 $998, 수량 = $998 ÷ $190 (소수점)
+    assert p["quantity"] == pytest.approx(998 / 190) and p["amountKrw"] == pytest.approx(998 * 1400)
 
 
 # --- 경합 · 재주문 수량 · 엔진 취소 · 트랜잭션 ---
@@ -544,15 +561,27 @@ def test_place_sells_order_that_filled_before_it_was_linked(fake, user, monkeypa
     assert order.status == "CLOSED" and order.exit_reason == "MANUAL"  # 어떤 계획도 따라가지 않는 포지션을 남기지 않는다
 
 
-def test_requeue_shrinks_quantity_when_risk_shrinks(api, fake, sent):
+def test_requeue_keeps_quantity_when_equity_shrinks(api, fake):
+    """재주문은 같은 수량이다 — 자산이 줄어도 건당 위험 한도로 다시 계산하지 않는다 (2026-10-11)."""
+    plan = TradePlan.objects.get(pk=activate(api, make_rec()).json()["id"])
+    day_end(plan, fake)
+    PaperAccount.objects.filter(pk=account_for(plan.user).pk).update(cash_krw=2_000_000)  # 1주 손실 × 25주 > 자산 1%
+    executor.step(plan, timezone.now())
+    plan.refresh_from_db()
+    assert plan.status == "entry_pending" and plan.quantity == 25
+    assert PaperOrder.objects.get(pk=plan.order_id).quantity == 25
+    assert PlanEvent.objects.get(plan=plan, kind="order_requeued").details.keys() == {"orderId", "previousOrderId"}
+
+
+def test_requeue_shrinks_quantity_when_cash_is_short(api, fake, sent):
+    """매수 가능 금액이 모자라면 그 안으로 줄이기만 한다 (막지 않는다)."""
     plan = TradePlan.objects.get(pk=activate(api, make_rec()).json()["id"])
     first = plan.order_id
     assert plan.quantity == 25
     day_end(plan, fake)
-    account = account_for(plan.user)
-    PaperAccount.objects.filter(pk=account.pk).update(cash_krw=account.cash_krw * 0.5)  # 자산이 줄었다
+    PaperAccount.objects.filter(pk=account_for(plan.user).pk).update(cash_krw=1_000_000)
     expected = risk.preview(plan.recommendation, plan.user, None, timezone.now(), plan=plan)["quantity"]
-    assert expected < 25
+    assert expected == 14  # 1,000,000 ÷ 69,069
     executor.step(plan, timezone.now())
     plan.refresh_from_db()
     new = PaperOrder.objects.get(pk=plan.order_id)
@@ -561,6 +590,52 @@ def test_requeue_shrinks_quantity_when_risk_shrinks(api, fake, sent):
     assert event.details == {"orderId": new.id, "previousOrderId": first, "quantity": expected,
                              "previousQuantity": 25}
     assert f"25주 → {expected}주" in event.message and sent.calls[-1]["kind"] == "order_requeued"
+    assert "한도에 맞춰 수량을 25주에서 14주로 줄였어요" in sent.calls[-1]["body"]
+
+
+def test_requeue_fails_when_reduced_below_one_share(api, fake, sent):
+    plan = TradePlan.objects.get(pk=activate(api, make_rec()).json()["id"])
+    day_end(plan, fake)
+    PaperAccount.objects.filter(pk=account_for(plan.user).pk).update(cash_krw=50_000)  # 1주(69,069원)도 안 된다
+    executor.step(plan, timezone.now())
+    plan.refresh_from_db()
+    assert plan.status == "failed" and plan.failure_reason == "다시 주문할 수 없음: " + risk.REQUEUE_TOO_SMALL
+    assert PlanEvent.objects.get(plan=plan, kind="failed").details["reasonCodes"] == ["budget_too_small"]
+    assert sent.kinds[-1] == "failed" and "1주도 살 수 없어" in sent.calls[-1]["body"]
+    assert "내가 정한 금액" not in sent.calls[-1]["body"]  # 재주문 금액은 한도가 줄인 것이다
+
+
+def test_requeue_of_old_plan_without_budget_mode(api, fake):
+    """2026-10-11 전 계획(budget_mode·budget_krw 없음)도 같은 수량으로 다시 낸다."""
+    plan = TradePlan.objects.get(pk=activate(api, make_rec()).json()["id"])
+    TradePlan.objects.filter(pk=plan.pk).update(budget_mode=None, budget_krw=None)
+    day_end(plan, fake)
+    executor.step(plan, timezone.now())
+    plan.refresh_from_db()
+    assert plan.status == "entry_pending" and plan.quantity == 25 and plan.budget_mode is None
+    assert PaperOrder.objects.get(pk=plan.order_id).quantity == 25
+
+
+def test_requeue_keeps_us_fractional_quantity(api, fake):
+    """미국 소수점 수량도 나눗셈 오차로 1센트 덜 사지 않고 그대로다."""
+    rec = make_rec(symbol="AAPL", name="Apple", market_="US", entry=190, target=230, stop=180, price_at_creation=200)
+    plan = TradePlan.objects.get(pk=activate(api, rec, budgetKrw=600000).json()["id"])
+    assert 0 < plan.quantity % 1
+    assert risk.preview(rec, plan.user, plan=plan)["quantity"] == plan.quantity
+
+
+def test_requeue_keeps_old_us_whole_shares(fake, user):
+    """2026-10-11 전 미국 정수 주 계획(27주)은 센트 내림·나눗셈 오차로 26.999…주가 되지 않고 27주 그대로 다시 낸다 (독립 리뷰)."""
+    rec = make_rec(symbol="AAPL", name="Apple", market_="US", entry=19.09, target=23, stop=18, price_at_creation=20)
+    plan = TradePlan.objects.create(
+        recommendation=rec, user=user, symbol=rec.symbol, name=rec.name, market=rec.market, currency=rec.currency,
+        status="entry_pending", quantity=27, entry_price=rec.entry_price, target_price=rec.target_price,
+        stop_price=rec.stop_price, holding_days=rec.holding_days, entry_deadline=rec.valid_until)
+    checked = risk.preview(rec, user, plan=plan)["quantity"]
+    assert checked == pytest.approx(27)
+    assert executor._requeue_quantity(plan.quantity, checked) == 27
+    assert executor._requeue_quantity(27, 23.999999999999996) == 23.999999999999996  # 정말 줄었으면 줄인 수량
+    assert executor._requeue_quantity(24, 23.999999999999996) == 24
 
 
 def test_requeue_never_grows_quantity(api, fake):
@@ -626,12 +701,13 @@ def test_preview_us_budget_is_fractional_amount(api, fake):
     rec = make_rec(symbol="AAPL", name="Apple", market_="US", entry=190, target=230, stop=180, price_at_creation=200)
     p = api.get(f"/api/recommendations/{rec.id}/preview?budgetKrw=600000").json()
     assert p["activatable"], p["reasons"]
-    assert p["limitedBy"] == "예산" and 2 < p["quantity"] < 3  # 정수 주로 내리지 않는다 (소수점 매수)
+    assert p["limitedBy"] == "내가 정한 금액" and 2 < p["quantity"] < 3  # 정수 주로 내리지 않는다 (소수점 매수)
     assert p["quantity"] * 190 == pytest.approx(round(p["quantity"] * 190, 2))  # 금액은 센트 단위
     small = api.get(f"/api/recommendations/{rec.id}/preview?budgetKrw=100000").json()  # 1주($190)보다 적다
     assert small["activatable"] and 0 < small["quantity"] < 1
     tiny = api.get(f"/api/recommendations/{rec.id}/preview?budgetKrw=1000").json()  # 약 $0.71
-    assert not tiny["activatable"] and any("최소 주문 금액" in r for r in tiny["reasons"])
+    assert not tiny["activatable"] and tiny["reasonCodes"] == ["budget_too_small"]
+    assert tiny["reasons"] == ["내가 정한 금액으로 살 매수 금액($0.71)이 최소 주문 금액 $1보다 적음"]
 
 
 # --- 사유 코드 (B4) · 활성화의 장중 확인 · acknowledged (B5) ---
@@ -650,13 +726,13 @@ def test_reason_codes_align_with_reasons(api, fake, user):
 
 def test_reason_pairs_are_deduplicated_in_order(fake, user, monkeypatch):
     """같은 (코드, 문장) 짝은 한 번만 — 두 목록이 같은 길이·같은 순서로 남는다."""
-    real = risk.assess
+    real = risk.assess_budget
 
-    def doubled(scenario, ctx, fractional=False):
-        a = real(scenario, ctx, fractional)
+    def doubled(scenario, ctx, budget, fractional=False):
+        a = real(scenario, ctx, budget, fractional)
         reasons, codes = ["일일 손실 한도 도달"] * 2 + ["손익비 낮음"], ["daily_loss_limit"] * 2 + ["reward_risk_low"]
         return a.__class__(**{**a.__dict__, "approved": False, "reasons": reasons, "codes": codes})
-    monkeypatch.setattr(risk, "assess", doubled)
+    monkeypatch.setattr(risk, "assess_budget", doubled)
     p = risk.preview(make_rec(), user)
     assert p["reasonCodes"] == ["daily_loss_limit", "reward_risk_low"] and p["reasons"] == ["일일 손실 한도 도달", "손익비 낮음"]
 
@@ -680,7 +756,7 @@ def test_activation_intraday_below_stop(fake, user, monkeypatch):
     rec = make_rec()
     monkeypatch.setattr(risk, "_live_price", lambda symbol: 65000.0)
     with pytest.raises(executor.Blocked) as caught:
-        executor.activate(rec, user)
+        executor.activate(rec, user, BUDGET_KRW)
     assert caught.value.reasons == ["장중 가격이 이미 손절가 이하예요"] and caught.value.codes == ["price_passed"]
     assert caught.value.body() == {"detail": "장중 가격이 이미 손절가 이하예요", "reasonCodes": ["price_passed"]}
 
@@ -689,11 +765,14 @@ def test_activation_race_on_live_plan_is_plan_exists(fake, user, monkeypatch):
     """점검과 계획 만들기 사이에 같은 종목 계획이 생기면 (유일 제약) plan_exists로 막는다."""
     rec = make_rec()
     plan_in("active", make_rec(), user)
-    monkeypatch.setattr(risk, "preview", lambda *a, **kw: {"activatable": True, "quantity": 1, "limitedBy": "x",
-                                                            "approved": True, "reasons": [], "reasonCodes": []})
+    monkeypatch.setattr(risk, "preview", lambda *a, **kw: PASSED)
     with pytest.raises(executor.Blocked) as caught:
-        executor.activate(rec, user)
+        executor.activate(rec, user, BUDGET_KRW)
     assert caught.value.codes == ["plan_exists"] and caught.value.reasons == [risk.PLAN_EXISTS]
+
+
+PASSED = {"activatable": True, "quantity": 1, "limitedBy": "내가 정한 금액", "approved": True, "reasons": [],
+          "reasonCodes": [], "budgetMode": "amount", "budgetPercent": None, "budgetKrw": 100_000.0}  # 통과한 미리 보기
 
 
 @pytest.mark.parametrize("body,expected", [({}, False), ({"acknowledged": True}, True), ({"acknowledged": False}, False)])
@@ -718,9 +797,9 @@ def test_evaluate_shape_matches_preview(fake, user):
     assert {"reasonCodes", "lastPrice", "lastPriceAsOf", "priceBasis"} <= set(direct)
 
 
-def test_requeue_sizes_from_intraday_equity(api, clock, user, monkeypatch):
-    """재주문 점검의 수량은 보유를 장중 가격으로 평가한 자산으로 정한다 (docs/API.md "재주문의 계산은 지금처럼 장중 확인 가격").
-    미리 보기·활성화는 그대로 장마감 기준(종가) 자산이다."""
+def test_requeue_evaluates_intraday_equity(api, clock, user, monkeypatch):
+    """재주문 점검의 자산은 보유를 장중 가격으로 평가한 값이다 (docs/API.md "재주문의 계산은 지금처럼 장중 확인 가격").
+    미리 보기·활성화는 그대로 장마감 기준(종가) 자산이다. 수량은 자산과 무관하게 그 계획과 같다 (2026-10-11)."""
     clock("2026-09-21T10:00:00")  # 전 거래일 정규장 중에 산 보유 — 기준 종가보다 먼저 체결돼 종가로 평가된다 (오늘 산 것은 체결가, DECISIONS 23장)
     held = api.post("/api/orders", {"symbol": "000660", "quantity": 20, "orderType": "MARKET", "style": "long"},
                     format="json")
@@ -736,16 +815,10 @@ def test_requeue_sizes_from_intraday_equity(api, clock, user, monkeypatch):
     monkeypatch.setattr(client, "confirmed_prices", lambda symbols: {
         s: intraday.get(s, client.price[s]) for s in symbols if s in client.price})
     clock("2026-09-22T10:05:00")  # 몇 분 뒤 (매수 점검이 받아 둔 현재가 1초 캐시는 지났다)
-    seen = []
-    real = risk.assess
-
-    def spy(scenario, ctx, fractional=False):
-        seen.append(ctx.equity_krw)
-        return real(scenario, ctx, fractional)
-    monkeypatch.setattr(risk, "assess", spy)
-
-    shown = risk.preview(rec, user)  # 미리 보기: 종가 기준
+    shown = risk.preview(rec, user, BUDGET_KRW)  # 미리 보기: 종가 기준
     requeue = risk.preview(rec, user, plan=plan)  # 재주문 점검: 장중 평가
-    assert seen == [pytest.approx(cash + 20 * close_of(200_000)), pytest.approx(cash + 20 * 100_000)]
-    assert requeue["activatable"] and requeue["quantity"] < shown["quantity"]
+    assert shown["equityKrw"] == pytest.approx(cash + 20 * close_of(200_000))
+    assert requeue["equityKrw"] == pytest.approx(cash + 20 * 100_000)
+    assert requeue["activatable"] and requeue["quantity"] == plan.quantity == 10 and shown["quantity"] == 25
+    assert requeue["budgetMode"] is None and requeue["limitedBy"] == "내가 정한 금액"
     assert requeue["priceBasis"] == "close" and requeue["lastPrice"] == close_of(70000)  # 표시 값은 그대로 종가

@@ -33,7 +33,7 @@ REASON_TEXT = {
     "daily_trades_limit": "오늘 할 수 있는 주문 수를 다 썼어요",
     "warning_stock": "투자경고 같은 매수 유의 종목이라 안전장치가 막았어요",
     "size_too_small": "안전장치가 정한 수량이 1주도 안 돼요",
-    "budget_too_small": "예산으로는 1주도 살 수 없어요",
+    "budget_too_small": "내가 정한 금액으로는 1주도 살 수 없어요",
     "expired": "계획의 기한이 끝났어요",
     "plan_exists": "이미 이 종목으로 진행 중인 계획이 있어요",
     "position_exists": "이미 이 종목의 모의 주문이나 보유가 있어요",
@@ -158,7 +158,8 @@ def order_requeued(plan: TradePlan, order_id: int, quantity: float, previous_qua
     entry, _, _ = _plan_prices(plan)
     qty = qty_text(quantity)
     reduced = quantity < previous_quantity
-    shrink = f" 안전장치가 수량을 {qty_text(previous_quantity)}에서 {qty}로 줄였어요." if reduced else ""
+    shrink = (f" 매수 가능 금액·총 투자 금액 한도에 맞춰 수량을 {qty_text(previous_quantity)}에서 {qty}로 줄였어요."
+              if reduced else "")
     expert_shrink = f", 리스크 점검으로 {qty_text(previous_quantity)} → {qty}" if reduced else ""
     return Notice(
         title=f"{plan.name} 모의 매수 주문을 다시 냈어요",
@@ -212,7 +213,8 @@ END_EASY = {
     "engine_cancelled": "체결하려던 순간 모의 주문이 취소돼 모의 자동매매를 이어가지 못했어요.",
     "cash_short": "체결하려던 순간 모의 계좌의 현금이 모자라 모의 주문이 취소됐어요. 모의 자동매매를 이어가지 못했어요.",
     "requeue_blocked": "모의 주문을 다시 내기 전에 안전장치가 막아 모의 자동매매를 끝냈어요.",
-    "requeue_too_small": "모의 주문을 다시 내려 했지만 안전장치가 정한 수량이 1주도 안 돼 모의 자동매매를 끝냈어요.",
+    "requeue_too_small": ("모의 주문을 다시 내려 했지만 매수 가능 금액·총 투자 금액 한도 안에서는 1주도 살 수 없어 "
+                          "모의 자동매매를 끝냈어요."),
 }
 END_TITLE = {TradePlan.CANCELLED: "모의 자동매매를 멈췄어요", TradePlan.EXPIRED: "모의 자동매매가 사지 않고 끝났어요",
              TradePlan.FAILED: "모의 자동매매를 이어가지 못했어요"}

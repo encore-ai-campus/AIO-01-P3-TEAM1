@@ -1,4 +1,5 @@
 import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { type BudgetChoice, budgetParams } from "../lib/autotrade";
 import { api, qs } from "./client";
 import type {
   AccountSummary,
@@ -108,7 +109,8 @@ export const keys = {
   reportQuota: ["reports", "quota"] as const,
   recommendations: (params: RecommendationParams) => ["recommendations", params] as const,
   recommendation: (id: number) => ["recommendation", id] as const,
-  preview: (id: number, budgetKrw: number | null) => ["recommendation", id, "preview", budgetKrw] as const,
+  // 넣을 돈 없음(null)은 [..., "preview", null, null] — 머리 칩·리포트 계획 카드·실행 확인이 같은 캐시를 쓴다
+  preview: (id: number, budget: BudgetChoice | null) => ["recommendation", id, "preview", budget?.mode ?? null, budget?.value ?? null] as const,
   plans: (status: "active" | "all") => ["plans", status] as const,
   plan: (id: number) => ["plan", id] as const,
   notifications: (unread: boolean) => ["notifications", unread] as const,
@@ -322,11 +324,14 @@ export function useRecommendation(id: number) {
   });
 }
 
-/** 리스크 엔진이 내 계좌로 계산한 활성화 미리 보기. 예산은 원 (null이면 보내지 않는다). */
-export function useRiskPreview(id: number, budgetKrw: number | null, enabled = true) {
+/**
+ * 리스크 엔진이 내 계좌로 계산한 활성화 미리 보기. budget: 넣을 돈 (% 또는 원 — budgetPercent·budgetKrw 중 하나만 보낸다).
+ * null이면 금액 없이 점검만 한다 (수량 0 — 머리 칩·시작할 수 없는 이유·매수 가능 금액 안내용, docs/API.md 2026-10-11).
+ */
+export function useRiskPreview(id: number, budget: BudgetChoice | null, enabled = true) {
   return useQuery({
-    queryKey: keys.preview(id, budgetKrw),
-    queryFn: () => api.get<RiskPreview>(`/api/recommendations/${id}/preview${qs({ budgetKrw })}`),
+    queryKey: keys.preview(id, budget),
+    queryFn: () => api.get<RiskPreview>(`/api/recommendations/${id}/preview${qs(budget ? budgetParams(budget) : {})}`),
     enabled: enabled && Number.isFinite(id),
     placeholderData: (prev) => prev,
   });

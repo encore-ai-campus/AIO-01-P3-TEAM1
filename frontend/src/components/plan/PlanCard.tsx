@@ -1,7 +1,9 @@
 // 리포트의 매매 계획 카드 (docs/컨셉변경계획.md 4-5). 리포트 상세(F-report)가 <PlanCard report={...} variant="full"|"mini" view />로 쓴다.
 //
 // - 자료와 상태는 api/reports.ts usePlanCardData: 이 리포트의 추천(기한이 지난 것까지 — "기한 지남"을 보이려고)과,
-//   열린 추천이면 리스크 미리 보기(예산 없음)의 "이 계좌로는 ○주 · ○○원"(장마감 기준). 쉬운 보기의 단계 막대·안내 문장도 같은 훅이라 서로 다른 말을 하지 않는다.
+//   열린 추천이면 리스크 미리 보기(넣을 돈 없음 — 시작할 수 있는지만). 쉬운 보기의 단계 막대·안내 문장도 같은 훅이라 서로 다른 말을 하지 않는다.
+//   넣을 돈은 실행 확인에서 사용자가 정하므로(2026-10-11 DECISIONS 28장) 여기서는 계좌 금액 대신 계획의 목표·손절 비율(1주 기준, 비용 전 —
+//   '세 가지 경우'의 1주 기준 칸과 같은 말)을 보인다.
 // - 상태 (PlanCardState, 계산은 lib/autotrade.ts planCardState): 리포트가 아직 완성 전 · 지켜보기(hold) · 부정적(avoid) ·
 //   계획 준비 중(buy인데 추천이 아직 없음, 완성 직후 10분) · 계획 없음(buy인데 가격 조건이 맞지 않아 추천이 없음) · 기한 지남 ·
 //   실행 가능("실행 준비" → /recommendations/{id}) · 실행 불가(RiskPreview.reasonCodes → lib/plainText.ts reasonSentences).
@@ -20,11 +22,11 @@ import { useRevealAfterLoading } from "../../hooks/useMotionState";
 import type { ViewMode } from "../../hooks/useBeginnerMode";
 import { isRecBlocked, kstDayOf } from "../../lib/autotrade";
 import { cn } from "../../lib/cn";
-import { formatDayLabel, formatKrw, formatPrice, formatQty } from "../../lib/format";
+import { formatDayLabel, formatPrice, formatRate } from "../../lib/format";
 import { prefersReducedMotion } from "../../lib/motion";
 import { priceExpiredText, reasonSentences } from "../../lib/plainText";
 import { Icon } from "../Icon";
-import { AsOf, LiveDot, Skeleton, Spinner } from "../ui";
+import { LiveDot, Skeleton, Spinner } from "../ui";
 
 export type PlanCardState =
   | "not_completed" // 리포트가 아직 만드는 중이거나 실패
@@ -157,7 +159,7 @@ export function PlanCard({ report, variant = "full", view = "easy", id, classNam
       </h2>
       <div className="mt-3">
         {state === "ready" && rec && preview ? (
-          <Ready rec={rec} preview={preview} easy={easy} />
+          <Ready rec={rec} easy={easy} />
         ) : state === "blocked" && rec && preview ? (
           <Blocked rec={rec} preview={preview} easy={easy} />
         ) : state === "expired" && rec ? (
@@ -219,20 +221,17 @@ function WatchActions({ symbol }: { symbol: string }) {
   );
 }
 
-function amounts(preview: RiskPreview) {
-  return {
-    gain: `+${formatKrw(preview.expectedProfitKrw)}`,
-    loss: `-${formatKrw(preview.maxLossKrw)}`,
-  };
+/** 계획의 목표·손절 비율 (1주 기준, 비용 전 — lib/reports.ts scenarioOf의 1주 기준 칸과 같은 계산). 넣을 돈은 실행 확인에서 정한다. */
+function rates(rec: Recommendation) {
+  return { gain: formatRate(rec.targetReturn), loss: formatRate(rec.stopLossRate) };
 }
 
-function Ready({ rec, preview, easy }: { rec: Recommendation; preview: RiskPreview; easy: boolean }) {
-  const a = amounts(preview);
+function Ready({ rec, easy }: { rec: Recommendation; easy: boolean }) {
+  const a = rates(rec);
   return (
     <>
-      <p className="text-[16px] font-semibold tabular-nums">
-        이 계좌로는 {formatQty(preview.quantity)} · {formatKrw(preview.amountKrw)}
-      </p>
+      <p className="text-[16px] font-semibold">{easy ? "넣을 돈은 실행 확인에서 정해요" : "투자 금액은 활성화 화면에서 정합니다"}</p>
+      <p className="mt-0.5 text-[13px] text-sub">1주 기준 비율 · 수수료·세금 빼기 전</p>
       {/* 이익·손실 상자는 세 가지 경우(ScenarioBoxes)와 같은 바탕 */}
       <dl className="mt-2 grid grid-cols-2 gap-2">
         <div className="rounded-xl bg-up-soft p-3">
@@ -253,11 +252,10 @@ function Ready({ rec, preview, easy }: { rec: Recommendation; preview: RiskPrevi
         ) : (
           <>
             진입 {formatPrice(rec.entryPrice, rec.currency)} · 목표 {formatPrice(rec.targetPrice, rec.currency)} · 손절 {formatPrice(rec.stopPrice, rec.currency)} ·
-            손익비 {rec.rewardRisk.toFixed(2)} · 수량 제약 {preview.limitedBy}
+            손익비 {rec.rewardRisk.toFixed(2)}
           </>
         )}
       </p>
-      <AsOf at={preview.lastPriceAsOf} market={rec.market} className="mt-1 block" />
       <Link
         to={`/recommendations/${rec.id}`}
         className="press mt-3 flex h-12 w-full items-center justify-center gap-1.5 rounded-xl bg-brand text-[16px] font-bold text-white hover:bg-brand-dark"
@@ -328,7 +326,7 @@ function Mini({
   if (state === "not_completed") return null;
   const box = cn("flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl bg-fill px-3.5 py-2.5 text-[14px]", className);
   if (state === "ready" && rec && preview) {
-    const a = amounts(preview);
+    const a = rates(rec);
     return (
       <div aria-label="계획 미니" data-state={state} className={box}>
         <span className="tabular-nums">

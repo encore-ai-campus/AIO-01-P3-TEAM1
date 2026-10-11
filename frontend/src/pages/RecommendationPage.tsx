@@ -1,31 +1,38 @@
 // /recommendations/:id: 새 계획 제안(전문가 보기: AI 추천)의 실행 확인 (docs/컨셉변경계획.md 4-2 "실행 확인", 6장 "내 확인").
-// 쉬운 보기: 계획 요약 → 예산 → 안전장치가 정한 수량·금액(장마감 기준) → 장 시간 안내(opensAt) → 체크 셋(손절 시 손실 · 보유 기간 끝 매도 ·
-//   AI 제안/모의)을 모두 켜야 "모의 자동매매 시작"(acknowledged: true).
-// 전문가 보기: 머리 → 가격 사다리 → 지표 → 결론·근거·리스크 → 활성화 카드(예산 → 리스크 미리 보기 → 같은 체크 셋을 한 줄 요약 확인 → "계획 활성화").
+// 넣을 돈은 사용자가 정한다 (2026-10-11 DECISIONS 28장): 내 자금(매수 가능 금액)의 % 또는 금액(원) — 필수, 기본값 없음(정하기 전에는 시작 버튼이 꺼진다).
+//   요청에는 budgetPercent·budgetKrw 중 하나만 보낸다. 수량은 그 금액으로 계산하고, 리스크 엔진은 한도를 점검만 한다(넘으면 막는다, 줄이지 않는다).
+// 쉬운 보기: 계획 요약 → 얼마를 넣을까요?(% 칩 10·25·50·100 + 직접 입력 | 금액) → 그 금액으로 사는 수량·금액·손절 시 손실(내 자산의 %)
+//   → 손절 손실이 자산의 1%를 넘으면 경고 한 줄(막지 않음) → 장 시간 안내(opensAt) → 체크 셋(손절 시 손실 · 보유 기간 끝 매도 · AI 제안/모의)을
+//   모두 켜야 "모의 자동매매 시작"(acknowledged: true). 금액을 정하기 전에는 미리 보기 대신 빈 상태와 버튼 아래 안내.
+// 전문가 보기: 머리 → 가격 사다리 → 지표 → 결론·근거·리스크 → 활성화 카드(투자 금액 → 리스크 미리 보기 → 같은 체크 셋을 한 줄 요약 확인 → "계획 활성화").
 // Discord 활성화 링크(?t=)로 들어오면 위에 띠를 보이고 활성화 요청에 token으로 넣는다 (via=discord).
 // 배치: 여정 ② 검토 → ③ 실행 순서 그대로 (왼쪽에서 읽고 오른쪽에서 확인). PC 오른쪽 열은 화면보다 길면 아래 끝(시작 버튼)이 보이게 붙는다.
-// 시작할 수 없으면(계좌와 무관한 사유 blockedBy 또는 예산 없는 안전장치 미리 보기 activatable=false) 머리 배지 아래에 이유 한 줄,
-// 실행 확인은 예산·체크리스트·시작 버튼 대신 이유와 '다른 계획 제안 보기'만 (UX-2). 예산 때문에 막힌 것(budget_too_small 등)은 예산을 고칠 수 있게 그대로 둔다.
+// 시작할 수 없으면(계좌와 무관한 사유 blockedBy 또는 금액 없는 안전장치 미리 보기 activatable=false) 머리 배지 아래에 이유 한 줄,
+// 실행 확인은 투자 금액·체크리스트·시작 버튼 대신 이유와 '다른 계획 제안 보기'만 (UX-2). 금액 때문에 막힌 것(cash_short·total_limit·budget_too_small)은
+// 금액을 고칠 수 있게 입력을 그대로 둔다.
 // 지금 실시간 가격이 사는 가격 이하이고 정규장 중이면 "시작하면 바로 사요"라고 말한다 (UX-3 — 숫자는 넣지 않는다).
 import { type RefObject, useId, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { useActivate, useDeleteRecommendation } from "../api/autotrade";
 import { ApiError, errorMessage } from "../api/client";
 import { isPlanLive, useMarket, useQuotes, useRecommendation, useRiskPreview } from "../api/queries";
-import type { Quote, Recommendation, RiskPreview } from "../api/types";
+import type { BudgetMode, Quote, Recommendation, RiskPreview } from "../api/types";
 import { PlanStatusChip, ReadinessChip, RecStatusChip, RiskLevelBadge, SourceBadge } from "../components/autotrade/Badges";
 import { PriceLadder } from "../components/autotrade/PriceLadder";
 import { DeleteAction } from "../components/DeleteAction";
 import { Icon } from "../components/Icon";
 import { Collapse } from "../components/motion/Collapse";
 import { useToast } from "../components/toast";
-import { AsOf, Card, ErrorState, Flash, Notice, PageHeader, Row, Skeleton, SkeletonCard, Spinner } from "../components/ui";
+import { AsOf, Card, ErrorState, Flash, Notice, PageHeader, Row, Segmented, Skeleton, SkeletonCard, Spinner } from "../components/ui";
 import { useViewMode } from "../hooks/useBeginnerMode";
 import { useRevealAfterLoading } from "../hooks/useMotionState";
 import {
+  BUDGET_PERCENT_CHIPS,
+  type BudgetChoice,
   SOURCE,
   STICKY_FIT_TOP,
   blockedCodes,
+  budgetParams,
   buysRightAway,
   closedMarketNotice,
   deadlineMovedEarlier,
@@ -33,6 +40,7 @@ import {
   kstDayOf,
   nextActionOf,
   parseBudget,
+  percentToKrw,
   stickyFit,
   timeLeft,
 } from "../lib/autotrade";
@@ -65,22 +73,113 @@ function sourceLink(r: Recommendation, easy: boolean): { to: string; label: stri
   return null;
 }
 
-/** 안전장치(리스크 엔진)가 수량을 정한 이유를 쉬운 말로 (RiskPreview.limitedBy). */
+/** 수량을 정한 것을 쉬운 말로 (RiskPreview.limitedBy — 2026-10-11부터 "내가 정한 금액" 하나, 모르는 값은 그대로). */
 function limitedByText(limitedBy: string): string {
-  switch (limitedBy) {
-    case "건당 위험 한도":
-      return "손절에 팔려도 계좌의 약 1%만 잃게 정했어요";
-    case "매수 가능 금액":
-      return "지금 쓸 수 있는 현금 안에서 정했어요";
-    case "총 금액 한도":
-      return "총 투자 금액 한도 안에서 정했어요";
-    case "유동성 한도":
-      return "거래량에 비해 너무 많이 사지 않게 정했어요";
-    case "예산":
-      return "내가 적은 예산 안에서 정했어요";
-    default:
-      return limitedBy;
-  }
+  return limitedBy === "내가 정한 금액" ? "내가 정한 금액으로 계산했어요" : limitedBy;
+}
+
+/** 손절 시 손실 ÷ 총자산 (maxLossRate)을 "0.9%"로. 0.0%로 보이면 한 자리 더. */
+function lossRateText(rate: number): string {
+  const t = formatPercent(rate, 1);
+  return t === "0.0%" && rate > 0 ? formatPercent(rate, 2) : t;
+}
+
+/** 넣을 돈 때문에 막힌 사유 (금액을 고치면 풀린다 — 입력 블록을 그대로 둔다). */
+const BUDGET_CODES = ["cash_short", "total_limit", "budget_too_small"];
+
+/** 넣을 돈 입력 아래 도움말: 매수 가능 금액 중 얼마인지 (정하기 전에는 매수 가능 금액만). 매수 가능 금액을 모르면 null. */
+function budgetHelp(mode: BudgetMode, value: number | null, buyingPowerKrw: number | null): string | null {
+  if (buyingPowerKrw == null) return null;
+  const head = `매수 가능 금액 ${formatKrw(buyingPowerKrw)}`;
+  if (value == null) return head;
+  if (mode === "percent") return `${head} 중 ${formatKrw(percentToKrw(buyingPowerKrw, value))}`;
+  return `${head} 중 ${formatKrw(value)}${buyingPowerKrw > 0 ? ` (${formatPercent(value / buyingPowerKrw, 1)})` : ""}`;
+}
+
+/**
+ * 넣을 돈 (2026-10-11 DECISIONS 28장): [내 자금의 % | 금액(원)] 전환(공용 Segmented) → % 칩 10·25·50·100 + 직접 입력(1~100 정수) 또는 원 입력.
+ * 칩은 입력 칸을 채우는 지름길이라 칸의 값과 같은 칩이 눌린 상태다. 방식을 바꾸면 부모가 입력을 비운다 (다른 단위의 숫자가 남지 않게).
+ */
+function BudgetPicker({
+  mode,
+  raw,
+  onMode,
+  onRaw,
+  value,
+  error,
+  buyingPowerKrw,
+  easy,
+}: {
+  mode: BudgetMode;
+  raw: string;
+  onMode: (m: BudgetMode) => void;
+  onRaw: (v: string) => void;
+  value: number | null;
+  error: string | null;
+  buyingPowerKrw: number | null;
+  easy: boolean;
+}) {
+  const help = budgetHelp(mode, value, buyingPowerKrw);
+  const percent = mode === "percent";
+  return (
+    <fieldset className="mt-4">
+      <legend className="text-[15px] font-semibold">{easy ? "얼마를 넣을까요?" : "투자 금액"}</legend>
+      <Segmented
+        label={easy ? "넣을 돈 정하는 방식" : "투자 금액 방식"}
+        value={mode}
+        onChange={(m) => onMode(m)}
+        className="mt-2 w-full"
+        options={[
+          { value: "percent", label: "내 자금의 %" },
+          { value: "amount", label: "금액(원)" },
+        ]}
+      />
+      {percent && (
+        <div role="group" aria-label="내 자금의 %" className="mt-2 grid grid-cols-4 gap-1.5">
+          {BUDGET_PERCENT_CHIPS.map((p) => {
+            const on = value === p;
+            return (
+              <button
+                key={p}
+                type="button"
+                aria-pressed={on}
+                onClick={() => onRaw(String(p))}
+                className={cn(
+                  "press h-11 rounded-lg text-[14px] font-semibold tabular-nums",
+                  // 고대비(forced-colors)에서는 바탕색이 사라지므로 고른 칩을 시스템 선택색으로 (Segmented와 같다)
+                  on
+                    ? "bg-brand-soft text-brand-ink ring-1 ring-brand forced-colors:bg-[color:Highlight] forced-colors:text-[color:HighlightText] forced-colors:forced-color-adjust-none"
+                    : "bg-fill text-sub hover:bg-line",
+                )}
+              >
+                {p}%
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <div className="relative mt-2">
+        <input
+          id="budget"
+          inputMode="numeric"
+          value={raw}
+          onChange={(e) => onRaw(e.target.value)}
+          aria-label={percent ? "직접 입력 (%)" : easy ? "넣을 금액 (원)" : "투자 금액 (원)"}
+          placeholder={percent ? "직접 입력 (1~100)" : "예: 1,000,000"}
+          aria-describedby="budget-help"
+          aria-invalid={error ? true : undefined}
+          className="h-12 w-full rounded-xl bg-fill pr-10 pl-3.5 text-[16px] tabular-nums outline-none focus:ring-2 focus:ring-brand"
+        />
+        <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-3.5 flex items-center text-[15px] text-mute">
+          {percent ? "%" : "원"}
+        </span>
+      </div>
+      <p id="budget-help" className={cn("mt-1 text-[13px] tabular-nums", error ? "text-up-ink" : "text-mute")}>
+        {/* 매수 가능 금액은 머리 칩과 같은 금액 없는 미리 보기에서 온다 (보통 이미 받아 둠 — 못 받았으면 비워 둔다) */}
+        {error ?? help}
+      </p>
+    </fieldset>
+  );
 }
 
 /** 체크 셋 ③: AI 제안 / 연습용 예시(AI 아님). */
@@ -103,7 +202,7 @@ function Check({ checked, onChange, children }: { checked: boolean; onChange: (v
 }
 
 /**
- * 쉬운 보기의 체크 셋. 셋 다 켜야 onReady(true). 금액이 바뀌면(예산·수량) 부모가 key로 새로 그려 체크를 지운다.
+ * 쉬운 보기의 체크 셋. 셋 다 켜야 onReady(true). 금액이 바뀌면(수량·손실) 부모가 key로 새로 그려 체크를 지운다.
  * disabled: 안전장치가 막았으면 켤 수 없게 흐리게 둔다 (숨기지 않는다 — 무엇을 확인하게 되는지는 미리 읽을 수 있게).
  */
 function Checklist({
@@ -179,13 +278,17 @@ function SummaryCheck({
 const NEXT_LINK = "press mt-2 flex h-11 items-center justify-between rounded-xl bg-fill px-3.5 text-[15px] font-semibold hover:bg-line";
 
 /**
- * 이 계획을 지금 시작할 수 없을 때 실행 확인 카드의 본문: 이유 목록 + 다음 행동 (예산·체크리스트·꺼진 시작 버튼 대신 — UX-2).
- * 이유는 예산 없는 미리 보기(내 계좌까지 본 결과)가 있으면 그것, 아직 없으면 계좌와 무관한 사유(blockedBy)로.
+ * 이 계획을 지금 시작할 수 없을 때 실행 확인 카드의 본문: 이유 목록 + 다음 행동 (투자 금액·체크리스트·꺼진 시작 버튼 대신 — UX-2).
+ * 이유는 금액 없는 미리 보기(내 계좌까지 본 결과)가 있으면 그것, 아직 없으면 계좌와 무관한 사유(blockedBy)로.
  */
 function BlockedBody({ r, pv, codes, easy }: { r: Recommendation; pv: RiskPreview | undefined; codes: string[]; easy: boolean }) {
   const fromPreview = pv && !pv.activatable && (pv.reasons.length > 0 || pv.reasonCodes.length > 0);
-  const easyReasons = fromPreview ? reasonPairs(pv) : codes.map((c) => ({ code: c, text: reasonSentence(c) }));
-  const expertReasons = fromPreview ? (pv.reasons.length > 0 ? pv.reasons : pv.reasonCodes.map((c) => reasonSentence(c))) : codes.map((c) => blockedShort([c], false));
+  const easyReasons = fromPreview ? reasonPairs(pv) : codes.map((c) => ({ code: c, text: reasonSentence(c, null, "plan") }));
+  const expertReasons = fromPreview
+    ? pv.reasons.length > 0
+      ? pv.reasons
+      : pv.reasonCodes.map((c) => reasonSentence(c, null, "plan"))
+    : codes.map((c) => blockedShort([c], false));
   const next = nextActionOf(fromPreview ? pv.reasonCodes : codes);
   return (
     <>
@@ -245,22 +348,31 @@ function ActivateCard({
   const toast = useToast();
   const { easy } = useViewMode();
   const { data: market } = useMarket();
+  // 넣을 돈: 방식(기본 %)과 입력 칸 (기본값 없음 — 칩은 칸을 채운다)
+  const [mode, setMode] = useState<BudgetMode>("percent");
   const [raw, setRaw] = useState("");
-  // 확인은 그때 본 수량·손실 금액에 대한 것이다 (예산을 바꿔 금액이 바뀌면 다시 확인한다)
+  // 확인은 그때 본 수량·손실 금액에 대한 것이다 (금액을 바꿔 수량·손실이 바뀌면 다시 확인한다)
   const [ackedFor, setAckedFor] = useState<string | null>(null);
-  const budget = parseBudget(raw);
-  const debounced = useDebounced(budget.value, 400);
+  const budget = parseBudget(raw, mode);
+  const choice: BudgetChoice | null = budget.value !== null ? { mode, value: budget.value } : null;
+  const choiceKey = choice ? `${choice.mode}:${choice.value}` : null;
+  const debouncedKey = useDebounced(choiceKey, 400);
+  const [dMode, dValue] = debouncedKey?.split(":") ?? [];
+  const debounced: BudgetChoice | null = debouncedKey ? { mode: dMode as BudgetMode, value: Number(dValue) } : null;
   const open = r.status === "open";
-  const preview = useRiskPreview(r.id, debounced, open && !budget.error);
-  // 예산 없는 미리 보기 (머리 칩과 같은 쿼리): 이것이 막혔거나 계좌와 무관한 사유가 있으면 이 계획은 지금 시작할 수 없다
+  const preview = useRiskPreview(r.id, debounced, open && debounced !== null);
+  // 금액 없는 미리 보기 (머리 칩과 같은 쿼리): 이것이 막혔거나 계좌와 무관한 사유가 있으면 이 계획은 지금 시작할 수 없다.
+  // 매수 가능 금액(% 기준)도 여기서 읽는다
   const head = useRiskPreview(r.id, null, open);
   const codes = blockedCodes(r);
   const hardBlocked = open && (codes.length > 0 || head.data?.activatable === false);
   const activate = useActivate(r.id);
-  const pv = preview.data;
+  // 금액을 정한 미리 보기만 쓴다: 금액이 비면 같은 키(금액 없음)의 캐시나 이전 값이 남아도 보이지 않는다 (0주 미리 보기가 섞이지 않게)
+  const pv = choice && preview.data?.budgetMode === choice.mode ? preview.data : undefined;
+  const buyingPower = pv?.buyingPowerKrw ?? head.data?.buyingPowerKrw ?? null;
   const ackKey = pv ? `${pv.quantity}:${pv.maxLossKrw}` : null;
   // 금액이 바뀌면 체크 셋(key={ackKey})을 새로 그려 체크를 지운다. 확인 상태도 그때 같이 지운다 —
-  // 예산을 지워 금액이 처음 값(A → B → A)으로 돌아와도 빈 체크 아래에서 버튼이 켜지지 않게.
+  // 금액을 지웠다 다시 정해 처음 값(A → B → A)으로 돌아와도 빈 체크 아래에서 버튼이 켜지지 않게.
   // 확인 칸을 켠 뒤 지워졌으면 이유를 한 번 알린다 (말없이 지워지면 '고장'으로 읽힌다 — trade-16)
   const [touched, setTouched] = useState(false);
   const [seen, setSeen] = useState<{ key: string | null; loss: number | null }>({ key: ackKey, loss: pv?.maxLossKrw ?? null });
@@ -279,13 +391,13 @@ function ActivateCard({
     setTouched(true);
     setReset(null);
   };
-  const settling = debounced !== budget.value || preview.isFetching;
+  const settling = debouncedKey !== choiceKey || preview.isFetching;
   const blocked = pv?.activatable === false;
-  const canActivate = open && !budget.error && !settling && pv?.activatable === true && acked && !activate.isPending;
+  const canActivate = open && choice !== null && !settling && pv?.activatable === true && acked && !activate.isPending;
   const session = market?.markets.find((m) => m.market === r.market);
   const closedNotice = closedMarketNotice(session, r.market);
   const buysNow = buysRightAway(session, quote, r.entryPrice);
-  const rejected = activate.isError ? rejectionSentences(activate.error) : null;
+  const rejected = activate.isError ? rejectionSentences(activate.error, "plan") : null;
   const title = easy ? "모의 자동매매 시작" : "계획 활성화";
   const priceGone = priceExpiredText(r.expiredReason, easy);
   // 시작할 수 없을 때 버튼 아래의 다음 행동 하나 (진행 중인 내 계획은 위쪽 '내 모의 자동매매 보기'가 이미 잇는다 — trade-15)
@@ -299,8 +411,8 @@ function ActivateCard({
       </h2>
       <p className="mt-1 text-[13px] leading-snug text-mute">
         {easy
-          ? "AI는 제안만 해요. 몇 주를 살지와 시작할 수 있는지는 안전장치가 내 모의 계좌로 정해요."
-          : "AI는 제안만 합니다. 수량과 활성화 가능 여부는 리스크 엔진(건당 위험 1%, 손익비·매수 가능 금액·한도)이 정합니다."}
+          ? "AI는 제안만 해요. 넣을 돈은 내가 정하고, 모의 자동매매를 시작할 수 있는지는 안전장치가 확인해요."
+          : "AI는 제안만 합니다. 투자 금액은 내가 정하고, 수량 계산과 활성화 가능 여부(손익비·매수 가능 금액·한도)는 리스크 엔진이 확인합니다."}
       </p>
 
       {r.myPlan && (
@@ -330,38 +442,49 @@ function ActivateCard({
         <BlockedBody r={r} pv={head.data} codes={codes} easy={easy} />
       ) : (
         <>
-          <div className="mt-4">
-            <label htmlFor="budget" className="block text-[15px] font-semibold">
-              예산 (원, 선택)
-            </label>
-            <input
-              id="budget"
-              inputMode="numeric"
-              value={raw}
-              onChange={(e) => setRaw(e.target.value)}
-              placeholder={easy ? "비우면 안전장치가 정한 수량" : "비우면 리스크 엔진이 정한 수량"}
-              aria-describedby="budget-help"
-              aria-invalid={budget.error ? true : undefined}
-              className="mt-1.5 h-12 w-full rounded-xl bg-fill px-3.5 text-[16px] tabular-nums outline-none focus:ring-2 focus:ring-brand"
-            />
-            <p id="budget-help" className={cn("mt-1 text-[13px]", budget.error ? "text-up-ink" : "text-mute")}>
-              {budget.error ??
-                (easy
-                  ? "예산을 적으면 그 안에서만 사요. 안전장치가 더 적게 정하면 그 수량으로 사요."
-                  : "예산을 주면 수량을 그만큼 줄입니다 (늘리지는 않습니다).")}
-            </p>
-          </div>
+          <BudgetPicker
+            mode={mode}
+            raw={raw}
+            onMode={(m) => {
+              // 방식을 바꾸면 입력을 비운다 (25%의 25가 25원으로 남지 않게)
+              setMode(m);
+              setRaw("");
+            }}
+            onRaw={setRaw}
+            value={budget.value}
+            error={budget.error}
+            buyingPowerKrw={buyingPower}
+            easy={easy}
+          />
 
-          {/* 안전장치의 계산 결과는 정보라 채움 상자. 다시 계산하는 동안은 흐리게 + 오른쪽 위 작은 표시 (높이가 변하지 않게 — motion-18).
-              받지 못했을 때는 테두리 상자 — 안의 '다시 시도'(채움 버튼)가 바탕에 묻히지 않게 */}
+          {/* 계산 결과는 정보라 채움 상자. 다시 계산하는 동안은 흐리게 + 오른쪽 위 작은 표시 (높이가 변하지 않게 — motion-18).
+              받지 못했을 때는 테두리 상자 — 안의 '다시 시도'(채움 버튼)가 바탕에 묻히지 않게. 금액을 정하기 전에는 빈 상태 한 줄 */}
           <section
-            aria-label={easy ? "안전장치가 정한 수량" : "리스크 미리 보기"}
-            aria-busy={settling}
-            className={cn("relative mt-3 rounded-xl p-3.5", preview.isError ? "ring-1 ring-line" : "bg-fill")}
+            aria-label={easy ? "이 금액으로 사는 수량" : "리스크 미리 보기"}
+            aria-busy={choice !== null && settling}
+            className={cn("relative mt-3 rounded-xl p-3.5", (choice ? preview.isError : head.isError) ? "ring-1 ring-line" : "bg-fill")}
           >
-            {preview.isError ? (
-              // 미리 보기는 저절로 다시 받지 않는다 (예산을 바꾸거나 창으로 돌아올 때만) — 여기서 다시 받게 한다 (증권사 조회 장애 503 등)
-              <ErrorState compact message={errorMessage(preview.error)} onRetry={() => void preview.refetch()} retrying={preview.isFetching} />
+            {!choice ? (
+              head.isError ? (
+                // 금액 없는 미리 보기(머리 칩·매수 가능 금액)를 받지 못했으면 여기서 다시 받는다 — 같은 쿼리라 머리 칩도 바뀐다 (trade-r5)
+                <ErrorState compact message={errorMessage(head.error)} onRetry={() => void head.refetch()} retrying={head.isFetching} />
+              ) : (
+                <p className="text-[14px] text-mute">
+                  {easy ? "금액을 정하면 몇 주를 사는지 보여 드려요." : "투자 금액을 정하면 수량·매수 금액·손절 시 손실을 계산합니다."}
+                </p>
+              )
+            ) : preview.isError ? (
+              // 미리 보기는 저절로 다시 받지 않는다 (금액을 바꾸거나 창으로 돌아올 때만) — 여기서 다시 받게 한다 (증권사 조회 장애 503 등).
+              // 금액 없는 미리 보기도 실패해 있었으면 같이 다시 받는다 (머리 칩)
+              <ErrorState
+                compact
+                message={errorMessage(preview.error)}
+                onRetry={() => {
+                  void preview.refetch();
+                  if (head.isError) void head.refetch();
+                }}
+                retrying={preview.isFetching}
+              />
             ) : !pv ? (
               <div className="space-y-2">
                 <Skeleton className="h-4 w-1/2" />
@@ -378,6 +501,15 @@ function ActivateCard({
             )}
           </section>
 
+          {pv?.activatable && pv.largeLoss && pv.maxLossRate != null && (
+            // 건당 위험 1%는 수량을 정하지 않는다 — 넘으면 알리기만 하고 막지 않는다 (2026-10-11 B3).
+            // 다른 사유로 막혔을 때는 사유 상자가 말한다 ('활성화는 가능'과 '활성화할 수 없음'이 같이 보이지 않게)
+            <Notice tone="warn" className="mt-3">
+              {easy
+                ? `손절되면 내 자산의 ${lossRateText(pv.maxLossRate)}를 잃어요. 안전장치 기준(1%)보다 커요. 금액을 줄이면 손실도 줄어요.`
+                : `손절 시 손실이 총자산의 ${lossRateText(pv.maxLossRate)}로 건당 위험 기준 1%를 넘습니다 (경고만, 활성화는 가능).`}
+            </Notice>
+          )}
           {closedNotice && <Notice className="mt-3">{closedNotice}</Notice>}
           {r.market === "US" && easy && <p className="mt-2 text-[13px] text-mute">가격은 달러, 이익·손실은 원화(그때 환율)로 보여요.</p>}
 
@@ -389,21 +521,22 @@ function ActivateCard({
             </Notice>
           )}
 
-          {pv &&
-            (easy ? (
-              <div className="mt-3 space-y-2">
-                {blocked && <p className="text-[13px] font-semibold text-sub">시작할 수 있게 되면 확인할 수 있어요.</p>}
-                <p className={cn("text-[14px] leading-snug text-sub", blocked && "opacity-50")}>
-                  {buysNow
-                    ? "지금 가격이 사는 가격보다 낮아서, 시작하면 모의 계좌에서 바로 사요."
-                    : `${formatPrice(r.entryPrice, r.currency)} 이하가 될 때까지 ${entryDeadlineLabel(r.validUntil, r.market)}까지만 기다려요. 그때까지 안 내려오면 사지 않고 끝나요(돈은 그대로).`}
-                </p>
-                <Checklist key={ackKey} r={r} pv={pv} onReady={setAcked} onTouch={touch} disabled={blocked} />
-              </div>
-            ) : (
-              <>
-                {blocked && <p className="mt-3 text-[13px] font-semibold text-sub">활성화할 수 있게 되면 확인할 수 있습니다.</p>}
-                {buysNow && <p className="mt-3 text-[13px] text-sub">현재가가 진입가 이하라 활성화하면 바로 모의 체결됩니다.</p>}
+          {/* 언제 사는지는 금액과 무관해 정하기 전에도 보인다. 확인(체크)은 금액을 정한 미리 보기의 수량·손실에 대한 것이라 그 뒤에 */}
+          {easy ? (
+            <div className="mt-3 space-y-2">
+              {blocked && <p className="text-[13px] font-semibold text-sub">시작할 수 있게 되면 확인할 수 있어요.</p>}
+              <p className={cn("text-[14px] leading-snug text-sub", blocked && "opacity-50")}>
+                {buysNow
+                  ? "지금 가격이 사는 가격보다 낮아서, 시작하면 모의 계좌에서 바로 사요."
+                  : `${formatPrice(r.entryPrice, r.currency)} 이하가 될 때까지 ${entryDeadlineLabel(r.validUntil, r.market)}까지만 기다려요. 그때까지 안 내려오면 사지 않고 끝나요(돈은 그대로).`}
+              </p>
+              {pv && <Checklist key={ackKey} r={r} pv={pv} onReady={setAcked} onTouch={touch} disabled={blocked} />}
+            </div>
+          ) : (
+            <>
+              {blocked && <p className="mt-3 text-[13px] font-semibold text-sub">활성화할 수 있게 되면 확인할 수 있습니다.</p>}
+              {buysNow && <p className="mt-3 text-[13px] text-sub">현재가가 진입가 이하라 활성화하면 바로 모의 체결됩니다.</p>}
+              {pv && (
                 <SummaryCheck
                   r={r}
                   pv={pv}
@@ -414,8 +547,9 @@ function ActivateCard({
                   }}
                   disabled={blocked}
                 />
-              </>
-            ))}
+              )}
+            </>
+          )}
 
           <button
             type="button"
@@ -423,7 +557,7 @@ function ActivateCard({
             onClick={() =>
               activate.mutate(
                 {
-                  ...(budget.value !== null ? { budgetKrw: budget.value } : {}),
+                  ...(choice ? budgetParams(choice) : {}),
                   ...(token ? { token } : {}),
                   acknowledged: true,
                 },
@@ -454,8 +588,11 @@ function ActivateCard({
             {activate.isPending && <Spinner />}
             {title}
           </button>
-          {pv?.activatable && !acked && (
-            <p className="mt-2 text-[13px] text-mute">{easy ? "위의 확인 셋을 모두 켜면 시작할 수 있어요." : "확인에 체크하면 활성화할 수 있습니다."}</p>
+          {!choice ? (
+            <p className="mt-2 text-[13px] text-mute">{easy ? "넣을 돈을 먼저 정해 주세요." : "투자 금액을 정하면 활성화할 수 있습니다."}</p>
+          ) : (
+            pv?.activatable &&
+            !acked && <p className="mt-2 text-[13px] text-mute">{easy ? "위의 확인 셋을 모두 켜면 시작할 수 있어요." : "확인에 체크하면 활성화할 수 있습니다."}</p>
           )}
           {next === "other_plans" && (
             <Link to="/recommendations" className={NEXT_LINK}>
@@ -490,29 +627,30 @@ function ActivateCard({
   );
 }
 
-/** 사유 코드와 쉬운 문장 짝 (같은 문장은 한 번만). */
+/** 사유 코드와 쉬운 문장 짝 (같은 문장은 한 번만, 계획 문맥 — cash_short는 '넣을 돈이 …'). */
 function reasonPairs(pv: RiskPreview): { code: string | undefined; text: string }[] {
   const out: { code: string | undefined; text: string }[] = [];
   const n = Math.max(pv.reasonCodes.length, pv.reasons.length);
   for (let i = 0; i < n; i++) {
-    const text = reasonSentence(pv.reasonCodes[i], pv.reasons[i]);
+    const text = reasonSentence(pv.reasonCodes[i], pv.reasons[i], "plan");
     if (text && !out.some((x) => x.text === text)) out.push({ code: pv.reasonCodes[i], text });
   }
   return out;
 }
 
 /**
- * 사용자 입력(예산)으로 바뀐 금액은 중립 강조(Flash neutral — 회색이 0.8초에 걸쳐 사라진다). 오름·내림(빨강·파랑)을 쓰지 않는다 —
- * 예산을 줄여 금액이 줄면 파랑으로 깜빡여 가격 하락처럼 읽히므로 (trade-16·31). 미리 보기가 처음 도착한 것은 바뀐 것이 아니라 움직이지 않는다.
- * 쉬운 보기는 문장 전체를 한 덩어리로 감싼다 (테스트가 "이 계좌로는 ○주 · ○원" 문장 하나로 찾는다).
+ * 사용자 입력(넣을 돈)으로 바뀐 금액은 중립 강조(Flash neutral — 회색이 0.8초에 걸쳐 사라진다). 오름·내림(빨강·파랑)을 쓰지 않는다 —
+ * 금액을 줄여 매수 금액이 줄면 파랑으로 깜빡여 가격 하락처럼 읽히므로 (trade-16·31). 미리 보기가 처음 도착한 것은 바뀐 것이 아니라 움직이지 않는다.
+ * 쉬운 보기는 문장 전체를 한 덩어리로 감싼다 (테스트가 "이 금액으로 ○주 · ○원" 문장 하나로 찾는다).
  */
 function EasyPreview({ r, pv }: { r: Recommendation; pv: RiskPreview }) {
   const reasons = reasonPairs(pv);
+  const fixable = pv.reasonCodes.some((c) => BUDGET_CODES.includes(c));
   return (
     <>
       <p className="pr-6 text-[16px] font-semibold tabular-nums">
         <Flash tone="neutral" value={pv.amountKrw}>
-          이 계좌로는 {formatQty(pv.quantity)} · {formatKrw(pv.amountKrw)}
+          이 금액으로 {formatQty(pv.quantity)} · {formatKrw(pv.amountKrw)}
         </Flash>
       </p>
       <dl className="mt-1">
@@ -521,11 +659,14 @@ function EasyPreview({ r, pv }: { r: Recommendation; pv: RiskPreview }) {
         </Row>
         <Row label="손절에 팔면">
           <span className="text-down">-{formatKrw(pv.maxLossKrw)}</span>
+          {pv.maxLossRate != null && <span className="text-[13px] font-normal text-mute"> (내 자산의 {lossRateText(pv.maxLossRate)})</span>}
         </Row>
         <Row label="직전 종가">{formatPrice(pv.lastPrice, r.currency)}</Row>
       </dl>
       <AsOf at={pv.lastPriceAsOf} market={r.market} className="block text-right" />
-      <p className="mt-1 text-[13px] text-sub">안전장치: {limitedByText(pv.limitedBy)}. 가격이 갑자기 크게 떨어지면 손실이 더 클 수도 있어요.</p>
+      <p className="mt-1 text-[13px] text-sub">
+        {pv.limitedBy ? `${limitedByText(pv.limitedBy)}. ` : ""}가격이 갑자기 크게 떨어지면 손실이 더 클 수도 있어요.
+      </p>
       {reasons.length > 0 && (
         <div role="alert" className="mt-2 rounded-lg bg-up-soft/70 p-3">
           <p className="text-[13px] font-semibold text-up-ink">지금은 시작할 수 없어요</p>
@@ -544,6 +685,7 @@ function EasyPreview({ r, pv }: { r: Recommendation; pv: RiskPreview }) {
               </li>
             ))}
           </ul>
+          {fixable && <p className="mt-1 text-[13px] text-sub">위에서 넣을 돈을 바꾸면 다시 계산해요.</p>}
         </div>
       )}
     </>
@@ -573,8 +715,9 @@ function ExpertPreview({ r, pv }: { r: Recommendation; pv: RiskPreview }) {
         </Row>
         <Row label="손절 시 손실">
           <span className="text-down">-{formatKrw(pv.maxLossKrw)}</span>
+          {pv.maxLossRate != null && <span className="text-[13px] font-normal text-mute"> (총자산의 {lossRateText(pv.maxLossRate)})</span>}
         </Row>
-        <Row label="수량을 정한 제약">{pv.limitedBy}</Row>
+        <Row label="수량 기준">{pv.limitedBy ?? "-"}</Row>
         {pv.lastPrice != null && <Row label="직전 종가">{formatPrice(pv.lastPrice, r.currency)}</Row>}
       </dl>
       <AsOf at={pv.lastPriceAsOf} market={r.market} className="block text-right" />
@@ -586,6 +729,7 @@ function ExpertPreview({ r, pv }: { r: Recommendation; pv: RiskPreview }) {
               <li key={i}>{x}</li>
             ))}
           </ul>
+          {pv.reasonCodes.some((c) => BUDGET_CODES.includes(c)) && <p className="mt-1 text-[13px] text-sub">투자 금액을 바꾸면 다시 계산합니다.</p>}
         </div>
       )}
     </>
@@ -620,18 +764,18 @@ function ReasonsFold({ reasons }: { reasons: string[] }) {
 }
 
 /**
- * 머리의 '시작할 수 없는 이유' 한 줄 (첫 사유 하나). 예산 없는 미리 보기(내 계좌까지 본 결과)가 막혔으면 그 사유, 아니면 계좌와 무관한 사유(blockedBy).
+ * 머리의 '시작할 수 없는 이유' 한 줄 (첫 사유 하나). 금액 없는 미리 보기(내 계좌까지 본 결과)가 막혔으면 그 사유, 아니면 계좌와 무관한 사유(blockedBy).
  * 시작할 수 있거나 아직 모르면 null. 기한이 지난 추천은 머리 칩('기한 지남')과 실행 확인 안내가 말하므로 null.
  * 가격이 이미 손절가·목표가를 지나 끝난 추천은 그 까닭 한 줄 (쉬운 보기 긴 문장, 전문가 보기 '손절가 이탈로 만료' 등 — DECISIONS 25장).
  */
 function blockedLine(r: Recommendation, pv: RiskPreview | undefined, easy: boolean): string | null {
   if (r.status !== "open") return priceExpiredText(r.expiredReason, easy);
   if (pv && !pv.activatable) {
-    const first = easy ? reasonPairs(pv)[0]?.text : (pv.reasons[0] ?? reasonSentence(pv.reasonCodes[0]));
+    const first = easy ? reasonPairs(pv)[0]?.text : (pv.reasons[0] ?? reasonSentence(pv.reasonCodes[0], null, "plan"));
     if (first) return first;
   }
   const code = blockedCodes(r)[0];
-  return code ? reasonSentence(code) : null;
+  return code ? reasonSentence(code, null, "plan") : null;
 }
 
 export function RecommendationPage() {
@@ -645,7 +789,7 @@ export function RecommendationPage() {
   const quote = r ? quotes?.get(r.symbol) : undefined;
   const last = quote?.price ?? null;
   const open = r?.status === "open";
-  // 머리 칩은 안전장치 결과로 말한다. 실행 확인 카드의 첫 미리 보기(예산 없음)와 같은 쿼리라 요청이 늘지 않는다 (trade-04)
+  // 머리 칩은 안전장치 결과로 말한다. 실행 확인 카드의 금액 없는 미리 보기와 같은 쿼리라 요청이 늘지 않는다 (trade-04)
   const head = useRiskPreview(r?.id ?? Number.NaN, null, Boolean(r && open));
   const titleRef = useRef<HTMLHeadingElement>(null);
 

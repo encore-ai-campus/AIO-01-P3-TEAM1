@@ -71,6 +71,8 @@ class TradePlan(models.Model):
     LIVE = (ACTIVE, ENTRY_PENDING, HOLDING)  # 진행 중
     STATUSES = [(s, s) for s in (ACTIVE, ENTRY_PENDING, HOLDING, CLOSED, CANCELLED, EXPIRED, FAILED)]
     VIAS = [("web", "web"), ("discord", "discord")]
+    PERCENT, AMOUNT = "percent", "amount"  # 넣을 돈을 정한 방식 (docs/API.md TradePlan.budgetMode — 2026-10-11)
+    BUDGET_MODES = [(s, s) for s in (PERCENT, AMOUNT)]
 
     recommendation = models.ForeignKey(Recommendation, on_delete=models.PROTECT, related_name="plans")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="trade_plans")
@@ -81,7 +83,10 @@ class TradePlan(models.Model):
     status = models.CharField(max_length=14, choices=STATUSES, default=ACTIVE, db_index=True)
     via = models.CharField(max_length=8, choices=VIAS, default="web")
     quantity = models.FloatField()
+    # 사용자가 정한 금액 (원 — percent면 활성화 순간 매수 가능 금액 × % 를 원 단위로 내린 값). 2026-10-11 전 계획은 선택 예산 또는 None
     budget_krw = models.FloatField(null=True, blank=True)
+    budget_mode = models.CharField(max_length=8, choices=BUDGET_MODES, null=True, blank=True)  # None: 2026-10-11 전 계획
+    budget_percent = models.IntegerField(null=True, blank=True)  # percent면 1~100 (매수 가능 금액 기준), 아니면 None
     entry_price = models.FloatField()
     target_price = models.FloatField()
     stop_price = models.FloatField()

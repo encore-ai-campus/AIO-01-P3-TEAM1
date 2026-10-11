@@ -4,6 +4,7 @@
 // - UX-10: 보유 손익 옆 "수수료·세금 빼기 전"과 "팔 때 수수료와 세금이 빠져서 받는 돈은 조금 적어요".
 // - UX-1: 오늘 산 보유(Position.priceBasis "today_fill")는 종가·손익 대신 "오늘 산 종목 · 장 마감(15:40) 뒤에 평가돼요".
 //   가짜 API는 today_fill을 내지 않으므로 계좌 응답을 바꿔 끼운다.
+//   2026-10-11부터 종목 화면은 시세로 평가해 오늘 산 종목도 실시간 숫자다 — 그 문구는 시세 가격이 직전 종가일 때(현재가를 받지 못함)만 남는다 (stock-live.test.tsx).
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { MemoryRouter } from "react-router";
@@ -109,7 +110,7 @@ describe("직접 주문 토스트와 보유 패널 (쉬운 보기)", () => {
     renderApp("/stocks/068270?view=easy"); // 앨리스의 셀트리온 5주 (장기 보유)
     const sell = await screen.findByRole("button", { name: "모두 팔기" });
     expect(screen.queryByRole("button", { name: "전량 매도" })).toBeNull();
-    expect(screen.getByText("같은 종목은 한 번에 하나만 가질 수 있고, 팔 때는 가진 수량을 모두 팔아요. 평가는 지난 장 마감 가격으로 해요 (오늘 산 종목은 장 마감 뒤에).")).toBeTruthy();
+    expect(screen.getByText("같은 종목은 한 번에 하나만 가질 수 있고, 팔 때는 가진 수량을 모두 팔아요. 여기 평가는 지금 가격이에요 (내 자산·랭킹은 장 마감 가격).")).toBeTruthy();
     expect(screen.queryByText(/포지션/)).toBeNull();
     expect(screen.getByText("수수료·세금 빼기 전")).toBeTruthy();
     expect(screen.getByText("팔 때 수수료와 세금이 빠져서 받는 돈은 조금 적어요.")).toBeTruthy();
@@ -136,21 +137,53 @@ describe("직접 주문 토스트와 보유 패널 (쉬운 보기)", () => {
   });
 });
 
+/** 현재가를 받지 못한 종목 상세: 시세가 직전 종가(basis close)다. */
+function closeBasisQuote(symbol: string) {
+  const d = db.stockDetail(symbol);
+  const asOf = "2026-10-05T15:30:00+09:00";
+  server.use(http.get("*/api/stocks/:symbol", () => HttpResponse.json({ ...d, quote: { ...d.quote, asOf, basis: "close" as const }, asOf })));
+}
+
 describe("오늘 산 종목 평가 (priceBasis today_fill)", () => {
-  it("종목 상세 쉬운 보기: '모의 보유' 한 줄과 보유 패널에 수익률·종가 대신 언제 평가되는지", async () => {
+  it("종목 상세 쉬운 보기: 시세가 실시간이면 '모의 보유' 한 줄과 보유 패널이 실시간 숫자 (장 마감 뒤 문구 없음)", async () => {
     boughtToday("068270");
+    renderApp("/stocks/068270?view=easy");
+    const line = await screen.findByRole("button", { name: /모의 보유 5주/ });
+    await waitFor(() => expect(line.textContent).toBe("모의 보유 5주 · 932,000원 +4.72%")); // 186,400원 × 5주 · 체결가 178,000원
+    expect(screen.queryByText(/장 마감\(15:40\) 뒤에 평가돼요/)).toBeNull();
+    const panel = screen.getByRole("region", { name: "주문" });
+    expect(within(panel).getByText("지금 가격")).toBeTruthy(); // 보유 패널의 가격 줄 (시세 카드의 이름과 같은 말)
+    expect(within(panel).getByText("팔 때 수수료와 세금이 빠져서 받는 돈은 조금 적어요.")).toBeTruthy();
+  });
+
+  it("종목 상세 쉬운 보기: 현재가를 받지 못해 시세가 직전 종가면 '모의 보유' 한 줄과 보유 패널에 수익률·종가 대신 언제 평가되는지", async () => {
+    boughtToday("068270");
+    closeBasisQuote("068270");
     renderApp("/stocks/068270?view=easy");
     const line = await screen.findByRole("button", { name: /모의 보유 5주/ });
     await waitFor(() => expect(line.textContent).toContain("· 오늘 산 종목 · 장 마감(15:40) 뒤에 평가돼요"));
     expect(line.textContent).not.toMatch(/%/);
     expect(await screen.findByText("오늘 산 종목 · 장 마감(15:40) 뒤에 평가돼요")).toBeTruthy();
-    expect(screen.queryByText("종가")).toBeNull(); // 보유 패널의 '종가' 행을 빼고
+    const panel = screen.getByRole("region", { name: "주문" });
+    expect(within(panel).queryByText("종가")).toBeNull(); // 보유 패널의 '종가' 행을 빼고 (시세 카드의 가격 이름은 종가 그대로)
     expect(screen.queryByText("수수료·세금 빼기 전")).toBeNull(); // 손익 줄 대신 위 문장
     expect(screen.getByText("팔 때 수수료와 세금이 빠져서 받는 돈은 조금 적어요.")).toBeTruthy();
   });
 
-  it("종목 상세 전문가 보기: '당일 매수 · 15:40 이후 종가 평가', 장마감 기준 시각을 붙이지 않는다", async () => {
+  it("종목 상세 전문가 보기: 실시간이면 평가 금액·손익·현재가 줄, '당일 매수 · 15:40 이후 종가 평가'는 없다", async () => {
     boughtToday("068270");
+    renderApp("/stocks/068270");
+    const panel = await screen.findByRole("region", { name: "주문" });
+    expect(await within(panel).findByText("932,000원")).toBeTruthy();
+    expect(within(panel).getByText("+42,000원 (+4.72%)")).toBeTruthy();
+    expect(within(panel).getByText("현재가")).toBeTruthy();
+    expect(within(panel).getByText(/^실시간 · \d{2}:\d{2}:\d{2}$/)).toBeTruthy();
+    expect(within(panel).queryByText("당일 매수 · 15:40 이후 종가 평가")).toBeNull();
+  });
+
+  it("종목 상세 전문가 보기: 시세가 직전 종가면 '당일 매수 · 15:40 이후 종가 평가', 장마감 기준 시각을 붙이지 않는다", async () => {
+    boughtToday("068270");
+    closeBasisQuote("068270");
     renderApp("/stocks/068270");
     const panel = await screen.findByRole("region", { name: "주문" });
     expect(await within(panel).findByText("당일 매수 · 15:40 이후 종가 평가")).toBeTruthy();

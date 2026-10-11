@@ -6,6 +6,7 @@ import type {
   AnalysisDetail,
   AnalysisQuota,
   AnalysisSummary,
+  BudgetMode,
   Candle,
   DailyMove,
   DailyMoveList,
@@ -1220,7 +1221,8 @@ export function requestReport(user: MockUser, symbol: string, chaos?: ChaosReque
 }
 
 // ---------------------------------------------------------------- AI 추천 · 매매 계획 · 자동매매 · 알림
-// 리스크 엔진(judge/risk.py)의 계산을 단순하게 흉내 낸다: 건당 위험 1%, 최소 손익비 1.5(스윙), 매수 가능 금액, 총 금액 한도, 예산.
+// 리스크 엔진(judge/risk.py assess_budget)의 계산을 단순하게 흉내 낸다: 수량 = 내가 정한 금액 ÷ 1주 매수 비용 (2026-10-11 — 건당 위험 1%는 경고만),
+// 최소 손익비 1.5(스윙), 매수 가능 금액·총 금액 한도는 점검만(넘으면 막는다).
 // 가격은 장마감 기준(종가), 활성화는 정규장이면 장중 확인 가격으로 한 번 더 본다.
 // 계획은 시연용으로 시간이 지나면 저절로 진행한다 (주문 접수 → planStepMs 뒤 진입가 체결 → planStepMs 뒤 목표가 청산).
 
@@ -1395,6 +1397,13 @@ export function getRecommendation(userId: number, id: number): Recommendation {
   return toRecommendation(recOf(id), userId);
 }
 
+/** 요청의 넣을 돈 (budgetPercent 또는 budgetKrw 중 하나). */
+interface BudgetParam {
+  mode: BudgetMode;
+  percent: number | null;
+  krw: number | null;
+}
+
 interface RiskInput {
   userId: number;
   s: MockStock;
@@ -1402,7 +1411,7 @@ interface RiskInput {
   targetPrice: number;
   stopPrice: number;
   probability: number;
-  budgetKrw: number | null;
+  budget: BudgetParam | null;
 }
 
 interface RiskResult {
@@ -1410,12 +1419,17 @@ interface RiskResult {
   reasons: string[];
   codes: string[];
   quantity: number;
-  limitedBy: string;
+  budgetKrw: number | null; // 원으로 바꾼 넣을 돈 (percent면 floor(매수 가능 금액 × % / 100))
+  buyingPowerKrw: number;
+  equityKrw: number;
   gain: number;
   loss: number;
 }
 
-/** 리스크 엔진 assess 흉내 (종가 기준 자산·가격). approved는 리스크 엔진 사유만으로 정한다. */
+/**
+ * 리스크 엔진 assess_budget 흉내 (종가 기준 자산, 수량은 진입가로). approved는 리스크 엔진 사유만으로 정한다.
+ * 넣을 돈이 없으면 크기 계산 없이 점검만 한다 (수량 0).
+ */
 function assessRisk(x: RiskInput): RiskResult {
   if (!options.brokerReady) throw new MockError(503, "증권사 조회 키가 없어 종가를 받을 수 없습니다.");
   const { s } = x;
@@ -1424,14 +1438,22 @@ function assessRisk(x: RiskInput): RiskResult {
   const c = commissionRate(s.market);
   const { gain, loss } = perShare({ entryPrice: x.entryPrice, targetPrice: x.targetPrice, stopPrice: x.stopPrice, market: s.market });
   const unitKrw = x.entryPrice * fx * (1 + c);
-  const limits: [string, number][] = [
-    ["건당 위험 한도", Math.floor((acc.equityKrw * RISK_PER_TRADE) / (loss * fx))],
-    ["매수 가능 금액", Math.floor(Math.max(0, acc.buyingPowerKrw ?? 0) / unitKrw)],
-    ["총 금액 한도", Math.floor(MAX_TOTAL_INVEST_KRW / unitKrw)],
-  ];
-  const engineQty = Math.min(...limits.map((l) => l[1]));
-  if (x.budgetKrw !== null) limits.push(["예산", Math.floor(x.budgetKrw / unitKrw)]);
-  const [limitedBy, quantity] = limits.reduce((a, b) => (b[1] < a[1] ? b : a));
+  const power = Math.max(0, acc.buyingPowerKrw ?? 0);
+  const budgetKrw = x.budget ? (x.budget.mode === "percent" ? Math.floor((power * (x.budget.percent ?? 0)) / 100) : (x.budget.krw ?? 0)) : null;
+  let quantity = 0;
+  let tooSmall = false;
+  if (budgetKrw !== null) {
+    if (s.market === "KR") {
+      quantity = Math.floor(budgetKrw / unitKrw);
+      tooSmall = quantity < 1;
+    } else {
+      // 미국은 수수료를 뺀 매수 금액을 센트로 내린 소수점 수량 (최소 주문 금액 $1) — 엔진 assess_budget과 같은 식
+      const amount = Math.floor((budgetKrw / fx / (1 + c)) * 100) / 100;
+      quantity = amount / x.entryPrice;
+      tooSmall = amount < 1;
+    }
+    if (tooSmall) quantity = 0;
+  }
 
   const reasons: string[] = [];
   const codes: string[] = [];
@@ -1443,9 +1465,12 @@ function assessRisk(x: RiskInput): RiskResult {
   if (rr < MIN_REWARD_RISK) add("reward_risk_low", `손익비 ${rr.toFixed(2)}가 기준(${MIN_REWARD_RISK.toFixed(1)})보다 낮습니다.`);
   if (x.probability * gain - (1 - x.probability) * loss <= 0) add("ev_negative", "비용을 반영한 기대값이 0 이하입니다.");
   if (s.warnings.length) add("warning_stock", `매수 유의 종목입니다: ${s.warnings[0]}`);
-  if (quantity < 1) {
-    if (engineQty < 1) add("size_too_small", `${limitedBy === "예산" ? "건당 위험 한도" : limitedBy} 때문에 살 수 있는 수량이 0주입니다.`);
-    else add("budget_too_small", "예산 때문에 살 수 있는 수량이 0주입니다.");
+  if (budgetKrw !== null) {
+    // 넘으면 줄이지 않고 막는다 (assess_position과 같은 방식)
+    const need = quantity * unitKrw;
+    if (tooSmall) add("budget_too_small", s.market === "KR" ? `투자 금액 ${wonText(budgetKrw)}으로는 1주도 살 수 없습니다.` : `투자 금액 ${wonText(budgetKrw)}이 최소 주문 금액($1)보다 작습니다.`);
+    else if (need > power) add("cash_short", `매수 금액 ${wonText(Math.round(need))}이 매수 가능 금액 ${wonText(power)}보다 큼`);
+    if (!tooSmall && acc.investedKrw + pendingKrw(x.userId) + need > MAX_TOTAL_INVEST_KRW) add("total_limit", `총 금액 한도(${wonText(MAX_TOTAL_INVEST_KRW)})를 넘습니다`);
   }
   // 장 중이면 직전 종가는 지난 가격이다 — 장중 가격으로 본다 (숫자 없는 문장, docs/API.md "리포트 시세"). 장 밖이면 직전 종가
   if (isOpen(s.market)) {
@@ -1453,7 +1478,7 @@ function assessRisk(x: RiskInput): RiskResult {
     else if (s.price <= x.stopPrice) add("price_passed", "장중 가격이 이미 손절가 이하예요");
   } else if (s.close >= x.targetPrice) add("price_passed", `직전 종가 ${priceText(s.close, s.currency)}가 이미 목표가 이상`);
   else if (s.close <= x.stopPrice) add("price_passed", `직전 종가 ${priceText(s.close, s.currency)}가 이미 손절가 이하`);
-  return { approved: reasons.length === 0, reasons, codes, quantity: Math.max(0, quantity), limitedBy, gain, loss };
+  return { approved: reasons.length === 0, reasons, codes, quantity, budgetKrw, buyingPowerKrw: power, equityKrw: acc.equityKrw, gain, loss };
 }
 
 /**
@@ -1481,6 +1506,8 @@ function previewOf(x: RiskInput, risk: RiskResult, extra: { reasons: string[]; c
   const fx = fxOf(x.s);
   const reasons = [...risk.reasons, ...extra.reasons];
   const codes = [...risk.codes, ...extra.codes];
+  const sized = x.budget !== null;
+  const maxLossKrw = Math.round(risk.loss * risk.quantity * fx);
   return {
     approved: risk.approved,
     activatable: reasons.length === 0,
@@ -1489,16 +1516,22 @@ function previewOf(x: RiskInput, risk: RiskResult, extra: { reasons: string[]; c
     quantity: risk.quantity,
     amountKrw: Math.round(x.entryPrice * risk.quantity * fx),
     expectedProfitKrw: Math.round(risk.gain * risk.quantity * fx),
-    maxLossKrw: Math.round(risk.loss * risk.quantity * fx),
-    limitedBy: risk.limitedBy,
-    budgetKrw: x.budgetKrw,
+    maxLossKrw,
+    limitedBy: sized ? "내가 정한 금액" : null,
+    budgetMode: x.budget?.mode ?? null,
+    budgetPercent: x.budget?.percent ?? null,
+    budgetKrw: risk.budgetKrw,
+    buyingPowerKrw: risk.buyingPowerKrw,
+    equityKrw: risk.equityKrw,
+    maxLossRate: sized && risk.equityKrw > 0 ? maxLossKrw / risk.equityKrw : null,
+    largeLoss: sized && maxLossKrw > risk.equityKrw * RISK_PER_TRADE, // 경고만 (막지 않는다)
     lastPrice: x.s.close,
     lastPriceAsOf: closeAsOf(x.s),
     priceBasis: "close",
   };
 }
 
-function computePreview(userId: number, r: MockRec, budgetKrw: number | null): RiskPreview {
+function computePreview(userId: number, r: MockRec, budget: BudgetParam | null): RiskPreview {
   const s = stockOf(r.symbol);
   const input: RiskInput = {
     userId,
@@ -1507,7 +1540,7 @@ function computePreview(userId: number, r: MockRec, budgetKrw: number | null): R
     targetPrice: r.targetPrice,
     stopPrice: r.stopPrice,
     probability: r.probability,
-    budgetKrw,
+    budget,
   };
   const risk = assessRisk(input);
   const extra = { reasons: [] as string[], codes: [] as string[] };
@@ -1519,15 +1552,27 @@ function computePreview(userId: number, r: MockRec, budgetKrw: number | null): R
   return previewOf(input, risk, extra);
 }
 
-function parseBudgetParam(raw: unknown): number | null {
-  if (raw === null || raw === undefined || raw === "") return null;
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n <= 0) throw new MockError(400, "예산은 0보다 큰 숫자여야 합니다.");
-  return n;
+const given = (v: unknown) => v !== null && v !== undefined && v !== "";
+
+/** budgetPercent(1~100 정수)·budgetKrw(양수, 원) 중 하나 → 넣을 돈. 둘 다 없으면 null, 둘 다·형식 오류는 400 (reasonCodes 없음). */
+function parseBudgetParams(percentRaw: unknown, krwRaw: unknown): BudgetParam | null {
+  if (given(percentRaw) && given(krwRaw)) throw new MockError(400, "budgetPercent와 budgetKrw 중 하나만 보냅니다.");
+  if (given(percentRaw)) {
+    const n = Number(percentRaw);
+    if (!Number.isInteger(n) || n < 1 || n > 100) throw new MockError(400, "budgetPercent는 1~100 사이의 정수여야 합니다.");
+    return { mode: "percent", percent: n, krw: null };
+  }
+  if (given(krwRaw)) {
+    const n = Number(krwRaw);
+    if (!Number.isFinite(n) || n <= 0) throw new MockError(400, "budgetKrw는 0보다 큰 숫자여야 합니다.");
+    return { mode: "amount", percent: null, krw: n };
+  }
+  return null;
 }
 
-export function riskPreview(userId: number, id: number, budget: string | null): RiskPreview {
-  return computePreview(userId, recOf(id), parseBudgetParam(budget));
+/** 미리 보기 (GET .../preview?budgetPercent=|budgetKrw=). 둘 다 없으면 크기 없이 점검만. */
+export function riskPreview(userId: number, id: number, budgetPercent: string | null = null, budgetKrw: string | null = null): RiskPreview {
+  return computePreview(userId, recOf(id), parseBudgetParams(budgetPercent, budgetKrw));
 }
 
 /** 가짜 Discord 활성화 링크의 token. 실제 서버는 추천 id + 만료를 서명한다. */
@@ -1545,7 +1590,7 @@ function planEvent(p: MockPlan, kind: string, message: string, details: Record<s
 const qtyText = (n: number) => `${n.toLocaleString("ko-KR")}주`;
 
 /** 계획을 만들고 바로 진입 지정가 주문까지 낸다. */
-function startPlan(user: MockUser, r: MockRec, pv: RiskPreview, budgetKrw: number | null, via: "web" | "discord", acknowledged: boolean): MockPlan {
+function startPlan(user: MockUser, r: MockRec, pv: RiskPreview, via: "web" | "discord", acknowledged: boolean): MockPlan {
   const now = kstIso();
   const p: MockPlan = {
     id: nextId(),
@@ -1559,7 +1604,9 @@ function startPlan(user: MockUser, r: MockRec, pv: RiskPreview, budgetKrw: numbe
     status: "active",
     via,
     quantity: pv.quantity,
-    budgetKrw,
+    budgetMode: pv.budgetMode,
+    budgetPercent: pv.budgetPercent,
+    budgetKrw: pv.budgetKrw,
     entryPrice: r.entryPrice,
     targetPrice: r.targetPrice,
     stopPrice: r.stopPrice,
@@ -1581,13 +1628,16 @@ function startPlan(user: MockUser, r: MockRec, pv: RiskPreview, budgetKrw: numbe
   };
   state.plans.push(p);
   const link = `/plans/${p.id}`;
-  planEvent(
-    p,
-    "activated",
-    `${via === "discord" ? "Discord 링크" : "웹"}에서 계획 활성화${budgetKrw ? ` (예산 ${wonText(budgetKrw)})` : ""}`,
-    { via, budgetKrw, acknowledged },
-  );
-  planEvent(p, "risk_checked", `리스크 엔진 통과: ${qtyText(pv.quantity)} (${pv.limitedBy}), 손익비 ${r.rewardRisk.toFixed(2)}`, {
+  // 문장은 서버(backend/autotrade/executor.py _start·_budget_text)와 같은 모양
+  const share = p.budgetMode === "percent" ? `(매수 가능 금액의 ${p.budgetPercent}%)` : "";
+  planEvent(p, "activated", `${via === "discord" ? "Discord 링크" : "웹"}에서 계획 활성화`, {
+    via,
+    budgetMode: p.budgetMode,
+    budgetPercent: p.budgetPercent,
+    budgetKrw: p.budgetKrw,
+    acknowledged,
+  });
+  planEvent(p, "risk_checked", `리스크 엔진 점검 통과: 내가 정한 금액${share} ${wonText(p.budgetKrw ?? 0)}으로 ${qtyText(pv.quantity)} (손익비 ${r.rewardRisk.toFixed(2)})`, {
     approved: true,
     quantity: pv.quantity,
     limitedBy: pv.limitedBy,
@@ -1633,15 +1683,21 @@ function startPlan(user: MockUser, r: MockRec, pv: RiskPreview, budgetKrw: numbe
   return p;
 }
 
-export function activate(user: MockUser, id: number, body: { budgetKrw?: unknown; token?: unknown; acknowledged?: unknown }): TradePlanDetail {
+export function activate(
+  user: MockUser,
+  id: number,
+  body: { budgetPercent?: unknown; budgetKrw?: unknown; token?: unknown; acknowledged?: unknown },
+): TradePlanDetail {
   const r = recOf(id);
   const token = typeof body.token === "string" && body.token ? body.token : null;
   if (token && token !== demoToken(id)) throw new MockError(400, "활성화 링크가 만료되었거나 올바르지 않습니다.");
   if (body.acknowledged !== undefined && typeof body.acknowledged !== "boolean") throw new MockError(400, "acknowledged는 true 또는 false여야 합니다.");
-  const budgetKrw = parseBudgetParam(body.budgetKrw);
-  const pv = computePreview(user.id, r, budgetKrw);
+  // 넣을 돈은 필수 (2026-10-11) — 입력 오류라 reasonCodes 없이 400
+  const budget = parseBudgetParams(body.budgetPercent, body.budgetKrw);
+  if (!budget) throw new MockError(400, "투자 금액을 정해 주세요 (budgetPercent 또는 budgetKrw).");
+  const pv = computePreview(user.id, r, budget);
   if (!pv.activatable) throw blocked(pv.reasons, pv.reasonCodes); // 장 중이면 가격 점검이 이미 장중 가격이다 (assess)
-  const p = startPlan(user, r, pv, budgetKrw, token ? "discord" : "web", body.acknowledged === true);
+  const p = startPlan(user, r, pv, token ? "discord" : "web", body.acknowledged === true);
   return toPlanDetail(p);
 }
 
@@ -2229,6 +2285,8 @@ function seedAutotrade() {
     status: "closed",
     via: "discord",
     quantity: 14,
+    budgetMode: null, // 2026-10-11 전에 활성화한 계획 (리스크 엔진이 수량을 정함)
+    budgetPercent: null,
     budgetKrw: null,
     entryPrice: 69_500,
     targetPrice: 77_000,

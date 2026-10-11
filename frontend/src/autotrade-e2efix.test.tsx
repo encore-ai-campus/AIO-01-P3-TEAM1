@@ -114,7 +114,7 @@ describe.each(VIEWPORTS)("UX-2 계획 제안 상세 · %s", (_name, width) => {
   beforeEach(() => vi.stubGlobal("innerWidth", width));
   afterEach(() => vi.unstubAllGlobals());
 
-  it("쉬운 보기: 시작할 수 없으면 머리 배지 아래 이유 한 줄, 예산·체크리스트·시작 버튼 대신 이유와 '다른 계획 제안 보기'", async () => {
+  it("쉬운 보기: 시작할 수 없으면 머리 배지 아래 이유 한 줄, 넣을 돈·체크리스트·시작 버튼 대신 이유와 '다른 계획 제안 보기'", async () => {
     const { samsungNew } = seedBlocked();
     renderApp(`/recommendations/${samsungNew}`, "bob");
     expect(await screen.findByRole("heading", { name: "삼성전자 계획 제안" })).toBeTruthy();
@@ -124,7 +124,7 @@ describe.each(VIEWPORTS)("UX-2 계획 제안 상세 · %s", (_name, width) => {
     expect(await within(head).findByText("지금은 시작할 수 없음")).toBeTruthy();
     const reasons = await screen.findByRole("list", { name: "시작할 수 없는 이유" });
     expect(within(reasons).getByText(sentence)).toBeTruthy();
-    expect(screen.queryByLabelText("예산 (원, 선택)")).toBeNull();
+    expect(screen.queryByRole("group", { name: "넣을 돈 정하는 방식" })).toBeNull();
     expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
     expect(screen.queryByRole("button", { name: "모의 자동매매 시작" })).toBeNull();
     expect(screen.getByRole("link", { name: /다른 계획 제안 보기/ }).getAttribute("href")).toBe("/recommendations");
@@ -140,10 +140,14 @@ describe.each(VIEWPORTS)("UX-2 계획 제안 상세 · %s", (_name, width) => {
     expect(screen.getByRole("link", { name: /다른 추천 보기/ }).getAttribute("href")).toBe("/recommendations");
   });
 
-  it("시작할 수 있으면 이유 줄이 없고 예산·체크리스트·시작 버튼이 그대로", async () => {
+  it("시작할 수 있으면 이유 줄이 없고 넣을 돈·체크리스트·시작 버튼이 그대로 (체크리스트는 넣을 돈을 정한 뒤)", async () => {
     renderApp("/recommendations/91", "bob");
-    await within(await screen.findByRole("region", { name: "안전장치가 정한 수량" })).findByText(/^이 계좌로는/);
-    expect(screen.getByLabelText("예산 (원, 선택)")).toBeTruthy();
+    const box = await screen.findByRole("region", { name: "이 금액으로 사는 수량" });
+    expect(within(box).getByText("금액을 정하면 몇 주를 사는지 보여 드려요.")).toBeTruthy();
+    expect(screen.getByRole("group", { name: "넣을 돈 정하는 방식" })).toBeTruthy();
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "10%" }));
+    await within(box).findByText(/^이 금액으로/, undefined, { timeout: 3000 });
     expect(screen.getAllByRole("checkbox")).toHaveLength(3);
     expect(screen.getByRole("button", { name: "모의 자동매매 시작" })).toBeTruthy();
     expect(screen.queryByText(/안전장치가 막았어요/)).toBeNull();
@@ -183,7 +187,9 @@ describe("UX-3 바로 사는 경우", () => {
       }),
     );
     renderApp("/recommendations/91", user);
-    const box = await screen.findByRole("region", { name: user === "bob" ? "안전장치가 정한 수량" : "리스크 미리 보기" });
+    const box = await screen.findByRole("region", { name: user === "bob" ? "이 금액으로 사는 수량" : "리스크 미리 보기" });
+    fireEvent.click(await screen.findByRole("button", { name: "10%" }));
+    await waitFor(() => expect(screen.getAllByRole("checkbox").length).toBeGreaterThan(0), { timeout: 3000 });
     await waitFor(() => expect(box.getAttribute("aria-busy")).toBe("false"));
     for (const c of screen.getAllByRole("checkbox")) fireEvent.click(c);
     const start = screen.getByRole("button", { name: button }) as HTMLButtonElement;
@@ -194,7 +200,9 @@ describe("UX-3 바로 사는 경우", () => {
 
   it("체결을 기다리면(entry_pending) 토스트는 지금 문장", async () => {
     renderApp("/recommendations/91", "bob");
-    await within(await screen.findByRole("region", { name: "안전장치가 정한 수량" })).findByText(/^이 계좌로는/);
+    const box = await screen.findByRole("region", { name: "이 금액으로 사는 수량" });
+    fireEvent.click(await screen.findByRole("button", { name: "10%" }));
+    await within(box).findByText(/^이 금액으로/, undefined, { timeout: 3000 });
     for (const c of screen.getAllByRole("checkbox")) fireEvent.click(c);
     const start = screen.getByRole("button", { name: "모의 자동매매 시작" }) as HTMLButtonElement;
     await waitFor(() => expect(start.disabled).toBe(false));
@@ -206,7 +214,7 @@ describe("UX-3 바로 사는 경우", () => {
     ["bob", "산 가격"],
     ["alice", "체결가"],
   ])("산 뒤 가격 사다리의 기준점은 산 가격, 손절·목표 %도 산 가격 기준 (사기 전에는 사는 가격) · %s", async (user, label) => {
-    const plan = db.activate(userOf(user), 91, {});
+    const plan = db.activate(userOf(user), 91, { budgetPercent: 10 });
     const pending = renderApp(`/plans/${plan.id}`, user);
     const before = await screen.findByRole("figure", { name: "가격 사다리" });
     expect(within(before).getByText(user === "bob" ? "사는 가격" : "진입")).toBeTruthy();
@@ -229,7 +237,7 @@ describe("UX-3 바로 사는 경우", () => {
 
 describe("UX-10 · UX-11 계획 화면의 평가·기한", () => {
   it("보유 중 평가는 '(수수료·세금 빼기 전)'과 팔 때 받는 돈이 조금 적다는 한 줄. 산 뒤에는 기다리는 기한을 숨기고 보유 기한은 날짜 + 거래일", async () => {
-    const plan = db.activate(userOf("bob"), 91, {});
+    const plan = db.activate(userOf("bob"), 91, { budgetPercent: 10 });
     db.setPrice("000660", 180_000);
     renderApp(`/plans/${plan.id}`, "bob");
     const numbers = (await screen.findByRole("heading", { name: "숫자로 보기" })).closest("section")!;
@@ -256,7 +264,7 @@ describe("UX-10 · UX-11 계획 화면의 평가·기한", () => {
     expect(screen.queryByText(/10월 10일\(토\)/)).toBeNull();
     page.unmount();
 
-    const plan = db.activate(userOf("bob"), id, {});
+    const plan = db.activate(userOf("bob"), id, { budgetPercent: 10 });
     renderApp(`/plans/${plan.id}`, "bob");
     const numbers = (await screen.findByRole("heading", { name: "숫자로 보기" })).closest("section")!;
     expect(within(numbers).getByText("10월 9일(금) 장 마감까지")).toBeTruthy();
@@ -275,7 +283,7 @@ describe("UX-10 · UX-11 계획 화면의 평가·기한", () => {
   });
 
   it("멈추기로 판 계획의 쉬운 결과는 '멈추기로 모의 계좌에서 팔았어요'", async () => {
-    const plan = db.activate(userOf("bob"), 91, {});
+    const plan = db.activate(userOf("bob"), 91, { budgetPercent: 10 });
     db.setPrice("000660", 180_000);
     renderApp(`/plans/${plan.id}`, "bob");
     await screen.findByText("목표·손절을 지켜보는 중", { selector: "span" });
