@@ -1,5 +1,7 @@
 # 02. Worker·출력 계약 (담당 2)
 
+> **파일 위치 (2026-10-11)**: `backend/reports`의 코드를 기능 폴더로 정리했다. 아래의 파일 이름은 그대로이고 폴더만 바뀌었다 — 어느 폴더인지는 `AGENTS.md` "구조", 정리 내용은 `docs/DECISIONS.md` 29장.
+
 > **2026-10-07 — T2-3~T2-8 → Claude가 구현** (사용자 요청, `docs/DECISIONS.md` 19장): `agents/prompts.py`, 종목 리포트 Worker 6개(`agents/report_team/market.py` 등, 등록 `agents/report_team/team.py`), 매매 종목 선정 Worker 5개(`agents/selection_team/news_screen.py` 등, 등록 `agents/selection_team/team.py`), 선정 팀 출력 계약 4개, YAML 모델 값(00-공통 4절 초안 그대로). 2의 계약 보강(dy `ce98783`)을 그 위에 합쳤다.
 > 2에게 남는 것: **T2-10 실제 모델로 프롬프트 다듬기**, T2-9의 비용 예산(`budget.py`), T2-11 설계서 ① 역할 표.
 

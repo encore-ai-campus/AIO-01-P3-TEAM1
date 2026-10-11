@@ -1,5 +1,7 @@
 # 04. AutoHealing 백엔드 (담당 4)
 
+> **파일 위치 (2026-10-11)**: `backend/reports`의 코드를 기능 폴더로 정리했다. 아래의 파일 이름은 그대로이고 폴더만 바뀌었다 — 어느 폴더인지는 `AGENTS.md` "구조", 정리 내용은 `docs/DECISIONS.md` 29장.
+
 > **2026-10-07 — 4의 호출기(T4-2~T4-5) 위에 Orchestrator·Worker를 Claude가 붙였다** (`docs/DECISIONS.md` 19장). `healing.py`는 고치지 않았다. 4에게 남는 것은 그대로: **T4-6 장애 주입(`chaos.py`)·T4-7 복구 지표(`stats.py`, `recovery-stats` API — 화면이 이미 부른다)**, T4-8~T4-11.
 > (2026-10-09: T4-8은 새 코드 없이 확인 테스트로 닫았다 — 아래 표.) (2026-10-08: T4-6은 PR #5로 합쳤다. 주입 리포트는 리포트 전용 Circuit Breaker를 쓴다 — `00-공통.md` 5절. T4-7(`stats.py`·`recovery-stats`)도 `feat/4-stats`로 합쳤다.)
 

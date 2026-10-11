@@ -1,7 +1,8 @@
 # 매매 종목 선정 AI Agent 워크플로우
 
 > 2026-10-07 작성 · **2026-10-07 구현 (Claude, 사용자 요청 — `docs/DECISIONS.md` 19장)** · 원래 범위: Worker·계약 담당 2, Orchestrator·Guard 담당 3, 호출 복구(AutoHealing) 담당 4.
-> 구현 위치: `backend/reports/orchestration/orchestrator.py`·`guards.py`·`runner.py`(1·2·4·5장), `agents/`(Worker 11개), `selection.py`(선정 Guard), `auto.py`(하루 파이프라인, `AUTO_REPORT=on`).
+> 구현 위치(`backend/reports/` 기준, 2026-10-11 기능 폴더로 정리 — `docs/DECISIONS.md` 29장): `orchestration/orchestrator.py`·`runner.py`와 `guardrails/guards.py`(1·2·4·5장),
+> `agents/report_team/`·`agents/selection_team/`(Worker 11개), `autoreport/selection.py`(선정 Guard), `autoreport/auto.py`(하루 파이프라인, `AUTO_REPORT=on`).
 > 6장(주린이모드 의견 대립)은 제안 그대로 남았다 (미구현).
 > 🟧 AI(제안) · 🟦 코드(검증) · 🟩 사람(최종 결정) · 🟪 복구 동작 · 🟥 실패
 

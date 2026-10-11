@@ -125,9 +125,9 @@
 
 ### 4-2. 만들 것
 
-이미 있는 것(고치지 않고 그 위에 만든다): 실행 계획과 계획 검증(`backend/reports/orchestration/registry.py`, YAML 두 개), State·Trace 저장과 **유일한 쓰기 경로**(`state.py`:
+이미 있는 것(고치지 않고 그 위에 만든다): 실행 계획과 계획 검증(`backend/reports/orchestration/registry.py`, YAML 두 개), State·Trace 저장과 **유일한 쓰기 경로**(`orchestration/state.py`:
 `start`·`set_step`·`record`·`add_result`·`add_error`·`finish`), Snapshot·SSE API, 화면(그래프·타임라인·State·정책 안내·예시 재생).
-새 코드는 `backend/reports/` 안에 둔다 (예: `contracts.py`, `agents/`, `guards.py`, `orchestrator.py`, `runner.py`).
+새 코드는 `backend/reports/`의 기능 폴더에 둔다 (예: `guardrails/contracts.py`·`guards.py`, `agents/report_team/`, `orchestration/orchestrator.py`·`runner.py` — 폴더 구성은 `AGENTS.md` "구조", `docs/DECISIONS.md` 29장).
 
 | # | 작업 | 내용 |
 |---|---|---|
@@ -474,7 +474,7 @@ Claude가 구현한다(2026-10-05, `docs/DECISIONS.md` 14장). "추천 워크플
 |---|---|---|---|
 | **1. 인프라·배포·통합** (저장소·호스트 PC 담당) | EC2 준비, GitHub 변수·비밀 값, 첫 배포, 배포 차단 시연(7장). 호스트 PC·공유 DB·`main` 통합. 자동 리포트의 자동 실행·선별·리포트 생성 연결·Discord 발송과 그 테스트(6-2의 1·2·3·5·7) | `deploy/`, `.github/`, 자동 리포트 명령, 발송 코드 | ③ 파이프라인 보고서, ②의 배포 구성 |
 | **2. Worker·출력 계약** | 출력 계약, Worker 6개, 모델 지정, 비용·한도 (4-2의 A·B·H·I) | `backend/reports/guardrails/contracts.py`, `agents/` | ①의 역할·입출력 |
-| **3. Orchestrator** | 병렬 실행·Join Guard·실패 정책·검토 반복·Handoff·`run_engine` 연결과 그 테스트 (4-2의 C~G·J) | `backend/reports/orchestration/orchestrator.py`, `guards.py`, `runner.py` | ① 설계서 총괄 (흐름·Handoff) |
+| **3. Orchestrator** | 병렬 실행·Join Guard·실패 정책·검토 반복·Handoff·`run_engine` 연결과 그 테스트 (4-2의 C~G·J) | `backend/reports/orchestration/orchestrator.py`·`runner.py`, `guardrails/guards.py` | ① 설계서 총괄 (흐름·Handoff) |
 | **4. AutoHealing 백엔드** | 재시도·대체 모델·Circuit Breaker, 장애 주입, 복구용 Trace 사건, 복구 지표 API, 엔진이 다시 뜰 때 남은 리포트 정리 (5-1~5-3) | `backend/reports/autohealing/healing.py`, YAML의 대체 모델, `docs/API.md` 추가분 | ② 장애 복구 보고서 (유형표·지표), 8장 시험 시나리오와 결과표 |
 | **5. 프론트·리포트 서식** | 장애 주입 체크박스, 복구 과정 시각화, 복구 지표 화면, 검토 반복 표시, 실패 안내 (5-4, 10-1). A4 PDF 서식과 PDF 내려받기, "자동" 표시 (6-3, 6-2의 4·6) | `frontend/`, PDF용 HTML·CSS | 발표 자료·시연 영상 총괄 |
 

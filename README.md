@@ -69,9 +69,9 @@ flowchart LR
     V -- "FAIL<br/>review_failed" --> X
 ```
 
-- 정의는 YAML Registry(`backend/reports/orchestration/team_definitions.yaml`·`worker_definitions.yaml`), Worker 출력 계약은 `contracts.py`.
-- 모든 AI 호출은 `healing.py`를 거친다: 같은 모델 재시도 → 대체 모델 → Circuit Breaker (주 모델이 시간 초과면 다시 기다리지 않고 바로 대체 모델). 호출 한 번은 **최대 4회** 시도한다 (모델마다 2회까지). 진행은 `state.py`가 Shared State·Trace로 남기고 SSE로 화면에 보낸다.
-- 실행은 `orchestrator.py`(병렬·Join Guard·부분 실패·검토 반복·Handoff Guard)와 `runner.py`(엔진 루프에서 한 번에 하나), Worker는 `agents/` (2026-10-07 구현).
+- 정의는 YAML Registry(`backend/reports/orchestration/team_definitions.yaml`·`worker_definitions.yaml`), Worker 출력 계약은 `guardrails/contracts.py` (경로는 모두 `backend/reports/` 기준).
+- 모든 AI 호출은 `autohealing/healing.py`를 거친다: 같은 모델 재시도 → 대체 모델 → Circuit Breaker (주 모델이 시간 초과면 다시 기다리지 않고 바로 대체 모델). 호출 한 번은 **최대 4회** 시도한다 (모델마다 2회까지). 진행은 `orchestration/state.py`가 Shared State·Trace로 남기고 SSE로 화면에 보낸다.
+- 실행은 `orchestration/orchestrator.py`(병렬·Join Guard·부분 실패·검토 반복·Handoff Guard)와 `orchestration/runner.py`(엔진 루프에서 한 번에 하나), Worker는 `agents/report_team/`·`agents/selection_team/` (2026-10-07 구현).
   종목 선정까지 AI 팀으로 하는 하루 파이프라인(규칙 후보 30 → 선정 팀 → 선정 Guard → 자동 리포트 3개, `AUTO_REPORT=on`)은 [docs/design/AI_AGENT_WORKFLOW.md](docs/design/AI_AGENT_WORKFLOW.md).
 
 ### ERD
@@ -352,8 +352,8 @@ sequenceDiagram
 | 핵심 수행내용 (가이드) | 구현 | 문서 |
 |---|---|---|
 | 에이전트 협업 시나리오와 역할 구조 설계 | YAML 실행 계획(`backend/reports/orchestration/*_definitions.yaml`), Agent 11개(`backend/reports/agents/`) | 산출물 1의 1~6장 |
-| 장애 유형별 복구 로직 및 자동화 파이프라인 구현 | 재시도·대체 모델·Circuit Breaker(`healing.py`), Join·Handoff Guard(`guards.py`), 장애 주입(`chaos.py`), 하루 파이프라인과 Fallback(`auto.py`) | 산출물 1의 8장, 산출물 2의 1~4장 |
-| 협업 기반 실행 흐름 통합 구현 | Orchestrator(`orchestrator.py`) → 리포트·PDF → 리스크 엔진 → AI 추천 → 계획 활성화 → 모의 자동매매 → 알림 | 산출물 1의 2·4장 |
+| 장애 유형별 복구 로직 및 자동화 파이프라인 구현 | `backend/reports/`의 재시도·대체 모델·Circuit Breaker(`autohealing/healing.py`), Join·Handoff Guard(`guardrails/guards.py`), 장애 주입(`autohealing/chaos.py`), 하루 파이프라인과 Fallback(`autoreport/auto.py`) | 산출물 1의 8장, 산출물 2의 1~4장 |
+| 협업 기반 실행 흐름 통합 구현 | Orchestrator(`backend/reports/orchestration/orchestrator.py`) → 리포트·PDF(`reports/output/`) → 리스크 엔진 → AI 추천(`autotrade/recommend/`) → 계획 활성화 → 모의 자동매매(`autotrade/plans/`) → 알림 | 산출물 1의 2·4장 |
 | 서비스 배포 및 결과 검증 | EC2 두 대 + Docker Compose, GitHub Actions(`ci.yml`·`deploy.yml`·`admin-*.yml`), 관리 서버 복구 지표 | 산출물 2·3 |
 
 ### 평가 항목별로 보여 줄 것
@@ -533,11 +533,15 @@ push하면 GitHub Actions가 같은 검사를 돌린다. `main`은 검사를 통
 ## 구조
 
 ```
-engine/paper_engine/   매매 엔진 (선별, AI 교차검증, 리스크 엔진, 모의 체결, 기록, 리포트) — 표준 라이브러리만
-backend/               Django: accounts(로그인·프로필·주린이모드) · trading(계좌·주문·시세·랭킹·run_engine) · analysis(AI 분석)
-                       reports(AI 리포트: Registry·Orchestrator·Guard·Agent 11개·AutoHealing·State·Trace·SSE·PDF·하루 파이프라인)
-                       autotrade(추천·활성화·자동매매) · notifications(웹 알림·Discord) · longterm(장기투자)
-frontend/              React + TypeScript + Vite + Tailwind CSS
+engine/paper_engine/   매매 엔진 — 표준 라이브러리만: agents(AI 교차검증·모의 체결기) · data(조회·장 달력) · judge(리스크 엔진·손절) · records(기록) · longterm
+backend/               Django 앱. 루트에는 Django 자리(models·views·urls …)만, 기능 코드는 기능 폴더 (docs/DECISIONS.md 29장)
+  reports/             AI 리포트: agents/(report_team·selection_team — Worker 11개) · orchestration/(Orchestrator·YAML Registry·State·Trace)
+                       · guardrails/(Guard·출력 계약) · autohealing/(재시도·대체 모델·Circuit Breaker·장애 주입·복구 지표)
+                       · autoreport/(하루 파이프라인·선정 Guard) · output/(PDF·알림) · limits/(하루 한도·AI 예산)
+  autotrade/           recommend/(리포트·분석 → 추천) · plans/(리스크 미리 보기·모의 자동매매 진행)
+  accounts/ trading/   로그인·프로필·주린이모드 / 계좌·주문·시세·랭킹·run_engine
+  analysis/ notifications/ longterm/   AI 교차검증 분석 / 웹 알림·Discord / 장기투자
+frontend/src/          React + TypeScript + Vite + Tailwind CSS: pages/ · components/(공용 부품 + 기능 폴더) · api/ · hooks/ · lib/ · test/(화면 테스트)
 admin/                 관리 서버 (EC2 ②): server(FastAPI·MCP) · web(관리자 화면) · deploy(compose·SSH 터널)
 backtest/              백테스트 (AI 없음, DB 없이 단독 실행)
 deploy/                Docker Compose (개발용 Redis·PostgreSQL, 운영 nginx·web·engine·db·redis), 배포 스크립트

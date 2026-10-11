@@ -100,10 +100,12 @@ CI/CD: push ─▶ ci.yml 검사 ─▶ [DEPLOY_ENABLED] GHCR 이미지 3개 ─
 
 ```
 engine/paper_engine/  엔진 — data/(broker·kiwoom·toss·dart·calendar·news …) agents/(executor=모의 체결기 …) judge/ records/ longterm/
-backend/              config/ accounts/ trading/(run_engine) analysis/ reports/ autotrade/ notifications/ longterm/
-frontend/src/         pages/ components/ api/ lib/ mocks/(가짜 API)
+backend/              config/ accounts/ trading/(run_engine) analysis/ reports/ autotrade/ notifications/ longterm/ — 앱 루트는 Django 자리, 기능 코드는 기능 폴더
+                      reports/  = agents/(report_team·selection_team) orchestration/ guardrails/ autohealing/ autoreport/ output/ limits/
+                      autotrade/ = recommend/ plans/   (2026-10-11 정리 — docs/DECISIONS.md 29장)
+frontend/src/         pages/ components/(공용 부품 + 기능 폴더) api/ hooks/ lib/ test/(화면 테스트) mocks/(가짜 API)
 backtest/ · deploy/(compose, Dockerfile, nginx/, remote_deploy.sh, smoke_test.sh) · scripts/(dev.sh, kiwoom_check.py) · .github/workflows/ · docs/
-테스트: engine/tests/, backend/<앱>/tests/, frontend/src 안의 *.test.ts(x)
+테스트: engine/tests/, backend/<앱>/tests/(reports는 코드와 같은 기능 폴더), frontend/src/test/(화면 단위)와 파일 옆 *.test.ts(단위)
 ```
 
 git에서 빼는 것은 `.gitignore:1-31`에 있다(원본 복사본 `personal_project_files/` — 보지도 고치지도 않는다, `data/`·`runs/`·`reports/`·`.cache/`, `.env`·`.env.docker`, 계정 파일). `.env.example`은 커밋한다. `frontend/.env.local`은 무시되지 않으니 커밋하지 않게 조심한다(`.gitignore`에 더하는 것은 제안). 실행 데이터는 `PAPER_ROOT` 아래에 둔다.
@@ -197,15 +199,15 @@ macOS·Linux·WSL2에서만 돈다. 공유 개발 DB는 `.env`에 `POSTGRES_HOST
 
 | 담당 | 파일 | 할 일 |
 |---|---|---|
-| 2 | `contracts.py`, `agents/`(base·WORKERS·prompts·Worker 6개) | 계약 6개(B1 `plainSummary` 숫자 금지·1~3개·100자, `MarketResult.asOf` 선택, `targets` 다섯 값). 프롬프트 요건(T2-7): "목표 가격 ○○원의 근거", "이 의견이 틀리는 경우", 소문자 `"buy"`, 권유형 금지. market은 장마감 기준, 일봉이 없으면 `WorkerError`. fundamental은 DART 키가 없으면 "자료 없음". news는 `guards.clean_text`(3)를 거친다 |
-| 2 | `worker_definitions.yaml` 값, `budget.py`, `views.py` 한 줄 | 모델·대체 모델(3의 스키마 뒤), 비용 예산 `check(now)`(0002 뒤), 실제 모델 1회(T2-10), 설계서 ① 역할 표(T2-11) |
-| 3 | `registry.py`, `team_definitions.yaml` | 스키마 `fallbacks`·`retry`, review `retry {target: report_agent, max_rounds: 2}`(T3-1) |
-| 3 | `orchestrator.py`, `guards.py`, FakeWorker | `run_report` 정상 경로 → Join·부분 실패(T3-5) → 검토 반복(T3-6) → Handoff(T3-7) → 입력 Guard `clean_text`(T3-8 — 2의 news와 DR-SEC-01이 쓴다) → 비용 `state.add_cost`(T3-9) |
-| 3 | `runner.py`, `run_engine.py` 세 곳 | `tick`(분석 작업 다음)·`recover`(시작)·`shutdown`(끝), 실패 사유 코드(T3-4·T3-12). T3-5 뒤 `AGENTS_IMPLEMENTED = True`, 실제 통합(T3-10), 설계서 ① 총괄(T3-11) |
+| 2 | `guardrails/contracts.py`, `agents/`(base·WORKERS·prompts·`report_team/` Worker 6개) | 계약 6개(B1 `plainSummary` 숫자 금지·1~3개·100자, `MarketResult.asOf` 선택, `targets` 다섯 값). 프롬프트 요건(T2-7): "목표 가격 ○○원의 근거", "이 의견이 틀리는 경우", 소문자 `"buy"`, 권유형 금지. market은 장마감 기준, 일봉이 없으면 `WorkerError`. fundamental은 DART 키가 없으면 "자료 없음". news는 `guards.clean_text`(3)를 거친다 |
+| 2 | `orchestration/worker_definitions.yaml` 값, `limits/budget.py`, `views.py` 한 줄 | 모델·대체 모델(3의 스키마 뒤), 비용 예산 `check(now)`(0002 뒤), 실제 모델 1회(T2-10), 설계서 ① 역할 표(T2-11) |
+| 3 | `orchestration/registry.py`·`team_definitions.yaml` | 스키마 `fallbacks`·`retry`, review `retry {target: report_agent, max_rounds: 2}`(T3-1) |
+| 3 | `orchestration/orchestrator.py`, `guardrails/guards.py`, FakeWorker | `run_report` 정상 경로 → Join·부분 실패(T3-5) → 검토 반복(T3-6) → Handoff(T3-7) → 입력 Guard `clean_text`(T3-8 — 2의 news와 DR-SEC-01이 쓴다) → 비용 `state.add_cost`(T3-9) |
+| 3 | `orchestration/runner.py`, `run_engine.py` 세 곳 | `tick`(분석 작업 다음)·`recover`(시작)·`shutdown`(끝), 실패 사유 코드(T3-4·T3-12). T3-5 뒤 `AGENTS_IMPLEMENTED = True`, 실제 통합(T3-10), 설계서 ① 총괄(T3-11) |
 | 4 | `models.py`, `migrations/0002_*.py`, `payloads.py` | 새 열(user null 허용·source·chaos·cost_usd·pdf_path·색인)과 새 필드. Claude의 B3 `opinion`·`oneLiner`는 지우지 않는다(T4-1) |
-| 4 | `engine/paper_engine/llm.py`, `healing.py`, fake_llm | `complete_json_once`(T4-2), `LlmCaller`·`make_caller`, 재시도·대체 모델(T4-4), Circuit Breaker(T4-5) |
-| 4 | `chaos.py`, `stats.py`, `views.py`·`urls.py` 한 줄씩 | 장애 주입(T4-6), `GET /api/reports/recovery-stats`(T4-7), 보고서 ②·DR 설정표(T4-9·T4-10), recovery 문장(T4-11) |
-| 1 | `auto.py`, `auto_report` 명령, `run_engine.py` 한 줄 | 자동 리포트 B9(P1): `request`·`tick`(T1-4, 0002 뒤), `after_finish`의 PDF·발송(T1-5 — Discord는 U7 보류라 지금은 콘솔), `auto_report`(T1-6), 목록 `?source=`(T1-7). 발표 전에 할지는 U20 |
+| 4 | `engine/paper_engine/llm.py`, `autohealing/healing.py`, fake_llm | `complete_json_once`(T4-2), `LlmCaller`·`make_caller`, 재시도·대체 모델(T4-4), Circuit Breaker(T4-5) |
+| 4 | `autohealing/chaos.py`·`stats.py`, `views.py`·`urls.py` 한 줄씩 | 장애 주입(T4-6), `GET /api/reports/recovery-stats`(T4-7), 보고서 ②·DR 설정표(T4-9·T4-10), recovery 문장(T4-11) |
+| 1 | `autoreport/auto.py`, `auto_report` 명령, `run_engine.py` 한 줄 | 자동 리포트 B9(P1): `request`·`tick`(T1-4, 0002 뒤), `after_finish`의 PDF·발송(T1-5 — Discord는 U7 보류라 지금은 콘솔), `auto_report`(T1-6), 목록 `?source=`(T1-7). 발표 전에 할지는 U20 |
 
 **순서**(`00-공통.md` 13절): ① 3 registry 스키마 → ② 4 0002·payloads → ③ 2 contracts·`agents/base` → ④ 4 healing 서명·fake_llm → ⑤ 3 `run_report` 정상 경로·runner(완료 기준 `run_engine --once`로 requested → completed, `03-orchestrator.md:61`. 공유 DB에 붙이기 전에 Q5).
 YAML 모델 값은 ① 뒤, budget·`add_cost`·chaos 저장·B9는 ② 뒤, `AGENTS_IMPLEMENTED = True`는 T3-5 뒤, 실제 통합은 2의 Worker와 4의 호출기 뒤, DR 시험은 통합 뒤다.

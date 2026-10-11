@@ -56,15 +56,37 @@
 ## 구조
 
 ```
-engine/paper_engine/   매매 엔진 (선별, AI 교차검증, 리스크 엔진, 모의 체결, 기록, 리포트). engine/tests/
-backend/               Django: config/(설정, engine.py 엔진 접점, api.py 공통), accounts/(로그인·프로필·팀 계정),
-                       trading/(팀원별 계좌·주문·시세·랭킹·run_engine), analysis/(AI 분석 색인·작업),
-                       reports/(AI 리포트: YAML Registry·Shared State·Trace·SSE·A4 PDF, orchestrator·guards·runner, agents/ Worker 11개, 선정 Guard·하루 파이프라인(auto, AUTO_REPORT)),
-                       autotrade/(AI 추천·리스크 미리 보기·계획 활성화·자동매매 진행), notifications/(웹 알림·Discord Webhook 보낼 편지함 — Discord 발송은 2026-10-08부터 꺼 둠, `docs/DECISIONS.md` 24장),
-                       longterm/(장기투자: 오늘의 내 종목 뉴스·산 이유와 펀더멘털 점검).
-                       accounts/에 투자자 프로필·주린이모드, reports/에 리포트 끝 알림(alerts)·하루 한도(quota). 테스트는 backend/<앱>/tests/
-frontend/              React + TypeScript + Vite + Tailwind CSS (하단 탭 홈·종목·리포트·모의투자·마이, 주린이모드 쉬운 보기, AI 교차검증 분석, 랭킹,
-                       화면 모드(다크 — 마이·PC 메뉴, 브라우저 저장). 색은 src/index.css 토큰만(colors.test.ts가 검사), 공용 부품 components/ui.tsx·components/motion/)
+engine/paper_engine/   매매 엔진 (표준 라이브러리만): agents/(AI 교차검증 Agent·모의 체결기 executor), data/(조회 클라이언트·장 달력·뉴스·공시),
+                       judge/(리스크 엔진·손절), records/(기록 저장소·계좌), longterm/(장기투자), 선별·일일 리포트·LLM 호출. engine/tests/
+backend/               Django 앱. 앱 루트에는 Django 자리(models·migrations·admin·apps·urls·views·payloads·management/)와 앱 공통 모듈만 두고
+                       기능 코드는 기능 폴더에 둔다 (`docs/DECISIONS.md` 29장). 테스트는 backend/<앱>/tests/ (reports는 같은 기능 폴더로 나눔)
+  config/              설정, engine.py(엔진 접점), api.py(공통)
+  accounts/            로그인·프로필·팀 계정, 투자자 프로필·주린이모드
+  trading/             팀원별 계좌·주문·시세·랭킹, run_engine(웹 엔진 루프)
+  analysis/            AI 교차검증 분석 색인·작업
+  reports/             AI 리포트. 루트: models·views·urls·sse(SSE)·payloads·management/(auto_report)
+    agents/            Worker — Orchestrator는 agents.WORKERS만 본다. base·prompts(공통),
+                       report_team/(종목 리포트 팀: 시세·재무·뉴스 → 작성 → 검토 → 리스크. 등록 team.py),
+                       selection_team/(매매 종목 선정 팀: 뉴스·공시·수급 → 선정 → 선정 검토. 등록 team.py)
+    orchestration/     Orchestrator·실행기(runner)·YAML Registry(registry, worker_/team_definitions.yaml)·Shared State·Trace(state)
+    guardrails/        입력·Join·Handoff Guard(guards)·출력 계약(contracts)·결과 후처리(tidy)
+    autohealing/       호출 복구: 재시도·대체 모델·Circuit Breaker(healing)·장애 주입(chaos)·복구 지표(stats)
+    autoreport/        자동 리포트 하루 파이프라인(auto, AUTO_REPORT)·선정 Guard(selection)·설정(conf)
+    output/            A4 PDF(pdf·쉬운 판 문장 easy_text)·리포트 끝 알림(alerts·문장 text)
+    limits/            하루 리포트 한도(quota)·팀 AI 하루 비용 예산(budget)
+  autotrade/           AI 추천 → 계획 활성화 → 모의 자동매매. 루트: conf·text(알림 문장)·tokens(Discord 링크 서명)·hide(제안 지우기)
+    recommend/         추천 만들기: sources(리포트·분석 → 추천)·demo(시연 규칙 추천)·auto(매일 자동 추천)
+    plans/             계획 진행: risk(리스크 미리 보기·수량)·executor(주문·체결 대기·보유 감시·청산·재주문)
+  notifications/       웹 알림·Discord Webhook 보낼 편지함 (Discord 발송은 2026-10-08부터 꺼 둠, `docs/DECISIONS.md` 24장)
+  longterm/            장기투자: 오늘의 내 종목 뉴스·산 이유와 펀더멘털 점검
+frontend/src/          React + TypeScript + Vite + Tailwind CSS (하단 탭 홈·종목·리포트·모의투자·마이, 주린이모드 쉬운 보기, AI 교차검증 분석, 랭킹,
+                       화면 모드(다크 — 마이·PC 메뉴, 브라우저 저장))
+  pages/               화면 (라우터와 1:1)
+  components/          루트에는 여러 화면이 같이 쓰는 부품만(ui.tsx·Icon·Layout·Term·toast·ToastProvider·RequireAuth·DeleteAction·AssetCard),
+                       기능 부품은 기능 폴더(reports/·plan/·autotrade/·home/·my/·longterm/·analysis/·stock/·charts/·brand/·admin/·errors/·motion/)
+  api/ hooks/ lib/     API 호출·타입 / React 훅 / 계산·문장. 색은 src/index.css 토큰만 (test/colors.test.ts가 검사)
+  test/                화면 단위 테스트·setup.ts·도우미. 한 파일만 보는 단위 테스트는 그 파일 옆 (lib/*.test.ts)
+  mocks/               VITE_MOCK=1일 때 브라우저의 가짜 API (MSW)
 backtest/              백테스트 (AI 없음, DB 없이 단독 실행)
 deploy/                compose.dev.yml(로컬 Redis + 선택 PostgreSQL), docker-compose.yml(운영: nginx·web·engine·db·redis),
                        Dockerfile(web·engine), nginx/, .env.docker.example, remote_deploy.sh(서버 배포·되돌리기), smoke_test.sh

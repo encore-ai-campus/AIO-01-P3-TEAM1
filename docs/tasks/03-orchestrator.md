@@ -1,5 +1,7 @@
 # 03. Orchestrator (담당 3)
 
+> **파일 위치 (2026-10-11)**: `backend/reports`의 코드를 기능 폴더로 정리했다. 아래의 파일 이름은 그대로이고 폴더만 바뀌었다 — 어느 폴더인지는 `AGENTS.md` "구조", 정리 내용은 `docs/DECISIONS.md` 29장.
+
 > **2026-10-07 — T3-2~T3-9·T3-12 → Claude가 구현** (사용자 요청, `docs/DECISIONS.md` 19장): `orchestrator.py`, `guards.py`(입력·Join·Handoff Guard), `runner.py`, `run_engine` 연결, `fake_worker`, `state.add_cost`·팀별 확인. 실패 사유 코드에 `agent_failed`·`no_llm`·`expired`를 더했다(00-공통 9절). `AGENTS_IMPLEMENTED = True`.
 > 3에게 남는 것: **T3-10 실제 키로 리포트 한 건 끝까지**, T3-11 설계서 ① 총괄, 화면에서 진행 단계 표시 확인.
 
