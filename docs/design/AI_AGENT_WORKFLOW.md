@@ -251,7 +251,8 @@ flowchart LR
     J --> S --> V
     V -- "RETRY ≤ 2<br/>수정 지시 붙여" --> S
     V -- "PASS" --> OK
-    V -- "FAIL · 라운드 초과" --> FB
+    V -- "마지막 검토: 코드 점검 통과면<br/>지적 기록하고 통과" --> OK
+    V -- "FAIL · 마지막 검토에도 코드 점검 문제" --> FB
     J -. "뉴스·공시 실패<br/>join_blocked" .-> FB
     S -. "시간 초과" .-> FB
 ```
@@ -263,10 +264,14 @@ flowchart LR
 | `news_screen_agent` | 후보별 뉴스 | 재료·악재·테마 | 필수 → Fallback |
 | `filing_screen_agent` | 후보별 30일 공시 | 위험 신호 (none·low·high) | 필수 → Fallback |
 | `flow_agent` (선택) | 코드가 합한 외국인·기관 순매수 | 매집·이탈 해석 | 빼고 진행 |
-| `selector_agent` | 후보 표 + 조사 결과 | 순위 5개 + 근거 (**가격 없음**) | Fallback |
-| `selection_review_agent` | 선정안 + 조사 결과 | PASS · RETRY · FAIL | Fallback |
+| `selector_agent` | 후보 표 + 조사 결과(가격 가림) | 순위 5개 + 근거 (**가격 없음**) | Fallback |
+| `selection_review_agent` | 선정안 + 조사 결과(가격 가림) | PASS · RETRY · FAIL (마지막 검토는 코드 점검 통과면 PASS + acceptedWithNotes) | Fallback |
 
 후보 30개를 Worker 하나가 한 번에 본다 → 하루 4~6회 호출. 뉴스·공시 **조회**가 실패하면(키 없음 등) Worker는 "자료 없음"으로 AI에 넘기고 계속한다.
+
+검토 반복 (2026-10-12, `docs/DECISIONS.md` 30장): 선정·검토에 주는 조사 결과는 가격을 "(가격)"으로 가린 사본이고, 선정안 evidence의 가격·목표가 항목은 코드가 지운다.
+다시 하는 검토는 직전 지적과 코드가 계산한 "이번에 바뀐 부분"을 받아 지적이 고쳐졌는지부터 본다. 마지막(셋째) 검토는 코드가 판정한다 —
+후보 표 밖 종목·공시 위험 high·reason·summary의 권유 표현·가격·목표가가 없으면 LLM이 RETRY여도 남은 지적을 기록하고 통과(`acceptedWithNotes`)한다.
 
 ## 3. AI는 제안, 코드는 검증, 사람이 결정
 
@@ -438,7 +443,7 @@ sequenceDiagram
 | 뉴스·공시 조회 실패 | "자료 없음"으로 AI에 전달 | – |
 | 수급 Worker 실패 | 빼고 진행 | – |
 | 뉴스·공시 Worker 실패 | – | `join_blocked` → Fallback |
-| 검토 RETRY | 수정 지시로 재선정 (최대 2라운드) | `review_failed` → Fallback |
+| 검토 RETRY | 수정 지시로 재선정 (최대 2라운드, 다시 하는 검토는 이전 지적과 바뀐 부분부터) · 마지막 검토에서 코드 점검을 통과하면 남은 지적을 기록하고 통과 | FAIL·코드 점검 문제가 남으면 `review_failed` → Fallback |
 | 단계 시간 초과 | – | `timeout` → Fallback |
 | 엔진 재시작 | `runner.recover()`가 도중 실행을 정리 | `engine_restarted` → Fallback |
 | 투자유의 조회 실패 | 그 종목 제외 | 모자라면 규칙 점수로 채움 |

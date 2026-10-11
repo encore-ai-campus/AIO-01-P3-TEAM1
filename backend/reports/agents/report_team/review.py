@@ -9,7 +9,7 @@
   검토 반복 한도(YAML review 단계의 retry.max_rounds)를 다 쓴 마지막 검토에서는 더하지 않는다 — 리포트를 실패시키지 않고,
   State에 저장할 때 붙인 괄호 풀이(tidy.explain_jargon)를 단 채로 통과한다.
 """
-from ...guardrails import guards
+from ...guardrails import contracts, guards
 from ...orchestration import registry
 from ..base import WorkerContext, WorkerError
 from ..prompts import system_prompt, user_prompt
@@ -84,8 +84,11 @@ def check_draft(draft: dict, market_result: dict | None) -> list[dict]:
 
 
 def finish(answer: dict, problems: list[dict], labels: list[str] | None) -> dict:
-    """코드 점검 문제가 있으면 issues 앞에 넣고 PASS를 RETRY로 (지시에 고치는 방법을 붙인다). 지정이 있으면 handoff를 채운다."""
-    result = dict(answer)
+    """코드 점검 문제가 있으면 issues 앞에 넣고 PASS를 RETRY로 (지시에 고치는 방법을 붙인다). 지정이 있으면 handoff를 채운다.
+
+    코드만 붙이는 키(acceptedWithNotes — 선정 검토 전용, docs/DECISIONS.md 30장)는 LLM이 보내도 지운다.
+    """
+    result = {key: value for key, value in answer.items() if key != contracts.REVIEW_ACCEPTED}
     if problems:
         result["issues"] = [*problems, *[i for i in result.get("issues") or [] if i not in problems]][:MAX_ISSUES]
         if result["verdict"] == "PASS":

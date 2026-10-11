@@ -11,6 +11,9 @@
   → 아니면 `agent_failed`. 실행 시작 때 LLM 클라이언트가 없으면 `no_llm`, 그 밖의 예외는 `exception`.
 - `run_report`는 예외를 밖으로 내지 않는다 (실패도 finish(failed)로 끝낸다).
 - Worker 결과는 출력 계약을 통과한 뒤 State에 넣기 전에 `tidy.tidy_result`로 후처리한다 (금액 쉼표·의견 영어·쉬운 글 용어 풀이).
+- 검토 반복: 다시 도는 검토 Worker에는 ctx.retry(직전 검토와 그 검토가 본 초안)를 준다. FAIL이나 한도를 넘긴 RETRY는 review_failed이고,
+  남은 지적 줄은 workflow_failed.details.message에 넣는다. Worker 결과의 _guarded·_changed는 계약 검증 전에 꺼내
+  agent_completed.details의 guarded·changed로 남긴다 (docs/DECISIONS.md 30장).
 """
 import concurrent.futures
 import copy
@@ -135,7 +138,8 @@ def run_report(report: Report, *, workers=None, llm_client=None, now=None) -> Re
 def content_of(report: Report, inputs: dict | None = None) -> str:
     """완료된 리포트의 본문 (Markdown). inputs는 팀 입력(선정 팀의 후보 표 — 종목 이름을 찾는다)."""
     if report.team == registry.SELECTION_TEAM:
-        return _selection_content(report.results["selector_agent"], (inputs or {}).get("candidates") or [])
+        return _selection_content(report.results["selector_agent"], (inputs or {}).get("candidates") or [],
+                                  report.results.get("selection_review_agent"))
     markdown = report.results["report_agent"]["markdown"]
     risk = report.results.get("risk_agent")
     return f"{_risk_block(risk)}\n\n{markdown}" if risk else markdown
@@ -150,6 +154,7 @@ class _Run:
     inputs: dict
     instructions: str | None = None
     handoff: dict | None = None
+    retry: dict | None = None   # 검토 반복으로 다시 도는 검토 Worker의 ctx.retry ({round, review, draft})
     lock: threading.Lock = field(default_factory=threading.Lock)
     caller: healing.LlmCaller | None = None
     began: float = 0.0          # time.monotonic() — agent_started 때
@@ -175,6 +180,7 @@ class _Flow:
         self.hops = 0
         self.team_inputs: dict | None = None
         self.cfg = self.client = None
+        self.failure_message: str | None = None   # review_failed로 끝낼 때 workflow_failed.details.message (남은 검토 지적)
 
     # ------------------------------------------------------------------ 전체 흐름
 
@@ -201,7 +207,7 @@ class _Flow:
         for index, step in enumerate(steps):
             reason = self._step(step, steps[index + 1] if index + 1 < len(steps) else None)
             if reason:
-                return self.fail(reason)
+                return self.fail(reason, message=self.failure_message)
         content = content_of(report, self.team_inputs)
         state.record(report, ORCHESTRATOR, "workflow_completed", "completed", details=self._totals())
         state.finish(report, Report.COMPLETED, content)
@@ -300,7 +306,11 @@ class _Flow:
     # ------------------------------------------------------------------ 검토 반복과 Handoff
 
     def _review(self, step: dict, run: _Run) -> str | None:
-        """검토 결과(ReviewResult)의 verdict. PASS → None, RETRY → target을 고쳐 쓰게 하고 다시 검토, FAIL·한도 초과 → review_failed."""
+        """검토 결과(ReviewResult)의 verdict. PASS → None, RETRY → target을 고쳐 쓰게 하고 다시 검토, FAIL·한도 초과 → review_failed.
+
+        다시 도는 검토 Worker에는 retry={round, review: 직전 검토, draft: 그 검토가 본 target 결과}를 준다 (target에는 주지 않는다).
+        review_failed면 남은 지적 줄을 workflow_failed.details.message로 남긴다 (지적이 없으면 "검토 판정 FAIL" 또는 "검토 판정 RETRY").
+        """
         retry = step["retry"] or {}
         target, max_rounds = retry.get("target"), retry.get("maxRounds", 0)
         rounds = 0
@@ -309,6 +319,7 @@ class _Flow:
             if review["verdict"] == "PASS":
                 return None
             if review["verdict"] != "RETRY" or target is None or rounds >= max_rounds:
+                self.failure_message = _short(" / ".join(_issue_lines(review["issues"])) or f"검토 판정 {review['verdict']}")
                 return REVIEW_FAILED
             rounds += 1
             state.record(self.report, ORCHESTRATOR, "review_retry", "started", details={
@@ -320,15 +331,17 @@ class _Flow:
                                instructions=review["instructions"])
             if not redo.ok:
                 return TIMEOUT if redo.timed_out else AGENT_FAILED
-            run = self._again(step, run.worker_id, self._inputs(step))
+            run = self._again(step, run.worker_id, self._inputs(step),
+                              retry={"round": rounds, "review": review, "draft": previous})
             if not run.ok:
                 return TIMEOUT if run.timed_out else AGENT_FAILED
 
-    def _again(self, step: dict, wid: str, inputs: dict, *, instructions: str | None = None) -> _Run:
+    def _again(self, step: dict, wid: str, inputs: dict, *, instructions: str | None = None,
+               retry: dict | None = None) -> _Run:
         """검토 반복으로 Worker 하나를 다시 실행한다 (attempt + 1, 그 Worker 단계의 제한 시간을 새로)."""
         state.set_step(self.report, step["id"])
         timeout_sec = _timeout(step)
-        run = self._new_run(wid, step, inputs, instructions=instructions)
+        run = self._new_run(wid, step, inputs, instructions=instructions, retry=retry)
         self._execute([run], healing.clock() + timeout_sec, timeout_sec, parallel=False)
         return run
 
@@ -362,10 +375,10 @@ class _Flow:
 
     # ------------------------------------------------------------------ Worker 실행
 
-    def _new_run(self, wid: str, step: dict, inputs: dict, *, instructions=None, handoff=None) -> _Run:
+    def _new_run(self, wid: str, step: dict, inputs: dict, *, instructions=None, handoff=None, retry=None) -> _Run:
         self.attempts[wid] = self.attempts.get(wid, 0) + 1
         self.inputs_used[wid] = inputs
-        return _Run(wid, self.attempts[wid], step["id"], inputs, instructions, handoff)
+        return _Run(wid, self.attempts[wid], step["id"], inputs, instructions, handoff, retry)
 
     def _execute(self, runs: list[_Run], deadline: float, timeout_sec: float, *, parallel: bool) -> None:
         """runs를 실행기로 돌리고 deadline(+여유)까지 기다린다. 병렬이면 같이, 아니면 하나씩. 끝나지 않은 것은 버린다."""
@@ -408,12 +421,13 @@ class _Flow:
                 raise contracts.ContractError("Worker 결과가 JSON 객체가 아닙니다.")
             result = {key: value for key, value in raw.items() if not str(key).startswith("_")}
             guarded = _guarded(raw.get("_guarded"))
+            changed = _changed(raw.get("_changed"))
             result = contracts.validate(definition["outputContract"], result)
             result = tidy.tidy_result(definition["outputContract"], result)  # 금액 쉼표·의견 영어·쉬운 글 용어 풀이
         except Exception as error:
             self._failed(run, error, timed_out=healing.clock() >= deadline)
         else:
-            self._completed(run, result, guarded)
+            self._completed(run, result, guarded, changed)
 
     def _context(self, run: _Run, deadline: float) -> WorkerContext:
         report = self.report
@@ -421,9 +435,9 @@ class _Flow:
             report_id=report.pk, task_id=f"report-{report.pk}", symbol=report.symbol, name=report.name,
             market=report.market, worker_id=run.worker_id, attempt=run.attempt, inputs=copy.deepcopy(run.inputs),
             instructions=run.instructions, handoff=copy.deepcopy(run.handoff), llm=run.caller, deadline=deadline,
-            cfg=self.cfg, client=self.client, team_inputs=self.team_inputs)
+            cfg=self.cfg, client=self.client, team_inputs=self.team_inputs, retry=copy.deepcopy(run.retry))
 
-    def _completed(self, run: _Run, result: dict, guarded: list[str]) -> None:
+    def _completed(self, run: _Run, result: dict, guarded: list[str], changed: list[str] | None = None) -> None:
         caller, report, wid = run.caller, self.report, run.worker_id
         with run.lock:
             if run.settled:  # 이미 시간 초과로 버렸다
@@ -435,8 +449,12 @@ class _Flow:
             details = {"attempts": caller.attempt, "recovered": bool(recovered),
                        "recoveryMs": sum(recovery) if recovery else None, "costUsd": round(caller.cost_usd, 6),
                        "guarded": guarded}
+            if changed is not None:  # 선정 Worker가 검토 RETRY로 다시 쓴 곳 ([]이면 아무것도 고치지 않았다)
+                details["changed"] = changed
             if self.defs[wid]["outputContract"] == registry.REVIEW_CONTRACT:
                 details.update(verdict=result["verdict"], score=result["score"])
+                if result.get(contracts.REVIEW_ACCEPTED):  # 선정 검토의 마지막 검토가 지적을 남긴 채 통과
+                    details[contracts.REVIEW_ACCEPTED] = True
             last = caller.calls[-1] if caller.calls else None
             state.record(report, wid, "agent_completed", "completed", provider=last.provider if last else None,
                          model=last.model if last else None, latency_ms=_ms(time.monotonic() - run.began),
@@ -511,6 +529,11 @@ def _guarded(value) -> list[str]:
     return list(dict.fromkeys(str(item) for item in items))
 
 
+def _changed(value) -> list[str] | None:
+    """Worker 결과의 `_changed` (선정 Worker가 다시 쓸 때 이전 선정안과 달라진 곳). 목록이 아니면 None — details에 넣지 않는다."""
+    return [str(item) for item in value] if isinstance(value, (list, tuple)) else None
+
+
 def _issue_lines(issues) -> list[str]:
     """검토 지적({claim, problem, fix}) → review_retry.details.issues의 한 줄 글 (화면이 글 목록으로 보여 준다)."""
     lines = []
@@ -532,17 +555,27 @@ def _risk_block(risk: dict) -> str:
     return "\n".join(lines)
 
 
-def _selection_content(draft: dict, candidates: list) -> str:
-    """선정 팀 본문: 요약 + 순위표 (순위·종목·고른 이유)."""
+def _selection_content(draft: dict, candidates: list, review: dict | None = None) -> str:
+    """선정 팀 본문: 요약 + 순위표 (순위·종목·고른 이유).
+
+    검토가 지적을 남긴 채 통과했으면(review의 acceptedWithNotes) 안전장치 문장 바로 앞에 검토 메모 한 줄을 넣는다.
+    지적(issues)이 비고 수정 지시만 남은 RETRY였으면 건수 대신 "수정 의견"이라고 쓴다.
+    """
     names = {str(item.get("symbol")): item.get("name") for item in candidates if isinstance(item, dict)}
     rows = []
     for pick in draft["picks"]:
         name = names.get(pick["symbol"])
         label = f"{name} ({pick['symbol']})" if name else pick["symbol"]
         rows.append(f"| {pick['rank']} | {_cell(label)} | {_cell(pick['reason'])} |")
+    note = []
+    if isinstance(review, dict) and review.get(contracts.REVIEW_ACCEPTED) is True:
+        count = len(review.get("issues") or [])
+        left = f"검토 AI의 지적 {count}건이" if count else "검토 AI의 수정 의견이"
+        note = [f"검토 메모: 고쳐 쓰기 횟수를 다 쓴 뒤에도 {left} 남았다. "
+                "코드 점검(후보 표 밖 종목·고위험 공시·권유 표현·가격)은 통과해 이 선정안을 그대로 썼다.", ""]
     return "\n".join([
         "## 오늘의 매매 종목 선정안 (AI 선정 팀)", "", draft["summary"], "",
-        "| 순위 | 종목 | 고른 이유 |", "|---|---|---|", *rows, "",
+        "| 순위 | 종목 | 고른 이유 |", "|---|---|---|", *rows, "", *note,
         "최종 종목은 안전장치(선정 Guard)를 거쳐 정해진다: 후보 밖·투자유의·고위험 공시 종목을 빼고, 같은 테마는 2개까지.",
     ])
 

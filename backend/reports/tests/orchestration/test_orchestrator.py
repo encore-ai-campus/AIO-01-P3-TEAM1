@@ -355,6 +355,10 @@ def test_review_retry_then_pass(user):
     assert again.attempt == 2 and again.instructions == RETRY_REVIEW["instructions"]
     assert again.inputs["report_agent"] == SAMPLES["ReportDraft"] and set(again.inputs) == {*RESEARCH, "report_agent"}
     assert review.calls[1].attempt == 2 and review.calls[1].inputs["report_agent"] == DRAFT2
+    # 다시 도는 검토에만 직전 검토와 그 검토가 본 초안을 준다 (작성 Worker에는 주지 않는다). 검토 입력은 그대로다
+    assert review.calls[0].retry is None and draft.calls[1].retry is None
+    assert review.calls[1].retry == {"round": 1, "review": RETRY_REVIEW, "draft": SAMPLES["ReportDraft"]}
+    assert set(review.calls[1].inputs) == {*RESEARCH, "report_agent"}
 
 
 def test_review_retry_beyond_max_rounds_fails(user):
@@ -367,6 +371,8 @@ def test_review_retry_beyond_max_rounds_fails(user):
     assert report.status == Report.FAILED and failure(report) == "review_failed" and report.content is None
     assert [e.details["round"] for e in report.trace_events.filter(action="review_retry").order_by("step")] == [1, 2]
     assert [ctx.attempt for ctx in draft.calls] == [1, 2, 3] and len(review.calls) == 3
+    # 종목 리포트는 RETRY 3번이면 그대로 review_failed. 남은 지적 줄은 message로
+    assert event(report, "orchestrator", "workflow_failed").details["message"] == "목표가 77000원 — 근거가 없다"
 
 
 def test_review_fail_ends_without_retry(user):
@@ -376,6 +382,17 @@ def test_review_fail_ends_without_retry(user):
     report.refresh_from_db()
     assert report.status == Report.FAILED and failure(report) == "review_failed"
     assert not report.trace_events.filter(action="review_retry").exists()
+    assert event(report, "orchestrator", "workflow_failed").details["message"] == "검토 판정 FAIL"   # 지적이 없는 FAIL
+
+
+def test_review_retry_without_issues_beyond_max_rounds_names_the_verdict(user):
+    """지적 없이 수정 지시만 있는 RETRY(계약상 issues는 비어도 된다)가 한도를 넘기면 message는 "검토 판정 RETRY"다."""
+    report = make_report(user)
+    run(report, fake_team(review_agent=FakeWorker("review_agent", RETRY_REVIEW | {"issues": []}, contract="ReviewResult")))
+
+    report.refresh_from_db()
+    assert report.status == Report.FAILED and failure(report) == "review_failed"
+    assert event(report, "orchestrator", "workflow_failed").details["message"] == "검토 판정 RETRY"
 
 
 def test_rewrite_failure_stops_with_agent_failed(user):
@@ -536,6 +553,102 @@ def test_selection_review_retry_reruns_selector(monkeypatch):
     assert report.status == Report.COMPLETED
     assert event(report, "orchestrator", "review_retry").details["target"] == "selector_agent"
     assert selector.calls[1].attempt == 2 and selector.calls[1].inputs["selector_agent"] == SAMPLES["SelectionDraft"]
+
+
+# 선정 팀 검토 반복 (2026-10-12, docs/DECISIONS.md 30장): 실제 선정·선정 검토 Worker + FakeLlm. 뉴스 제목에 증권사 목표가가 있다
+PRICED = "2026-10-07 뉴스핌 [리포트 브리핑]산일전기, '실적은 부합, 수주는 더 강하다' 목표가 360,000원 - 유안타증권"
+SELECTION_CANDIDATES = [*CANDIDATES, {"symbol": "062040", "name": "산일전기", "score": 65}]
+SELECTION_NEWS = {"summary": "뉴스", "items": [
+    {"symbol": "005930", "sentiment": "positive", "materials": ["HBM 수주 기대"], "concerns": [], "theme": "반도체",
+     "evidence": ["10-06 가짜일보 HBM"]},
+    {"symbol": "062040", "sentiment": "positive", "materials": ["유안타증권 목표주가 360,000원 제시"], "concerns": [],
+     "theme": "전력", "evidence": [PRICED]}]}
+SELECTION_FILING = {"summary": "공시", "items": [{"symbol": "005930", "severity": "none", "signals": [], "evidence": []}]}
+SELECTION_DRAFT = {"summary": "반도체·전력 재료 중심.", "picks": [
+    {"symbol": "005930", "rank": 1, "reason": "HBM 수주 기대가 있다.", "evidence": ["10-06 가짜일보 HBM"]},
+    {"symbol": "062040", "rank": 2, "reason": "변압기 계약이 있다.",
+     "evidence": [PRICED, "2026-10-07 비건뉴스 산일전기, 미국 에너지저장장치용 변압기 351억 계약", "삼성SDI 수주 전망…목표가↑-DS"]}]}
+LLM_RETRY = {"verdict": "RETRY", "score": 85, "handoff": None, "instructions": "005930 reason에 우려를 넣는다.",
+             "issues": [{"claim": "005930 reason", "problem": "우려 누락", "fix": "우려를 넣는다"}]}
+
+
+def selection_run(monkeypatch, selector_answers, review_answers):
+    """조사 Worker는 가짜, 선정·선정 검토는 실제 Worker(+ 진짜 호출기 + FakeLlm)로 선정 팀을 끝까지 돌린다."""
+    from reports.agents import WORKERS
+
+    monkeypatch.setattr(orchestrator, "team_inputs", lambda report: {"market": "KR", "day": "2026-10-12",
+                                                                     "candidates": SELECTION_CANDIDATES})
+    workers = fake_team(registry.SELECTION_TEAM, news_screen_agent=SELECTION_NEWS, filing_screen_agent=SELECTION_FILING)
+    workers |= {wid: WORKERS[wid] for wid in ("selector_agent", "selection_review_agent")}
+    llm = FakeLlm({"gpt-5.6-luna": list(selector_answers), "claude-opus-5-5": list(review_answers)})
+    report = selection_report()
+    run(report, workers, llm)
+    report.refresh_from_db()
+    return report, llm
+
+
+def test_selection_converges_when_reviewer_keeps_retrying(monkeypatch):
+    """검토 LLM이 세 번 다 RETRY여도 코드 점검에 걸리는 것이 없으면 마지막 검토가 지적을 남긴 채 통과한다 (review_failed가 아니다)."""
+    from reports.agents.selection_team.team import has_price
+
+    report, llm = selection_run(monkeypatch, [SELECTION_DRAFT] * 3, [LLM_RETRY] * 3)
+
+    assert report.status == Report.COMPLETED
+    events = list(report.trace_events.order_by("step"))
+    assert [e.details["round"] for e in events if e.action == "review_retry"] == [1, 2]
+    reviews = [e.details for e in events if e.actor == "selection_review_agent" and e.action == "agent_completed"]
+    assert [d["verdict"] for d in reviews] == ["RETRY", "RETRY", "PASS"]
+    assert reviews[-1]["acceptedWithNotes"] is True and all("acceptedWithNotes" not in d for d in reviews[:-1])
+    assert report.results["selection_review_agent"]["acceptedWithNotes"] is True
+    assert report.results["selection_review_agent"]["issues"] == LLM_RETRY["issues"]   # 남은 지적은 기록으로
+    selects = [e.details for e in events if e.actor == "selector_agent" and e.action == "agent_completed"]
+    assert "changed" not in selects[0] and selects[1]["changed"] == [] and selects[2]["changed"] == []
+    assert not any(has_price(item) for pick in report.results["selector_agent"]["picks"] for item in pick["evidence"])
+    review_users = [call[2] for call in llm.calls if call[0] == "claude-opus-5-5"]
+    assert "## 이전 검토" not in review_users[0] and "## 이전 검토" in review_users[1]
+    assert "## 이번에 바뀐 부분" in review_users[2]
+    assert "360,000원" not in "".join(call[2] for call in llm.calls)   # 조사 결과의 가격은 가린 사본만 프롬프트에
+    assert "검토 메모: 고쳐 쓰기 횟수를 다 쓴 뒤에도 검토 AI의 지적 1건이 남았다." in report.content
+    assert report.content.index("검토 메모") < report.content.index("최종 종목은 안전장치")
+
+
+def test_selection_reason_with_order_amount_passes_first_review(monkeypatch):
+    """운영 #8 입력 재현의 실패: 검토 LLM은 PASS인데 코드 점검이 "수주가 3.9조"를 가격("주가 3…")으로 읽어 세 번 다 RETRY → review_failed였다.
+    이제 그 reason은 코드 점검에 걸리지 않아 첫 검토에서 끝난다 (docs/DECISIONS.md 30장)."""
+    ordered = copy.deepcopy(SELECTION_DRAFT)
+    ordered["picks"][0]["reason"] = "AI 부품 수주가 3.9조 공급계약 규모에 이르고 차세대 유리기판 공동 개발·공급 재료가 확인됐다."
+    passed = {"verdict": "PASS", "score": 92, "issues": [], "instructions": None, "handoff": None}
+
+    report, _ = selection_run(monkeypatch, [ordered] * 3, [passed] * 3)
+
+    assert report.status == Report.COMPLETED
+    assert not report.trace_events.filter(action="review_retry").exists()
+    assert "acceptedWithNotes" not in report.results["selection_review_agent"] and "검토 메모" not in report.content
+
+
+def test_selection_review_note_without_issue_count(monkeypatch):
+    """마지막 검토가 지적(issues) 없이 수정 지시만 남긴 RETRY였으면 검토 메모에 "지적 0건"이라고 쓰지 않는다."""
+    report, _ = selection_run(monkeypatch, [SELECTION_DRAFT] * 3, [{**LLM_RETRY, "issues": []}] * 3)
+
+    assert report.status == Report.COMPLETED and report.results["selection_review_agent"]["acceptedWithNotes"] is True
+    assert "검토 메모: 고쳐 쓰기 횟수를 다 쓴 뒤에도 검토 AI의 수정 의견이 남았다." in report.content
+    assert "0건" not in report.content
+
+
+def test_selection_last_round_code_issue_still_review_failed(monkeypatch):
+    """매 라운드 후보 표 밖 종목을 내면 마지막 검토도 RETRY라 review_failed이고, 남은 지적 줄이 message에 남는다."""
+    outside = copy.deepcopy(SELECTION_DRAFT)
+    outside["picks"][1]["symbol"] = "999999"
+
+    report, _ = selection_run(monkeypatch, [outside] * 3, [LLM_RETRY] * 3)
+
+    assert report.status == Report.FAILED and report.content is None
+    failed = event(report, "orchestrator", "workflow_failed").details
+    assert failed["reason"] == "review_failed" and "후보 표에 없는 종목" in failed["message"]
+    reviews = [e.details for e in report.trace_events.order_by("step")
+               if e.actor == "selection_review_agent" and e.action == "agent_completed"]
+    assert [d["verdict"] for d in reviews] == ["RETRY", "RETRY", "RETRY"]
+    assert all("acceptedWithNotes" not in d for d in reviews)
 
 
 def test_selection_without_candidate_table_fails_with_exception(monkeypatch):

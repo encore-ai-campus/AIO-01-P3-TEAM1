@@ -22,6 +22,9 @@ MIN_HOLDING_DAYS = 1
 MAX_HOLDING_DAYS = 20
 OPINIONS = ("buy", "hold", "avoid")
 RISK_LEVELS = ("low", "medium", "high")
+# 코드만 붙이는 ReviewResult 선택 키 (2026-10-12, docs/DECISIONS.md 30장): 선정 검토의 마지막 검토가 지적을 남긴 채 통과했다는 표시.
+# 값이 정확히 true일 때만 남는다. LLM에는 알리지 않는다 (_DESCRIPTIONS에 넣지 않는다 — 검토 Worker가 LLM이 보낸 값을 지운다)
+REVIEW_ACCEPTED = "acceptedWithNotes"
 # 매매 종목 선정 팀 (docs/design/AI_AGENT_WORKFLOW.md 2장)
 SENTIMENTS = ("positive", "negative", "neutral")
 FILING_SEVERITIES = ("none", "low", "high")
@@ -259,13 +262,16 @@ def _review(data: dict[str, Any]) -> dict[str, Any]:
     instructions = _string(_required(data, "instructions"), "instructions", nullable=True, limit=None)
     if verdict == "RETRY" and not (instructions or "").strip():
         raise _error("instructions", "는 verdict가 RETRY일 때 비어 있을 수 없습니다.")
-    return {
+    result = {
         "verdict": verdict,
         "score": _number(_required(data, "score"), "score", nullable=True, minimum=0, maximum=100),
         "issues": _records(_required(data, "issues"), "issues", maximum=10, validator=_issue),
         "instructions": instructions,
         "handoff": _handoff(_required(data, "handoff")),
     }
+    if data.get(REVIEW_ACCEPTED) is True:  # 그 밖의 값이면 키를 만들지 않는다 (옛 결과·종목 리포트 검토는 글자 그대로)
+        result[REVIEW_ACCEPTED] = True
+    return result
 
 
 def _risk(data: dict[str, Any]) -> dict[str, Any]:

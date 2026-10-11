@@ -2,7 +2,9 @@
 
 import pytest
 
-from reports.guardrails.contracts import NAMES, ContractError, describe, validate
+from reports.guardrails.contracts import NAMES, REVIEW_ACCEPTED, ContractError, describe, validate
+
+from ..conftest import SAMPLES
 
 
 def market(**changes):
@@ -194,6 +196,16 @@ def test_review_retry_rejects_whitespace_instructions_and_keeps_full_text():
         validate("ReviewResult", review(verdict="RETRY", instructions="   "))
     instructions = "수정" * 400
     assert validate("ReviewResult", review(verdict="RETRY", instructions=instructions))["instructions"] == instructions
+
+
+def test_review_result_keeps_accepted_flag_only_when_true():
+    """acceptedWithNotes는 코드만 붙이는 선택 키다 (선정 검토의 마지막 검토, docs/DECISIONS.md 30장). 정확히 true일 때만 남는다."""
+    base = SAMPLES["ReviewResult"]
+    assert validate("ReviewResult", base) == base   # 옛 결과·종목 리포트 검토는 글자 그대로
+    assert REVIEW_ACCEPTED == "acceptedWithNotes" and REVIEW_ACCEPTED not in describe("ReviewResult")   # LLM에는 알리지 않는다
+    for value in ("yes", False, 1, None):
+        assert REVIEW_ACCEPTED not in validate("ReviewResult", base | {REVIEW_ACCEPTED: value}), value
+    assert validate("ReviewResult", base | {REVIEW_ACCEPTED: True}) == base | {REVIEW_ACCEPTED: True}
 
 
 @pytest.mark.parametrize(("value", "message"), [

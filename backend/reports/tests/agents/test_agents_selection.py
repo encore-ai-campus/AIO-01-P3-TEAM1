@@ -3,6 +3,8 @@
 실제 LLM·뉴스·DART·증권사를 부르지 않는다: LLM은 가짜 호출기(FakeCaller, 또는 진짜 호출기 + FakeLlm),
 뉴스는 news_screen.fetch_news, DART는 longterm.sources.dart_client, 수급은 가짜 조회 클라이언트로 바꾼다.
 """
+import copy
+
 import pytest
 from longterm import sources
 
@@ -10,7 +12,8 @@ from reports.guardrails import contracts
 from reports.autohealing import healing
 from reports.orchestration import registry
 from reports.agents import WORKERS
-from reports.agents.selection_team import filing_screen, flow, news_screen, selection_review, team as selection_team
+from reports.agents.selection_team import filing_screen, flow, news_screen, selection_review, selector
+from reports.agents.selection_team import team as selection_team
 from reports.agents.base import WorkerContext, WorkerError
 from reports.agents.prompts import NO_DATA
 
@@ -52,14 +55,14 @@ class FakeCaller:
 
 
 def make_ctx(worker_id, llm, *, candidates=CANDIDATES, inputs=None, instructions=None, client=None,
-             deadline=None, attempt=1, market="KR", team_inputs=...):
+             deadline=None, attempt=1, market="KR", team_inputs=..., retry=None):
     if team_inputs is ...:
         team_inputs = {"market": market, "day": "2026-10-07", "candidates": candidates}
     return WorkerContext(
         report_id=1, task_id="report-1", symbol=market, name="오늘의 매매 종목 선정", market=market,
         worker_id=worker_id, attempt=attempt, inputs=inputs or {}, instructions=instructions, handoff=None,
         llm=llm, deadline=healing.clock() + 180 if deadline is None else deadline, cfg=None, client=client,
-        team_inputs=team_inputs)
+        team_inputs=team_inputs, retry=retry)
 
 
 @pytest.fixture
@@ -434,6 +437,7 @@ def test_selector_retry_prompt_has_instructions_and_previous_draft():
     assert "## 이전 초안" in user and '"symbol":"999999"' in user
     assert "## 검토의 수정 지시" in user and "999999를 빼고" in user
     assert user.index("이전 초안") > user.index("후보 표")
+    assert user.index("글자 그대로 두세요") < user.index("999999를 빼고")  # RETRY_PREFIX가 수정 지시 앞에
 
 
 def test_selector_retry_with_real_caller_and_fake_llm():
@@ -508,13 +512,274 @@ def test_code_issues_without_filing_research_checks_only_candidates():
 
 
 def test_news_dates_are_kst_days_and_price_forms_are_caught():
-    """RSS 시각(GMT)은 KST 날짜로 (리뷰 C2), 선정 검토의 가격 검사는 흔한 가격 표기를 잡고 금액은 잡지 않는다 (C7)."""
+    """RSS 시각(GMT)은 KST 날짜로 (리뷰 C2), 선정 검토의 가격 검사는 흔한 가격 표기를 잡고 금액은 잡지 않는다 (C7).
+    가격 낱말 뒤의 등락률·기간·배수는 가격이 아니다 (2026-10-12 — "주가 3.18% 하락"이 가격으로 걸려 RETRY가 나던 오탐)."""
     from reports.agents.report_team.news import kst_day
-    from reports.agents.selection_team.selection_review import PRICE
+    from reports.agents.selection_team.team import PRICE
 
     assert kst_day("2026-10-06T23:30:00+00:00") == "2026-10-07" and kst_day("2026-10-07") == "2026-10-07"
     assert kst_day(None) is None and kst_day("오늘") is None
-    for text in ("목표가 8만원", "진입 7만 2천원", "손절가 950원", "$185.20", "185달러", "70,000원"):
+    for text in ("목표가 8만원", "진입 7만 2천원", "손절가 950원", "$185.20", "185달러", "70,000원",
+                 "주가 70,000원", "목표가 9만", "주가 950", "24만7500원", "목표가 360,000원"):
         assert PRICE.search(text), text
-    for text in ("1조원 규모 수주", "500억원 투자", "외국인 5일 순매수 120만주", "1억 달러 수주"):
+    for text in ("1조원 규모 수주", "500억원 투자", "외국인 5일 순매수 120만주", "1억 달러 수주",
+                 "주가 3.18% 하락", "주가 11.13% 하락", "주가 5% 상승 마감", "종가 2% 올랐다", "순매수가 5일째 이어졌다",
+                 "주가 3주 연속 상승", "6조7800억원 투자"):
         assert not PRICE.search(text), text
+
+
+# --- 가격 가림 · 검토 반복 (2026-10-12, docs/DECISIONS.md 30장) ---
+
+PRICED = "2026-10-07 뉴스핌 [리포트 브리핑]산일전기, '실적은 부합, 수주는 더 강하다' 목표가 360,000원 - 유안타증권"
+CONTRACT_351 = "2026-10-07 비건뉴스 산일전기, 미국 에너지저장장치용 변압기 351억 계약"
+SANIL_CANDIDATES = [*CANDIDATES[:2], {"symbol": "062040", "name": "산일전기", "score": 65.0}]
+PRICED_NEWS = {"summary": "뉴스", "items": [
+    news_item("005930", materials=("HBM 수주 기대",), evidence=("10-06 가짜일보 HBM",)),
+    news_item("062040", theme="전력", materials=("유안타증권 목표주가 360,000원 제시",), evidence=(PRICED,))]}
+PRICED_DRAFT = {"summary": "반도체·전력 재료 중심.", "picks": [
+    {"symbol": "005930", "rank": 1, "reason": "HBM 수주 기대가 있다.", "evidence": ["10-06 가짜일보 HBM"]},
+    {"symbol": "062040", "rank": 2, "reason": "변압기 계약이 있다.",
+     "evidence": [PRICED, CONTRACT_351, "삼성SDI 수주 전망…목표가↑-DS"]}]}
+LLM_RETRY = {"verdict": "RETRY", "score": 85, "handoff": None, "instructions": "005930 reason에 우려를 넣는다.",
+             "issues": [{"claim": "005930 reason", "problem": "우려 누락", "fix": "우려를 넣는다"}]}
+LLM_PASS = review_reply("PASS") | {"score": 88}
+
+
+def priced_research():
+    return {"news_screen_agent": contracts.validate("CandidateNewsResult", PRICED_NEWS),
+            "filing_screen_agent": contracts.validate("FilingCheckResult", filing_reply(filing_item("005930")))}
+
+
+def test_has_price_catches_target_words_and_masked_token():
+    for text in ("목표가↑-DS", "목표주가 상향", "적정주가 제시", "목표가 (가격) - 유안타증권", "장중 (가격) 찍은 산일전기",
+                 "증권사 목표가 잇단 상향", "실적 개선에 목표가 상향", "목표 가격 상향"):
+        assert selection_team.has_price(text), text
+    for text in ("목표 가동률 상향", "목표가치 제고", "리튬 24만t 확보", "351억 계약", "1억 달러 수주", "주가 3.18% 하락",
+                 "올해 수주 목표가 상향됐다", "흑자 전환이 목표가 아니다", "단기 반등이 목표가 아닌 종목"):   # 회사 목표의 "목표가"
+        assert not selection_team.has_price(text), text
+
+
+# 가격 낱말처럼 보이지만 가격이 아닌 글 (2026-10-12 리뷰, docs/DECISIONS.md 30장): 앞에 한글이 붙은 낱말(수주가·순매수가·주주가),
+# 회사 목표(매출·판매·수주 목표가), 가격 낱말 뒤의 금액·개수·날짜, 억 뒤의 만원. 마지막 검토에서는 코드 점검 하나가 review_failed로
+# 이어지므로 이 오탐이 실패의 길이었다 (운영 #8 입력 재현의 "수주가 3.9조"). 조사 결과 사본도 이것을 "(가격)"으로 가리지 않는다
+NOT_PRICES = [
+    "AI 부품 수주가 3.9조 공급계약 규모에 이르고", "수주가 2건 이어졌다", "수주가 7월 이후 늘었다", "올해 수주가 10척을 넘었다",
+    "주주가 3명", "최대주주가 2만7천주를 장내매도했다",
+    "외국인 순매수가 120만주에 달했다", "외국인 순매수가 12만 주로 늘었다", "외국인 순매수가 1,200억원에 달했다",
+    "기관 순매수가 3,000억원 규모", "순매수가 3천억원", "순매수가 3분기에 늘었다", "최대주주가 300만주를 처분했다",
+    "대주주가 5.2% 지분을 보유", "대주주가 2,000억원어치 블록딜", "자사주가 2,000억원", "공매도가 1,200억원",
+    "외국인 선물 순매수가 1만 계약을 넘었다", "외국인 매도가 12만주", "외국인 매도가 2천억원을 넘었다", "매수가 1조원을 넘어",
+    "매도가 20일 누적", "주가 10월 들어 반등", "주가는 10월 들어 반등했다.",
+    "주가 3분기 실적에 달렸다", "주가 3분의 1", "주가 3영업일 연속 상승", "주가 52주 신고가", "주가 1위",
+    "올해 매출 목표가 2조원으로 높아졌다", "판매 목표가 400만대", "45억6000만원 규모 공급계약", "3억 5000만원 규모"]
+
+
+@pytest.mark.parametrize("text", NOT_PRICES)
+def test_price_ignores_compound_words_company_goals_amounts_and_dates(text):
+    assert not selection_team.has_price(text) and selection_team.mask_prices(text) == text
+
+
+@pytest.mark.parametrize("text", ["주가 5천원", "주가 3천500원", "공개매수가 2만원", "평균매수가 71,000원", "주가 30만원대",
+                                  "목표주가 9만", "적정가 9만", "주가 7만 위로", "삼성전자 주가 7만원", "주가: 950",
+                                  "목표가 26만5000원으로 상향"])
+def test_price_still_catches_prices_next_to_those_words(text):
+    assert selection_team.has_price(text)
+
+
+@pytest.mark.parametrize("text, masked", [  # 기록된 실제 뉴스 제목 (운영 #8·#14)
+    (PRICED, PRICED.replace("360,000원", "(가격)")),
+    ("목표가 160만→260만 껑충", "목표가 (가격)→(가격) 껑충"),
+    ("목표주가 160만에서 260만으로 상향", "목표주가 (가격)에서 (가격)으로 상향"),
+    ("장중 24만7500원 찍은", "장중 (가격) 찍은"),
+    ("주가 26만3000원 마감", "주가 (가격) 마감"),
+    ("주가 20만원대 조정", "주가 (가격)대 조정"),
+    ("$185.20 돌파", "(가격) 돌파"),
+    # 천 단위 가격·가격 낱말 뒤의 단위 없는 가격·금액 옆의 가격 (2026-10-12 리뷰)
+    ("주가 5천원 붕괴", "주가 (가격) 붕괴"),
+    ("주가 7만 위로", "주가 (가격) 위로"),
+    ("목표가 7만원 위로", "목표가 (가격) 위로"),
+    ("45억6000만원 규모 계약과 목표가 9만원", "45억6000만원 규모 계약과 목표가 (가격)"),
+])
+def test_mask_prices_hides_prices(text, masked):
+    assert selection_team.mask_prices(text) == masked
+
+
+@pytest.mark.parametrize("text", ["6조7800억원 투자", "3분기 영업익 7천560억", "변압기 351억 계약", "리튬 24만t",
+                                  "1억 달러 수주", "외국인 5일 순매수 120만주", "장중 주가 3.18% 하락", "순매수가 5일째",
+                                  "005930", "2026-10-11"])
+def test_mask_prices_keeps_amounts_rates_codes_and_dates(text):
+    assert selection_team.mask_prices(text) == text
+
+
+def test_changed_parts():
+    before = contracts.validate("SelectionDraft", PRICED_DRAFT)
+    assert selection_team.changed_parts(before, before) == {"바뀜": [], "그대로": ["005930", "062040"]}
+    after = copy.deepcopy(before)
+    after["picks"][0]["reason"] = "HBM 수주 기대가 있다. 수급은 엇갈린다."
+    after["summary"] = "바뀐 요약"
+    assert selection_team.changed_parts(before, after) == {"바뀜": ["005930 reason", "summary"], "그대로": ["062040"]}
+    swapped = copy.deepcopy(before)
+    swapped["picks"][0]["rank"], swapped["picks"][1]["rank"] = 2, 1
+    assert selection_team.changed_parts(before, swapped)["바뀜"] == ["구성·순위"]
+
+
+def test_selector_prompt_masks_research_prices_but_state_keeps_them():
+    inputs = priced_research()
+    llm = FakeCaller(PRICED_DRAFT)
+
+    WORKERS["selector_agent"].run(make_ctx("selector_agent", llm, candidates=SANIL_CANDIDATES, inputs=inputs))
+
+    assert "목표가 (가격) - 유안타증권" in llm.user and "목표주가 (가격) 제시" in llm.user and "360,000원" not in llm.user
+    assert inputs["news_screen_agent"]["items"][1]["evidence"] == [PRICED]   # 넘긴 조사 결과(State)는 원문 그대로
+
+
+def test_selector_finish_drops_price_evidence_and_trims_cut_reason():
+    answer = copy.deepcopy(PRICED_DRAFT)
+    answer["picks"][1]["reason"] = "첫 문장은 변압기 계약이다. " + "둘째 문장은 길게 이어진다 " * 16   # 240자 → 계약이 200자에서 자른다
+
+    result = WORKERS["selector_agent"].run(make_ctx("selector_agent", FakeCaller(answer), candidates=SANIL_CANDIDATES,
+                                                    inputs=priced_research()))
+
+    assert result["picks"][1]["evidence"] == [CONTRACT_351]   # 가격·목표가 항목은 지운다
+    assert result["picks"][1]["reason"] == "첫 문장은 변압기 계약이다."   # 잘린 둘째 문장은 덜어 낸다
+    assert result["picks"][0]["evidence"] == ["10-06 가짜일보 HBM"] and "_changed" not in result   # 첫 실행에는 _changed가 없다
+    assert contracts.validate("SelectionDraft", result) == result
+
+
+def selection_pick(reason, evidence=("10-06 가짜일보 HBM",)):
+    """계약을 통과한 한 종목 선정안 (reason은 계약이 200자에서 자른다)."""
+    return contracts.validate("SelectionDraft", {"summary": "요약.", "picks": [
+        {"symbol": "005930", "rank": 1, "reason": reason, "evidence": list(evidence)}]})
+
+
+def test_selector_finish_keeps_flow_and_company_goal_evidence():
+    """수급의 주식 수·금액, 날짜, 회사 목표는 가격이 아니라 evidence에 남는다 (2026-10-12 리뷰 — 전에는 지웠다)."""
+    kept = ["외국인 순매수가 12만주로 늘었다", "주가 10월 들어 반등", "올해 수주 목표가 상향"]
+    assert selector.finish(selection_pick("수급이 좋다.", kept))["picks"][0]["evidence"] == kept
+
+
+def test_selector_trim_only_cut_reasons_and_not_after_a_decimal_point():
+    short = "주가 3.18% 하락. 외국인 순매수가 5일째 이어지는 중"   # 200자 안이면 끝에 마침표가 없어도 그대로
+    assert selector.finish(selection_pick(short))["picks"][0]["reason"] == short
+    head, tail = "삼성전자는 3분기 영업익 개선이 기대된다.", " 주가 3.18% 하락했다."
+    filler = "가" * (contracts.LIST_ITEM_MAX - len(head) - 1 - len(" 주가 3."))
+    cut = selection_pick(f"{head} {filler}{tail}")["picks"][0]["reason"]
+    assert cut.endswith("주가 3.") and len(cut) == contracts.LIST_ITEM_MAX   # 계약이 소수점 바로 뒤를 잘랐다
+    assert selector.finish(selection_pick(cut))["picks"][0]["reason"] == head   # "3."은 문장 끝이 아니다
+
+
+def test_selector_rules_retry_prefix_and_changed():
+    llm = FakeCaller(PRICED_DRAFT, PRICED_DRAFT, draft("005930"), draft("005930", reason="이유를 고쳤다."))
+    WORKERS["selector_agent"].run(make_ctx("selector_agent", llm, candidates=SANIL_CANDIDATES, inputs=priced_research()))
+    system, first, _ = llm.prompts[0]
+    assert "기대·전망" in system and "200자" in system and "지시받지 않은 종목의 순위·reason·evidence" in system
+    assert "글자 그대로 두세요" not in first
+
+    def again(previous):
+        ctx = make_ctx("selector_agent", llm, candidates=SANIL_CANDIDATES, attempt=2, instructions="005930 reason을 고친다.",
+                       inputs=priced_research() | {"selector_agent": contracts.validate("SelectionDraft", previous)})
+        return WORKERS["selector_agent"].run(ctx)
+
+    result = again(draft("005930"))
+    user = llm.prompts[1][1]
+    assert user.index("글자 그대로 두세요") < user.index("005930 reason을 고친다.")
+    assert result["_changed"] == ["구성·순위", "005930 reason", "005930 evidence", "summary"]
+    assert again(draft("000660"))["_changed"] == ["구성·순위"]   # 다른 종목으로 바꿨다
+    assert again(draft("005930"))["_changed"] == ["005930 reason"]   # 같은 종목의 reason만 고쳤다
+
+
+def selection_finish(value):
+    """Orchestrator가 State에 넣는 모양 (selector.finish를 거치고 _로 시작하는 키는 뺀다)."""
+    return {k: v for k, v in selector.finish(value).items() if not k.startswith("_")}
+
+
+def review_round(answer, *, attempt=1, picks=PRICED_DRAFT, retry=None):
+    """선정 검토 한 번 (후보 표에 062040이 있고, 조사 결과에 가격이 있다). → (계약을 통과한 결과, 호출기)."""
+    llm = FakeCaller(answer)
+    inputs = priced_research() | {"selector_agent": selection_finish(contracts.validate("SelectionDraft", picks))}
+    ctx = make_ctx("selection_review_agent", llm, candidates=SANIL_CANDIDATES, inputs=inputs, attempt=attempt, retry=retry)
+    return contracts.validate("ReviewResult", WORKERS["selection_review_agent"].run(ctx)), llm
+
+
+def test_review_rules_limit_retry_to_factual_problems():
+    _, llm = review_round(LLM_PASS)
+    system, user, _ = llm.prompts[0]
+    assert "RETRY 사유가 아니다" in system and "evidence에 근거를 더 넣으라고 지시하지 않는다" in system
+    assert "글자 그대로" in system and "다시 하는 검토다" not in system and "## 이전 검토" not in user
+    assert "목표가 (가격)" in user and "360,000원" not in user
+
+
+def test_review_rereview_prompt_has_previous_review_and_changed_parts():
+    previous = contracts.validate("SelectionDraft", draft("005930", "062040"))
+    retry = {"round": 1, "review": contracts.validate("ReviewResult", LLM_RETRY), "draft": previous}
+    _, llm = review_round(LLM_PASS, attempt=2, retry=retry)
+    system, user, _ = llm.prompts[0]
+    assert "다시 하는 검토다" in system
+    assert "## 이전 검토" in user and "005930 reason에 우려를 넣는다." in user
+    assert "## 이번에 바뀐 부분" in user and '"바뀜":[' in user
+
+
+@pytest.mark.parametrize("attempt", [1, 2])
+def test_review_earlier_rounds_keep_llm_retry(attempt):
+    result, _ = review_round(LLM_RETRY, attempt=attempt)
+    assert result["verdict"] == "RETRY" and contracts.REVIEW_ACCEPTED not in result
+
+
+def test_review_last_round_retry_without_code_issues_passes_with_notes():
+    assert selection_review.retry_rounds() == 2
+    result, _ = review_round(LLM_RETRY, attempt=3)
+    assert result["verdict"] == "PASS" and result["acceptedWithNotes"] is True
+    assert result["issues"] == LLM_RETRY["issues"] and result["instructions"] == LLM_RETRY["instructions"]
+
+
+@pytest.mark.parametrize("reason", ["지금 사면 좋아요.", "70,000원 근처다.", "증권가 목표주가 상향이 이어졌다.",
+                                    "증권사 목표가 상향이 이어졌다.", "장중 (가격) 기록 뒤 반납했다."])
+def test_review_last_round_code_issue_still_blocks(reason):
+    worded = copy.deepcopy(PRICED_DRAFT)
+    worded["picks"][0]["reason"] = reason
+    result, _ = review_round(LLM_RETRY, attempt=3, picks=worded)
+    assert result["verdict"] == "RETRY" and contracts.REVIEW_ACCEPTED not in result
+
+
+def test_review_last_round_out_of_table_or_fail_still_blocks():
+    outside = copy.deepcopy(PRICED_DRAFT)
+    outside["picks"][1]["symbol"] = "999999"
+    result, _ = review_round(LLM_RETRY, attempt=3, picks=outside)
+    assert result["verdict"] == "RETRY" and contracts.REVIEW_ACCEPTED not in result
+    result, _ = review_round(LLM_PASS | {"verdict": "FAIL"}, attempt=3)
+    assert result["verdict"] == "FAIL" and contracts.REVIEW_ACCEPTED not in result
+
+
+@pytest.mark.parametrize("reason", [
+    "주가 3.18% 하락 뒤에도 외국인 순매수가 5일째 이어졌다.",
+    # 운영 #8 입력 재현의 실패: 검토 LLM은 PASS(92점)였는데 코드 점검이 "수주가 3.9조"를 가격으로 읽어 셋째 검토까지 RETRY였다
+    "AI 부품 수주가 3.9조 공급계약 규모에 이르고 차세대 유리기판 공동 개발·공급 재료가 확인됐다.",
+    "외국인 순매수가 12만주로 늘었고 주가는 10월 들어 반등했다.", "올해 수주 목표가 상향됐다."])
+def test_review_ignores_rate_count_amount_and_goal_wording(reason):
+    """가격이 아닌 숫자·낱말은 코드 점검에 걸리지 않는다 — 고치기 전에는 이 reason을 코드가 RETRY로 바꿨고 마지막 검토도 막았다 (오탐 회귀 방지)."""
+    rated = copy.deepcopy(PRICED_DRAFT)
+    rated["picks"][0]["reason"] = reason
+    result, _ = review_round(LLM_PASS, picks=rated)
+    assert result["verdict"] == "PASS" and contracts.REVIEW_ACCEPTED not in result
+    result, _ = review_round(LLM_RETRY, attempt=3, picks=rated)
+    assert result["verdict"] == "PASS" and result["acceptedWithNotes"] is True
+
+
+def test_review_llm_cannot_set_the_accepted_flag():
+    result, _ = review_round(LLM_PASS | {"acceptedWithNotes": True})
+    assert result["verdict"] == "PASS" and contracts.REVIEW_ACCEPTED not in result
+
+
+def test_retry_rounds_follow_the_selection_plan(monkeypatch):
+    original = registry.execution_plan
+
+    def plan(team=registry.TEAM):
+        found = original(team)
+        for step in found["steps"]:
+            if step.get("retry") and team == registry.SELECTION_TEAM:
+                step["retry"]["maxRounds"] = 1
+        return found
+    monkeypatch.setattr(registry, "execution_plan", plan)
+    assert selection_review.retry_rounds() == 1
+    result, _ = review_round(LLM_RETRY, attempt=2)
+    assert result["verdict"] == "PASS" and result["acceptedWithNotes"] is True

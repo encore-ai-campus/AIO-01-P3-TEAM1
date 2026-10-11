@@ -589,6 +589,19 @@ def test_review_without_draft_is_worker_error():
         review.ReviewAgent().run(context("review_agent", FakeCaller(REVIEW_PASS), inputs=research()))
 
 
+def test_review_drops_code_only_accepted_flag_and_ignores_retry_context():
+    """acceptedWithNotes는 선정 검토 전용 코드 키라 LLM이 보내도 지운다. ctx.retry는 읽지 않는다 — 다시 하는 검토도
+    프롬프트(system, user)가 글자 그대로 같다 (종목 리포트 동작은 바뀌지 않는다, docs/DECISIONS.md 30장)."""
+    inputs = review_inputs()
+    flagged, plain = FakeCaller(REVIEW_PASS | {"acceptedWithNotes": True}), FakeCaller(REVIEW_PASS)
+    first = review.ReviewAgent().run(context("review_agent", flagged, inputs=dict(inputs), attempt=2))
+    ctx = context("review_agent", plain, inputs=dict(inputs), attempt=2)
+    ctx.retry = {"round": 1, "review": REVIEW_PASS | {"verdict": "RETRY", "instructions": "고친다"}, "draft": DRAFT}
+    again = review.ReviewAgent().run(ctx)
+    assert contracts.REVIEW_ACCEPTED not in first and first == again == REVIEW_PASS
+    assert flagged.prompts == plain.prompts
+
+
 # --- risk_agent ---
 
 RISK_ANSWER = {"level": "low", "flags": ["변동성 보통"], "warnings": [], "summary": "큰 위험 신호는 없었다."}

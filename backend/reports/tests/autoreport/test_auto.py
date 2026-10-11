@@ -358,6 +358,20 @@ def test_phase_b_ai_selection_goes_through_guard(day, tmp_path):
     assert Report.objects.filter(team=Report.STOCK_REPORT).count() == 3
 
 
+def test_phase_b_review_accepted_with_notes_still_counts_as_ai(day, tmp_path):
+    """선정 검토가 마지막 검토에서 지적을 남긴 채 통과해도(acceptedWithNotes) 완료된 실행이라 AI 선정이다 (docs/DECISIONS.md 30장)."""
+    auto.tick(DAY_AT, Log())
+    review = {"verdict": "PASS", "score": 85, "acceptedWithNotes": True, "handoff": None, "instructions": "출처를 더한다",
+              "issues": [{"claim": "005930 reason", "problem": "출처 누락", "fix": "출처를 더한다"}]}
+    finish(selection_report(), {"news_screen_agent": NEWS, "filing_screen_agent": FILINGS, "selector_agent": SELECTED,
+                                "selection_review_agent": review})
+    assert auto.tick(DAY_AT.replace(hour=8, minute=40), Log()) == 3
+    saved = day_file(tmp_path)
+    assert (saved["selectedBy"], saved["fallbackReason"]) == ("ai", None)
+    assert [p["symbol"] for p in saved["aiPicks"]] == [p["symbol"] for p in SELECTED["picks"]]
+    assert [p["symbol"] for p in saved["picks"]] == ["042700", "005930", "005380"]
+
+
 def test_phase_b_waits_while_selection_runs(day, tmp_path):
     from reports.orchestration import state
 
