@@ -28,7 +28,7 @@ export default defineConfig(({ mode }) => {
     },
     test: {
       environment: "jsdom",
-      setupFiles: ["./src/setupTests.ts"],
+      setupFiles: ["./src/test/setup.ts"],
       css: false,
     },
   };

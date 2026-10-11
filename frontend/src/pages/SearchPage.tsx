@@ -18,7 +18,7 @@ import { isTodayKst } from "../lib/autotrade";
 import { cn } from "../lib/cn";
 import { formatPrice } from "../lib/format";
 import { quotePriceName } from "../lib/plainText";
-import { useDebounced } from "../lib/useDebounced";
+import { useDebounced } from "../hooks/useDebounced";
 
 interface BasisTime {
   market: Market;

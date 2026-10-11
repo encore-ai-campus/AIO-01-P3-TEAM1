@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
-import { BrandIntro } from "../components/BrandIntro";
-import { BrandLockup, BrandMark, Wordmark } from "../components/BrandMark";
+import { BrandIntro } from "../components/brand/BrandIntro";
+import { BrandLockup, BrandMark, Wordmark } from "../components/brand/BrandMark";
 import { Card, PageHeader } from "../components/ui";
 
 const SIZES = [16, 24, 32, 48, 96];

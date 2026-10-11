@@ -48,7 +48,7 @@ import { cn } from "../lib/cn";
 import { formatDateTime, formatDayLabel, formatKrw, formatPercent, formatPrice, formatQty, formatRate } from "../lib/format";
 import { prefersReducedMotion } from "../lib/motion";
 import { blockedShort, priceExpiredText, reasonSentence, rejectionSentences } from "../lib/plainText";
-import { useDebounced } from "../lib/useDebounced";
+import { useDebounced } from "../hooks/useDebounced";
 
 /** 지표 칸. 값은 줄을 바꾸지 않고(자릿수 중간에서 갈라지지 않게), 보조 줄은 넘치면 줄임표 + 전체는 title (trade-03). */
 function Metric({ label, value, sub, className }: { label: string; value: string; sub?: string; className?: string }) {

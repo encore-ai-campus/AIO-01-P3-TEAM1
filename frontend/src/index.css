@@ -42,7 +42,7 @@
   --color-ok-soft: #e6f8f0;
   --color-ok-ink: #037a4a; /* 초록 글자 (흰 5.4:1·연초록 4.9:1). 아이콘·점·막대는 그대로 ok */
   --color-on-ink: #ffffff; /* bg-ink 반전 표면 위 글자 */
-  --color-on-brand: #ffffff; /* brand 바탕 위 그림 — 로고의 흰 배 (두 테마 모두 흰색이라 다크 덮어쓰기 없음, components/BrandMark.tsx) */
+  --color-on-brand: #ffffff; /* brand 바탕 위 그림 — 로고의 흰 배 (두 테마 모두 흰색이라 다크 덮어쓰기 없음, components/brand/BrandMark.tsx) */
   --color-on-warn: #191f28; /* bg-warn 위 글자 */
   --color-ok-inverse: #03a463; /* 반전 표면(bg-ink) 위 성공 아이콘 */
   --color-up-inverse: #f04452; /* 반전 표면(bg-ink) 위 오류 아이콘 */
@@ -737,7 +737,7 @@ html[data-theme-anim] * {
 }
 
 /*
- * 브랜드 인트로 (components/BrandIntro.tsx): 하나의 타임라인을 --intro-dur(기본 5s)로 늘이고 줄인다.
+ * 브랜드 인트로 (components/brand/BrandIntro.tsx): 하나의 타임라인을 --intro-dur(기본 5s)로 늘이고 줄인다.
  *   0~22% 워드마크 → 22~34% ㅁ을 뺀 획이 옅어짐 → 30~60% 세 ㅁ이 계단 자리로 모이며 작아짐 → 60~72% ㅁ이 흰색으로, 파란 타일이 깔림
  *   (lockup) 76~92% 아이콘이 왼쪽으로 밀리고 이름이 옆에 나옴. (overlay) 덮개는 인트로가 끝난 0.5초 뒤 0.4초 동안 사라진다.
  * 동작 줄이기에서는 위의 전역 규칙이 길이를 0.01ms로 줄여 끝 모양(아이콘 + 이름)으로 바로 간다. 좌표는 BrandIntro의 viewBox(-70 0 780 180) 기준 px.
@@ -890,7 +890,7 @@ html[data-theme-anim] * {
 
 /*
  * 로고 반복 모션 (BrandMark loop — 로그인 화면): 세 블록이 계단을 오르는 순서로 한 칸씩 튀고, 한동안 쉰다 (4.2초 주기).
- * 첫 방문 인트로가 도는 동안(html[data-intro=playing], components/IntroGate.tsx)은 멈춰 있다가 끝나면 시작한다. 마우스를 올리면 멈춘다.
+ * 첫 방문 인트로가 도는 동안(html[data-intro=playing], components/brand/IntroGate.tsx)은 멈춰 있다가 끝나면 시작한다. 마우스를 올리면 멈춘다.
  * 동작 줄이기에서는 위의 전역 규칙이 길이 0.01ms · 1회로 줄여 가만히 있는다. 좌표는 로고 viewBox(32) 기준 px.
  */
 @keyframes brand-hop {

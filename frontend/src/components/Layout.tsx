@@ -12,7 +12,7 @@ import { useOrderBarShown } from "../lib/orderBar";
 import { sourceLine } from "../lib/plainText";
 import { ADMIN_PATH, useSecretTaps } from "../lib/secretTaps";
 import { NotificationMenuItem } from "./autotrade/NotificationBell";
-import { BrandLockup } from "./BrandMark";
+import { BrandLockup } from "./brand/BrandMark";
 import { inProgressReports } from "./home/homeData";
 import { Icon } from "./Icon";
 import { NicknamePrompt } from "./my/NicknamePrompt";

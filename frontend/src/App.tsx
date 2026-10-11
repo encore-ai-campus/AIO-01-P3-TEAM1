@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router";
 import { Layout } from "./components/Layout";
 import { ScrollManager } from "./components/motion/ScrollManager";
-import { IntroGate } from "./components/IntroGate";
+import { IntroGate } from "./components/brand/IntroGate";
 import { AuthBridge, RequireAuth } from "./components/RequireAuth";
 import { ToastProvider } from "./components/ToastProvider";
 import { Card, EmptyState, PageHeader } from "./components/ui";

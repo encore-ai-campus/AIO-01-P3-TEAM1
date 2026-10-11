@@ -440,7 +440,7 @@ Trace에 남길 사건 (`docs/API.md`와 `docs/tasks/00-공통.md` 9절에 확�
 
 ### 10-4. 화면을 고칠 때
 
-- 디자인 토큰은 `frontend/src/index.css`(라이트·다크 한 쌍 — 색은 토큰만, `src/colors.test.ts`가 검사), 공용 부품은 `frontend/src/components/ui.tsx`·`components/motion/`(접힘·시트·스크롤), 표시 형식은 `frontend/src/lib/format.ts`, 리포트 화면은 `frontend/src/components/reports/`.
+- 디자인 토큰은 `frontend/src/index.css`(라이트·다크 한 쌍 — 색은 토큰만, `src/test/colors.test.ts`가 검사), 공용 부품은 `frontend/src/components/ui.tsx`·`components/motion/`(접힘·시트·스크롤), 표시 형식은 `frontend/src/lib/format.ts`, 리포트 화면은 `frontend/src/components/reports/`.
 - 360px 폭과 PC 폭 둘 다, **라이트·다크 두 테마**를 확인한다. 상태는 색만으로 구분하지 않는다. 모션·배치 규칙은 `docs/DECISIONS.md` 15장, 화면별 배치와 이유는 `docs/design/화면배치.md`.
 - 검사: `cd frontend && npx eslint . && npx tsc --noEmit && npx vitest run && npx vite build`
 

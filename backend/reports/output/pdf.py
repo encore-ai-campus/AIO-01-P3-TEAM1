@@ -68,7 +68,7 @@ AGENT_LABEL = {"market_agent": "시세", "fundamental_agent": "재무", "news_ag
                "report_agent": "작성", "review_agent": "검토", "risk_agent": "리스크"}
 RISE, FALL, ACCENT = "#d2342f", "#2a62d2", "#e08a00"   # 상승 빨강·하락 파랑 (국내 관례), 이동평균 주황
 
-# 로고: brand 타일 + 흰 ㅁ 블록 셋의 오르는 계단 (frontend/src/components/BrandMark.tsx의 32px 이상 판 — 속이 빈 ㅁ).
+# 로고: brand 타일 + 흰 ㅁ 블록 셋의 오르는 계단 (frontend/src/components/brand/BrandMark.tsx의 32px 이상 판 — 속이 빈 ㅁ).
 # 도형 값은 frontend/src/lib/brandShapes.ts(MU_PATH·ICON_BLOCKS·ICON_BLOCK_SCALE)와 같다 — 바꾸면 둘 다 고친다.
 # 늘이기·그림자·그라데이션을 더하지 않고, 블록 색을 바꾸지 않는다 (docs/DECISIONS.md 27장).
 MU_PATH = "M0 0H104V88L0 96Z M32 28V60L72 57V28Z"

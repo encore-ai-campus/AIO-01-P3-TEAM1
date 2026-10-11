@@ -10,7 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigationType } from "react-router";
 import { useAnalyses, useMarket, useMe, useQuotes, useReports } from "../api/queries";
 import type { MarketStatus } from "../api/types";
-import { AnalysisCard, AnalysisCardSkeleton } from "../components/AnalysisCard";
+import { AnalysisCard, AnalysisCardSkeleton } from "../components/analysis/AnalysisCard";
 import { AssetCard } from "../components/AssetCard";
 import { HomePlans, HomeRecommendations } from "../components/autotrade/HomeSummaries";
 import { GuideCard } from "../components/home/GuideCard";

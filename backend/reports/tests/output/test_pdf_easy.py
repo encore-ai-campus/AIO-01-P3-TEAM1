@@ -97,7 +97,7 @@ NORMAL = scenario([
 ])
 
 
-# --- 문장 함수 (frontend/src/report-easy.test.tsx "lib/reports 쉬운 보기 함수", lib/format.test.ts와 같은 사례) ---
+# --- 문장 함수 (frontend/src/test/report-easy.test.tsx "lib/reports 쉬운 보기 함수", lib/format.test.ts와 같은 사례) ---
 
 def test_recovery_sentences():
     """다른 AI로 바꿈 · 같은 AI로 다시 · 끝내 못 함 (final 표시가 없으면 포기)."""

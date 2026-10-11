@@ -39,7 +39,7 @@ export interface Wording {
  * 서비스 이름 (docs/DECISIONS.md 18장 — 2026-10-07에 바뀜. 전 이름은 '종이배'(15-7), 그 전은 D-5). 붙여 쓰고 꾸밈말을 붙이지 않는다('AI 모매매' 아님).
  * 부제는 이 서비스의 핵심(여러 AI의 교차검증 + 모의투자)을 한 줄로 말한다. 풀이 한 줄은 그것을 풀어 쓰고, 아래 안심 줄('실제 주문은 나가지 않아요')과 같은 말을 되풀이하지 않는다.
  * 문구에 쓰지 않는 말: 배 은어(탑승·승선·선장·출항·순항), 띄우다·접다, 침몰·가라앉다·구조, '배(倍)' 말장난 — 옛 종이배 로고 때 정한 규칙이지만 문구가 깔끔해 그대로 지킨다.
- * 로고는 components/BrandMark.tsx. 백엔드에도 같은 이름이 둘 있다 (notifications/service.py HEADER, reports/output/pdf.py SERVICE_NAME).
+ * 로고는 components/brand/BrandMark.tsx. 백엔드에도 같은 이름이 둘 있다 (notifications/service.py HEADER, reports/output/pdf.py SERVICE_NAME).
  */
 export const SERVICE_NAME = "모매매";
 

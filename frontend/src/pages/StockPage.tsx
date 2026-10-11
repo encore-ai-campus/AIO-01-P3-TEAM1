@@ -15,12 +15,12 @@ import { useAnalyses, useAnalysis, useMe, useReportPlan, useReports, useStock } 
 import { useReportQuota, useRequestReport } from "../api/reports";
 import { addRecentStock, useSymbolTrading } from "../api/trading";
 import type { AnalysisSummary, ChaosRequest, StockDetail } from "../api/types";
-import { AnalysisRequest } from "../components/AnalysisRequest";
+import { AnalysisRequest } from "../components/analysis/AnalysisRequest";
 import { isCountLimit } from "../components/errors/errorTypes";
 import { Icon } from "../components/Icon";
 import { FundamentalsPanel } from "../components/longterm/FundamentalsPanel";
 import { Collapse } from "../components/motion/Collapse";
-import { ACTED_MS, OrderPanel, type Prefill } from "../components/OrderPanel";
+import { ACTED_MS, OrderPanel, type Prefill } from "../components/stock/OrderPanel";
 import { ChaosForm } from "../components/reports/ChaosForm";
 import { AsOf, EmptyState, ErrorState, Flash, Notice, PageHeader, PriceChange, Skeleton, Spinner, VerdictBadge } from "../components/ui";
 import { useViewMode } from "../hooks/useBeginnerMode";
@@ -40,7 +40,7 @@ import { quotaSentence, todayReport } from "../lib/reports";
 // 차트 라이브러리는 종목 상세에서만 쓰므로 따로 불러온다. 불러온 적이 있으면(다시 온 화면) 차트를 페이드하지 않는다
 let chartLoaded = false;
 const CandleChart = lazy(() =>
-  import("../components/CandleChart").then((m) => {
+  import("../components/charts/CandleChart").then((m) => {
     chartLoaded = true;
     return { default: m.CandleChart };
   }),

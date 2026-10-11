@@ -14,7 +14,7 @@ import type { ChaosRequest, ExecutionPlan, StockItem } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { errorSentence, reportStatusText } from "../../lib/plainText";
 import { todayReport } from "../../lib/reports";
-import { useDebounced } from "../../lib/useDebounced";
+import { useDebounced } from "../../hooks/useDebounced";
 import { Icon } from "../Icon";
 import { ErrorPanel } from "../errors/ErrorPanel";
 import { errorKindOf } from "../errors/errorTypes";

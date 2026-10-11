@@ -817,7 +817,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 
 ### 15-3. 색 토큰 규칙
 
-- **TSX에 색 값을 쓰지 않는다**: `#hex`·`rgb()`·`bg-white`·`bg-black` 금지. `src/colors.test.ts`가 검사한다(예외: `lib/chartTheme.ts`의 차트 대체값, `lib/theme.ts`의 테마색).
+- **TSX에 색 값을 쓰지 않는다**: `#hex`·`rgb()`·`bg-white`·`bg-black` 금지. `src/test/colors.test.ts`가 검사한다(예외: `lib/chartTheme.ts`의 차트 대체값, `lib/theme.ts`의 테마색).
 - **글자와 바탕을 나눈다**: `*-ink`는 글자(`brand-ink` 파란 글자 · `warn-ink` 경고 글자 · `up-ink` 오류·실패 글자 · `ok-ink` 초록 글자), `on-*`는 그 바탕 위 글자(`on-ink` 반전 표면 · `on-warn` · `on-medal`),
   `brand-dark`·`up-dark`는 버튼 hover 배경 전용. 아이콘·점·막대는 `brand`·`up`·`ok`·`warn` 그대로.
 - **반전 표면**(툴팁·토스트·선택 칩)은 `bg-ink` + `text-on-ink`(다크에서는 밝은 표면 + 어두운 글자, 의도), 그 위 아이콘은 `ok-inverse`·`up-inverse`. 배경막은 `scrim`, 스위치 손잡이는 `knob`, Segmented 선택 표시는 `thumb`, brand 바탕 위 그림(로고의 배)은 `on-brand`(두 테마 모두 흰색).
@@ -834,7 +834,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 | `useRevealAfterLoading`·`revealList`(처음 내용이 올 때 한 번 등장), `useChanged`, `useNewKeys`(실시간으로 붙는 새 항목), `usePresence`, `useModal`, `useSlidingIndicator`, `useTheme`·`useResolvedTheme` | `hooks/` | |
 | `press`(버튼 누름 scale .98), `press-row`(행·카드 링크 누름 배경), `reveal-fade`, `is-new`, `skeleton` | `index.css` | 모바일 누름 피드백(전에는 탭 하이라이트만 끄고 대신할 것이 없었다) |
 
-- `BrandMark`(로고 — size px, 32px 이상은 속이 빈 ㅁ·더 작으면 속이 찬 사각형, `loop` 반복 모션, 고대비에서도 색 유지)·`Wordmark`("모매매" 글자 SVG — 세 ㅁ만 brand 색)·`BrandLockup`(로고 + 워드마크, 사이 = 마크의 1/4, 워드마크 높이 = 마크의 0.7배, 이름은 숨김 글자가 읽는다): `components/BrandMark.tsx`, 도형 값은 `lib/brandShapes.ts`. 화면에 서비스 이름을 넣을 때는 이것을 쓴다 (2026-10-08 로고 바뀜 — 27장).
+- `BrandMark`(로고 — size px, 32px 이상은 속이 빈 ㅁ·더 작으면 속이 찬 사각형, `loop` 반복 모션, 고대비에서도 색 유지)·`Wordmark`("모매매" 글자 SVG — 세 ㅁ만 brand 색)·`BrandLockup`(로고 + 워드마크, 사이 = 마크의 1/4, 워드마크 높이 = 마크의 0.7배, 이름은 숨김 글자가 읽는다): `components/brand/BrandMark.tsx`, 도형 값은 `lib/brandShapes.ts`. 화면에 서비스 이름을 넣을 때는 이것을 쓴다 (2026-10-08 로고 바뀜 — 27장).
 - `Skeleton`: className에 모서리(rounded-*)를 주면 기본 rounded-lg를 뺀다(원·알약 자리).
 - 둥근 카드(overflow-hidden) 안의 행 링크는 `focus-visible:outline-offset-[-2px]` + 첫·마지막 행 모서리 맞춤으로 포커스 테두리가 잘리지 않게 한다. 요청을 보내는 버튼은 `disabled` 대신 `aria-disabled`(누름 무시·aria-busy·Spinner)로 포커스를 지키고, 누른 행이 사라지면 다음 행 → 앞 행 → 목록 제목 순으로 포커스를 옮긴다.
 - 토스트: `toast(문장, "info" | "success" | "error", { action })`. 길이에 따라 3~6초, 마우스·포커스·숨은 탭 동안 멈추고 눌러 닫는다. 모바일은 하단 탭·주문 바 위, PC는 본문 열 가운데, 시트가 열려 있으면 화면 위쪽.
@@ -867,7 +867,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 - **이름 "종이배"**(붙여 씀). '종이'가 두 가지를 뜻한다 — AI가 쓴 **리포트**(종이 위의 보고서)와 **모의투자**(paper trading, "종이 위에서 = 실제가 아니라 연습으로"). 이름이 처음부터 '진짜 돈이 아님'을 말해 실제 매매·수익 약속으로 읽힐 틈이 적다.
   부제 **"종이 위에서 연습하는 AI 리포트 모의투자"**. 영문은 설명할 때만 'Paper Boat'(상호처럼 'Paperboat' 한 단어로 쓰지 않는다 — 해외 음료 브랜드와 겹친다). 코드·저장소·패키지 이름은 그대로.
 - **로고**: 리포트 한 장을 접은 종이배 정면 실루엣(사다리꼴 선체 + 삼각 돛, 돛 꼭짓점을 둥글려 ▲ 상승 기호로 읽히지 않게). brand 둥근 타일 + 흰 배. 48px 이상에서만 돛에 접힌 선 하나("종이를 접었다").
-  파일: `frontend/src/components/BrandMark.tsx`(CSS 변수 `--color-brand`·`--color-on-brand` — 다크에서 타일이 #458ef7), `frontend/public/favicon.svg`(16px 최적화), `apple-touch-icon.png`(180px). 쓰는 곳: PC 왼쪽 메뉴(32px), 모바일 홈 머리(28px), 로그인(56~64px), 부팅 화면, PDF 머리.
+  파일: `frontend/src/components/brand/BrandMark.tsx`(CSS 변수 `--color-brand`·`--color-on-brand` — 다크에서 타일이 #458ef7), `frontend/public/favicon.svg`(16px 최적화), `apple-touch-icon.png`(180px). 쓰는 곳: PC 왼쪽 메뉴(32px), 모바일 홈 머리(28px), 로그인(56~64px), 부팅 화면, PDF 머리.
 - **이름이 나가는 곳**: 브라우저 탭 "〈화면〉 · 종이배", 홈 화면에 추가할 때의 이름(`apple-mobile-web-app-title` — 없으면 그 순간의 탭 제목이 이름이 된다), Discord 머리말 `[종이배 · 모의투자]`(`notifications/service.py`),
   A4 PDF(양식 판 `TEMPLATE_VERSION` 3 — 예전 판 파일은 다음 요청 때 새로 만든다): 모든 쪽 맨 위 머리 [로고 9mm + 이름 | 'AI 리포트 · 모의투자 연습용'] + 가는 선. 면책·날짜는 본문·꼬리말에 이미 있어 머리에 넣지 않는다.
 - 로그인 첫 화면: 로고 56px → 이름 26px → 부제(`SERVICE_TAGLINE`) → 설명 한 줄(`SERVICE_INTRO` "진짜 돈 대신 종이 위에서 — AI가 쓴 리포트를 읽고 따져 본 뒤, 가상 현금으로 모의투자를 연습해요.") → 3단계 칩. 상수는 `lib/plainText.ts`.
@@ -1131,7 +1131,7 @@ ju 브랜치 `f2d42db`("인트로 로고 수정")가 15-7의 종이배 로고를
   - 부제 `SERVICE_TAGLINE` **"여러 AI가 함께 검증하는 모의투자"** (전: "종이 위에서 연습하는 AI 리포트 모의투자"). 이 서비스의 핵심(여러 AI의 교차검증 + 모의투자)을 한 줄로.
   - 풀이 한 줄 `SERVICE_INTRO` **"AI들이 조사하고 서로 따져 본 리포트를 읽고, 가상 현금으로 매매를 연습해요."** — 아래 안심 줄('실제 주문은 나가지 않아요')과 같은 말을 되풀이하지 않는다.
   - 로고 반복 모션(`BrandMark loop`, `.brand-hop`): 세 블록이 계단을 오르는 순서로 한 칸씩 튀고 쉰다(4.2초 주기). 인트로가 도는 동안(`html[data-intro=playing]`)과 마우스를 올렸을 때는 멈추고, 움직임 줄이기에서는 가만히 있다.
-- **앱 인트로** (`components/BrandIntro.tsx`, `components/IntroGate.tsx`, 움직임은 `index.css`의 `.intro-*`): 5초 — 워드마크 → ㅁ을 뺀 획이 옅어짐 → 세 ㅁ이 계단 자리로 모이며 작아짐 → 파란 타일이 깔리고 ㅁ이 흰색(아이콘) → 아이콘이 왼쪽으로 밀리고 이름이 옆에.
+- **앱 인트로** (`components/brand/BrandIntro.tsx`, `components/brand/IntroGate.tsx`, 움직임은 `index.css`의 `.intro-*`): 5초 — 워드마크 → ㅁ을 뺀 획이 옅어짐 → 세 ㅁ이 계단 자리로 모이며 작아짐 → 파란 타일이 깔리고 ㅁ이 흰색(아이콘) → 아이콘이 왼쪽으로 밀리고 이름이 옆에.
   끝나고 0.5초 머문 뒤 0.4초 동안 사라진다(덮개의 `animationend`에서 지움). 화면 전체를 덮으며 누르면 바로 끝난다.
   - **나오는 때**: 앱을 주소 `/` 또는 `/login`으로 열 때(새로 열기·새로고침)마다. 처음 그릴 때의 주소로만 정해 앱 안에서 화면을 옮길 때는 다시 나오지 않는다. 주소 끝 `?intro=1`이면 어느 화면에서든.
   - **건너뛰는 때**: 움직임 줄이기 설정, 디자인 검수 화면(`/ui/*`), 다른 화면 주소로 바로 연 경우(예: 알림 링크), 테스트(`MODE=test`).
@@ -1139,7 +1139,7 @@ ju 브랜치 `f2d42db`("인트로 로고 수정")가 15-7의 종이배 로고를
 - **검수 화면** `/ui/brand` (`VITE_MOCK=1` 전용, 홈의 "발표·검수 도구" 카드에서): 인트로 다시 재생·전체 화면(발표 영상 녹화용)·크기별(16·24·32·48·96px)·가로 잠금.
 - **로고 규칙(15-7을 대신함)**: 늘이기·돌리기·기울이기, 그림자·그라데이션을 하지 않는다. 블록 색을 바꾸지 않는다(워드마크의 ㅁ만 brand 색으로 강조). 고대비(forced-colors)에서도 브랜드 색을 지킨다.
   문구 규칙(배 은어·띄우다·접다·침몰·'배(倍)' 말장난을 쓰지 않음 — `lib/plainText.ts`)은 그대로 둔다.
-- **바꾼 파일**: `frontend/src/lib/brandShapes.ts`(새), `components/BrandMark.tsx`(`BrandMark`·`Wordmark`·`BrandLockup`), `components/BrandIntro.tsx`·`IntroGate.tsx`(새), `pages/BrandPreviewPage.tsx`(새),
+- **바꾼 파일**: `frontend/src/lib/brandShapes.ts`(새), `components/brand/BrandMark.tsx`(`BrandMark`·`Wordmark`·`BrandLockup`), `components/brand/BrandIntro.tsx`·`IntroGate.tsx`(새), `pages/BrandPreviewPage.tsx`(새),
   `pages/LoginPage.tsx`, `App.tsx`, `index.css`, `lib/plainText.ts`, `public/favicon.svg`, `public/apple-touch-icon.png`, `index.html`, `components/home/DemoPreviewCard.tsx`, `backend/reports/output/pdf.py`(`LOGO_SVG`·`TEMPLATE_VERSION`)와 그 테스트.
 
 ## 28. 투자 금액은 사용자가 정한다 · 종목 화면 보유 평가는 실시간 (2026-10-11, 사용자 결정)
@@ -1189,3 +1189,12 @@ ju 브랜치 `f2d42db`("인트로 로고 수정")가 15-7의 종이배 로고를
   (`orchestrator.TEAM_INPUTS`, `auto_report` 명령, 테스트의 `sys.modules`)과 관리 서버 CI의 경로 조건(`backend/reports/autohealing/stats.py`)도 바꿨다.
 - **`backend/autotrade`**: 루트에는 Django 자리와 앱 공통 모듈(`conf.py`·`text.py`·`tokens.py`·`hide.py`)만 두고, 추천 만들기는 `recommend/`(sources·demo·auto),
   계획 진행은 `plans/`(risk·executor)로 옮겼다. 테스트는 9개라 나누지 않는다. `backend/tests/test_pages.py`(`/`·`/api/health`)는 `backend/config/tests/`로 옮겼다.
+- **`frontend/src`**: `src` 바로 아래의 화면 단위 테스트 27개와 `setupTests.ts`를 `src/test/`(`setup.ts`, 도우미 `render.tsx`·`time.ts`와 같은 곳)로 옮겼다.
+  한 파일만 보는 단위 테스트(`lib/*.test.ts` 등)는 그 파일 옆에 둔다. 기능 전용 부품은 `components/` 루트에서 기능 폴더로 옮겼다 —
+  `analysis/`(AnalysisCard·AnalysisRequest), `stock/`(OrderPanel), `charts/`(CandleChart·LineChart), `brand/`(BrandMark·BrandIntro·IntroGate), 그리고 `lib/useDebounced.ts` → `hooks/`.
+  `components/` 루트에는 여러 화면이 같이 쓰는 부품(`ui.tsx`·`Icon.tsx`·`Layout.tsx`·`Term.tsx`·`toast.ts`·`ToastProvider.tsx`·`RequireAuth.tsx`·`DeleteAction.tsx`·`AssetCard.tsx`)만 남는다.
+  `tsc`가 못 잡는 문자열 경로(`vi.mock`·`importOriginal`, `colors.test.ts`·`foundation.test.tsx`의 `import.meta.glob`, `?raw`, 동적 `import()`)도 고쳤다.
+- **옮기지 않은 것**: 엔진(`engine/paper_engine`)은 이미 기능 폴더(`agents/`·`data/`·`judge/`·`records/`·`longterm/`)로 나뉘어 있고 안전 규칙·CI가 경로를 박아 둔다
+  (`data/toss.py`만 토스 주소 허용, 손절은 `judge/stops.py`). 나머지 백엔드 앱(`accounts`·`trading`·`analysis`·`longterm`·`notifications`)은 기능 모듈이 몇 개뿐이라 그대로다.
+  프론트 `lib/`·`pages/`도 그대로다 — 백엔드 테스트가 `lib/plainText.ts`·`lib/reports.ts`·`lib/glossary.ts`·`lib/brandShapes.ts`와 `components/plan/PlanCard.tsx`·`components/reports/easy/`를
+  경로로 읽어 문장이 같은지 보고, 화면 파일은 라우터와 1:1이라 평평한 쪽이 찾기 쉽다.

@@ -7,7 +7,7 @@ import { Navigate, useLocation, useNavigate } from "react-router";
 import { api, errorMessage } from "../api/client";
 import { keys, useMe } from "../api/queries";
 import type { Me } from "../api/types";
-import { BrandMark, Wordmark } from "../components/BrandMark";
+import { BrandMark, Wordmark } from "../components/brand/BrandMark";
 import { Icon } from "../components/Icon";
 import { Notice, Spinner } from "../components/ui";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
