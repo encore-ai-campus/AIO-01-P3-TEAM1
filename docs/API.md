@@ -17,6 +17,13 @@ B1(`ReportDraft.plainSummary`)은 HTTP가 아니라 리포트 출력 계약이�
 사용자가 `budgetPercent`(매수 가능 금액의 %) 또는 `budgetKrw`(원)를 **반드시** 정하고, 코드는 그 금액을 진입가로 나눠 수량을 계산한 뒤 한도를 **점검만** 한다 (넘으면 줄이지 않고 막는다).
 바뀐 곳: "AI 추천" 절의 `RiskPreview`·`TradePlan`·`activated` 사건·미리 보기·활성화·재주문 규칙, "실행 불가 사유 코드" 표.
 
+**2026-10-12 시연용 수동 시작** (사용자 결정, `docs/DECISIONS.md` 31장 — 구현: 2026-10-12 (Claude)): 리스크 엔진이 손익비·기대값(`reward_risk_low`·`ev_negative`)**만으로** 막은 계획을
+사용자가 '수동매매 (시연용)'을 눌러 넣을 돈을 정하고 확인한 뒤 직접 시작한다 (`manualStart`). 나머지 점검(넣을 돈·한도·가격·기한·같은 종목·중단 스위치·매수 유의)은 그대로다.
+바뀐 곳: "AI 추천" 절의 `RiskPreview.skippedReasons`·`skippedCodes`, `TradePlan.manualStart`, `activated`·`risk_checked` 사건 details, 미리 보기·활성화 요청, 규칙 "시연용 수동 시작", "실행 불가 사유 코드"의 코드가 나가는 자리.
+
+**2026-10-12 선정 팀 검토가 끝나게** (사용자 요청 "선정팀 실패 원인 알아보고 고쳐", `docs/DECISIONS.md` 30장 — 구현: 2026-10-12 (Claude)): HTTP 계약은 그대로이고,
+"AI 리포트" 절 Trace 타입 주석에 `agent_completed.details`의 `acceptedWithNotes`·`changed`와 `workflow_failed.details.message`(review_failed)를 더했다.
+
 **2026-10-06 단타 삭제** (사용자 결정, `docs/DECISIONS.md` 16장): 단타 연습(`/api/day/*`)·단타 퀴즈(`/api/me/day-trading-quiz`)·분봉(`/api/stocks/{symbol}/minute-candles`)과 `InvestorProfile.dayQuizPassedAt`·`dayTradingUnlocked`, `Recommendation`·`TradePlan`의 `horizon`, 보유 방식 `day`, 추천 출처 `day`, 청산 사유 `EOD`, 사유 코드 `day_entry_closed`·`day_trading_locked`를 계약에서 지웠다. 투자 방식은 `swing`·`long` 둘이다.
 
 ## 공통 규칙
@@ -557,6 +564,11 @@ type TraceStatus = "started" | "completed" | "failed" | "blocked" | "skipped";
 //   expired (2026-10-07 추가: 24시간 넘게 기다린 신청을 실행하지 않고 끝냄)
 // agent_skipped.details.reason: join_blocked · fail_fast · review_failed, 그 밖에는 workflow_failed의 사유 코드 (timeout·agent_failed 등)
 // review_retry.details: {round, target, issues: ["주장 — 문제", ...], instructions}
+// agent_completed.details (검토 Worker): verdict, score. 2026-10-12 (DECISIONS 30장): 선정 검토의 마지막 검토가 RETRY였지만 코드 점검(후보 표 밖 종목·고위험 공시·
+//   권유 표현·가격·목표가)을 통과해 남은 지적을 기록하고 통과하면 acceptedWithNotes: true (state.results.selection_review_agent에도 같은 키 — 코드만 붙인다)
+// agent_completed.details.changed (2026-10-12, 선정 Worker가 검토 RETRY로 다시 쓸 때만): 이전 선정안과 달라진 곳 ["구성·순위" | "<코드> reason" | "<코드> evidence" | "summary"]
+//   (빈 목록이면 아무것도 고치지 않은 것)
+// workflow_failed.details.message (선택): exception이면 예외 글, review_failed이면 남은 검토 지적 줄을 " / "로 이은 것 (2026-10-12, 300자. 지적이 없으면 "검토 판정 FAIL" 또는 "검토 판정 RETRY")
 // agent_failed는 두 가지다: details.final = false 는 LLM 호출 한 번의 실패(재시도·전환으로 이어진다),
 // details.final = true 는 그 Worker를 포기한 것. details.injected = true 는 장애 주입으로 일으킨 실패.
 // LLM 호출 한 번은 최대 4회 시도한다 (첫 시도 + 재시도 3회, 모델마다 2회 — 00-공통.md 7절). 넘거나 deadline이 지나면 그 Worker를 포기한다.
@@ -774,6 +786,7 @@ SSE 형식 (실행 Event를 발생 즉시 한 방향으로 전달):
 
 - **AI는 제안만 한다.** 넣을 돈은 사용자가 정하고(2026-10-11 — `budgetPercent` 또는 `budgetKrw`), 수량 계산·한도 점검·활성화 가능 여부·체결은 결정론적 코드(엔진 리스크 엔진 `judge/risk.py`, 모의 체결기)가 정한다.
   최소 손익비 기준(스윙 1.5)은 AI 프롬프트에 넣지 않는다 (리스크 엔진이 거른다). 손절 가격(`targets.stop`)은 코드가 정한다 — 시세 조사 `market_agent`의 `stop` (2026-10-07, `docs/DECISIONS.md` 21장).
+  예외 (2026-10-12, `docs/DECISIONS.md` 31장): **시연용 수동 시작**(`manualStart`) — 사용자가 '수동매매 (시연용)'을 누르고 확인한 계획만 리스크 엔진의 손익비·기대값 점검(`reward_risk_low`·`ev_negative`)을 건너뛴다. 나머지 점검은 그대로다 (아래 규칙 "시연용 수동 시작").
 - 추천의 출처는 셋이다: `report`(AI 리포트 Agent 워크플로우의 `report_agent` 결과 — 추천 워크플로우 팀이 구현), `analysis`(지금 있는 AI 교차검증 분석의
   BUY 판정), `demo`(**시연용 규칙 추천, AI 아님** — 일봉 ATR로 목표·손절을 정한다. 화면에 "연습용 예시 계획 (AI 아님)"을 표시한다).
 - 추천은 팀 전체가 같이 보고, **활성화는 팀원마다 자기 모의 계좌에** 한다 (같은 추천을 여러 명이 각자 활성화할 수 있다).
@@ -824,12 +837,17 @@ interface Recommendation {
 interface RiskPreview {           // 리스크 엔진이 "내 계좌"로 계산한 결과 (활성화 전 확인용). 가격·자산은 장마감 기준
                                   // 2026-10-11: 수량 = 사용자가 정한 금액 ÷ 1주 매수 비용(진입가 × (1 + 수수료) × 환율), 국내는 내림 정수 주, 미국은 금액을 센트로 내린 소수점 수량.
                                   //   금액(budgetKrw·budgetPercent)이 없으면 크기 계산 없이 점검만 한다 — quantity·amountKrw·expectedProfitKrw·maxLossKrw 0, limitedBy·maxLossRate null, largeLoss false
-  approved: boolean;              // 리스크 엔진 통과 (금액이 없으면 크기와 무관한 점검만 — 손익비·기대값·매수 유의·일일 한도)
+  approved: boolean;              // 리스크 엔진 통과 (금액이 없으면 크기와 무관한 점검만 — 손익비·기대값·매수 유의·일일 한도).
+                                  // 시연용 수동 시작(manualStart=1)이어도 리스크 엔진의 원래 판정 그대로다 — 건너뛴 사유가 있으면 false (2026-10-12)
   activatable: boolean;           // approved && 추천이 open && 같은 종목의 진행 중 계획·주문 없음 && 중단 스위치 꺼짐
                                   // (금액이 없으면 "금액만 정하면 시작할 수 있음"의 뜻 — 화면 머리 칩·시작할 수 없는 이유에 쓴다)
+                                  // 2026-10-12: manualStart=1이면 skippedCodes를 뺀 남은 사유로만 정한다 (approved=false·activatable=true가 될 수 있다)
   reasons: string[];              // 활성화할 수 없는 사유 (activatable이면 [])
   reasonCodes: string[];          // reasons[i]의 사유 코드 = reasonCodes[i] (같은 길이·같은 순서). 코드 표는 아래 "실행 불가 사유 코드"
                                   // (2026-10-04 합의, 컨셉 계획 B4 — 구현: 2026-10-05 (Claude))
+  skippedReasons: string[];       // 2026-10-12 (DECISIONS 31장 — 구현: 2026-10-12 (Claude)). 시연용 수동 시작(?manualStart=1)으로 건너뛴 사유 원문 — reasons에는 들지 않는다.
+                                  //   일반 미리 보기는 늘 []
+  skippedCodes: string[];         // 2026-10-12. skippedReasons[i]의 코드 (같은 길이·같은 순서) — reward_risk_low · ev_negative 중에서만 나온다. 일반 미리 보기는 []
   quantity: number;               // 주문할 수량 (국내는 정수 주)
   amountKrw: number;              // 매수 금액 (원화 환산)
   expectedProfitKrw: number;      // 목표가 도달 시 이익 (비용 반영)
@@ -860,6 +878,7 @@ interface TradePlan {
   source: RecommendationSource;
   status: TradePlanStatus;
   via: "web" | "discord";         // 어디서 활성화했나 (Discord 링크의 token으로 판단)
+  manualStart: boolean;           // 2026-10-12 (DECISIONS 31장 — 구현: 2026-10-12 (Claude)). 시연용 수동 시작 — 손익비·기대값 점검을 건너뛰고 활성화한 계획. 그 밖의 계획은 false
   quantity: number;
   budgetMode: "percent" | "amount" | null;   // 2026-10-11. 넣은 돈을 정한 방식. null = 2026-10-11 전에 활성화한 계획 (리스크 엔진이 수량을 정함)
   budgetPercent: number | null;   // 2026-10-11. percent면 그 % (매수 가능 금액 기준), 아니면 null
@@ -877,7 +896,10 @@ interface TradePlan {
 
 type PlanEventKind =
   | "activated"        // 사용자가 활성화 (details: {via, budgetMode, budgetPercent, budgetKrw, acknowledged}. acknowledged는 2026-10-04 합의 B5 — 구현: 2026-10-05 (Claude). budgetMode·budgetPercent는 2026-10-11)
+                      //   2026-10-12: 시연용 수동 시작이면 + {manualStart: true, skippedCodes}, message "웹에서 계획 활성화 (시연용 수동 시작)" (일반 계획은 그대로)
   | "risk_checked"     // 리스크 엔진 점검 (details: {approved, quantity, limitedBy, rewardRisk, reasons})
+                      //   2026-10-12: 시연용 수동 시작이면 approved false + {manualStart: true, skippedCodes, skippedReasons},
+                      //   message "리스크 엔진 점검: {건너뛴 사유를 "; "로 이음} — 시연용 수동 시작으로 건너뜀. {넣은 돈}으로 {수량}"
   | "order_placed"     // 진입 지정가 주문 접수 (details: {orderId, limitPrice, quantity})
   | "order_requeued"   // 지정가가 그날 체결되지 않아 다음 정규장에 다시 주문 (details: {orderId, previousOrderId}, 수량이 줄었으면 + {quantity, previousQuantity})
   | "filled"           // 진입 체결 (details: {orderId, fillPrice, quantity})
@@ -936,8 +958,8 @@ interface NotificationSettings {
 | `GET /api/recommendations?status=open\|all&source=&sourceId=&symbol=` | 페이지. `status` 기본 `open`. `sourceId`는 `source`와 같이 (리포트·분석 화면이 자기 추천을 찾는다) | `200 {"count", "results": Recommendation[]}` (최신순, 팀 전체 공용). `source`가 `report`·`analysis`·`demo`가 아니면 `400` (2026-10-06: `source=day`도 모르는 값이라 `400`) |
 | `GET /api/recommendations/{id}` | – | `200 Recommendation` · `404` (지운 추천도 `404`) |
 | `DELETE /api/recommendations/{id}` | – | `204` (2026-10-08, AI 리포트 절 "리포트·계획 제안 지우기" — 리포트 추천이면 출처 리포트도 숨긴다) · 남이 만든·자동 추천 `403 {"detail": "내가 만든 계획 제안만 지울 수 있어요."}` · 진행 중인 계획이 있으면 `400 {"detail": "이 계획 제안으로 진행 중인 모의 자동매매가 있어 지울 수 없어요. 계획이 끝난 뒤에 지울 수 있어요."}` · 없거나 이미 지운 추천 `404` |
-| `GET /api/recommendations/{id}/preview?budgetPercent=\|budgetKrw=` | 둘 중 하나 또는 없음 (2026-10-11). `budgetPercent`: 1~100 정수 (매수 가능 금액의 %). `budgetKrw`: 양수 (원). 없으면 크기 계산 없이 점검만 | `200 RiskPreview` (장마감 기준 — 구현: 2026-10-05 (Claude)) · 둘 다 보냄 `400 {"detail": "budgetPercent와 budgetKrw 중 하나만 보냅니다."}` · `budgetKrw`가 숫자가 아니거나 0 이하, `budgetPercent`가 1~100 정수가 아님 `400` · 증권사 조회 불가 `503` |
-| `POST /api/recommendations/{id}/activate` | `{"budgetPercent": number \| "budgetKrw": number, "token"?: string, "acknowledged"?: boolean}` — 2026-10-11: `budgetPercent`(1~100 정수)와 `budgetKrw`(양수, 원) 중 **하나가 필수** (없으면 `400 {"detail": "투자 금액을 정해 주세요 (budgetPercent 또는 budgetKrw)."}`, 둘 다면 미리 보기와 같은 `400`, 둘 다 `reasonCodes` 없음) | `201 TradePlanDetail` (첫 주문 접수가 거절된 드문 경우도 `201` — 계획 `status: "failed"`, 아래 규칙) · 활성화할 수 없으면 `400 {"detail": 사유들을 "; "로 이은 것, "reasonCodes": string[]}` (`reasonCodes[i]`는 `detail`을 이은 사유 i번째의 코드 — 같은 길이·같은 순서, 미리 보기의 사유 + 장중 확인의 `price_passed` + 동시 활성화의 `plan_exists`. `Response`를 직접 돌려준다 — 구현: 2026-10-05 (Claude)) · 입력 오류(`budgetPercent`·`budgetKrw`·`acknowledged` 형식, 금액 없음, `token`이 만료·위조)는 `400 {"detail"}` (`reasonCodes` 없음) · `404` · 증권사 조회 불가 `503`. `acknowledged`: 실행 확인 체크리스트를 모두 켰는지 → `activated` 사건 details `{via, budgetMode, budgetPercent, budgetKrw, acknowledged}`에 남긴다 (없으면 `false`, 불리언이 아니면 `400`. 서버가 활성화를 막지는 않는다 — 체크리스트는 화면 테스트로 보장) — (2026-10-04 합의, 컨셉 계획 B5 — 구현: 2026-10-05 (Claude)) |
+| `GET /api/recommendations/{id}/preview?budgetPercent=\|budgetKrw=&manualStart=` | 둘 중 하나 또는 없음 (2026-10-11). `budgetPercent`: 1~100 정수 (매수 가능 금액의 %). `budgetKrw`: 양수 (원). 없으면 크기 계산 없이 점검만. `manualStart`(2026-10-12, 선택 — 시연용 수동 시작 미리 보기): `1`·`true`면 켬, 없음·빈 값·`0`·`false`면 끔 (대소문자·앞뒤 공백 무시) | `200 RiskPreview` (장마감 기준 — 구현: 2026-10-05 (Claude)) · 둘 다 보냄 `400 {"detail": "budgetPercent와 budgetKrw 중 하나만 보냅니다."}` · `budgetKrw`가 숫자가 아니거나 0 이하, `budgetPercent`가 1~100 정수가 아님 `400` · `manualStart`가 그 밖의 값 `400 {"detail": "manualStart는 true 또는 false여야 합니다."}` (`reasonCodes` 없음) · 증권사 조회 불가 `503` |
+| `POST /api/recommendations/{id}/activate` | `{"budgetPercent": number \| "budgetKrw": number, "token"?: string, "acknowledged"?: boolean, "manualStart"?: boolean}` — 2026-10-11: `budgetPercent`(1~100 정수)와 `budgetKrw`(양수, 원) 중 **하나가 필수** (없으면 `400 {"detail": "투자 금액을 정해 주세요 (budgetPercent 또는 budgetKrw)."}`, 둘 다면 미리 보기와 같은 `400`, 둘 다 `reasonCodes` 없음) | `201 TradePlanDetail` (첫 주문 접수가 거절된 드문 경우도 `201` — 계획 `status: "failed"`, 아래 규칙) · 활성화할 수 없으면 `400 {"detail": 사유들을 "; "로 이은 것, "reasonCodes": string[]}` (`reasonCodes[i]`는 `detail`을 이은 사유 i번째의 코드 — 같은 길이·같은 순서, 미리 보기의 사유 + 장중 확인의 `price_passed` + 동시 활성화의 `plan_exists`. `Response`를 직접 돌려준다 — 구현: 2026-10-05 (Claude)) · 입력 오류(`budgetPercent`·`budgetKrw`·`acknowledged` 형식, 금액 없음, `token`이 만료·위조)는 `400 {"detail"}` (`reasonCodes` 없음) · `404` · 증권사 조회 불가 `503`. `acknowledged`: 실행 확인 체크리스트를 모두 켰는지 → `activated` 사건 details `{via, budgetMode, budgetPercent, budgetKrw, acknowledged}`에 남긴다 (없으면 `false`, 불리언이 아니면 `400`. 서버가 활성화를 막지는 않는다 — 체크리스트는 화면 테스트로 보장) — (2026-10-04 합의, 컨셉 계획 B5 — 구현: 2026-10-05 (Claude)) `manualStart` (2026-10-12, DECISIONS 31장 — 구현: 2026-10-12 (Claude)): 시연용 수동 시작 — 없으면 `false`, JSON 불리언이 아니면(`"true"`·`1`·`null` 포함) `400 {"detail": "manualStart는 true 또는 false여야 합니다."}` (검사 순서: 넣을 돈 형식 → 금액 없음 → `acknowledged` → `manualStart` → `token`). `true`면 `reward_risk_low`·`ev_negative`만 건너뛰고(남은 사유가 있으면 위 `400 {"detail", "reasonCodes"}` — 건너뛴 코드는 넣지 않는다) `201 TradePlanDetail`(`manualStart: true`). 남은 사유가 없는데 건너뛸 것도 없으면 `400 {"detail": "손익비·기대값 점검에 막히지 않은 계획은 수동 시작(시연용) 없이 시작합니다."}` (`reasonCodes` 없음, 계획을 만들지 않는다) |
 | `POST /api/recommendations/demo` | `{"symbol"?: string}` (없으면 시연 종목 목록에서 고른다) | `201 Recommendation` (source `demo`. 진입가는 직전 장마감 종가, ATR은 완성 일봉으로 — 구현: 2026-10-05 (Claude)) · 시연 추천이 꺼져 있으면(`AUTOTRADE_DEMO=off`) `403` · 하루 한도(`AUTOTRADE_DEMO_PER_USER`, 기본 5) 초과 `429` · 없는 종목·일봉 부족 `400` · 증권사 조회 불가 `503` |
 | `GET /api/trade-plans?status=active\|all` | 페이지. 기본 `active`(진행 중 셋) | `200 {"count", "results": TradePlan[]}` (**내 것만**, 최신순) |
 | `GET /api/trade-plans/{id}` | – | `200 TradePlanDetail` · 남의 계획 `404` |
@@ -961,6 +983,15 @@ interface NotificationSettings {
   - 한도는 **점검만** 한다 — 넘으면 줄이지 않고 막는다 (장기 매수 `assess_position`과 같은 방식): 매수 금액(수수료 포함)이 매수 가능 금액보다 크면 `cash_short`, 총 금액 한도를 넘으면 `total_limit`.
     그 밖의 점검(손익비·기대값·매수 유의·일일 손실 한도·기한·같은 종목·중단 스위치·`price_passed`)은 그대로다.
   - 손절 시 손실이 총자산의 1%를 넘으면 `largeLoss: true` — 화면은 경고 한 줄만 보이고 막지 않는다 (손실 금액은 실행 확인 체크로 받는다).
+- **시연용 수동 시작** (2026-10-12 사용자 결정, DECISIONS 31장 — 구현: 2026-10-12 (Claude)): 금액 없는 미리 보기가 **손익비·기대값(`reward_risk_low`·`ev_negative`)으로만** 막은 계획을
+  사용자가 '수동매매 (시연용)'(매매 계획 카드·실행 확인의 막힌 화면 → `/recommendations/{id}?manual=1`)으로 직접 시작한다. 이 기능이 보이는 모든 자리에 "시연용"을 쓴다.
+  - 건너뛰는 것은 그 둘뿐이고(`backend/autotrade/plans/risk.py` `MANUAL_SKIP_CODES` = 화면 `frontend/src/lib/autotrade.ts` `MANUAL_SKIP_CODES`), 건너뛰는 때는 셋뿐이다:
+    미리 보기 `?manualStart=1`, 활성화 본문 `"manualStart": true`, `TradePlan.manualStart`인 계획의 재주문 점검. 설정 키로 켜고 끄지 않는다 (`AUTOTRADE_DEMO`와 무관).
+  - 그대로인 것: 넣을 돈 필수(28장)와 수량 계산, 매수 유의·일일 손실·일일 거래 한도, `budget_too_small`·`cash_short`·`total_limit`, `expired`, `plan_exists`·`position_exists`, `halted`,
+    `price_passed`(활성화의 장중 확인 포함), 주문 접수 때 엔진 모의 체결기의 점검. 엔진(`judge/risk.py`)은 그대로다 — 웹의 활성화 판단에서 사유를 `reasons`에서 `skippedReasons`로 옮길 뿐이다.
+  - 기록: `TradePlan.manualStart`(활성화 때 한 번 쓰고 바꾸지 않는다), `activated`·`risk_checked` 사건 details(`manualStart`·`skippedCodes`·`skippedReasons`, `approved: false`)와 message,
+    이 계획의 모든 알림 제목 앞 `[시연용 수동 시작] ` (웹 알림·Discord 편지함, 본문·숫자 줄은 그대로). 화면: 계획·목록·홈의 배지 "시연용 수동 시작", 실행 확인의 경고색 안내·넷째 확인 체크·"모의 수동매매 시작 (시연용)" 버튼(전문가 보기 "수동매매 활성화 (시연용)"), Discord 링크(`?t=`)로 들어왔으면 위쪽 Discord 띠 문장도 시연용 수동 시작을 말한다.
+  - 재주문도 같은 둘만 건너뛴다 (나머지 사유로 막히면 지금처럼 `failed`). 추천의 `blockedBy`와 목록·홈의 '시작할 수 없음' 표시는 바뀌지 않는다.
 - **활성화의 장중 확인** (구현: 2026-10-05 (Claude)): 미리 보기와 같은 계산을 통과한 뒤 하나를 더 본다. 그 시장이 정규장 중이고 장중 확인 가격이 이미
   목표가 이상이거나 손절가 이하면 활성화하지 않는다 (`400`, `reasonCodes`에 `price_passed`. 문장: "장중 가격이 이미 목표가 이상이에요" / "장중 가격이 이미 손절가 이하예요" —
   장중 가격 숫자는 문장에 넣지 않는다). 정규장 밖이면 이 확인은 없다 (종가 기준 판단만).
@@ -1015,7 +1046,9 @@ interface NotificationSettings {
 | `RiskPreview.reasonCodes` (`GET /api/recommendations/{id}/preview`) | `reasons`와 같은 길이·같은 순서 |
 | 활성화 거절 `POST /api/recommendations/{id}/activate` → `400 {"detail", "reasonCodes"}` | `detail`을 이은 사유와 같은 길이·같은 순서 (`price_passed`·`plan_exists` 포함) |
 | 장기 매수의 비중 점검 거절 `POST /api/orders`(long) → `400 {"detail", "reasonCodes"}` | 같은 규칙 (`cash_short`·`position_limit`·`total_limit`) |
+| `RiskPreview.skippedCodes` (미리 보기 `?manualStart=1`일 때만, 2026-10-12) · 시연용 수동 시작 계획의 `activated`·`risk_checked` 사건 details `skippedCodes` | `skippedReasons`와 같은 길이·같은 순서. `reward_risk_low`·`ev_negative` 중에서만 |
 
+시연용 수동 시작(위 규칙, DECISIONS 31장)이면 `reward_risk_low`·`ev_negative`는 `reasonCodes`가 아니라 `skippedCodes`로 간다 (화면 상수 `frontend/src/lib/autotrade.ts` `MANUAL_SKIP_CODES`와 같다).
 `400` 본문에 `reasonCodes`가 있으면 "실행 불가 사유", 없으면 입력 오류다 (화면이 둘을 나눈다). 본문에 `detail` 밖의 필드가 있으므로 `Response`를 직접 돌려준다 (`config.api`의 예외는 `detail` 밖을 버린다).
 엔진 `RiskAssessment.codes`·`assess_position`의 `codes`가 사유와 같은 길이·순서로 코드를 내고, `autotrade/risk.preview`가 (코드, 문장) 짝으로 중복을 지운다.
 엔진 접수 점검의 거절 `OrderRejected.codes`(`buy_checks`)에는 이 표 밖의 내부 코드(`invalid_order`·`market_closed`·`order_too_large`·`fx_unavailable`)도 있다 — API로 내지 않는다 (`trading.service`가 `400 {"detail"}`로 바꾸고, 쉬운 알림 문장은 이 표에 있는 코드만 쓴다. 2026-10-05 구현).
