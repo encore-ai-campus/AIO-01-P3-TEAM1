@@ -232,20 +232,20 @@ flowchart TB
     U["팀원<br/>브라우저 · 휴대폰"]:::user
     OP["운영 담당<br/>브라우저 · Claude Code"]:::user
     S["EC2 ① 서비스 서버<br/>모매매 웹 서비스"]:::svc
-    A["EC2 ② 관리 서버<br/>조회 전용 관리자 화면"]:::adm
+    A["EC2 ② 관리 서버<br/>관리자 화면 · 장애 주입 신청"]:::adm
     G["GitHub<br/>코드 · Actions · 이미지 저장소"]:::gh
     X["외부 API<br/>AI 게이트웨이 · 토스 시세 · DART · 뉴스"]:::ext
 
     U -- "HTTP :80" --> S
     OP -- "HTTP :80" --> A
-    A -- "상태 확인 · DB 읽기" --> S
+    A -- "상태 확인 · DB 읽기 · 장애 주입 신청(서명)" --> S
     S -- "조회만" --> X
     G -- "자동 배포" --> S
     G -- "자동 배포 · 배포 기록" --> A
 ```
 
 - **EC2 ① 서비스 서버** — 팀원이 쓰는 모매매 전체(화면·API·엔진·DB).
-- **EC2 ② 관리 서버** — 운영 담당이 장애·복구·배포·AI 비용을 보는 **조회 전용** 관리자 화면과 MCP 서버. 서비스와 서버를 나눠, 관리 서버가 멈춰도 서비스는 그대로 돈다.
+- **EC2 ② 관리 서버** — 운영 담당이 장애·복구·배포·AI 비용을 보는 관리자 화면과 MCP 서버(조회 전용). 장애 주입은 여기서만 신청한다 (2026-10-12, 서비스 DB에는 쓰지 않고 서명한 내부 API로 — `docs/DECISIONS.md` 35장). 서비스와 서버를 나눠, 관리 서버가 멈춰도 서비스는 그대로 돈다.
 - **GitHub** — `main`에 push하면 검사를 통과한 버전만 두 서버에 자동 배포한다 ([산출물 3](docs/deliverables/03_파이프라인_구현결과_보고서.md)).
 - **외부 API는 조회만** 한다: AI 게이트웨이(DevPass), 토스증권 시세, DART 공시·재무, Google 뉴스. 증권사 주문 API는 부르지 않는다 (실주문 코드 0건 — CI가 검사).
 
@@ -561,6 +561,7 @@ docs/                  기준 문서(API·DECISIONS·DEPLOY·교육용문서) ·
 | [AGENTS.md](AGENTS.md) | 안전 규칙·명령·작업 방식 (AI 에이전트와 팀원 공통). 새 문서를 둘 곳도 여기 |
 | [docs/plans/TEAM_PAPER_TRADING_PLAN.md](docs/plans/TEAM_PAPER_TRADING_PLAN.md) | 지금 상태(1장)·기술 스택·남은 작업 · 남은 결정과 다음 시작점(4장) · 팀원 개발 계획·개발 환경·시연 순서(부록 A) |
 | [docs/plans/컨셉변경계획.md](docs/plans/컨셉변경계획.md) | 서비스 컨셉(초보자도 리포트를 만들고·검토하고·실행) · 투자 방식 확장과 주린이모드(부록 A) |
+| [docs/plans/장애주입분리계획.md](docs/plans/장애주입분리계획.md) | 장애 주입을 서비스 화면에서 빼고 관리 서버에서만 켠다 (구현됨 2026-10-12, DECISIONS 35장) |
 | [docs/tasks/00-공통.md](docs/tasks/00-공통.md) | 담당 간 약속(파일 소유·함수 서명·Trace·출력 계약) · 담당별 세부 작업(부록 A1~A6) |
 | [docs/API.md](docs/API.md) · [docs/DECISIONS.md](docs/DECISIONS.md) | 웹 API 계약 · 공통 결정 (장 번호로 가리킨다) |
 | [docs/교육용문서.md](docs/교육용문서.md) · [docs/design/AI_AGENT_WORKFLOW.md](docs/design/AI_AGENT_WORKFLOW.md) | Agent 개념 (앱이 빌드에 넣는다) · 종목 선정 Agent 워크플로우 설계 예시 (오류 복구 포함) |

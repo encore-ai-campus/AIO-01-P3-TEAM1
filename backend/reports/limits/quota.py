@@ -2,10 +2,10 @@
 
 팀원마다 오늘(KST) 한도에 세는 리포트 수가 AI_DAILY_REPORTS_PER_USER에 닿으면 새 리포트를 만들지 않는다.
 값이 비어 있으면(기본) 한도가 없다 — 2026-10-08 사용자 결정으로 기본값을 3에서 무제한으로 바꿨다 (docs/DECISIONS.md 14-6).
-세는 것: 오늘 내가 신청한 리포트에서 **장애 주입 없이 failed로 끝난 것을 뺀** 수 (장애 주입을 켠 리포트는 실패해도 센다).
-`chaos` 열은 아직 없으므로(담당 4의 마이그레이션 0002) `getattr(report, "chaos", None)`이 dict이고 `enabled`가 참일 때만
-failed도 센다 — 열이 생기기 전에는 failed를 모두 뺀다. JSON 열은 Python에서 읽는다 (PostgreSQL 전용 조회를 쓰지 않는다).
-자동 리포트(source "auto")는 신청자가 없어 세지 않는다.
+세는 것: 오늘 내가 신청한(source "user") 리포트에서 **failed로 끝난 것을 뺀** 수.
+2026-10-12부터 사용자가 장애 주입을 켤 수 없어(관리 서버 전용 — docs/DECISIONS.md 35장) "장애 주입을 켠 리포트는 실패해도 센다"를 지웠다.
+자동 리포트(source "auto")와 장애 주입 실행(source "chaos" — 신청자 없음. 그 전에 팀원이 켜고 신청해 source만 옮긴 리포트도)은 세지 않는다
+(장애 주입 실행은 팀 AI 하루 예산 budget.py에는 든다).
 
 `ReportsView.post`는 같은 종목의 진행 중 리포트를 돌려주는 200 경로 뒤, 생성 앞에서 `check(user, now)`를 부른다
 (사용자 행을 잠근 트랜잭션 안이라 같은 사람의 동시 신청이 한도를 넘지 못한다). 넘으면 `Exceeded`(429) —
@@ -54,13 +54,8 @@ def day_range(now: datetime | None = None) -> tuple[datetime, datetime]:
 
 
 def counts(report: Report) -> bool:
-    """한도에 세는 리포트인가. 자동 리포트는 세지 않고, failed는 장애 주입을 켰을 때만 센다."""
-    if getattr(report, "source", "user") == "auto":
-        return False
-    if report.status != Report.FAILED:
-        return True
-    chaos = getattr(report, "chaos", None)
-    return isinstance(chaos, dict) and chaos.get("enabled") is True
+    """한도에 세는 리포트인가: 팀원이 신청했고(source "user") failed로 끝나지 않은 것. 자동 리포트·장애 주입 실행은 세지 않는다."""
+    return getattr(report, "source", Report.USER) == Report.USER and report.status != Report.FAILED
 
 
 @dataclass(frozen=True)

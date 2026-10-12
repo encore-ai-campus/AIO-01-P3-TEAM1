@@ -26,6 +26,10 @@ if not SECRET_KEY:
 
 ALLOWED_HOSTS = [h.strip() for h in env("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if h.strip()]
 
+# 장애 주입 내부 API(/api/internal/chaos-runs — 관리 서버가 SSH 터널로만 부른다)의 서명 비밀 값. 비우면 그 API가 꺼진다(404).
+# 관리 서버의 ADMIN_CHAOS_SECRET과 같은 값 (docs/API.md "장애 주입 내부 API", reports/autohealing/control.py)
+CHAOS_CONTROL_SECRET = env("CHAOS_CONTROL_SECRET").strip()
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",

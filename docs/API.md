@@ -523,7 +523,7 @@ interface AnalysisQuota {
   분석 하나를 더 못 하면 `429 {"detail": "오늘 팀 전체 AI 비용 예산($10, 분석·리포트 합)을 다 썼습니다."}`. 셈은 `reports/limits/budget.py`의 `used_usd`와 같다.
 - 분석 결과는 팀 전체가 같이 본다 (요청자 표시). 지금 종가·등락률은 프론트가 `/api/quotes`로 따로 받는다 (장마감 기준).
 - 분석 상세의 가격은 `priceAtAnalysis`(분석 시각 가격)이고, 지표·일봉의 기준일은 `dataAsOf`다. 뉴스는 `newsItems`(제목·매체·시각)와 출처 표기 `newsProvider`로 보인다.
-- 리포트 탭의 "교차검증 분석" 묶음과 종목 상세의 보조 버튼 "AI 교차검증 분석"이 이 API를 쓴다 (`docs/DECISIONS.md` 13-1 D-1).
+- 리포트 탭 '오늘의 선별 결과' 카드의 "교차검증 분석" 칩(10개씩 쪽 `?limit=10&offset=` — 2026-10-12 리포트 목록 칩에서 옮김, `docs/DECISIONS.md` 34장)과 종목 상세의 보조 버튼 "AI 교차검증 분석"이 이 API를 쓴다 (`docs/DECISIONS.md` 13-1 D-1).
 
 ---
 
@@ -544,6 +544,10 @@ interface AnalysisQuota {
 2026-10-07(담당 4, T4-6): `POST /api/reports`의 `chaos`를 받는다 (`reports/autohealing/chaos.py`). `enabled: false`면 저장하지 않아 `chaos`는 null,
 켜면 기본값·seed를 채워 저장한다. 주입한 timeout은 실제로 기다리지 않고 바로 실패로 처리한다 (시험 시간을 줄인다).
 2026-10-08: 신청에서 직접 주는 `seed`는 0 이상 2^53 미만 정수만 받는다 (그 밖은 `400`).
+**2026-10-12 바뀜 (사용자 결정, `docs/DECISIONS.md` 35장 — 계획 `docs/plans/장애주입분리계획.md`)**: 장애 주입은 **관리 서버에서만 켠다.** 서비스 공개 API에는 장애 주입이 없다 —
+`POST /api/reports`의 `chaos`는 `400`, `ReportSummary.chaosEnabled`·`ReportDetail.chaos`·`?chaos=` 거르기는 지웠다. 장애 주입 실행은 `source: "chaos"`·`user` 없음으로 만들어지고
+서비스의 사용자 경로(목록·상세·PDF·SSE·리포트 끝 알림·추천·하루 한도)에 나오지 않는다. 켜는 길은 아래 "장애 주입 내부 API (관리 서버 전용)", 보는 곳은 관리 서버(`admin/API.md`).
+주입 지점(`autohealing/healing`의 `chaos.should_fail`)·복구 경로·Trace 형식·복구 셈법은 그대로다.
 2026-10-07(담당 4, T4-7): `recovery`를 Trace로 계산하고(`reports/autohealing/stats.py`, 셈법 `docs/tasks/00-공통.md` 9절 — 화면 `frontend/src/lib/recovery.ts`와 같다), `GET /api/reports/recovery-stats`를 낸다.
 아직 끝나지 않은 실행의 장애는 `failures`에만 들고 `recovered`·`unrecovered`에는 들지 않는다.
 담당별 할 일은 `docs/tasks/`, 셈법과 모듈 경계는 `docs/tasks/00-공통.md`. 아래에서 "(추가)"로 표시한 것은 아직 서버가 내지 않는다.
@@ -616,13 +620,14 @@ interface PlanStep {
   retry: { target: string; maxRounds: number } | null;   // (추가) 검토 단계: RETRY 판정이면 target Worker를 다시 실행 (maxRounds는 1~3)
 }
 
-interface ChaosConfig {           // (구현) 장애 주입 설정 (docs/tasks/00-공통.md 5절). 리포트 워크플로우에만 적용된다
+interface ChaosConfig {           // (구현) 장애 주입 설정 (docs/tasks/00-공통.md 5절). 리포트 워크플로우에만 적용된다. 2026-10-12부터 내부 API·관리 서버에서만 쓴다 (공개 API에 없다)
   enabled: boolean;
   probability: number;          // 0~1. 호출 하나가 실패할 확률
   errorTypes: ErrorType[];      // 일으킬 실패 종류 (unknown 제외)
   workers: string[] | null;     // 대상 Worker (null이면 전부)
   scope: "primary" | "all";     // primary: 주 모델 호출만 실패 (대체 모델로 복구를 보인다) · all: 대체 모델까지 실패
   seed: number;                 // 같은 시험을 다시 돌릴 수 있게 서버가 정해 저장한다 (신청에서 직접 주면 0 이상 2^53 미만 정수)
+  requestedBy?: string;         // (2026-10-12) 저장된 설정에만: 내부 API로 신청한 관리자 아이디. 신청 본문에는 넣지 않는다 (넣으면 400 — 모르는 항목)
 }
 
 interface RecoverySummary {       // (구현) 이 리포트의 장애·복구 요약 (Trace에서 계산. 셈법은 00-공통.md 9절)
@@ -651,9 +656,8 @@ interface ReportSummary {
   status: SharedState["status"];
   currentStep: string | null;
   team: "stock_report" | "stock_selection";   // (구현: 2026-10-07) 어느 팀의 실행인지. 선정 실행은 symbol이 시장 코드("KR"), opinion·oneLiner는 null
-  source: "user" | "auto";      // (구현) 팀원 신청 / 자동 리포트(거래대금 상위 선별)
+  source: "user" | "auto";      // (구현) 팀원 신청 / 자동 리포트(거래대금 상위 선별). 장애 주입 실행(DB의 "chaos")은 공개 API에 나오지 않는다 (2026-10-12)
   requestedBy: string;          // 신청한 팀원의 닉네임. 자동 리포트는 "자동"
-  chaosEnabled: boolean;        // (구현) 장애 주입을 켜고 신청했는지
   costUsd: number | null;       // (구현) LLM 비용 (끝나기 전엔 지금까지의 합)
   hasPdf: boolean;              // (구현) GET /api/reports/{id}/pdf 가 되는지
   canDelete: boolean;           // (2026-10-08, DECISIONS 25장) 내가 신청했고 끝난(completed·failed) 종목 리포트면 true → DELETE /api/reports/{id}. 자동 리포트·선정 실행·남의 것은 false
@@ -673,7 +677,8 @@ interface RecoveryStats {         // (구현) GET /api/reports/recovery-stats
   byErrorType: { errorType: ErrorType; failures: number; recovered: number }[];
   byWorker: { worker: string; failures: number; recovered: number }[];
   recent: { reportId: number; symbol: string; worker: string; errorType: ErrorType; injected: boolean;
-            recovered: boolean; recoveryMs: number | null; at: string }[];   // 최근 20건, 최신순
+            recovered: boolean; recoveryMs: number | null; at: string;
+            chaos: boolean }[];   // 최근 20건, 최신순. chaos: 장애 주입 실행(source "chaos")의 장애 — 서비스 상세가 없어(404) 화면이 링크하지 않는다 (2026-10-12, DECISIONS 35장)
 }
 
 interface ScreeningResult {       // 자동 리포트의 그날 선별 결과 (엔진 screen_market 결과 + 선정 팀 결과. 파일을 그대로 낸다)
@@ -710,7 +715,6 @@ interface ReportDetail extends ReportSummary {   // Snapshot
   state: SharedState;
   trace: TraceEvent[];          // step 오름차순
   plan: ExecutionPlan;          // 그 리포트 팀(team)의 실행 계획 (구현: 2026-10-07)
-  chaos: ChaosConfig | null;    // (구현) 신청 때의 장애 주입 설정 (서버가 채운 기본값·seed 포함)
   recovery: RecoverySummary;    // (구현) Trace로 계산 (reports/autohealing/stats.py)
 }
 ```
@@ -721,9 +725,10 @@ interface ReportDetail extends ReportSummary {   // Snapshot
 |---|---|---|
 | `GET /api/reports/plan?team=` | `team` 기본 `stock_report` | `200 ExecutionPlan` (YAML Registry에서 읽은 실행 계획) · 모르는 `team` `400` (구현: 2026-10-07) |
 | `GET /api/reports?symbol=&team=` | 페이지, `symbol` 선택, `team` 기본 `stock_report` (`stock_selection`이면 선정 실행 목록) | `200 {"count", "results": ReportSummary[]}` (팀 전체 공용, 최신순) · 잘못된 `team` `400` (구현: 2026-10-07) |
-| `POST /api/reports` | `{"symbol", "chaos"?: {"enabled", "probability"?, "errorTypes"?, "workers"?, "scope"?, "seed"?}}` | `201 ReportDetail` · 같은 사람이 같은 종목으로 신청해 아직 끝나지 않은 리포트가 있으면 그것을 `200`으로 (한도를 넘었어도 돌려준다) · 없는 종목·잘못된 `chaos` `400` · 하루 한도 초과 `429 {"detail": string, "limit": number, "used": number}` (한도가 무제한(기본, 2026-10-08)이면 나지 않는다) (`detail` 예: "오늘 리포트 한도(3개)를 다 썼어요. 내일 0시에 다시 만들 수 있어요." — D-7, 구현: 2026-10-05 (Claude)) · (추가) AI 설정 없음 `503` · 증권사 조회 불가 `503` |
+| `POST /api/reports` | `{"symbol"}` — `chaos`가 들어 있으면 값과 상관없이 `400 {"detail": "장애 주입은 관리 서버에서만 켭니다."}` (2026-10-12, DECISIONS 35장 — 캐시된 옛 화면이 보내도 장애 주입 없이 조용히 만들어지지 않게) | `201 ReportDetail` · 같은 사람이 같은 종목으로 신청해 아직 끝나지 않은 리포트가 있으면 그것을 `200`으로 (한도를 넘었어도 돌려준다) · 없는 종목·잘못된 `chaos` `400` · 하루 한도 초과 `429 {"detail": string, "limit": number, "used": number}` (한도가 무제한(기본, 2026-10-08)이면 나지 않는다) (`detail` 예: "오늘 리포트 한도(3개)를 다 썼어요. 내일 0시에 다시 만들 수 있어요." — D-7, 구현: 2026-10-05 (Claude)) · (추가) AI 설정 없음 `503` · 증권사 조회 불가 `503` |
 | `GET /api/reports/quota` | – | `200 ReportQuota` (D-7 — 구현: 2026-10-05 (Claude)) |
 | `GET /api/reports?symbol=&source=&mine=` | 페이지, `symbol`·`source`(`user`\|`auto`)·`mine`(`1`이면 내가 신청한 것만) 선택, 같이 쓸 수 있다 | `source` (구현: 2026-10-07, 잘못된 값 `400`) · `mine=1` (2026-10-04 합의, 컨셉 계획 B8 — 구현: 2026-10-05 (Claude): `ReportsView.get` 한 줄. 자동 리포트는 신청자가 없어 빠진다) |
+| `GET /api/reports?feed=team` | 페이지, 선택 (위 조건과 같이 쓸 수 있다). `feed=team`이면 팀 피드 — 실패(`failed`) 리포트는 내가 신청한 것만 남긴다 (남의 실패·자동 리포트 실패를 뺀다, UX-15) | `count`도 거른 뒤의 수라 리포트 탭 목록이 10개씩 서버 페이지로 넘긴다 (2026-10-12, `docs/DECISIONS.md` 34장). 모르는 `feed` 값 `400`. 같은 날 만든 `?chaos=1`은 장애 주입 분리로 지웠다 (35장 — 보내도 무시) |
 | `GET /api/reports/{id}` | – | `200 ReportDetail` · `404` (**Snapshot API**: 새로고침·연결 복구에 쓴다. 지운 리포트도 `404`) |
 | `DELETE /api/reports/{id}` | – | `204` (2026-10-08, 아래 "리포트·계획 제안 지우기") · 남의 리포트·자동 리포트·선정 실행 `403 {"detail": "내가 신청한 리포트만 지울 수 있어요."}` · 아직 끝나지 않은 리포트 `400 {"detail": "아직 만드는 중인 리포트는 끝난 뒤에 지울 수 있어요."}` · 이 리포트의 계획 제안으로 진행 중인 계획이 있으면 `400 {"detail": "이 계획 제안으로 진행 중인 모의 자동매매가 있어 지울 수 없어요. 계획이 끝난 뒤에 지울 수 있어요."}` · 없거나 이미 지운 리포트 `404` |
 | `GET /api/reports/{id}/events` | 헤더 `Last-Event-ID` 또는 `?after=<step>` | `200 text/event-stream` (**SSE**) · 미로그인 `401` JSON · `404` |
@@ -768,13 +773,46 @@ SSE 형식 (실행 Event를 발생 즉시 한 방향으로 전달):
 
 하루 리포트 한도 (2026-10-04 합의, D-7 — 구현: 2026-10-05 (Claude), `backend/reports/limits/quota.py`, `docs/DECISIONS.md` 14-6):
 - 팀원마다 오늘(KST) 한도에 세는 리포트 수가 `AI_DAILY_REPORTS_PER_USER`(기본 3)에 닿으면 `POST /api/reports`가 새 리포트를 만들지 않고 `429 {"detail", "limit", "used"}`를 돌려준다.
-- 세는 것: 오늘 내가 신청한 리포트에서 **장애 주입 없이 `failed`로 끝난 것을 뺀** 수. 장애 주입을 켠 리포트는 실패해도 센다.
-  `chaos` 열이 생기기 전에는 장애 주입 여부를 알 수 없으므로 failed는 모두 빼고 센다 (열이 생기면 `chaos.enabled`가 참인 failed만 센다).
+- 세는 것: 오늘 내가 신청한(`source: "user"`) 리포트에서 **`failed`로 끝난 것을 뺀** 수 (2026-10-12 — 사용자가 장애 주입을 켤 수 없게 되어 "장애 주입이면 실패도 센다"를 지웠다, DECISIONS 35장).
+  장애 주입 실행(`source: "chaos"`)은 신청자가 없어 세지 않는다 (팀 AI 하루 예산에는 든다).
 - 같은 종목의 진행 중 리포트를 돌려주는 `200` 경로는 새로 세지 않는다. 자동 리포트(`source: "auto"`)·선정 실행(`team: "stock_selection"`)은 신청자가 없어 세지 않는다.
 - 비용 합산 한도(분석 + 리포트 $, `AI_DAILY_BUDGET_USD`)는 팀원(2) 몫이다 — 팀 파일 `backend/reports/limits/budget.py`의 `check(now)`를 `ReportsView.post`에서 횟수 한도 바로 뒤에 부른다
   (구현: 2026-10-08 `dy` — 팀 전체 오늘(KST) 분석 예상 비용 + 리포트 실제 `cost_usd`(실패·자동 리포트 포함)가 한도 이상이면 `429 {"detail": "오늘 AI 비용 예산을 다 썼어요. 내일 0시에 다시 신청할 수 있어요."}`. 자동 리포트 실행은 막지 않는다.
   본문에 `limit`·`used`가 없는 것이 횟수 한도 `429`와 다르다 — 프론트는 이것으로 둘을 나눠 문구를 고른다(2026-10-08). 분석 요청(`POST /api/analyses`)도 같은 예산을 본다)
   (넘으면 `429`, 본문 형식은 2가 이 절에 적는다). `quota.py`(횟수, Claude)와 파일을 나눈다 (`docs/tasks/00-공통.md` 2절).
+
+### 장애 주입 내부 API (관리 서버 전용, 2026-10-12 — `docs/DECISIONS.md` 35장)
+
+관리 서버가 장애 주입 실행을 만드는 유일한 길이다. 공개 nginx(`deploy/nginx/default.conf`)는 `/api/internal/`을 `404`로 막고,
+web을 서버 안에만 연 `127.0.0.1:${WEB_LOCAL_PORT:-18000}`(보안 그룹에 열지 않는다)으로 관리 서버의 SSH 터널을 거쳐서만 닿는다. 세션·CSRF를 쓰지 않는다 (서명만).
+
+| 메서드·경로 | 요청 | 응답 |
+|---|---|---|
+| `GET /api/internal/chaos-runs/options` | 서명 헤더 (본문 없음 — 서명할 본문은 빈 문자열) | `200 ChaosOptions` |
+| `POST /api/internal/chaos-runs` | `{"symbol": string, "chaos": ChaosConfig 신청 형식, "requestedBy": string}` + 서명 헤더 | `201 ChaosRun` |
+
+```ts
+interface ChaosOptions {
+  workers: { id: string; title: string }[];   // 종목 리포트 팀(stock_report)의 Worker (registry.worker_ids 순서, title은 Registry의 이름)
+  errorTypes: ErrorType[];                    // chaos.ERROR_TYPES ("timeout", "server_error", "bad_output")
+  scopes: ("primary" | "all")[];              // chaos.SCOPES
+  defaults: { probability: number; scope: "primary" | "all" };   // chaos.DEFAULT_PROBABILITY, "primary"
+}
+interface ChaosRun {                          // 만든 실행 (엔진 루프가 1건씩 실행기에서 차례로 실행한다)
+  id: number; status: "requested"; symbol: string; name: string;
+  chaos: ChaosConfig;                         // 서버가 채운 기본값·seed와 requestedBy 포함 (관리자 화면의 "같은 설정으로 다시"가 requestedBy를 빼고 그대로 보낸다)
+}
+```
+
+- 서명: `X-Chaos-Timestamp: <유닉스 초>`, `X-Chaos-Signature: hex(HMAC-SHA256(CHAOS_CONTROL_SECRET, "<timestamp>." + <요청 본문 바이트 그대로>))`.
+  같은 비밀 값을 관리 서버는 `ADMIN_CHAOS_SECRET`으로 둔다. 비교는 상수 시간으로 한다.
+- 오류 (검사 순서대로): `CHAOS_CONTROL_SECRET`이 비었으면 `404`(기능 꺼짐 — 경로가 없는 것과 같다) · 헤더가 없거나 서명이 틀리거나 시각이 지금 ±60초 밖이면 `401 {"detail": "서명이 맞지 않습니다."}` ·
+  같은 서명을 120초 안에 다시 쓰면 `401` (Redis `paper:chaos:sig:<서명>`, Redis가 없으면 프로세스 메모리) · (POST만) `requestedBy`가 서비스의 활성(`is_active`) staff 아이디가 아니면 `403 {"detail": "관리자만 장애 주입을 신청할 수 있어요."}` ·
+  없는 종목 `400`(공개 신청과 같은 종목 확인) · `chaos`가 없거나 `enabled`가 true가 아니거나 잘못되면 `400` (`chaos.parse` 그대로 — 끈 설정은 만들 실행이 없어 `400 {"detail": "chaos.enabled가 true여야 합니다."}`) ·
+  진행 중(`requested`·`running`)인 장애 주입 실행이 있으면 `409 {"detail": "진행 중인 장애 주입 실행이 있어요. 끝난 뒤에 다시 신청해 주세요.", "id": <그 실행 id>}` · 팀 AI 하루 예산 초과 `429` (`budget.check` 그대로).
+- 만드는 실행: `Report(source="chaos", user=None, team="stock_report", chaos=<parse 결과> + {"requestedBy"})`. 대상 팀은 종목 리포트 팀만이다.
+- 장애 주입 실행이 나오는 곳: 관리 서버(리포트 장애 `kind=chaos` · 리포트 상세 · 복구 지표), 서비스 `/ops` 복구 지표(`GET /api/reports/recovery-stats` — 주입 건수), 팀 AI 하루 예산.
+  나오지 않는 곳: `GET /api/reports`(모든 조건) · `GET /api/reports/{id}`·`/pdf`·`/events`(`404`) · 리포트 끝 알림 · 추천(`autotrade/recommend/sources`) · 하루 리포트 한도 · 리포트 탭 '만드는 중' 띠·하단 탭 점.
 
 ---
 

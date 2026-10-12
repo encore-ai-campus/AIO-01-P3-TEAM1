@@ -8,7 +8,6 @@ import { keys, POLL, useRecommendations, useRiskPreview } from "./queries";
 import { pickRecommendation, planCardState } from "../lib/autotrade";
 import { sampleRecoveryStats, sampleScreening } from "../lib/reportSamples";
 import type {
-  ChaosRequest,
   Page,
   RecoveryStats,
   ReportDetail,
@@ -126,8 +125,8 @@ export function useReportLive(id: number) {
 export function useRequestReport() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ symbol, chaos }: { symbol: string; chaos?: ChaosRequest | null }) =>
-      api.post<ReportDetail>("/api/reports", chaos?.enabled ? { symbol, chaos } : { symbol }),
+    // 장애 주입은 관리 서버에서만 켠다 (2026-10-12, DECISIONS 35장 — 서버는 chaos가 있으면 400)
+    mutationFn: ({ symbol }: { symbol: string }) => api.post<ReportDetail>("/api/reports", { symbol }),
     onSuccess: (r) => {
       qc.setQueryData(keys.report(r.id), r);
       void qc.invalidateQueries({ queryKey: ["reports"] }); // 목록과 한도(keys.reportQuota)

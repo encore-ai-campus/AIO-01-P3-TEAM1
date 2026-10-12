@@ -60,8 +60,8 @@ describe("attemptHistory", () => {
 describe("예시 ③과 문장", () => {
   const trace = SCENARIOS.find((s) => s.id === "recovery")!.frames.map((f) => f.event);
 
-  it("예시 ③: 장애 1건(주입)이 자동 복구되고 최종 모델은 대체 모델", () => {
-    expect(summarize(trace)).toMatchObject({ failures: 1, recovered: 1, unrecovered: 0, injected: 1, recoveryMs: 3140 });
+  it("예시 ③: 장애 1건이 자동 복구되고 최종 모델은 대체 모델 (서비스 예시에는 장애 주입이 없다 — DECISIONS 35장)", () => {
+    expect(summarize(trace)).toMatchObject({ failures: 1, recovered: 1, unrecovered: 0, injected: 0, recoveryMs: 3140 });
     // worker_definitions.yaml의 현재 news_agent 첫 fallback과 맞춘다.
     expect(summarize(trace).models.news_agent).toBe("gpt-5.6-luna");
     expect(reviewRounds(trace)).toHaveLength(1);

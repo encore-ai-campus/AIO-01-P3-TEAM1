@@ -154,19 +154,19 @@ export const SCENARIOS: ExampleScenario[] = [
     // details는 docs/tasks/00-공통.md 9절 그대로 (백엔드와 같은 모양)
     id: "recovery",
     title: "③ 모델 실패 → 대체 모델로 복구",
-    description: "뉴스 Agent에 시간 초과 주입 → 주 모델은 다시 기다리지 않고 대체 모델로 전환 → 대체 모델도 한 번 시간 초과 → 같은 대체 모델로 다시 해 완료(자동 복구) → 검토 RETRY 1회 → 다시 작성 → 완료",
+    description: "뉴스 Agent 시간 초과 → 주 모델은 다시 기다리지 않고 대체 모델로 전환 → 대체 모델도 한 번 시간 초과 → 같은 대체 모델로 다시 해 완료(자동 복구) → 검토 RETRY 1회 → 다시 작성 → 완료",
     frames: numbered([
-      [ev("orchestrator", "workflow_started", "started", 0, { chaos: true, source: "user" }), { status: "running", currentStep: "parallel_research" }],
+      [ev("orchestrator", "workflow_started", "started", 0, { chaos: false, source: "user" }), { status: "running", currentStep: "parallel_research" }],
       [ev("market_agent", "agent_started", "started", 40, { attempt: 1, step: "parallel_research" }), {}],
       [ev("fundamental_agent", "agent_started", "started", 45, { attempt: 1, step: "parallel_research" }), {}],
       [ev("news_agent", "agent_started", "started", 50, { attempt: 1, step: "parallel_research" }), {}],
-      [ev("news_agent", "agent_failed", "failed", 1250, { errorType: "timeout", attempt: 1, injected: true, final: false }, 1200), {}],
+      [ev("news_agent", "agent_failed", "failed", 1250, { errorType: "timeout", attempt: 1, injected: false, final: false }, 1200), {}],
       [ev("news_agent", "agent_failover", "started", 1260, { from: "gemini-3.8-flash", to: "gpt-5.6-luna", reason: "timeout" }, null, FALLBACK), {}],
       [
         ev("fundamental_agent", "agent_completed", "completed", 2185, { attempts: 1, recovered: false, recoveryMs: null, costUsd: 0.004, guarded: [] }, 2140),
         { results: { fundamental_agent: FUNDAMENTAL }, completedAgents: ["fundamental_agent"] },
       ],
-      [ev("news_agent", "agent_failed", "failed", 2470, { errorType: "timeout", attempt: 2, injected: true, final: false }, 1200, FALLBACK), {}],
+      [ev("news_agent", "agent_failed", "failed", 2470, { errorType: "timeout", attempt: 2, injected: false, final: false }, 1200, FALLBACK), {}],
       [ev("news_agent", "agent_retry", "started", 2480, { attempt: 3, reason: "timeout" }, null, FALLBACK), {}],
       [
         ev("market_agent", "agent_completed", "completed", 3520, { attempts: 1, recovered: false, recoveryMs: null, costUsd: 0.003, guarded: [] }, 3480),
@@ -233,7 +233,7 @@ export const SCENARIOS: ExampleScenario[] = [
     frames: numbered([
       [ev("orchestrator", "workflow_started", "started", 0, { team: "stock_report", policy: "required_optional" }), { status: "running", currentStep: "parallel_research" }],
       [ev("market_agent", "agent_started", "started", 40, { attempt: 1, step: "parallel_research" }), {}],
-      [ev("market_agent", "agent_failed", "failed", 1100, { errorType: "bad_output", attempt: 1, injected: true, final: false, reason: "출력 계약 불일치" }, 1060), {}],
+      [ev("market_agent", "agent_failed", "failed", 1100, { errorType: "bad_output", attempt: 1, injected: false, final: false, reason: "출력 계약 불일치" }, 1060), {}],
       [ev("market_agent", "agent_retry", "started", 1110, { attempt: 2, reason: "bad_output" }), {}],
       [ev("market_agent", "agent_completed", "completed", 2600, { attempts: 2, recovered: true, recoveryMs: 1500 }, 1490), { results: { market_agent: MARKET }, completedAgents: ["market_agent"] }],
       [ev("orchestrator", "workflow_completed", "completed", 2610, { reason: "형식 오류를 바로잡아 완료" }), { status: "completed", currentStep: null }],

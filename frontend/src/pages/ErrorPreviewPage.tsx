@@ -55,7 +55,7 @@ const SCENARIOS: Scenario[] = [
     title: "입력 오류",
     description: "리포트 신청 → 설정 검증 실패 → 입력 수정 안내",
     steps: [
-      { title: "AI 리포트 만들기를 눌렀어요", body: "선택한 종목과 장애 주입 설정을 확인합니다.", tone: "waiting", icon: "doc" },
+      { title: "AI 리포트 만들기를 눌렀어요", body: "선택한 종목을 확인합니다.", tone: "waiting", icon: "doc" },
       { title: "신청 내용을 확인 중입니다", body: "잘못된 값이 서버로 전달되지 않도록 먼저 검사해요.", tone: "running", icon: "restart" },
       { title: "입력한 내용을 확인해 주세요", body: "문제가 있는 설정을 고친 뒤 다시 신청할 수 있어요.", tone: "failed", icon: "alert-circle", error: "validation" },
     ],

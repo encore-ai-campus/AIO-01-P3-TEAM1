@@ -2,7 +2,7 @@
 // 고르면 검색 결과를 접고 고른 종목을 칩("현대차 005380 · 바꾸기")으로 보인다 — 버튼이 입력칸 바로 아래로 올라와 엄지가 닿는다.
 // 오늘 그 종목 리포트가 이미 있으면(내 것·팀 것, 완성·만드는 중) 종목 상세와 같은 규칙: 주 버튼 "오늘 리포트 보기", "새로 만들기"는 작게
 // (docs/plans/컨셉변경계획.md 4-2 — 같은 날 같은 종목을 다시 만들어 한도·비용·기다림을 쓰지 않게).
-// 검색어를 바꾸는 동안은 이전 결과를 흐리게 남긴다 (스켈레톤으로 바뀌며 높이가 출렁이지 않게). 장애 주입(ChaosForm)은 전문가 보기에서만.
+// 검색어를 바꾸는 동안은 이전 결과를 흐리게 남긴다 (스켈레톤으로 바뀌며 높이가 출렁이지 않게). 장애 주입은 2026-10-12부터 관리 서버에서만 켠다 (DECISIONS 35장).
 // 결과를 고르면 포커스는 고른 종목 칩으로 간다 — 접히는 결과 목록(inert) 안에 남아 body로 떨어지지 않게, 화면 읽기에는 칩 이름('고른 종목 … 바꾸기')이 읽힌다.
 import { type Ref, useId, useRef, useState } from "react";
 import { flushSync } from "react-dom";
@@ -10,7 +10,7 @@ import { Link, useNavigate } from "react-router";
 import { errorMessage } from "../../api/client";
 import { useSearch } from "../../api/queries";
 import { useReportQuota, useRequestReport, useSymbolReports } from "../../api/reports";
-import type { ChaosRequest, ExecutionPlan, StockItem } from "../../api/types";
+import type { StockItem } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { errorSentence, reportStatusText } from "../../lib/plainText";
 import { todayReport } from "../../lib/reports";
@@ -20,7 +20,6 @@ import { ErrorPanel } from "../errors/ErrorPanel";
 import { errorKindOf } from "../errors/errorTypes";
 import { Collapse } from "../motion/Collapse";
 import { Card, Skeleton, Spinner } from "../ui";
-import { ChaosForm } from "./ChaosForm";
 import { QuotaLine } from "./QuotaLine";
 
 /** 만들기 카드의 검색 칸 id (다른 곳에서 '종목 고르기'로 포커스를 옮길 때). */
@@ -30,10 +29,8 @@ export const REPORT_SEARCH_ID = "report-search";
  * dockRef: PC에서 카드 아래에 붙는 '고른 종목·만들기' 묶음 — 카드를 감싼 스크롤 상자(ReportsPage)가 그 높이만큼 아래 여백(scroll-padding)을 둬
  * Tab으로 옮긴 칸이 묶음 밑에 가려지지 않게 잰다.
  */
-export function CreateReportCard({ plan, expert, dockRef }: { plan: ExecutionPlan | undefined; expert: boolean; dockRef?: Ref<HTMLDivElement> }) {
+export function CreateReportCard({ expert, dockRef }: { expert: boolean; dockRef?: Ref<HTMLDivElement> }) {
   const navigate = useNavigate();
-  const [chaos, setChaos] = useState<ChaosRequest | null>(null);
-  const workers = plan ? plan.workers.filter((w) => plan.steps.some((st) => st.workers.includes(w.id))) : [];
   const [input, setInput] = useState("");
   const [picked, setPicked] = useState<StockItem | null>(null);
   // 결과 목록을 펼쳐 둘지 (고르면 접고, 칩을 누르거나 검색어를 고치면 다시 편다)
@@ -54,7 +51,7 @@ export function CreateReportCard({ plan, expert, dockRef }: { plan: ExecutionPla
   const full = quota.data?.remaining === 0;
   const showList = listOpen && q !== "";
   const create = () =>
-    picked && request.mutate({ symbol: picked.symbol, chaos: expert ? chaos : null }, { onSuccess: (r) => navigate(`/reports/${r.id}`) });
+    picked && request.mutate({ symbol: picked.symbol }, { onSuccess: (r) => navigate(`/reports/${r.id}`) });
 
   const pick = (r: StockItem) => {
     // 칩을 먼저 그려 포커스를 옮긴 뒤 목록을 접는다 (접히는 동안 목록이 inert라 누른 결과에 포커스가 남으면 body로 떨어진다)
@@ -140,13 +137,7 @@ export function CreateReportCard({ plan, expert, dockRef }: { plan: ExecutionPla
         )}
       </Collapse>
 
-      {expert && (
-        <div className="mt-3">
-          <ChaosForm value={chaos} onChange={setChaos} workers={workers} />
-        </div>
-      )}
-
-      {/* 고른 종목·만들기·남은 횟수: PC에서 카드가 화면보다 길어 카드 안에서 스크롤될 때(장애 주입 직접 설정·긴 검색 결과)도
+      {/* 고른 종목·만들기·남은 횟수: PC에서 카드가 화면보다 길어 카드 안에서 스크롤될 때(긴 검색 결과)도
           카드 아래에 붙어 늘 보인다 — 주 행동이 카드 안쪽 아래에 숨지 않게. flow-root: 첫 줄의 위 여백까지 바탕이 덮는다.
           -bottom-1: 스크롤 상자(ReportsPage)의 안쪽 여백 4px까지 덮어 그 아래로 내용이 비치지 않게 */}
       <div ref={dockRef} className="lg:sticky lg:-bottom-1 lg:-mx-5 lg:-mb-5 lg:flow-root lg:rounded-b-2xl lg:bg-card lg:px-5 lg:pb-5">

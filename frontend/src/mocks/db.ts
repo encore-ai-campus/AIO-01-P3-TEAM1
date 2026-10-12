@@ -41,8 +41,6 @@ import type {
   ThesisCheck,
   TradePlan,
   TradePlanDetail,
-  ChaosConfig,
-  ChaosRequest,
   ReportDetail,
   ReportSummary,
   ReportTeam,
@@ -1070,7 +1068,7 @@ const reportDeletable = (r: MockReport, viewerId: number | null) =>
 
 function toReportSummary(r: MockReport, viewerId: number | null = null): ReportSummary {
   const { id, symbol, name, market, status, currentStep, requestedBy, createdAt, startedAt, finishedAt } = r;
-  const { source, chaosEnabled, costUsd, hasPdf } = r;
+  const { source, costUsd, hasPdf } = r;
   return {
     id,
     team: teamOf(r),
@@ -1084,7 +1082,6 @@ function toReportSummary(r: MockReport, viewerId: number | null = null): ReportS
     startedAt,
     finishedAt,
     source,
-    chaosEnabled,
     costUsd,
     hasPdf,
     canDelete: reportDeletable(r, viewerId),
@@ -1092,20 +1089,25 @@ function toReportSummary(r: MockReport, viewerId: number | null = null): ReportS
   };
 }
 
-/** 리포트 목록. team이 없으면 종목 리포트만 (서버와 같다 — 선정 실행은 ?team=stock_selection일 때만). 모르는 team·source는 400. */
+/**
+ * 리포트 목록. team이 없으면 종목 리포트만 (서버와 같다 — 선정 실행은 ?team=stock_selection일 때만). 모르는 team·source·feed는 400.
+ * feed "team"이면 실패는 보는 사람(viewerId)이 신청한 것만 (UX-15, DECISIONS 34장). 장애 주입은 서비스에 없다 (35장).
+ */
 export function listReports(
   symbol: string | null,
-  q: { source?: string | null; mineUserId?: number | null; team?: string | null; viewerId?: number | null } = {},
+  q: { source?: string | null; mineUserId?: number | null; team?: string | null; viewerId?: number | null; feed?: string | null } = {},
 ): ReportSummary[] {
   const team = q.team || "stock_report";
   if (!TEAMS.includes(team)) throw new MockError(400, "team은 stock_report 또는 stock_selection이어야 합니다.");
   if (q.source && q.source !== "user" && q.source !== "auto") throw new MockError(400, "source는 user 또는 auto여야 합니다.");
+  if (q.feed && q.feed !== "team") throw new MockError(400, "feed는 team입니다.");
   return state.reports
     .filter((r) => !r.deletedAt)
     .filter((r) => teamOf(r) === team)
     .filter((r) => !symbol || r.symbol === symbol.toUpperCase())
     .filter((r) => !q.source || (r.source ?? "user") === q.source)
     .filter((r) => !q.mineUserId || (r.userId === q.mineUserId && (r.source ?? "user") === "user"))
+    .filter((r) => q.feed !== "team" || r.status !== "failed" || (r.userId === q.viewerId && (r.source ?? "user") === "user"))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id - a.id)
     .map((r) => toReportSummary(r, q.viewerId ?? null));
 }
@@ -1139,18 +1141,7 @@ export function deleteReport(user: MockUser, id: number) {
   for (const x of recs) x.deletedAt = at;
 }
 
-function newReport(id: number, user: MockUser, s: MockStock, createdAt: string, chaos?: ChaosRequest): MockReport {
-  // 서버가 기본값과 seed를 채운다 (docs/tasks/00-공통.md 5절)
-  const filled: ChaosConfig | null = chaos?.enabled
-    ? {
-        enabled: true,
-        probability: chaos.probability ?? 0.5,
-        errorTypes: chaos.errorTypes ?? ["timeout", "server_error", "bad_output"],
-        workers: chaos.workers ?? null,
-        scope: chaos.scope ?? "primary",
-        seed: chaos.seed ?? 123456,
-      }
-    : null;
+function newReport(id: number, user: MockUser, s: MockStock, createdAt: string): MockReport {
   return {
     id,
     userId: user.id,
@@ -1162,13 +1153,11 @@ function newReport(id: number, user: MockUser, s: MockStock, createdAt: string, 
     requestedBy: user.nickname,
     team: "stock_report",
     source: "user",
-    chaosEnabled: filled !== null,
     costUsd: null,
     hasPdf: false,
     canDelete: false,
     opinion: null,
     oneLiner: null,
-    chaos: filled,
     recovery: { failures: 0, recovered: 0, unrecovered: 0, injected: 0, recoveryMs: null, models: {} },
     createdAt,
     startedAt: null,
@@ -1188,7 +1177,7 @@ function newReport(id: number, user: MockUser, s: MockStock, createdAt: string, 
   };
 }
 
-/** 하루 리포트 한도 (D-7): 오늘(KST) 내가 신청한 것 중 장애 주입 없이 failed로 끝난 것을 뺀 수. */
+/** 하루 리포트 한도 (D-7): 오늘(KST) 내가 신청한 것 중 failed로 끝난 것을 뺀 수 (장애 주입은 관리 서버에서만 — DECISIONS 35장). */
 export function reportQuota(userId: number): ReportQuota {
   const today = kstDay();
   const used = state.reports.filter(
@@ -1196,7 +1185,7 @@ export function reportQuota(userId: number): ReportQuota {
       r.userId === userId &&
       (r.source ?? "user") === "user" &&
       kstDay(new Date(r.createdAt)) === today &&
-      !(r.status === "failed" && !r.chaos?.enabled),
+      r.status !== "failed",
   ).length;
   const limit = options.reportLimit;
   const remaining = limit === null ? null : Math.max(limit - used, 0);
@@ -1204,7 +1193,7 @@ export function reportQuota(userId: number): ReportQuota {
 }
 
 /** 리포트 신청. 같은 사람이 같은 종목으로 신청해 아직 끝나지 않은 리포트가 있으면 그것을 돌려준다 (created=false → 200, 한도와 무관). */
-export function requestReport(user: MockUser, symbol: string, chaos?: ChaosRequest): { report: ReportDetail; created: boolean } {
+export function requestReport(user: MockUser, symbol: string): { report: ReportDetail; created: boolean } {
   const s = state.stocks.find((x) => x.symbol === symbol.trim().toUpperCase());
   if (!s) throw new MockError(400, "종목을 찾을 수 없습니다.");
   const open = state.reports.find(
@@ -1215,7 +1204,7 @@ export function requestReport(user: MockUser, symbol: string, chaos?: ChaosReque
   if (q.remaining !== null && q.remaining <= 0) {
     throw new MockError(429, `오늘 리포트 한도(${q.limit}개)를 다 썼어요. 내일 0시에 다시 만들 수 있어요.`, { limit: q.limit, used: q.used });
   }
-  const r = newReport(nextId(), user, s, kstIso(), chaos);
+  const r = newReport(nextId(), user, s, kstIso());
   state.reports.push(r);
   return { report: getReport(r.id, user.id), created: true };
 }

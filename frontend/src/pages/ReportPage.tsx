@@ -28,7 +28,7 @@ import { PolicyGuide } from "../components/reports/PolicyGuide";
 import { ReplayBar, ReplayMini, ScenarioPicker } from "../components/reports/ReplayControls";
 import { RunSummary } from "../components/reports/RunSummary";
 import { SharedStatePanel } from "../components/reports/SharedStatePanel";
-import { AutoBadge, DeliveryBadge, ExampleTag, InjectedBadge, ReportStatusBadge } from "../components/reports/StatusChip";
+import { AutoBadge, DeliveryBadge, ExampleTag, ReportStatusBadge } from "../components/reports/StatusChip";
 import { TraceTimeline } from "../components/reports/TraceTimeline";
 import { useHeight } from "../components/reports/useHeight";
 import { useToast } from "../components/toast";
@@ -80,7 +80,7 @@ function CardTitle({ id, title, sub, example }: { id: string; title: string; sub
 }
 
 /**
- * 실패한 리포트: 사유 문장(쉬운 말) + 사유 코드 + 사유에 맞는 둘째 문장 + 다시 신청 (같은 종목, 같은 장애 주입 설정).
+ * 실패한 리포트: 사유 문장(쉬운 말) + 사유 코드 + 사유에 맞는 둘째 문장 + 다시 신청 (같은 종목 — 장애 주입은 2026-10-12부터 관리 서버에서만, DECISIONS 35장).
  * 선정 실행은 사람이 다시 신청하지 않는다 (하루 한 번 자동) — 그날 종목은 규칙 점수로 고른다(Fallback)는 문장을 대신 둔다.
  */
 function FailureCard({ r, trace, state }: { r: ReportDetail; trace: TraceEvent[]; state: SharedState }) {
@@ -118,18 +118,18 @@ function FailureCard({ r, trace, state }: { r: ReportDetail; trace: TraceEvent[]
         <button
           type="button"
           disabled={request.isPending}
-          onClick={() => request.mutate({ symbol: r.symbol, chaos: r.chaos }, { onSuccess: (n) => navigate(`/reports/${n.id}`) })}
+          onClick={() => request.mutate({ symbol: r.symbol }, { onSuccess: (n) => navigate(`/reports/${n.id}`) })}
           className="press mt-3 flex h-11 items-center gap-1.5 rounded-xl bg-brand px-4 text-[15px] font-semibold text-white hover:bg-brand-dark disabled:opacity-40"
         >
           {request.isPending ? <Spinner /> : <Icon name="restart" className="size-4" />}
-          다시 신청{r.chaos?.enabled ? " (같은 장애 주입 설정)" : ""}
+          다시 신청
         </button>
       )}
       {request.isError && (
         <ErrorPanel
           kind={errorKindOf(request.error)}
           detail={errorMessage(request.error)}
-          onRetry={() => request.mutate({ symbol: r.symbol, chaos: r.chaos }, { onSuccess: (n) => navigate(`/reports/${n.id}`) })}
+          onRetry={() => request.mutate({ symbol: r.symbol }, { onSuccess: (n) => navigate(`/reports/${n.id}`) })}
           retrying={request.isPending}
           secondary={null}
           compact
@@ -406,7 +406,6 @@ function ExpertReport({ r, delivery, view }: { r: ReportDetail; delivery: Delive
               <p className="mr-0.5 text-[22px] font-bold tracking-tight">{r.name}</p>
               <ReportStatusBadge status={r.status} />
               {r.source === "auto" && <AutoBadge />}
-              {r.chaosEnabled && <InjectedBadge />}
             </div>
             <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-sub">
               <span>

@@ -127,8 +127,13 @@ def create(source: str, *, symbol: str, name: str, market_: str, entry, target, 
 # --- 출처별 ---
 
 def from_report(report: Report, now: datetime | None = None) -> Recommendation | None:
-    """끝난 종목 리포트의 report_agent 결과(ReportDraft)가 buy이고 목표가가 맞으면 추천. 아니면(이미 있으면·선정 실행이면) None."""
+    """끝난 종목 리포트의 report_agent 결과(ReportDraft)가 buy이고 목표가가 맞으면 추천. 아니면(이미 있으면·선정 실행이면) None.
+
+    장애 주입 실행(source "chaos" — 관리 서버가 만든다)으로는 추천하지 않는다 (장애 주입 결과로 추천·모의 자동매매가 생기지 않게, DECISIONS 35장).
+    """
     if report.status != Report.COMPLETED or report.team != Report.STOCK_REPORT or report.deleted_at is not None:
+        return None
+    if report.source == Report.CHAOS:
         return None
     if Recommendation.objects.filter(report=report).exists():
         return None
@@ -230,7 +235,7 @@ def collect(now: datetime, log) -> int:
     reports = (Report.objects.filter(Q(finished_at__gte=since) | Q(finished_at__isnull=True, created_at__gte=since),
                                      team=Report.STOCK_REPORT, status=Report.COMPLETED, recommendations__isnull=True,
                                      deleted_at__isnull=True)
-               .select_related("user").order_by("id"))
+               .exclude(source=Report.CHAOS).select_related("user").order_by("id"))
     runs = AnalysisRun.objects.filter(verdict=AnalysisRun.BUY, analyzed_at__gte=now - ANALYSIS_LOOKBACK,
                                       recommendations__isnull=True).order_by("id")
     for label, items, make in (("리포트", reports, from_report), ("분석", runs, from_analysis)):

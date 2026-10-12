@@ -6,6 +6,8 @@
 - 실패(failed, 엔진 재시작 정리 포함): report_failed (link /reports/{id}). 본문은 Trace의 마지막 workflow_failed.details.reason의
   쉬운 문장 (reports/output/text.py — 없거나 모르는 코드면 "리포트를 만들지 못했어요. 다시 만들 수 있어요").
 - 자동 리포트(source "auto". 열이 없으면 "user"로 본다)는 건너뛴다 (팀 몫 — 팀 파일 auto.py의 after_finish).
+- 장애 주입 실행(source "chaos" — 관리 서버가 만든다, docs/DECISIONS.md 35장)도 건너뛴다. 서비스 사용자 경로에 나오지 않는다
+  (2026-10-12 전에 팀원이 켜고 신청해 source만 옮긴 리포트도 — 신청자가 있어도 보내지 않는다).
 - 종목 리포트(team "stock_report")만 본다. 매매 종목 선정 실행(stock_selection)은 source와 상관없이 건너뛴다
   (선정 결과는 auto.tick이 처리한다. 신청자가 없는 행에 보내면 팀 전체에 매 바퀴 다시 갈 수 있다).
 - 중복 방지: 같은 사용자에게 같은 kind·같은 link의 알림이 이미 있으면 보내지 않는다 (두 경로가 겹치거나 엔진이 다시 떠도 한 번).
@@ -29,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 SWEEP_WINDOW = timedelta(hours=24)  # sweep이 보는 범위: 최근 24시간 안에 끝난 리포트
 COMPLETED, FAILED = "report_completed", "report_failed"
-AUTO = "auto"
+AUTO, CHAOS = "auto", "chaos"
 _lock = threading.Lock()  # runner 스레드의 notify_finished와 엔진 루프의 sweep이 같은 리포트를 동시에 보내지 않게
 
 
@@ -52,7 +54,7 @@ def sweep_finished(now: datetime, log) -> int:
     """
     reports = (Report.objects.filter(team=Report.STOCK_REPORT, status__in=Report.FINISHED,
                                      finished_at__gte=now - SWEEP_WINDOW, deleted_at__isnull=True)
-               .select_related("user").order_by("id"))
+               .exclude(source=CHAOS).select_related("user").order_by("id"))
     sent = 0
     for report in reports:
         try:
@@ -67,7 +69,7 @@ def sweep_finished(now: datetime, log) -> int:
 
 def _handle(report: Report, now: datetime) -> bool:
     """끝난 리포트 하나 → 알림 (보냈으면 True). 대상이 아니거나 이미 보냈으면 False."""
-    if report.status not in Report.FINISHED or getattr(report, "source", "user") == AUTO:
+    if report.status not in Report.FINISHED or getattr(report, "source", "user") in (AUTO, CHAOS):
         return False
     if report.team != Report.STOCK_REPORT:  # 선정 실행은 종목 리포트가 아니다
         return False

@@ -3,7 +3,8 @@
 #
 #   cd deploy && docker compose --env-file .env.docker up -d && ./smoke_test.sh
 #
-# 확인하는 것: 상태 확인 주소, 화면(SPA)과 정적 파일, gzip 압축·보안 헤더, 로그인 없이는 401, CSRF + 로그인 + 내 정보 + 추천·계획·알림 표 + 로그아웃,
+# 확인하는 것: 상태 확인 주소, 화면(SPA)과 정적 파일, gzip 압축·보안 헤더, 로그인 없이는 401, 공개 주소의 내부 API(/api/internal/)는 404,
+# CSRF + 로그인 + 내 정보 + 추천·계획·알림 표 + 로그아웃,
 # 엔진 컨테이너의 리포트 PDF 생성(Chromium). 증권사·AI 키가 없어도 통과한다 (외부 호출을 하지 않는다).
 # 시험용 계정을 하나 만들었다가 끝나면 지운다.
 set -euo pipefail
@@ -66,6 +67,7 @@ echo "통과: API 응답 X-Frame-Options 1번"
 expect "로그인 없이 /api/auth/me" 401 "$BASE/api/auth/me"
 expect "로그인 없이 /api/account" 401 "$BASE/api/account"
 expect "로그인 없이 /api/recommendations" 401 "$BASE/api/recommendations"
+expect "공개 주소의 장애 주입 내부 API는 없다 /api/internal/chaos-runs/options" 404 "$BASE/api/internal/chaos-runs/options"
 
 compose exec -T -e SMOKE_USER="$user" -e SMOKE_PASSWORD="$password" web python manage.py shell -c \
   "import os; from django.contrib.auth import get_user_model; get_user_model().objects.create_user(os.environ['SMOKE_USER'], password=os.environ['SMOKE_PASSWORD'])" \

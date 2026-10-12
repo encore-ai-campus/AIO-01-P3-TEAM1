@@ -1,6 +1,6 @@
 """리포트 새 열과 응답 필드 (docs/tasks/00-공통.md 부록 A4 T4-1, docs/tasks/00-공통.md 3절):
-user null 허용(자동 리포트)·source·team·chaos·cost_usd·pdf_path → ReportSummary의 source·team·requestedBy·chaosEnabled·
-costUsd·hasPdf, ReportDetail의 chaos·recovery."""
+user null 허용(자동 리포트)·source·team·chaos·cost_usd·pdf_path → ReportSummary의 source·team·requestedBy·costUsd·hasPdf,
+ReportDetail의 recovery. 2026-10-12부터 chaosEnabled·chaos는 공개 API에 없다 (장애 주입은 관리 서버 전용, DECISIONS 35장)."""
 import json
 
 import pytest
@@ -26,8 +26,8 @@ def listed(api) -> dict:
 
 def test_new_report_defaults(api, stocks):
     body = api.post("/api/reports", {"symbol": "005930"}, content_type="application/json").json()
-    assert (body["source"], body["chaosEnabled"], body["costUsd"], body["hasPdf"]) == ("user", False, 0, False)
-    assert body["chaos"] is None and body["recovery"] == NO_RECOVERY
+    assert (body["source"], body["costUsd"], body["hasPdf"]) == ("user", 0, False)
+    assert "chaos" not in body and "chaosEnabled" not in body and body["recovery"] == NO_RECOVERY
     report = Report.objects.get()
     assert (report.source, report.team, report.chaos, report.cost_usd, report.pdf_path) == (
         "user", "stock_report", None, 0, None)
@@ -54,12 +54,14 @@ def test_mine_leaves_out_auto_reports(api, user):
     assert [r["id"] for r in api.get("/api/reports?mine=1").json()["results"]] == [mine.id]
 
 
-@pytest.mark.parametrize("chaos, enabled", [(None, False), ({"enabled": False}, False), ({"enabled": "yes"}, False),
-                                            (["enabled"], False), (CHAOS, True)])
-def test_chaos_enabled(api, user, chaos, enabled):
+@pytest.mark.parametrize("chaos", [None, {"enabled": False}, {"enabled": "yes"}, ["enabled"], CHAOS])
+def test_no_chaos_fields(api, user, chaos):
+    """목록·상세에 장애 주입 필드가 없다 (chaos 열에 무엇이 있어도 — 서비스에서 켤 수 없고 보이지 않는다)."""
     report = make_report(user, chaos=chaos)
-    assert listed(api)["chaosEnabled"] is enabled
-    assert api.get(f"/api/reports/{report.id}").json()["chaos"] == chaos
+    detail = api.get(f"/api/reports/{report.id}").json()
+    for body in (listed(api), detail):
+        assert "chaos" not in body and "chaosEnabled" not in body
+    assert detail["id"] == report.id
 
 
 def test_cost(api, user):

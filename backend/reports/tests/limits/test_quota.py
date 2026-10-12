@@ -97,7 +97,8 @@ def test_unlimited_usage_has_no_remaining(user, monkeypatch):
 
 
 def test_counts_rule():
-    """failed는 장애 주입(chaos.enabled가 참)을 켰을 때만 센다. chaos 열이 아직 없으면(getattr → None) failed는 빼고, 자동 리포트는 세지 않는다."""
+    """팀원이 신청했고(source "user") failed로 끝나지 않은 것만 센다. 2026-10-12부터 장애 주입을 켜도 failed는 세지 않고
+    (사용자가 켤 수 없다), 자동 리포트·장애 주입 실행(source "chaos")은 세지 않는다 (DECISIONS 35장)."""
     def report(status, **extra):
         r = Report(status=status)
         for key, value in extra.items():
@@ -106,23 +107,25 @@ def test_counts_rule():
 
     assert quota.counts(report(Report.REQUESTED)) and quota.counts(report(Report.COMPLETED))
     assert quota.counts(report(Report.RUNNING, chaos=None))
-    assert not quota.counts(report(Report.FAILED))                                  # 열이 없다
-    assert quota.counts(report(Report.FAILED, chaos={"enabled": True, "probability": 0.3}))
+    assert not quota.counts(report(Report.FAILED))
+    assert not quota.counts(report(Report.FAILED, chaos={"enabled": True, "probability": 0.3}))  # 예전에는 셌다
     assert not quota.counts(report(Report.FAILED, chaos={"enabled": False}))
-    assert not quota.counts(report(Report.FAILED, chaos=None))
-    assert not quota.counts(report(Report.FAILED, chaos={"enabled": "true"}))      # 불리언이 아니면 켠 것으로 보지 않는다
-    assert not quota.counts(report(Report.FAILED, chaos="on"))
     assert not quota.counts(report(Report.COMPLETED, source="auto"))
     assert quota.counts(report(Report.COMPLETED, source="user"))
+    for status in Report.ACTIVE + Report.FINISHED:
+        assert not quota.counts(report(status, source="chaos", chaos={"enabled": True})), status
 
 
-def test_usage_reads_chaos_and_source_columns(user):
-    """담당 4의 chaos·source 열(마이그레이션 0002): 장애 주입을 켠 failed는 세고, 자동 리포트는 세지 않는다."""
-    make_report(user, "AAPL", status=Report.FAILED, created_at=NOON, chaos={"enabled": True})   # 장애 주입 켬 → 센다
-    make_report(user, status=Report.FAILED, created_at=NOON, chaos={"enabled": False})          # 장애 주입 끔 → 빼고
+def test_usage_reads_source_column(user):
+    """source 열: 팀원 신청만 센다 — failed·자동 리포트·장애 주입 실행(옛 리포트를 옮긴 것은 신청자가 있어도)은 빼고."""
+    make_report(user, "AAPL", status=Report.FAILED, created_at=NOON, chaos={"enabled": True})   # 실패 → 빼고 (장애 주입이어도)
+    make_report(user, status=Report.FAILED, created_at=NOON)                                   # 실패 → 빼고
     make_report(user, status=Report.COMPLETED, created_at=NOON)                                 # 센다
     make_report(user, status=Report.COMPLETED, created_at=NOON, source=Report.AUTO)             # 자동 리포트 → 빼고
-    assert quota.usage(user, NOON).used == 2
+    make_report(user, status=Report.COMPLETED, created_at=NOON, source=Report.CHAOS,            # 장애 주입 실행 → 빼고
+                chaos={"enabled": True})
+    make_report(None, status=Report.RUNNING, created_at=NOON, source=Report.CHAOS, chaos={"enabled": True})
+    assert quota.usage(user, NOON).used == 1
 
 
 # --- POST /api/reports ---
@@ -164,12 +167,12 @@ def test_active_same_symbol_returns_200_even_over_limit(api, user, stocks, clock
     assert api.get("/api/reports/quota").json()["used"] == 1 and Report.objects.count() == 1
 
 
-def test_failed_without_chaos_frees_the_slot(api, user, stocks, clock, monkeypatch):
+def test_failed_frees_the_slot(api, user, stocks, clock, monkeypatch):
     monkeypatch.setenv("AI_DAILY_REPORTS_PER_USER", "1")
     first = post(api, "005930")
     assert first.status_code == 201
     assert post(api, "AAPL").status_code == 429
-    state.finish(Report.objects.get(pk=first.json()["id"]), "failed")  # 장애 주입 없이 실패 → 세지 않는다
+    state.finish(Report.objects.get(pk=first.json()["id"]), "failed")  # 실패 → 세지 않는다
     assert post(api, "AAPL").status_code == 201
 
 

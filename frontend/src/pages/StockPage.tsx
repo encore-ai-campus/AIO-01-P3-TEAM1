@@ -11,14 +11,15 @@
 // PC(2026-10-12 PC 재설계): 시세 카드 머리에 종목 정체(코드·시장·큰 가격·등락·기준 시각·전문가 보기의 보유 칩)와 주요 숫자 줄(시가·고가·저가·거래량·
 //   기간 최고·최저 — 받은 일봉에서), 차트는 xl에서 약 420px이고 보유·대기 주문의 가격 선(평균 체결가·목표가·손절가·지정가)을 긋는다.
 //   전문가 보기 왼쪽은 [AI 리포트 | 교차검증]을 왼쪽 열이 넓으면(1440px 화면부터) 나란히 (grid 자리만 — DOM은 모바일 순서).
-//   개발·평가용 도구(장애 주입·Agent 워크플로우·Trace 안내·예상 비용)는 전문가 보기 맨 아래 접힌 '시연용 도구'에 (docs/plans 실서비스 기준).
+//   개발·평가용 도구(Agent 워크플로우·Trace 안내·예상 비용)는 전문가 보기 맨 아래 접힌 '시연용 도구'에 (docs/plans 실서비스 기준).
+//   장애 주입은 2026-10-12부터 서비스에 없다 — 관리 서버 /chaos에서만 켠다 (docs/DECISIONS.md 35장).
 import { Suspense, lazy, type MouseEvent, type ReactNode, type RefObject, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { ApiError, errorMessage } from "../api/client";
-import { useAnalyses, useAnalysis, useMe, useQuota, useReportPlan, useReports, useStock } from "../api/queries";
+import { useAnalyses, useAnalysis, useMe, useQuota, useReports, useStock } from "../api/queries";
 import { useReportQuota, useRequestReport } from "../api/reports";
 import { addRecentStock, useSymbolTrading } from "../api/trading";
-import type { AnalysisSummary, ChaosRequest, StockDetail } from "../api/types";
+import type { AnalysisSummary, StockDetail } from "../api/types";
 import type { ChartLine } from "../components/charts/CandleChart";
 import { AnalysisRequest } from "../components/analysis/AnalysisRequest";
 import { isCountLimit } from "../components/errors/errorTypes";
@@ -26,7 +27,6 @@ import { Icon } from "../components/Icon";
 import { FundamentalsPanel } from "../components/longterm/FundamentalsPanel";
 import { Collapse } from "../components/motion/Collapse";
 import { ACTED_MS, OrderPanel, type Prefill } from "../components/stock/OrderPanel";
-import { ChaosForm } from "../components/reports/ChaosForm";
 import { VerdictText } from "../components/reports/VerdictText";
 import { AsOf, EmptyState, ErrorState, Flash, Notice, PageHeader, PriceChange, Skeleton, Spinner } from "../components/ui";
 import { useViewMode } from "../hooks/useBeginnerMode";
@@ -130,19 +130,11 @@ function LatestAnalysis({ a, easy }: { a: AnalysisSummary; easy: boolean }) {
   );
 }
 
-/** 장애 주입 폼 (펼쳤을 때만 실행 계획을 받는다 — Worker 고르기용). */
-function ChaosPanel({ value, onChange }: { value: ChaosRequest | null; onChange: (v: ChaosRequest | null) => void }) {
-  const { data: plan } = useReportPlan();
-  const workers = plan ? plan.workers.filter((w) => plan.steps.some((st) => st.workers.includes(w.id))) : [];
-  return <ChaosForm value={value} onChange={onChange} workers={workers} />;
-}
-
 /**
  * 전문가 보기 맨 아래의 접힌 '시연용 도구' (발표·평가용 — 실서비스 화면의 주 카드에 두지 않는다, PC 재설계 2026-10-12).
- * 장애 주입(켜면 위 AI 리포트 카드의 만들기 버튼에 "· 장애 주입"이 붙고 요청에 실린다), Agent 워크플로우·진행 기록(Trace) 안내, 교차검증 1회 예상 비용.
- * 접혀 있어도 장애 주입이 켜져 있으면 머리에 '켬'을 보인다.
+ * Agent 워크플로우·진행 기록(Trace) 안내, 교차검증 1회 예상 비용. 장애 주입은 관리 서버 /chaos에서만 켠다 (2026-10-12, DECISIONS 35장).
  */
-function DemoTools({ chaos, onChaos, className }: { chaos: ChaosRequest | null; onChaos: (v: ChaosRequest | null) => void; className?: string }) {
+function DemoTools({ className }: { className?: string }) {
   const [open, setOpen] = useState(false);
   const bodyId = useId();
   const { data: quota } = useQuota();
@@ -160,9 +152,8 @@ function DemoTools({ chaos, onChaos, className }: { chaos: ChaosRequest | null; 
             <span className="flex flex-wrap items-center gap-1.5 text-[15px] font-bold text-sub">
               <Icon name="bolt" className="size-4 text-warn" />
               시연용 도구
-              {chaos !== null && <span className="rounded-full bg-warn-soft px-2 py-0.5 text-[12px] font-bold text-warn-ink">장애 주입 켬</span>}
             </span>
-            <span className="mt-0.5 block text-[13px] font-normal text-mute">장애 주입 · Agent 워크플로우 안내 · 예상 비용 (발표·평가용)</span>
+            <span className="mt-0.5 block text-[13px] font-normal text-mute">Agent 워크플로우 안내 · 예상 비용 (발표·평가용)</span>
           </span>
           <Icon name="chevron-down" className={cn("size-5 shrink-0 text-mute-weak transition-transform duration-fast", open && "rotate-180")} />
         </button>
@@ -172,8 +163,6 @@ function DemoTools({ chaos, onChaos, className }: { chaos: ChaosRequest | null; 
           <p className="text-[13px] leading-relaxed text-sub">
             AI 리포트는 Agent 워크플로우(Orchestrator·Worker)가 써요. 리포트 화면의 진행 기록(Trace)에서 단계별 실행과 복구를 따라갈 수 있어요.
           </p>
-          <ChaosPanel value={chaos} onChange={onChaos} />
-          <p className="text-[12px] text-mute">장애 주입을 켠 채 위의 AI 리포트 카드에서 만들면 그 실행에만 장애를 넣어요.</p>
           {quota && (
             <p className="text-[13px] text-sub tabular-nums">교차검증 분석 1회 예상 비용 약 {formatUsd(quota.estimatedCostUsd)} (팀 AI 비용 예산에 포함)</p>
           )}
@@ -210,9 +199,8 @@ function NextSteps() {
  * 큰 버튼 "AI 리포트 만들기" + 오늘 남은 횟수. 오늘 이 종목 리포트가 이미 있으면 "오늘 리포트 보기"가 먼저 (docs/plans/컨셉변경계획.md 4-2 —
  * 고르는 규칙은 리포트 탭의 만들기 카드와 같은 lib/reports todayReport).
  * 리포트 목록과 한도를 둘 다 받을 때까지 버튼 자리에 뼈대를 둔다 — 틀린 버튼(누를 수 있는 '만들기')이 먼저 보였다가 바뀌지 않게.
- * 장애 주입(docs/tasks/00-공통.md 부록 A5 T5-22 — 끔 모드에서만)은 전문가 보기 맨 아래 '시연용 도구'에서 켠다. 켜져 있으면(chaos) 버튼에 "· 장애 주입".
  */
-function ReportCta({ stock, easy, chaos }: { stock: StockDetail; easy: boolean; chaos: ChaosRequest | null }) {
+function ReportCta({ stock, easy }: { stock: StockDetail; easy: boolean }) {
   const navigate = useNavigate();
   const { data: me } = useMe();
   const quotaQ = useReportQuota();
@@ -224,13 +212,11 @@ function ReportCta({ stock, easy, chaos }: { stock: StockDetail; easy: boolean; 
   const quota = quotaQ.data;
   const existing = reportsQ.data ? todayReport(reportsQ.data.results) : null;
   const spent = quota?.remaining === 0;
-  const chaosOn = !easy && chaos !== null;
-  const create = () => request.mutate({ symbol: stock.symbol, chaos: chaosOn ? chaos : null }, { onSuccess: (r) => navigate(`/reports/${r.id}`) });
+  const create = () => request.mutate({ symbol: stock.symbol }, { onSuccess: (r) => navigate(`/reports/${r.id}`) });
   // 429는 둘: 내 하루 횟수 한도(본문에 limit)면 한도 문장, 팀 비용 예산이면 서버 문장 (사람마다 한도가 남아 있어도 막힌다)
   const limitError = request.error instanceof ApiError && isCountLimit(request.error);
   const errorText = request.isError ? (limitError ? "오늘은 다 만들었어요. 내일 0시에 다시 만들 수 있어요" : errorMessage(request.error)) : null;
   const shownError = useLast(errorText);
-  const chaosLabel = chaosOn ? " · 장애 주입" : "";
 
   return (
     <section aria-labelledby={titleId} aria-busy={!settled || undefined} className="rounded-2xl bg-card p-5">
@@ -274,7 +260,7 @@ function ReportCta({ stock, easy, chaos }: { stock: StockDetail; easy: boolean; 
                 className="press mx-auto mt-1 flex h-11 items-center gap-1.5 rounded-xl px-3.5 text-[14px] font-semibold text-sub hover:bg-fill disabled:opacity-40"
               >
                 {request.isPending ? <Spinner /> : <Icon name="restart" className="size-4" />}
-                새로 만들기{chaosLabel}
+                새로 만들기
               </button>
             </>
           ) : (
@@ -285,7 +271,7 @@ function ReportCta({ stock, easy, chaos }: { stock: StockDetail; easy: boolean; 
               className="press mt-3 flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-brand text-[17px] font-bold text-white hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-40"
             >
               {request.isPending ? <Spinner /> : <Icon name="doc" className="size-5" />}
-              AI 리포트 만들기{chaosLabel}
+              AI 리포트 만들기
             </button>
           )}
 
@@ -682,7 +668,6 @@ function Detail({ stock, prefill, reveal }: { stock: StockDetail; prefill: Prefi
   const [orderOpen, setOrderOpen] = useState<boolean | null>(null); // 쉬운 보기 '직접 주문(고급)' (null이면 주문이 있을 때 펼침)
   const [priceHidden, setPriceHidden] = useState(false);
   const [chartWasLoaded] = useState(() => chartLoaded);
-  const [chaos, setChaos] = useState<ChaosRequest | null>(null); // 시연용 도구의 장애 주입 (전문가 보기만 — 쉬운 보기에는 도구가 없다)
   const { data: recent } = useAnalyses({ symbol: stock.symbol, limit: 1 });
   const latest = useLast(recent?.results[0] ?? null);
   const q = stock.quote;
@@ -873,7 +858,7 @@ function Detail({ stock, prefill, reveal }: { stock: StockDetail; prefill: Prefi
   // 쉬운 보기: 오른쪽 sticky 열(리포트 → 교차검증 → 처음이라면). 전문가 보기: 왼쪽 가운데 — 열이 672px 이상(@2xl, 1440px 화면부터)이면 두 카드를 나란히(같은 높이)
   const actions = (
     <div className={easy ? cn("space-y-3", RIGHT.easy) : "grid grid-cols-[minmax(0,1fr)] gap-3 @2xl:grid-cols-2"}>
-      <ReportCta stock={stock} easy={easy} chaos={easy ? null : chaos} />
+      <ReportCta stock={stock} easy={easy} />
       <section aria-labelledby={crossTitleId} className="rounded-2xl bg-card p-5">
         <AnalysisRequest symbol={stock.symbol} name={stock.name} easy={easy} titleId={crossTitleId} />
         <Collapse open={recent?.results[0] !== undefined}>
@@ -955,7 +940,7 @@ function Detail({ stock, prefill, reveal }: { stock: StockDetail; prefill: Prefi
             </section>
           </div>
         )}
-        {!easy && <DemoTools chaos={chaos} onChaos={setChaos} className={LEFT} />}
+        {!easy && <DemoTools className={LEFT} />}
       </div>
 
       {!easy && (

@@ -399,18 +399,6 @@ export interface PlanStep {
   retry: { target: string; maxRounds: number } | null; // 검토 단계: RETRY 판정이면 target Worker를 다시 실행
 }
 
-/** 장애 주입 설정 (docs/tasks/00-공통.md 5절). 리포트 워크플로우에만 적용된다. */
-export interface ChaosConfig {
-  enabled: boolean;
-  probability: number; // 0~1. 호출 하나가 실패할 확률
-  errorTypes: ErrorType[]; // unknown 제외
-  workers: string[] | null; // 대상 Worker (null이면 전부)
-  scope: "primary" | "all"; // primary: 주 모델 호출만 실패 · all: 대체 모델까지 실패
-  seed: number;
-}
-/** POST /api/reports의 chaos: enabled만 필수, 나머지는 서버 기본값. */
-export type ChaosRequest = Pick<ChaosConfig, "enabled"> & Partial<Omit<ChaosConfig, "enabled">>;
-
 /** 한 리포트의 장애·복구 요약 (셈법은 00-공통.md 9절. 화면은 src/lib/recovery.ts로 Trace에서도 센다). */
 export interface RecoverySummary {
   failures: number;
@@ -444,6 +432,7 @@ export interface RecoveryStats {
     recovered: boolean;
     recoveryMs: number | null;
     at: string;
+    chaos?: boolean; // 장애 주입 실행(관리 서버에서 신청)의 장애 — 서비스에는 그 리포트 화면이 없어 링크하지 않는다 (2026-10-12, DECISIONS 35장)
   }[];
 }
 
@@ -524,9 +513,8 @@ export interface ReportSummary {
   currentStep: string | null;
   requestedBy: string; // 신청한 팀원의 닉네임. 자동 리포트는 "자동"
   team?: ReportTeam; // 없으면 stock_report (예전 서버). stock_selection은 목록에 ?team=stock_selection일 때만 온다
-  // 아래 넷은 docs/API.md "(추가)" 항목: 서버가 아직 안 낼 수 있다
+  // 아래 셋은 docs/API.md "(추가)" 항목: 서버가 아직 안 낼 수 있다. 장애 주입은 2026-10-12부터 관리 서버에서만 켜고 서비스 API에 없다 (DECISIONS 35장)
   source?: "user" | "auto";
-  chaosEnabled?: boolean;
   costUsd?: number | null;
   hasPdf?: boolean;
   /** 내가 신청했고 끝난(completed·failed) 종목 리포트면 true → DELETE /api/reports/{id} (2026-10-08, DECISIONS 25장). 자동 리포트·선정 실행·남의 것은 false */
@@ -544,7 +532,7 @@ export type ReportOpinion = "buy" | "hold" | "avoid";
 /** GET /api/reports/quota — 하루 리포트 한도 (D-7). */
 export interface ReportQuota {
   limit: number | null; // AI_DAILY_REPORTS_PER_USER (기본 null = 무제한, 2026-10-08)
-  used: number; // 오늘(KST) 신청한 리포트 중 한도에 세는 수 (장애 주입 없이 failed로 끝난 것은 빼고)
+  used: number; // 오늘(KST) 신청한 리포트 중 한도에 세는 수 (failed로 끝난 것은 빼고)
   remaining: number | null; // max(limit − used, 0), 무제한이면 null. 0이면 POST /api/reports가 429 {detail, limit, used}
   resetsAt: string; // 다음 날 00:00 KST
 }
@@ -566,7 +554,6 @@ export interface ReportDetail extends ReportSummary {
   state: SharedState;
   trace: TraceEvent[]; // step 오름차순
   plan: ExecutionPlan;
-  chaos?: ChaosConfig | null; // (추가)
   recovery?: RecoverySummary; // (추가)
 }
 

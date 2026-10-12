@@ -116,25 +116,27 @@ describe("리포트 목록·신청", () => {
     expect(screen.getByText(DISCLAIMER)).toBeTruthy();
     expect(screen.getByText("리포트 본문은 Agent 구현 뒤에 표시됩니다 (미구현)")).toBeTruthy();
     expect(db.listReports("005380")).toHaveLength(1);
-    expect(db.listReports("005380")[0].chaosEnabled).toBe(false);
   });
 
-  it("장애 주입을 켜면 복구 시연 프리셋(주 모델만, 확률 0.8)으로 신청하고 목록에서 거를 수 있다", async () => {
+  it("장애 주입은 서비스에 없다 — 토글·프리셋·거르기 칩·배지가 없고 신청 본문은 종목만 (관리 서버에서만 켠다, DECISIONS 35장)", async () => {
+    const bodies: unknown[] = [];
+    server.use(
+      http.post("*/api/reports", async ({ request }) => {
+        bodies.push(await request.clone().json());
+        return undefined; // 기본 처리기로
+      }),
+    );
     renderApp("/reports");
     fireEvent.change(await screen.findByLabelText("종목 검색"), { target: { value: "현대" } });
     fireEvent.click(await screen.findByRole("button", { name: /현대차/ }));
-    fireEvent.click(screen.getByRole("switch", { name: /장애 주입/ }));
-    expect(screen.getByRole("button", { name: /복구 시연/ }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByRole("switch", { name: /장애 주입/ })).toBeNull();
+    expect(screen.queryByRole("group", { name: "장애 주입 프리셋" })).toBeNull();
+    const filters = await screen.findByRole("group", { name: "리포트 거르기" });
+    expect(within(filters).getAllByRole("button").map((b) => b.textContent)).toEqual(["전체", "자동"]);
     fireEvent.click(await createButton());
     expect(await screen.findByRole("heading", { name: "현대차 AI 리포트" })).toBeTruthy();
-    const made = db.getReport(db.listReports("005380")[0].id);
-    expect(made.chaos).toMatchObject({ enabled: true, scope: "primary", probability: 0.8 });
-    expect(screen.getByText("주입")).toBeTruthy();
-
-    renderApp("/reports");
-    const lists = await screen.findAllByRole("list", { name: "리포트 목록" });
-    fireEvent.click(screen.getAllByRole("button", { name: "장애 주입" }).at(-1)!);
-    await waitFor(() => expect(within(lists.at(-1)!).getAllByRole("listitem")).toHaveLength(1));
+    expect(bodies).toEqual([{ symbol: "005380" }]);
+    expect(screen.queryByText("주입")).toBeNull();
   });
 
   it("오늘 그 종목 리포트가 이미 있으면 '오늘 리포트 보기'가 먼저, 새로 만들기는 작게 (종목 상세와 같은 규칙)", async () => {
@@ -169,16 +171,6 @@ describe("리포트 목록·신청", () => {
     expect(db.listReports("005930")).toHaveLength(1);
   });
 
-  it("장애 주입을 끄면 프리셋이 접힌다", async () => {
-    renderApp("/reports");
-    const sw = await screen.findByRole("switch", { name: /장애 주입/ });
-    fireEvent.click(sw);
-    expect(screen.getByRole("group", { name: "장애 주입 프리셋" })).toBeTruthy();
-    fireEvent.click(sw);
-    expect(sw.getAttribute("aria-checked")).toBe("false");
-    expect(screen.queryByRole("group", { name: "장애 주입 프리셋" })).toBeNull();
-  });
-
   it("종목 상세의 AI 리포트 만들기 버튼도 리포트 상세로 간다 (AI 교차검증 분석과 별개)", async () => {
     renderApp("/stocks/005380");
     await screen.findByRole("button", { name: /AI 교차검증 분석/ });
@@ -187,7 +179,7 @@ describe("리포트 목록·신청", () => {
     expect(db.listReports("005380")).toHaveLength(1);
   });
 
-  it("전문가 목록: 칩(내·팀·교차검증), 완성 리포트에 의견(전문가 용어)·한 줄 요약, 교차검증은 점수·분석 시각 가격과 분석 상세 링크", async () => {
+  it("전문가 목록: 칩(내·팀), 완성 리포트에 의견(전문가 용어)·한 줄 요약, 선별 결과 카드의 교차검증은 점수·분석 시각 가격과 분석 상세 링크", async () => {
     db.addSampleReports();
     renderApp("/reports");
     const list = await screen.findByRole("list", { name: "리포트 목록" });
@@ -207,7 +199,9 @@ describe("리포트 목록·신청", () => {
     await waitFor(() => expect(within(screen.getByRole("list", { name: "리포트 목록" })).getAllByRole("listitem")).toHaveLength(1));
     expect(screen.getByRole("heading", { name: "내 리포트" })).toBeTruthy();
 
-    click("교차검증 분석");
+    // 교차검증 분석은 리포트 목록 칩이 아니라 '오늘의 선별 결과' 카드의 칩이다 (DECISIONS 34장)
+    expect(within(screen.getByRole("group", { name: "리포트 묶음" })).queryByRole("button", { name: "교차검증 분석" })).toBeNull();
+    fireEvent.click(within(screen.getByRole("group", { name: "선별 결과 묶음" })).getByRole("button", { name: "교차검증 분석" }));
     const rows = within(await screen.findByRole("list", { name: "교차검증 분석 목록" })).getAllByRole("listitem");
     const first = db.listAnalyses(null, null)[0];
     expect(rows[0].querySelector("a")?.getAttribute("href")).toBe(`/analyses/${first.id}`);
@@ -215,6 +209,72 @@ describe("리포트 목록·신청", () => {
     expect(within(rows[0]).getByText(VERDICT_TEXT[first.verdict])).toBeTruthy();
     if (first.best) expect(within(rows[0]).getByText(/점수/)).toBeTruthy();
     if (first.priceAtAnalysis !== null) expect(within(rows[0]).getByText(/분석 시각 가격/)).toBeTruthy();
+  });
+
+  it("팀 리포트는 10개씩 쪽으로 넘긴다 — 서버 페이지(feed=team&limit=10&offset=), 거르기를 바꾸면 첫 쪽부터", async () => {
+    const base = db.listReports(null)[0];
+    const all: typeof base[] = Array.from({ length: 23 }, (_, i) => ({ ...base, id: 1000 + i, name: `가짜종목${String(i + 1).padStart(2, "0")}`, status: "completed" }));
+    const asked: string[] = [];
+    server.use(
+      http.get("*/api/reports", ({ request }) => {
+        const u = new URL(request.url);
+        if (u.searchParams.get("mine") === "1") return undefined; // 내 리포트(하단 탭 점·만드는 중 띠)는 가짜 API 그대로
+        asked.push(u.search);
+        const limit = Number(u.searchParams.get("limit"));
+        const offset = Number(u.searchParams.get("offset") ?? 0);
+        return HttpResponse.json({ count: all.length, results: all.slice(offset, offset + limit) });
+      }),
+    );
+    renderApp("/reports");
+    // 전문가 행(앨리스)은 행 전체가 링크 하나
+    const names = () =>
+      within(screen.getByRole("list", { name: "리포트 목록" }))
+        .getAllByRole("link")
+        .map((a) => `${/가짜종목\d\d/.exec(a.textContent ?? "")?.[0]} 리포트`);
+    await waitFor(() => expect(names()).toHaveLength(10));
+    expect(names()[0]).toBe("가짜종목01 리포트");
+    const nav = screen.getByRole("navigation", { name: "리포트 목록 페이지" });
+    expect(within(nav).getByRole("button", { name: "리포트 목록 1페이지" }).getAttribute("aria-current")).toBe("page");
+    expect(within(nav).getByRole("button", { name: "리포트 목록 이전 페이지" }).getAttribute("aria-disabled")).toBe("true");
+    expect(within(nav).getByRole("button", { name: "리포트 목록 3페이지" })).toBeTruthy();
+    expect(asked.some((q) => q.includes("feed=team") && q.includes("limit=10") && !q.includes("offset"))).toBe(true);
+
+    fireEvent.click(within(nav).getByRole("button", { name: "리포트 목록 3페이지" }));
+    await waitFor(() => expect(names()).toEqual(["가짜종목21 리포트", "가짜종목22 리포트", "가짜종목23 리포트"]));
+    expect(asked.some((q) => q.includes("feed=team") && q.includes("offset=20"))).toBe(true);
+    const last = screen.getByRole("navigation", { name: "리포트 목록 페이지" });
+    expect(within(last).getByRole("button", { name: "리포트 목록 3페이지" }).getAttribute("aria-current")).toBe("page");
+    // 마지막 쪽의 '다음'은 aria-disabled로만 막는다 (눌러도 그대로, 포커스는 남는다)
+    fireEvent.click(within(last).getByRole("button", { name: "리포트 목록 다음 페이지" }));
+    expect(within(last).getByRole("button", { name: "리포트 목록 다음 페이지" }).getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(within(last).getByRole("button", { name: "리포트 목록 이전 페이지" }));
+    await waitFor(() => expect(names()[0]).toBe("가짜종목11 리포트"));
+
+    // 전문가 거르기를 바꾸면 첫 쪽부터 (자동도 팀 피드 — 남의 실패는 서버가 뺀다)
+    click("자동");
+    await waitFor(() => expect(asked.some((q) => q.includes("source=auto") && q.includes("feed=team") && !q.includes("offset"))).toBe(true));
+    await waitFor(() => expect(names()[0]).toBe("가짜종목01 리포트"));
+  });
+
+  it("거르기·쪽은 주소에 있어 상세에 다녀와도 그대로 (?filter=auto&page=2)", async () => {
+    const base = db.listReports(null)[0];
+    const all: typeof base[] = Array.from({ length: 15 }, (_, i) => ({ ...base, id: 2000 + i, name: `자동종목${String(i + 1).padStart(2, "0")}`, source: "auto", status: "completed" }));
+    const asked: string[] = [];
+    server.use(
+      http.get("*/api/reports", ({ request }) => {
+        const u = new URL(request.url);
+        if (u.searchParams.get("mine") === "1") return undefined;
+        asked.push(u.search);
+        const offset = Number(u.searchParams.get("offset") ?? 0);
+        return HttpResponse.json({ count: all.length, results: all.slice(offset, offset + Number(u.searchParams.get("limit"))) });
+      }),
+    );
+    renderApp("/reports?filter=auto&page=2");
+    const filters = await screen.findByRole("group", { name: "리포트 거르기" });
+    expect(within(filters).getByRole("button", { name: "자동" }).getAttribute("aria-pressed")).toBe("true");
+    const nav = await screen.findByRole("navigation", { name: "리포트 목록 페이지" });
+    expect(within(nav).getByRole("button", { name: "리포트 목록 2페이지" }).getAttribute("aria-current")).toBe("page");
+    expect(asked.some((q) => q.includes("source=auto") && q.includes("feed=team") && q.includes("offset=10"))).toBe(true);
   });
 
   it("하단 탭과 왼쪽 메뉴에 리포트가 있다", async () => {
@@ -338,12 +398,13 @@ describe("리포트 상세", () => {
     click("멈춤");
     for (let i = 0; i < 9; i++) click("다음 사건");
 
-    // 뉴스: 주 모델 실패(주입) → 대체 모델로 전환 → 대체 모델도 실패 → 같은 대체 모델로 다시 시도 중. 호출 실패는 노드의 실패가 아니다
+    // 뉴스: 주 모델 실패 → 대체 모델로 전환 → 대체 모델도 실패 → 같은 대체 모델로 다시 시도 중. 호출 실패는 노드의 실패가 아니다
+    // (서비스 예시에는 장애 주입이 없다 — 2026-10-12, DECISIONS 35장)
     const news = () => node("뉴스·심리 Agent");
     expect(within(news()).getByText("실행 중")).toBeTruthy();
     expect(within(news()).getAllByText("시간 초과")).toHaveLength(2);
     expect(within(news()).getByText("시도 중")).toBeTruthy();
-    expect(within(news()).getByText("주입")).toBeTruthy();
+    expect(within(news()).queryByText("주입")).toBeNull();
     expect(within(news()).queryByText("자동 복구")).toBeNull();
 
     for (let i = 0; i < 13; i++) click("다음 사건");
@@ -355,8 +416,7 @@ describe("리포트 상세", () => {
     expect(within(region("단계 리포트 작성")).getByText(/검토 뒤 다시 작성 1/)).toBeTruthy();
 
     const summary = region("실행 요약");
-    expect(within(summary).getByText("1건 (주입 1)")).toBeTruthy();
-    expect(within(summary).getByText("1건")).toBeTruthy();
+    expect(within(summary).getAllByText("1건")).toHaveLength(2);
     expect(within(summary).getByText("3.14초")).toBeTruthy();
 
     // 주요 사건만: agent_started·join_completed는 빠진다
@@ -500,10 +560,16 @@ describe("리포트 상세", () => {
     expect(screen.getByText("3.42초")).toBeTruthy();
     expect(within(region("장애 유형별")).getByText("복구 7 · 미복구 0")).toBeTruthy();
     expect(within(screen.getByRole("list", { name: "최근 장애 사례" })).getAllByRole("listitem")).toHaveLength(4);
-    // PC 표의 리포트 링크: 파란 글자는 brand-ink (brand는 흰 바탕 3.7:1)
+    // PC 표의 리포트 링크: 파란 글자는 brand-ink (brand는 흰 바탕 3.7:1).
+    // 장애 주입 실행(chaos)의 사례는 서비스에 화면이 없어(404) 링크하지 않는다 — 관리 서버에서 본다 (DECISIONS 35장)
     const reportLinks = within(screen.getByRole("table")).getAllByRole("link", { name: /^리포트 #\d+$/ });
-    expect(reportLinks).toHaveLength(4);
+    expect(reportLinks).toHaveLength(2);
     for (const a of reportLinks) expect(a.className.split(" ")).toContain("text-brand-ink");
+    expect(within(screen.getByRole("table")).getAllByText(/^장애 주입 #2 · 관리 서버$/)).toHaveLength(2);
+    const cards = within(screen.getByRole("list", { name: "최근 장애 사례" })).getAllByRole("listitem");
+    // 모바일 카드도 같다: 장애 주입 사례(최신 둘)는 링크가 아니고 "관리 서버에서 보기"를 붙인다
+    expect(cards.map((c) => c.querySelector("a") !== null)).toEqual([false, false, true, true]);
+    expect(cards.filter((c) => c.textContent?.includes("관리 서버에서 보기"))).toHaveLength(2);
   });
 
   it("개념 문서: 자세히 탭의 접이식 영역에서 교육용 문서를 렌더한다", async () => {

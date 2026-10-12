@@ -13,13 +13,16 @@ class Report(models.Model):
     STATUSES = [(s, s) for s in (REQUESTED, RUNNING, COMPLETED, FAILED)]
     ACTIVE, FINISHED = (REQUESTED, RUNNING), (COMPLETED, FAILED)
     MARKETS = [("KR", "KR"), ("US", "US")]
-    USER, AUTO = "user", "auto"
-    SOURCES = [(USER, USER), (AUTO, AUTO)]
+    # 팀원 신청 / 자동 리포트 / 장애 주입 실행 (관리 서버가 내부 API로만 만든다. 신청자 없음 — 서비스 사용자 경로에 나오지 않는다,
+    # docs/DECISIONS.md 35장, docs/API.md "장애 주입 내부 API")
+    USER, AUTO, CHAOS = "user", "auto", "chaos"
+    SOURCES = [(USER, USER), (AUTO, AUTO), (CHAOS, CHAOS)]
     # 어느 팀(team_definitions.yaml)이 실행하나: 종목 리포트 / 하루 한 번의 매매 종목 선정 (docs/design/AI_AGENT_WORKFLOW.md)
     STOCK_REPORT, STOCK_SELECTION = "stock_report", "stock_selection"
     TEAMS = [(STOCK_REPORT, STOCK_REPORT), (STOCK_SELECTION, STOCK_SELECTION)]
 
-    # 자동 리포트(source "auto")는 신청자가 없어 user가 null이다 (docs/tasks/00-공통.md 3절)
+    # 자동 리포트(source "auto")와 장애 주입 실행(source "chaos")은 신청자가 없어 user가 null이다 (docs/tasks/00-공통.md 3절).
+    # 2026-10-12 전에 팀원이 장애 주입을 켜고 신청한 리포트는 user를 그대로 두고 source만 "chaos"로 옮겼다 (마이그레이션 0005)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="reports",
                              null=True, blank=True)
     source = models.CharField(max_length=8, choices=SOURCES, default=USER, db_default=USER)  # 누가 만들었나
@@ -35,7 +38,7 @@ class Report(models.Model):
     completed_agents = models.JSONField(default=list, blank=True)
     failed_agents = models.JSONField(default=list, blank=True)
     content = models.TextField(null=True, blank=True)                      # 리포트 본문 (Markdown)
-    chaos = models.JSONField(null=True, blank=True)                        # 장애 주입 설정 (ChaosConfig). null이면 끄기
+    chaos = models.JSONField(null=True, blank=True)                        # 장애 주입 설정 (ChaosConfig + requestedBy). null이면 끄기
     cost_usd = models.FloatField(default=0, db_default=0)                  # 이 리포트의 LLM 비용 합
     pdf_path = models.CharField(max_length=500, null=True, blank=True)     # 만든 PDF 경로 (PAPER_ROOT 기준 상대 경로)
     # 신청한 팀원이 지운 시각 (숨김 — 목록·상세·PDF·SSE에서 빠진다. 비용·하루 한도·복구 통계는 그대로 센다, autotrade/hide.py)

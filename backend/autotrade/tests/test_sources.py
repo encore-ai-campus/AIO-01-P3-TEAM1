@@ -103,6 +103,33 @@ def test_from_report_ignores_selection_runs(user, sent):
     assert not Recommendation.objects.exists() and sent.calls == []
 
 
+def test_from_report_ignores_chaos_runs(user, sent):
+    """장애 주입 실행(source "chaos" — 관리 서버 전용)으로는 추천하지 않는다 (DECISIONS 35장). 신청자가 있는 옛 장애 주입 리포트도."""
+    for owner in (None, user):
+        run = report_of(owner)
+        Report.objects.filter(pk=run.pk).update(source=Report.CHAOS, chaos={"enabled": True})
+        run.refresh_from_db()
+        assert sources.from_report(run) is None
+    assert not Recommendation.objects.exists() and sent.calls == []
+
+
+def test_collect_ignores_chaos_runs(user, monkeypatch):
+    """추천 수집은 장애 주입 실행을 보지 않는다 (7일 동안 매 바퀴 다시 보지 않게)."""
+    report = report_of(user)
+    run = report_of(None)
+    Report.objects.filter(pk=run.pk).update(source=Report.CHAOS, chaos={"enabled": True})
+    seen = []
+    real = sources.from_report
+
+    def spy(item, now):
+        seen.append(item.id)
+        return real(item, now)
+    monkeypatch.setattr(sources, "from_report", spy)
+    assert sources.collect(timezone.now(), [].append) == 1
+    assert seen == [report.id]
+    assert list(Recommendation.objects.values_list("report_id", flat=True)) == [report.id]
+
+
 def test_from_report_defaults(user):
     rec = sources.from_report(report_of(user, {"report_agent": DRAFT | {
         "targets": {"entry": 69000, "target": 80000, "stop": 66000, "holdingDays": None, "probability": None}}}))

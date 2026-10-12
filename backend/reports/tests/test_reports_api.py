@@ -1,6 +1,7 @@
 """AI 리포트 API: 실행 계획, 신청, 목록(?mine=1 — B8), 상세(Snapshot), 목록·상세의 AI 의견·한 줄 요약(B3),
-팀(team: 종목 리포트 stock_report · 매매 종목 선정 stock_selection) 구분과 ?team=·?source= 필터.
-종목 확인은 가짜 (증권사를 부르지 않는다). 하루 한도(D-7)는 test_quota.py."""
+팀(team: 종목 리포트 stock_report · 매매 종목 선정 stock_selection) 구분과 ?team=·?source=·?feed= 필터,
+장애 주입 실행(source "chaos")이 공개 API 어디에도 나오지 않는 것 (DECISIONS 35장 — 공개 신청의 chaos 400은 test_chaos.py,
+내부 API는 test_control.py). 종목 확인은 가짜 (증권사를 부르지 않는다). 하루 한도(D-7)는 test_quota.py."""
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -15,8 +16,7 @@ from .conftest import make_report
 pytestmark = pytest.mark.django_db
 
 SUMMARY_KEYS = {"id", "symbol", "name", "market", "status", "currentStep", "requestedBy", "opinion", "oneLiner",
-                "createdAt", "startedAt", "finishedAt", "source", "team", "chaosEnabled", "costUsd", "hasPdf",
-                "canDelete"}
+                "createdAt", "startedAt", "finishedAt", "source", "team", "costUsd", "hasPdf", "canDelete"}
 KST = ZoneInfo("Asia/Seoul")
 DRAFT = {"title": "삼성전자 리포트", "verdict": "buy", "oneLiner": "단기 반등 구간, 분할 접근", "markdown": "# x",
          "plainSummary": ["거래가 늘고 있어요", "실적이 나아지고 있어요", "환율이 바뀌면 손실이 날 수 있어요"],
@@ -84,7 +84,7 @@ def test_create_report(api, user, stocks):
     response = post(api, {"symbol": " 005930 "})
     assert response.status_code == 201
     body = response.json()
-    assert set(body) == SUMMARY_KEYS | {"content", "state", "trace", "plan", "chaos", "recovery"}
+    assert set(body) == SUMMARY_KEYS | {"content", "state", "trace", "plan", "recovery"}
     assert (body["symbol"], body["name"], body["market"], body["status"], body["currentStep"], body["requestedBy"]) == (
         "005930", "삼성전자", "KR", "requested", None, "앨리스")
     assert body["startedAt"] is None and body["finishedAt"] is None and body["createdAt"].endswith("+09:00")
@@ -230,7 +230,56 @@ def test_list_source_filter(api, user):
         "count": 2, "results": [api.get("/api/reports?source=auto").json()["results"][0]]}
 
 
+def test_list_team_feed(api, user, other):
+    """?feed=team: 실패는 내 것만 (남의 실패·자동 실패는 뺀다, UX-15). count도 거른 뒤의 수 (10개씩 페이지).
+    같은 날 만든 ?chaos=1 거르기는 장애 주입 분리로 지웠다 — 보내도 무시한다 (DECISIONS 35장)."""
+    now = timezone.now()
+    my_failed = make_report(user, status=Report.FAILED, created_at=now - timedelta(hours=5))
+    their_failed = make_report(other, status=Report.FAILED, created_at=now - timedelta(hours=4))
+    auto_failed = make_report(None, source=Report.AUTO, status=Report.FAILED, created_at=now - timedelta(hours=3))
+    their_done = make_report(other, status=Report.COMPLETED, created_at=now - timedelta(hours=2))
+    mine = make_report(user, created_at=now - timedelta(hours=1))
+    running = make_report(None, source=Report.AUTO, status=Report.RUNNING, created_at=now)
+
+    def ids(query):
+        return [r["id"] for r in api.get(f"/api/reports{query}").json()["results"]]
+    assert ids("?feed=team") == [running.id, mine.id, their_done.id, my_failed.id]
+    assert ids("?feed=TEAM") == ids("?feed=team")
+    assert ids("?feed=") == [running.id, mine.id, their_done.id, auto_failed.id, their_failed.id, my_failed.id]
+    assert ids("?chaos=1") == ids("") == ids("?chaos=0")  # 지운 거르기 — 무시
+    assert ids("?feed=team&chaos=1") == ids("?feed=team")
+    assert ids("?feed=team&source=auto") == [running.id]
+    assert ids("?feed=team&mine=1") == [mine.id, my_failed.id]
+    page = api.get("/api/reports?feed=team&limit=2&offset=2").json()
+    assert page["count"] == 4 and [r["id"] for r in page["results"]] == [their_done.id, my_failed.id]
+
+
+def chaos_run(**fields) -> Report:
+    """관리 서버가 내부 API로 만든 장애 주입 실행 (신청자 없음)."""
+    config = {"enabled": True, "probability": 0.8, "errorTypes": ["timeout"], "workers": None, "scope": "primary",
+              "seed": 7, "requestedBy": "admin"}
+    return make_report(None, source=Report.CHAOS, chaos=config, **fields)
+
+
+@pytest.mark.parametrize("query", [
+    "", "?mine=1", "?symbol=005930", "?team=stock_report", "?source=user", "?source=auto", "?feed=team",
+    "?chaos=1", "?feed=team&mine=1&symbol=005930", "?limit=100",
+])
+def test_list_never_shows_chaos_runs(api, user, query):
+    """장애 주입 실행은 어떤 조건에서도 목록에 나오지 않는다 (관리 서버 전용). 2026-10-12 전에 팀원이 켜고 신청해
+    source만 옮긴 리포트(신청자 있음)도 — 내 목록(?mine=1)에도 나오지 않고, count에도 세지 않는다."""
+    now = timezone.now()
+    shown = make_report(user, created_at=now - timedelta(hours=3))
+    chaos_run(status=Report.FAILED, created_at=now - timedelta(hours=2))
+    chaos_run(status=Report.RUNNING, created_at=now - timedelta(hours=1))
+    make_report(user, source=Report.CHAOS, status=Report.COMPLETED, chaos={"enabled": True}, created_at=now)
+    body = api.get(f"/api/reports{query}").json()
+    expected = [] if "source=auto" in query else [shown.id]
+    assert [r["id"] for r in body["results"]] == expected and body["count"] == len(expected)
+
+
 @pytest.mark.parametrize("query, message", [
+    ("feed=all", "feed는 team입니다."),
     ("team=x", "team은 stock_report 또는 stock_selection입니다."),
     ("team=all", "team은 stock_report 또는 stock_selection입니다."),
     ("source=robot", "source는 user 또는 auto입니다."),
@@ -349,6 +398,28 @@ def test_detail_of_selection_run_has_its_own_plan(api, user):
 def test_detail_not_found(api):
     response = api.get("/api/reports/999")
     assert response.status_code == 404 and response.json() == {"detail": "리포트를 찾을 수 없습니다."}
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_chaos_run_is_not_found(api, user, legacy):
+    """장애 주입 실행은 상세·PDF·DELETE에서 없는 리포트와 같은 404 (관리 서버에서만 본다). legacy: 2026-10-12 전에 내가 켜고
+    신청해 source만 옮긴 끝난 리포트 — 내 것이어도 404이고 지워지지 않는다."""
+    run = (make_report(user, source=Report.CHAOS, status=Report.COMPLETED, chaos={"enabled": True}) if legacy
+           else chaos_run(status=Report.COMPLETED))
+    not_found = {"detail": "리포트를 찾을 수 없습니다."}
+    for response in (api.get(f"/api/reports/{run.id}"), api.get(f"/api/reports/{run.id}/pdf"),
+                     api.get(f"/api/reports/{run.id}/pdf?view=easy"), api.delete(f"/api/reports/{run.id}")):
+        assert response.status_code == 404 and response.json() == not_found
+    run.refresh_from_db()
+    assert run.deleted_at is None
+
+
+def test_create_does_not_return_legacy_chaos_report(api, user, stocks):
+    """같은 종목의 진행 중 리포트를 돌려주는 200 경로가 옛 장애 주입 리포트(내가 신청, source chaos)를 내지 않는다."""
+    legacy = make_report(user, source=Report.CHAOS, status=Report.RUNNING, chaos={"enabled": True})
+    response = post(api, {"symbol": "005930"})
+    assert response.status_code == 201 and response.json()["id"] != legacy.id
+    assert Report.objects.get(pk=response.json()["id"]).source == Report.USER
 
 
 def test_admin_pages(client, django_user_model, user):

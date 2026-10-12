@@ -1,7 +1,7 @@
 // 만들지 못한 리포트 (쉬운 보기): 실패는 신뢰가 가장 흔들리는 순간이라 "왜 → 무엇을 할 수 있나 → 어디서 멈췄나 → 다시 만들기 → 다른 길" 순서로 보인다.
 // 사유는 Trace의 마지막 workflow_failed.details.reason을 쉬운 문장으로. 다음 행동 한 줄은 권유형이 아니라 할 수 있는 일을 말한다.
 // "어디서 멈췄는지 보기"는 접어 둔다 (다섯 단계 중 멈춘 곳 — 진행 단계와 자동 복구는 쉬운 보기에서도 숨기지 않는 과제 요소).
-// 다시 만들기는 장애 주입 없이 같은 종목으로 (장애 주입 다시 만들기는 전문가 보기). 장애 주입 없이 실패한 리포트는 하루 한도에 세지 않는다 (D-7).
+// 다시 만들기는 같은 종목으로. 만들지 못한 리포트는 하루 한도에 세지 않는다 (D-7 — 장애 주입은 2026-10-12부터 관리 서버에서만, DECISIONS 35장).
 import { useId, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useReportQuota, useRequestReport } from "../../../api/reports";
@@ -135,9 +135,7 @@ export function EasyFailure({ r }: { r: ReportDetail }) {
         </Collapse>
       </div>
 
-      {!(r.chaosEnabled || r.chaos?.enabled) && (
-        <p className="text-[13px] leading-snug text-sub">만들지 못한 리포트는 오늘 만들 수 있는 횟수에 세지 않아요.</p>
-      )}
+      <p className="text-[13px] leading-snug text-sub">만들지 못한 리포트는 오늘 만들 수 있는 횟수에 세지 않아요.</p>
       <button
         type="button"
         disabled={request.isPending || full}

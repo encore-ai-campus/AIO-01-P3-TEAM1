@@ -84,7 +84,7 @@ def recovery_stats(days: int, now: datetime | None = None) -> dict:
     first = today - timedelta(days=days - 1)
     start = datetime(first.year, first.month, first.day, tzinfo=KST)
     end = datetime(today.year, today.month, today.day, tzinfo=KST) + timedelta(days=1)
-    reports = {r.id: r for r in Report.objects.filter(created_at__gte=start, created_at__lt=end).only("id", "symbol")}
+    reports = {r.id: r for r in Report.objects.filter(created_at__gte=start, created_at__lt=end).only("id", "symbol", "source")}
     by_report: dict[int, list[TraceEvent]] = {rid: [] for rid in reports}
     for event in TraceEvent.objects.filter(report_id__in=list(reports), action__in=ACTIONS).order_by("report_id", "step"):
         by_report[event.report_id].append(event)
@@ -92,7 +92,8 @@ def recovery_stats(days: int, now: datetime | None = None) -> dict:
     rows = []   # 모든 장애 건 (+ 리포트 id·종목)
     for rid, events in by_report.items():
         for incident in incidents(events):
-            rows.append({**incident, "reportId": rid, "symbol": reports[rid].symbol})
+            rows.append({**incident, "reportId": rid, "symbol": reports[rid].symbol,
+                         "chaos": reports[rid].source == Report.CHAOS})
     done = [r for r in rows if r["recovered"]]
     failures, recovered = len(rows), len(done)
     return {
@@ -107,7 +108,7 @@ def recovery_stats(days: int, now: datetime | None = None) -> dict:
         "byWorker": _breakdown(rows, "worker"),
         "recent": [{"reportId": r["reportId"], "symbol": r["symbol"], "worker": r["worker"], "errorType": r["errorType"],
                     "injected": r["injected"], "recovered": r["recovered"] is True, "recoveryMs": r["recoveryMs"],
-                    "at": iso(r["at"])}
+                    "at": iso(r["at"]), "chaos": r["chaos"]}
                    for r in sorted(rows, key=lambda r: (r["at"], r["reportId"]), reverse=True)[:RECENT]],
     }
 

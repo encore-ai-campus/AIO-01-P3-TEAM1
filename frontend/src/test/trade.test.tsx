@@ -482,7 +482,7 @@ describe("종목 상세 · AI 리포트 만들기", () => {
     expect(cta.hasAttribute("aria-busy")).toBe(false);
   });
 
-  it("장애 주입은 전문가 보기 맨 아래 접힌 '시연용 도구'에 있고(주 카드 밖), 켜면 리포트 카드의 큰 버튼에 표시하고 요청에 싣는다", async () => {
+  it("시연용 도구는 전문가 보기 맨 아래에 접혀 있고(주 카드 밖) 장애 주입은 없다 — 신청은 종목만 (관리 서버에서만 켠다, DECISIONS 35장)", async () => {
     const seen = recordBodies("/api/reports");
     renderApp("/stocks/005380");
     const cta = await screen.findByRole("region", { name: "AI 리포트" });
@@ -495,12 +495,12 @@ describe("종목 상세 · AI 리포트 만들기", () => {
     fireEvent.click(toggle);
     expect(within(tools).getByText(/Agent 워크플로우\(Orchestrator·Worker\)/)).toBeTruthy();
     expect(await within(tools).findByText(/교차검증 분석 1회 예상 비용 약 \$/)).toBeTruthy(); // 예상 비용도 여기 (교차검증 카드에는 남은 횟수만)
-    fireEvent.click(await within(tools).findByRole("switch", { name: /장애 주입/ }));
-    expect(within(toggle).getByText("장애 주입 켬")).toBeTruthy();
-    fireEvent.click(await within(cta).findByRole("button", { name: "AI 리포트 만들기 · 장애 주입" }));
+    expect(within(tools).queryByRole("switch", { name: /장애 주입/ })).toBeNull();
+    expect(within(tools).queryByText(/장애 주입/)).toBeNull();
+    fireEvent.click(within(cta).getByRole("button", { name: "AI 리포트 만들기" }));
     await waitFor(() => expect(seen).toHaveLength(1));
     server.events.removeAllListeners();
-    expect(seen[0]).toMatchObject({ symbol: "005380", chaos: { enabled: true } });
+    expect(seen[0]).toEqual({ symbol: "005380" });
   });
 
   it("쉬운 보기에는 장애 주입(시연용 도구)이 없다", async () => {

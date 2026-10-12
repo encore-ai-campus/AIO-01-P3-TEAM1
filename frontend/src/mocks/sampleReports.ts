@@ -283,7 +283,6 @@ export function selectionSample(id: number, createdAt: string): ReportDetail {
     currentStep: null,
     requestedBy: "자동",
     source: "auto",
-    chaosEnabled: false,
     costUsd: 0.082,
     hasPdf: false,
     canDelete: false,
@@ -293,7 +292,6 @@ export function selectionSample(id: number, createdAt: string): ReportDetail {
     startedAt: createdAt,
     finishedAt: plus(createdAt, 37_900),
     content,
-    chaos: null,
     recovery: { failures: 0, recovered: 0, unrecovered: 0, injected: 0, recoveryMs: null, models: {} },
     state: {
       taskId: `report-${id}`,

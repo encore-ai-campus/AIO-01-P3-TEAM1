@@ -1,12 +1,15 @@
-// 리포트 탭의 "교차검증 분석" 묶음 (D-1): 여러 AI가 각자 계획을 내고 서로 검증한 분석 목록 → 분석 상세 /analyses/:id.
+// 리포트 탭 '오늘의 선별 결과' 카드의 "교차검증 분석" 칩 (D-1 — 2026-10-12 리포트 목록 칩에서 옮김, docs/DECISIONS.md 34장):
+// 여러 AI가 각자 계획을 내고 서로 검증한 분석 목록 → 분석 상세 /analyses/:id. 10개씩 쪽으로 넘긴다 (쪽은 주소의 ?cpage=).
 // 쉬운 보기는 과정만 쉬운 말로, 점수·확률·분석 시각 가격은 전문가 보기에서만 (docs/DECISIONS.md 13-1).
 // 쉬운 행의 둘째 줄은 행마다 다른 정보(제안 수 · 최종 승인 AI)다 — 같은 설명은 목록 위에 한 번만 (훑어보는 비용을 줄인다).
 // 분석 시각 가격은 장마감 기준이 아니다 (일부러 둔 예외 — 화면 "분석 시각 가격").
+import { useEffect } from "react";
 import { Link } from "react-router";
 import { errorMessage } from "../../api/client";
 import { useAnalyses } from "../../api/queries";
 import type { AnalysisSummary } from "../../api/types";
 import { revealList, useRevealAfterLoading } from "../../hooks/useMotionState";
+import { usePageParam } from "../../hooks/usePageParam";
 import { cn } from "../../lib/cn";
 import { formatDateTime, formatPercent, formatPrice, formatRequester } from "../../lib/format";
 import { ANALYSIS_PRICE_LABEL } from "../../lib/plainText";
@@ -14,7 +17,10 @@ import { CROSS_CHECK_TEXT, crossCheckLine } from "../../lib/reports";
 import { Icon } from "../Icon";
 import { EmptyState, ErrorState } from "../ui";
 import { ListSkeleton } from "./ListSkeleton";
+import { Pager } from "./Pager";
 import { VerdictText } from "./VerdictText";
+
+const PAGE_SIZE = 10;
 
 function Row({ a, expert }: { a: AnalysisSummary; expert: boolean }) {
   const t = CROSS_CHECK_TEXT[a.verdict];
@@ -58,11 +64,21 @@ function Row({ a, expert }: { a: AnalysisSummary; expert: boolean }) {
   );
 }
 
-export function CrossCheckList({ expert }: { expert: boolean }) {
-  const { data, isPending, isError, error, refetch, isFetching } = useAnalyses({ limit: 20 });
+export function CrossCheckList({ expert, anchorId }: { expert: boolean; anchorId?: string }) {
+  const [page, setPage] = usePageParam("cpage");
+  const { data, isPending, isError, error, refetch, isFetching, isPlaceholderData } = useAnalyses(
+    { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE },
+    { keepPrevious: true },
+  );
   // 처음 불러온 목록만 한 번 페이드 (캐시로 바로 그리면 움직이지 않는다)
   const reveal = useRevealAfterLoading(isPending);
   const rows = data?.results ?? [];
+  const pages = Math.ceil((data?.count ?? 0) / PAGE_SIZE);
+  // 없는 쪽(주소를 직접 고쳤거나 목록이 줄었다)이면 마지막 쪽으로
+  const over = data !== undefined && !isPlaceholderData && pages > 0 && page > pages;
+  useEffect(() => {
+    if (over) setPage(pages);
+  }, [over, pages, setPage]);
   return (
     <div>
       <p className="px-5 text-[13px] leading-snug text-sub">
@@ -74,18 +90,26 @@ export function CrossCheckList({ expert }: { expert: boolean }) {
         <div className="px-5 py-3">
           <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} retrying={isFetching} />
         </div>
-      ) : rows.length === 0 ? (
+      ) : rows.length === 0 && !over ? (
         <EmptyState icon="sparkle" compact className="px-5">
           아직 교차검증 분석이 없어요. 종목 화면의 &ldquo;AI 교차검증 분석&rdquo;으로 요청할 수 있어요.
         </EmptyState>
       ) : (
-        <ul aria-label="교차검증 분석 목록" {...revealList(reveal)} className="mt-2 divide-y divide-line">
-          {rows.map((a) => (
-            <li key={a.id}>
-              <Row a={a} expert={expert} />
-            </li>
-          ))}
-        </ul>
+        <>
+          <ul
+            aria-label="교차검증 분석 목록"
+            aria-busy={isPlaceholderData || undefined}
+            {...revealList(reveal)}
+            className={cn("mt-2 divide-y divide-line transition-opacity duration-fast", isPlaceholderData && "opacity-60")}
+          >
+            {rows.map((a) => (
+              <li key={a.id}>
+                <Row a={a} expert={expert} />
+              </li>
+            ))}
+          </ul>
+          <Pager page={Math.min(page, Math.max(pages, 1))} total={pages} onChange={setPage} name="교차검증 분석" anchorId={anchorId} />
+        </>
       )}
     </div>
   );

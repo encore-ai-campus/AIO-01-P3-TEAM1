@@ -155,7 +155,7 @@ export function eventText(e: TraceEvent, plan: ExecutionPlan | undefined): Event
   const injected = d.injected === true ? ["주입"] : [];
   switch (e.action) {
     case "workflow_started":
-      return { text: `${what(plan)} 실행 시작${d.chaos === true ? " · 장애 주입 켜짐" : ""}`, tone: "info", icon: "play", tags: [] };
+      return { text: `${what(plan)} 실행 시작`, tone: "info", icon: "play", tags: [] };
     case "workflow_completed":
       return { text: isSelection(plan) ? "선정 완료" : "리포트 완성", tone: "ok", icon: "check", tags: [] };
     case "workflow_failed":
@@ -872,12 +872,6 @@ export function reasonsRisksView(draft: DraftView, opinion: ReportOpinion | null
 
 /** 교차검증 분석 판정의 전문가 표기 (BUY 매수 · PASS 지켜보기 — 리포트 의견 '지켜보기'와 같은 말, UX-5). */
 export const VERDICT_TEXT: Record<AnalysisSummary["verdict"], string> = { BUY: "매수", PASS: "지켜보기" };
-
-/**
- * 팀 피드(리포트 목록의 팀 리포트)에 보일 리포트인지 (UX-15): 남이 신청한 실패 리포트와 자동 리포트 실패는 뺀다 — 서비스가 고장 난 것처럼 보인다.
- * 내 실패는 '다시 만들기'와 함께 남긴다. mine: 내 리포트인지.
- */
-export const inTeamFeed = (r: Pick<ReportSummary, "status">, mine: boolean): boolean => r.status !== "failed" || mine;
 
 /** 최근 완성 리포트(최대 take개)의 시작~끝 시간 (ms, 짧은 순). */
 function recentDurations(reports: Pick<ReportSummary, "status" | "startedAt" | "finishedAt">[], take: number): number[] {

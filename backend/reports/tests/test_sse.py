@@ -7,6 +7,7 @@ import json
 import pytest
 
 from reports import sse
+from reports.models import Report
 from reports.orchestration import state
 
 from .conftest import make_report
@@ -70,6 +71,20 @@ def test_login_and_not_found_are_json(client, api, user):
     client.force_login(user)
     response = client.get("/api/reports/999/events")
     assert response.status_code == 404 and response.json() == {"detail": "리포트를 찾을 수 없습니다."}
+
+
+def test_chaos_run_is_not_found(api, user, clock):
+    """장애 주입 실행(source "chaos")은 SSE도 404 (관리 서버 전용, DECISIONS 35장). 연결 중에 장애 주입 실행이 되면(옛 리포트를 옮긴
+    마이그레이션) 스트림이 끝난다 — 두 확인 모두 payloads.public_reports."""
+    for owner in (None, user):
+        run = make_report(owner, source=Report.CHAOS, chaos={"enabled": True})
+        response = api.get(events_url(run))
+        assert response.status_code == 404 and response.json() == {"detail": "리포트를 찾을 수 없습니다."}
+
+    report = make_report(user)
+    clock["hooks"] = {1: lambda: Report.objects.filter(pk=report.pk).update(source=Report.CHAOS)}
+    messages = read(api.get(events_url(report)))
+    assert [event for event, _, _ in messages] == ["state"] and len(clock["sleeps"]) == 1
 
 
 def test_finished_report_sends_state_trace_end(api, finished, clock):

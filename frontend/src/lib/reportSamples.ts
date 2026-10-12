@@ -27,10 +27,10 @@ export function sampleRecoveryStats(days: number): RecoveryStats {
       { worker: "fundamental_agent", failures: 2, recovered: 1 },
     ],
     recent: [
-      { reportId: 2, symbol: "005930", worker: "news_agent", errorType: "timeout", injected: true, recovered: true, recoveryMs: 3140, at: "2026-10-04T10:12:04+09:00" },
-      { reportId: 2, symbol: "005930", worker: "report_agent", errorType: "bad_output", injected: true, recovered: true, recoveryMs: 5210, at: "2026-10-04T10:12:11+09:00" },
-      { reportId: 1, symbol: "000660", worker: "fundamental_agent", errorType: "server_error", injected: false, recovered: false, recoveryMs: null, at: "2026-10-03T15:40:22+09:00" },
-      { reportId: 1, symbol: "000660", worker: "market_agent", errorType: "timeout", injected: true, recovered: true, recoveryMs: 1890, at: "2026-10-03T15:40:09+09:00" },
+      { reportId: 2, symbol: "005930", worker: "news_agent", errorType: "timeout", injected: true, recovered: true, recoveryMs: 3140, at: "2026-10-04T10:12:04+09:00", chaos: true },
+      { reportId: 2, symbol: "005930", worker: "report_agent", errorType: "bad_output", injected: true, recovered: true, recoveryMs: 5210, at: "2026-10-04T10:12:11+09:00", chaos: true },
+      { reportId: 1, symbol: "000660", worker: "fundamental_agent", errorType: "server_error", injected: false, recovered: false, recoveryMs: null, at: "2026-10-03T15:40:22+09:00", chaos: false },
+      { reportId: 1, symbol: "000660", worker: "market_agent", errorType: "timeout", injected: false, recovered: true, recoveryMs: 1890, at: "2026-10-03T15:40:09+09:00", chaos: false },
     ],
   };
 }

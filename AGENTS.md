@@ -91,7 +91,7 @@ deploy/                compose.dev.yml(로컬 Redis + 선택 PostgreSQL), docker
                        Dockerfile(web·engine), nginx/, .env.docker.example, remote_deploy.sh(서버 배포·되돌리기), smoke_test.sh
 .github/workflows/     ci.yml(검사), deploy.yml(main: 검사 → 이미지 → 서버 배포 → 관리 서버 배포 기록. admin/만 바뀌면 안 돈다),
                        admin-ci.yml(관리 서버 검사), admin-deploy.yml(main의 admin/ 변경: 검사 → 이미지 → 관리 서버 배포)
-admin/                 관리 서버 (조회 전용, 서비스와 따로 둔 서버·검사·배포): API.md(계약), server/(FastAPI 관리자 백엔드 + MCP, 자기 uv 프로젝트),
+admin/                 관리 서버 (조회 중심 — 쓰기는 MCP 토큰 만들기와 장애 주입 신청(서명한 서비스 내부 API로, DECISIONS 35장)뿐, 서비스와 따로 둔 서버·검사·배포): API.md(계약), server/(FastAPI 관리자 백엔드 + MCP, 자기 uv 프로젝트),
                        web/(관리자 화면, 자기 npm 패키지), deploy/(compose·읽기 전용 DB 계정 SQL·remote_deploy.sh), recovery_cases.json(복구 셈법
                        기준 사례 — backend/reports 테스트도 읽는다). 서비스 코드와 서로 import하지 않는다 (README.md).
                        2026-10-08 별도 저장소 SHS5029/paper_admin으로 뺐다가 같은 날 다시 합침 (그 저장소는 더 쓰지 않는다)

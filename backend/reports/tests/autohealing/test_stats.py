@@ -193,7 +193,7 @@ def test_stats_recent_row_shape_and_order(user):
     trace.fail("market_agent", 40, error="bad_output")
     row, older = stats.recovery_stats(1, NOW)["recent"]
     assert row == {"reportId": trace.report.id, "symbol": "005930", "worker": "market_agent", "errorType": "bad_output",
-                   "injected": False, "recovered": False, "recoveryMs": None, "at": "2026-10-07T10:00:40+09:00"}
+                   "injected": False, "recovered": False, "recoveryMs": None, "at": "2026-10-07T10:00:40+09:00", "chaos": False}
     assert (older["worker"], older["recovered"], older["recoveryMs"], older["injected"]) == ("news_agent", True, 1500, True)
 
 
@@ -269,3 +269,16 @@ def timezone_now_kst():
     from django.utils import timezone
 
     return timezone.now().astimezone(KST)
+
+
+def test_stats_recent_marks_chaos_runs(user):
+    """장애 주입 실행(source "chaos")의 장애는 recent에 chaos: true — 서비스 /ops가 서비스 상세(404)로 링크하지 않게 (DECISIONS 35장)."""
+    trace = at_day(user, NOW - timedelta(hours=1))
+    trace.report.source = Report.CHAOS
+    trace.report.save(update_fields=["source"])
+    trace.start("news_agent")
+    trace.fail("news_agent", 30, injected=True)
+    trace.done("news_agent", 31.5)
+    result = stats.recovery_stats(1, NOW)
+    assert [r["chaos"] for r in result["recent"]] == [True]
+    assert (result["failures"], result["injected"]) == (1, 1)   # 지표에는 그대로 센다

@@ -63,7 +63,7 @@ const squash = (s: string) => s.replace(/\s+/g, "");
 const persuasive = (text: string) => PERSUASION.filter((p) => squash(text).includes(squash(p)));
 
 describe("쉬운 보기 — 리포트 목록", () => {
-  it("만들기 카드·오늘 남은 횟수·칩, 카드에 AI 의견·한 줄 요약·상태 (장애 주입·작업 계획·개념 문서·선별은 숨김)", async () => {
+  it("만들기 카드·오늘 남은 횟수·칩, 카드에 AI 의견·한 줄 요약·상태 (장애 주입·작업 계획·개념 문서는 숨김, 선별 결과는 보임)", async () => {
     freezeTime(NOW);
     const { buy } = samples();
     blockPreview(recOf(buy.id).id);
@@ -74,11 +74,12 @@ describe("쉬운 보기 — 리포트 목록", () => {
     expect(screen.queryByRole("switch", { name: /장애 주입/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /작업 계획\(Planner\) 미리 보기/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /개념 문서/ })).toBeNull();
-    expect(screen.queryByText("오늘의 선별 결과")).toBeNull();
+    // 오늘의 선별 결과는 쉬운 보기에도 (2026-10-12, DECISIONS 34장 — 자세한 확인은 selection.test.tsx)
+    expect(screen.getByRole("heading", { name: "오늘의 선별 결과" })).toBeTruthy();
     expect(screen.queryByText("Agent 실행은 아직 구현되지 않았습니다. 신청은 기록되고 구조만 볼 수 있습니다.")).toBeNull();
 
     const chips = screen.getByRole("group", { name: "리포트 묶음" });
-    expect(within(chips).getAllByRole("button").map((b) => b.textContent)).toEqual(["내 리포트", "팀 리포트", "교차검증 분석"]);
+    expect(within(chips).getAllByRole("button").map((b) => b.textContent)).toEqual(["내 리포트", "팀 리포트"]);
     expect(within(chips).getByRole("button", { name: "팀 리포트" }).getAttribute("aria-pressed")).toBe("true");
 
     const list = await screen.findByRole("list", { name: "리포트 목록" });
@@ -148,9 +149,9 @@ describe("쉬운 보기 — 리포트 목록", () => {
     );
     expect(asked.some((u) => u.startsWith("/api/reports?") && u.includes("mine=1"))).toBe(true);
 
-    click("교차검증 분석");
+    fireEvent.click(within(screen.getByRole("group", { name: "선별 결과 묶음" })).getByRole("button", { name: "교차검증 분석" }));
     const rows = within(await screen.findByRole("list", { name: "교차검증 분석 목록" })).getAllByRole("listitem");
-    expect(rows.length).toBe(db.listAnalyses(null, null).length > 20 ? 20 : db.listAnalyses(null, null).length);
+    expect(rows.length).toBe(Math.min(db.listAnalyses(null, null).length, 10));
     const first = db.listAnalyses(null, null)[0];
     expect(rows[0].querySelector("a")?.getAttribute("href")).toBe(`/analyses/${first.id}`);
     expect(within(rows[0]).getByText(lib.CROSS_CHECK_TEXT[first.verdict].badge)).toBeTruthy();
@@ -169,9 +170,11 @@ describe("쉬운 보기 — 리포트 목록", () => {
 
   it("주린이모드 끔(alice)은 전문가 목록, '쉬운 보기'로 이 화면만 쉬운 목록", async () => {
     renderApp("/reports");
-    expect(await screen.findByRole("switch", { name: /장애 주입/ })).toBeTruthy();
+    // 전문가 보기에만 있는 팀 리포트 거르기(전체·자동)로 본다 — 장애 주입 토글은 2026-10-12에 서비스에서 지웠다 (DECISIONS 35장)
+    expect(await screen.findByRole("group", { name: "리포트 거르기" })).toBeTruthy();
+    expect(screen.queryByRole("switch", { name: /장애 주입/ })).toBeNull();
     click("쉬운 보기");
-    await waitFor(() => expect(screen.queryByRole("switch", { name: /장애 주입/ })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("group", { name: "리포트 거르기" })).toBeNull());
     expect(screen.getByRole("button", { name: "전문가 보기" })).toBeTruthy(); // 머리의 좁은 전환 칩: 누르면 갈 보기 이름
     expect(await screen.findByText("오늘 2번 더 만들 수 있어요")).toBeTruthy(); // 앨리스는 오늘 1개 신청
   });
@@ -557,7 +560,7 @@ describe("쉬운 보기 — 리포트 상세", () => {
     expect(series.createPriceLine).toHaveBeenCalledTimes(3);
   });
 
-  it("만들지 못한 리포트: 사유 코드의 쉬운 문장 + 다시 만들기 (같은 종목, 장애 주입 없이)", async () => {
+  it("만들지 못한 리포트: 사유 코드의 쉬운 문장 + 다시 만들기 (같은 종목)", async () => {
     freezeTime(NOW);
     const { failed } = samples();
     renderApp(`/reports/${failed.id}`, "bob");
@@ -584,7 +587,6 @@ describe("쉬운 보기 — 리포트 상세", () => {
     await waitFor(() => expect(db.listReports("086520")).toHaveLength(2));
     const made = db.listReports("086520")[0];
     expect(made.status).toBe("requested");
-    expect(made.chaosEnabled).toBe(false);
     expect(await screen.findByRole("heading", { name: "만들 차례를 기다리는 중이에요" })).toBeTruthy();
   });
 

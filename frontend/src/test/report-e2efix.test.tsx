@@ -116,9 +116,6 @@ describe("팀 피드의 실패 리포트 (UX-15)", () => {
     const list = await screen.findByRole("list", { name: "리포트 목록" });
     await waitFor(() => expect(within(list).getByText("NAVER")).toBeTruthy());
     expect(within(list).queryByText("에코프로")).toBeNull();
-    expect(lib.inTeamFeed({ status: "failed" }, false)).toBe(false);
-    expect(lib.inTeamFeed({ status: "failed" }, true)).toBe(true);
-    expect(lib.inTeamFeed({ status: "completed" }, false)).toBe(true);
   });
 
   it("내 실패 리포트는 팀 리포트에도 남고 '다시 만들기'로 같은 종목을 새로 만든다", async () => {

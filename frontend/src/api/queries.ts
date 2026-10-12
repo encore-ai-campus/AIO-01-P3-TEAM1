@@ -77,6 +77,7 @@ export interface AnalysisParams {
   verdict?: Verdict;
   mine?: boolean; // 내가 요청한 분석만 (?mine=1)
   limit?: number;
+  offset?: number; // 페이지 (리포트 탭 교차검증 분석 목록 — 10개씩)
 }
 
 export interface ReportParams {
@@ -84,7 +85,9 @@ export interface ReportParams {
   source?: "user" | "auto";
   team?: ReportTeam; // 없으면 서버 기본(stock_report). stock_selection은 하루 한 번 도는 선정 실행 목록
   mine?: boolean; // 내가 신청한 리포트만 (?mine=1)
+  feed?: "team"; // 팀 피드: 실패는 내 것만 (UX-15 — 서버가 거르므로 count가 맞다, DECISIONS 34장)
   limit?: number;
+  offset?: number; // 페이지 (리포트 탭 목록 — 10개씩)
 }
 
 export const keys = {
@@ -239,7 +242,7 @@ export function useAnalyses(params: AnalysisParams = {}, opts: ListOptions = {})
     queryKey: keys.analyses(params),
     queryFn: () =>
       api.get<Page<AnalysisSummary>>(
-        `/api/analyses${qs({ symbol: params.symbol, verdict: params.verdict, mine: params.mine ? 1 : null, limit: params.limit ?? 50 })}`,
+        `/api/analyses${qs({ symbol: params.symbol, verdict: params.verdict, mine: params.mine ? 1 : null, limit: params.limit ?? 50, offset: params.offset || null })}`,
       ),
     ...live(POLL.analyses),
     ...keepIf(opts.keepPrevious),
@@ -287,7 +290,15 @@ export function useReports(params: ReportParams = {}, opts: ListOptions = {}) {
     queryKey: keys.reports(params),
     queryFn: () =>
       api.get<Page<ReportSummary>>(
-        `/api/reports${qs({ symbol: params.symbol, source: params.source, team: params.team, mine: params.mine ? 1 : null, limit: params.limit ?? 50 })}`,
+        `/api/reports${qs({
+          symbol: params.symbol,
+          source: params.source,
+          team: params.team,
+          mine: params.mine ? 1 : null,
+          feed: params.feed,
+          limit: params.limit ?? 50,
+          offset: params.offset || null,
+        })}`,
       ),
     ...live(POLL.reports),
     ...keepIf(opts.keepPrevious),

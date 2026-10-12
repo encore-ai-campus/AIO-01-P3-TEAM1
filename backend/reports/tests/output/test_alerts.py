@@ -148,6 +148,20 @@ def test_selection_runs_are_skipped_even_with_source_user(user, status):
     assert [n.link for n in notes(user)] == [f"/reports/{report.id}"]
 
 
+@pytest.mark.parametrize("status", [Report.COMPLETED, Report.FAILED])
+def test_chaos_runs_are_skipped(user, status):
+    """장애 주입 실행(source "chaos")은 알리지 않고 추천도 만들지 않는다 (관리 서버 전용, DECISIONS 35장).
+    2026-10-12 전에 팀원이 켜고 신청해 source만 옮긴 리포트(신청자 있음)도 — buy 초안이 있어도."""
+    for owner in (user, None):
+        run = finished(owner, status=status, draft=DRAFT, reason="agent_failed" if status == Report.FAILED else None)
+        Report.objects.filter(pk=run.pk).update(source=Report.CHAOS, chaos={"enabled": True})
+        run.refresh_from_db()
+        alerts.notify_finished(run)
+    assert alerts.sweep_finished(NOW, Log()) == 0
+    assert not Notification.objects.exists() and not OutboxMessage.objects.exists()
+    assert not Recommendation.objects.exists()
+
+
 def test_each_user_gets_their_own_alert(user, other):
     mine, theirs = finished(user, status=Report.FAILED, reason="timeout"), finished(other, draft=DRAFT | {"verdict": "hold"})
     assert alerts.sweep_finished(NOW, Log()) == 2

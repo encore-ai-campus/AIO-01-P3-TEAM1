@@ -190,6 +190,78 @@ function failedSelection(id: number, reason: string): ReportDetail {
   };
 }
 
+describe("오늘의 선별 결과 — 쉬운 보기 · 교차검증 통합 (DECISIONS 34장)", () => {
+  it("쉬운 보기(밥)도 보인다: 고른 종목·테마·AI가 고른 이유만 — 점수·거래대금 순위·AI 순위·뺀 종목·탈락 사유는 없다", async () => {
+    renderApp("/reports", "bob");
+    const box = await panel();
+    await waitFor(() => expect(picks(box)).toHaveLength(3));
+    expect(within(box).getByText("AI 선정 팀이 고르고 안전장치가 거른 종목")).toBeTruthy();
+    expect(within(box).getByText(/거래가 많은 \d+개 종목 중 3개를 골랐어요/)).toBeTruthy();
+    expect(within(box).queryByText(/후보 8개/)).toBeNull();
+    const first = picks(box)[0];
+    expect(within(first).getByText("SK하이닉스")).toBeTruthy();
+    expect(within(first).getByText("반도체")).toBeTruthy();
+    expect(within(first).getByText("HBM 공급 확대 뉴스가 이어졌고 외국인 순매수가 사흘째예요")).toBeTruthy();
+    expect(within(first).queryByText("AI 1위")).toBeNull();
+    expect(within(first).queryByText(/거래대금/)).toBeNull();
+    const score = sampleScreening().picks[0].score;
+    expect(within(first).queryByText(String(score))).toBeNull();
+    expect(within(box).queryByRole("button", { name: /안전장치가 뺀 종목/ })).toBeNull();
+    expect(within(box).queryByText(/^탈락/)).toBeNull();
+  });
+
+  it("종목마다 가장 최근 교차검증 분석으로 — 있으면 결과(쉬운 말), 없으면 종목 화면에서 받기", async () => {
+    renderApp("/reports", "bob");
+    const box = await panel();
+    await waitFor(() => expect(picks(box)).toHaveLength(3));
+    for (const [i, p] of sampleScreening().picks.entries()) {
+      const a = db.listAnalyses(String(p.symbol), null)[0];
+      const row = picks(box)[i];
+      if (a) {
+        const link = await within(row).findByRole("link", { name: new RegExp(`교차검증 결과 보기 — ${lib.CROSS_CHECK_TEXT[a.verdict].badge}`) });
+        expect(link.getAttribute("href")).toBe(`/analyses/${a.id}`);
+      } else {
+        expect(within(row).getByRole("link", { name: /종목에서 교차검증 받기/ }).getAttribute("href")).toBe(`/stocks/${String(p.symbol)}`);
+      }
+    }
+  });
+
+  it("교차검증 분석 칩: 카드 안의 목록(10개씩 쪽). 예전 주소 ?list=analyses도 이 칩으로, 리포트 목록 칩은 내·팀 둘", async () => {
+    const base = db.listAnalyses(null, null)[0];
+    const all = Array.from({ length: 13 }, (_, i) => ({ ...base, id: 500 + i, symbol: "005930", name: `분석${i + 1}` }));
+    server.use(
+      http.get("*/api/analyses", ({ request }) => {
+        const u = new URL(request.url);
+        const limit = Number(u.searchParams.get("limit"));
+        const offset = Number(u.searchParams.get("offset") ?? 0);
+        return HttpResponse.json({ count: all.length, results: all.slice(offset, offset + limit) });
+      }),
+    );
+    renderApp("/reports?list=analyses", "bob");
+    const box = await panel();
+    const group = within(box).getByRole("group", { name: "선별 결과 묶음" });
+    expect(within(group).getByRole("button", { name: "교차검증 분석" }).getAttribute("aria-pressed")).toBe("true");
+    const reportChips = screen.getByRole("group", { name: "리포트 묶음" });
+    expect(within(reportChips).getAllByRole("button").map((b) => b.textContent)).toEqual(["내 리포트", "팀 리포트"]);
+    expect(within(reportChips).getByRole("button", { name: "팀 리포트" }).getAttribute("aria-pressed")).toBe("true");
+
+    const rows = () => within(within(box).getByRole("list", { name: "교차검증 분석 목록" })).getAllByRole("listitem");
+    await waitFor(() => expect(rows()).toHaveLength(10));
+    expect(rows()[0].querySelector("a")?.getAttribute("href")).toBe("/analyses/500");
+    const nav = within(box).getByRole("navigation", { name: "교차검증 분석 페이지" });
+    fireEvent.click(within(nav).getByRole("button", { name: "교차검증 분석 2페이지" }));
+    await waitFor(() => expect(rows()).toHaveLength(3));
+    expect(rows()[0].querySelector("a")?.getAttribute("href")).toBe("/analyses/510");
+
+    // 리포트 목록 칩을 바꿔도 교차검증 칩은 그대로 (주소 키가 다르다)
+    fireEvent.click(within(reportChips).getByRole("button", { name: "내 리포트" }));
+    expect(within(group).getByRole("button", { name: "교차검증 분석" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(within(group).getByRole("button", { name: "오늘의 선별" }));
+    expect(await within(box).findByRole("list", { name: "선별 종목" })).toBeTruthy();
+    expect(within(box).queryByRole("list", { name: "교차검증 분석 목록" })).toBeNull();
+  });
+});
+
 describe("선정 실행 상세", () => {
   it("주린이모드여도 과정 화면: 선정 결과 탭(본문, PDF 없음) · 진행 기록(그래프·타임라인) · 자세히(State, 예시 재생 없음), 보기 전환 없음", async () => {
     const id = db.addSampleSelection();
@@ -338,7 +410,7 @@ describe("팀별 문장·진행 단계 (lib)", () => {
       step: 1, actor: "orchestrator", action, status: "completed", provider: null, model: null, latencyMs: null, details, at: "2026-10-06T08:00:00+09:00",
     });
     const plan = selectionPlan();
-    expect(lib.eventText(e("workflow_started", { chaos: true }), plan)?.text).toBe("선정 실행 시작 · 장애 주입 켜짐");
+    expect(lib.eventText(e("workflow_started", { chaos: true }), plan)?.text).toBe("선정 실행 시작"); // 장애 주입 표시는 서비스에 없다 (DECISIONS 35장)
     expect(lib.eventText(e("workflow_completed"), plan)?.text).toBe("선정 완료");
     expect(lib.eventText(e("workflow_failed", { reason: "no_llm" }), plan)?.text).toBe("선정 실패 — no_llm");
     expect(lib.eventText(e("workflow_started"), undefined)?.text).toBe("리포트 실행 시작");

@@ -1,6 +1,7 @@
 """장애 주입 (docs/tasks/00-공통.md 부록 A4 T4-6, docs/tasks/00-공통.md 5절): 설정 검사(chaos.parse), 재현 가능한 판정(should_fail),
-호출기의 실제 호출 직전 주입(주입 뒤는 진짜 복구 경로), 리포트 전용 Circuit Breaker, 리포트 신청의 chaos,
-장애 주입을 켠 리포트가 끝까지 나오는지, 다른 리포트를 막지 않는지."""
+호출기의 실제 호출 직전 주입(주입 뒤는 진짜 복구 경로), 리포트 전용 Circuit Breaker, 공개 신청은 chaos를 받지 않는 것(400 — 2026-10-12
+관리 서버 전용, DECISIONS 35장. 켜는 내부 API는 test_control.py), 장애 주입을 켠 리포트가 끝까지 나오는지, 다른 리포트를 막지 않는지.
+장애 주입 리포트는 ORM으로 만든다 (실행은 서비스 엔진이 그대로 한다)."""
 import pytest
 
 from config import engine
@@ -201,27 +202,21 @@ def post(client, body):
 
 
 @pytest.mark.django_db
-def test_post_saves_chaos(api, stocks, report_limit):
-    response = post(api, {"symbol": "005930", "chaos": {"enabled": True, "probability": 0.3, "seed": 99}})
-    assert response.status_code == 201
-    body = response.json()
-    expected = {"enabled": True, "probability": 0.3, "errorTypes": ["timeout", "server_error", "bad_output"],
-                "workers": None, "scope": "primary", "seed": 99}
-    assert body["chaos"] == expected and body["chaosEnabled"] is True
-    assert Report.objects.get().chaos == expected
+@pytest.mark.parametrize("value", [{"enabled": True, "probability": 0.3, "seed": 99}, {"enabled": False}, None, False, {},
+                                   {"enabled": True, "scope": "everything"}, "on"])
+def test_post_with_chaos_is_400(api, stocks, report_limit, value):
+    """공개 신청은 chaos를 받지 않는다 — 들어 있으면 값과 상관없이 400 (캐시된 옛 화면이 보내도 장애 주입 없이 조용히 만들어지지 않게).
+    증권사를 부르기 전에 막는다."""
+    response = post(api, {"symbol": "005930", "chaos": value})
+    assert response.status_code == 400 and response.json() == {"detail": "장애 주입은 관리 서버에서만 켭니다."}
+    assert stocks["calls"] == [] and not Report.objects.exists()
 
 
 @pytest.mark.django_db
-def test_post_without_or_disabled_chaos(api, stocks, report_limit):
-    assert post(api, {"symbol": "005930"}).json()["chaos"] is None
-    assert post(api, {"symbol": "AAPL", "chaos": {"enabled": False}}).json()["chaos"] is None
-
-
-@pytest.mark.django_db
-def test_post_bad_chaos_is_400(api, stocks, report_limit):
-    response = post(api, {"symbol": "005930", "chaos": {"enabled": True, "scope": "everything"}})
-    assert response.status_code == 400 and response.json() == {"detail": "chaos.scope는 primary 또는 all입니다."}
-    assert not Report.objects.exists()
+def test_post_without_chaos_saves_none(api, stocks, report_limit):
+    body = post(api, {"symbol": "005930"}).json()
+    report = Report.objects.get(pk=body["id"])
+    assert (report.source, report.chaos) == (Report.USER, None) and "chaos" not in body
 
 
 # --- 리포트 전체 ---

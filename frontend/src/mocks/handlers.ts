@@ -1,7 +1,7 @@
 // docs/API.md의 모든 엔드포인트를 흉내 내는 MSW 핸들러. 화면이 부르는 엔드포인트는 모두 여기 있어야 한다
 // (테스트는 onUnhandledRequest: "error"). 같은 앞부분의 경로는 구체적인 것(/quota 등)을 :id보다 먼저 둔다.
 import { delay, http, HttpResponse, type DefaultBodyType, type StrictRequest } from "msw";
-import type { ChaosRequest, OrderRequest } from "../api/types";
+import type { OrderRequest } from "../api/types";
 import * as db from "./db";
 import { sampleRecoveryStats } from "../lib/reportSamples";
 import { reportPlan, selectionPlan, type MockUser } from "./seed";
@@ -238,15 +238,23 @@ export const handlers = [
       const sp = urlOf(ctx).searchParams;
       return page(
         urlOf(ctx),
-        db.listReports(sp.get("symbol"), { source: sp.get("source"), team: sp.get("team"), mineUserId: sp.get("mine") === "1" ? u.id : null, viewerId: u.id }),
+        db.listReports(sp.get("symbol"), {
+          source: sp.get("source"),
+          team: sp.get("team"),
+          mineUserId: sp.get("mine") === "1" ? u.id : null,
+          viewerId: u.id,
+          feed: sp.get("feed"),
+        }),
       );
     }),
   ),
   http.post(
     "*/api/reports",
     route(async (u, { request }) => {
-      const body = await json<{ symbol?: string; chaos?: ChaosRequest }>(request);
-      const { report, created } = db.requestReport(u, String(body.symbol ?? ""), body.chaos);
+      const body = await json<Record<string, unknown>>(request);
+      // 서버와 같이: 장애 주입은 관리 서버에서만 켠다 (DECISIONS 35장)
+      if ("chaos" in body) throw new db.MockError(400, "장애 주입은 관리 서버에서만 켭니다.");
+      const { report, created } = db.requestReport(u, String(body.symbol ?? ""));
       return HttpResponse.json(report, { status: created ? 201 : 200 });
     }),
   ),

@@ -76,6 +76,16 @@ function Outcome({ recovered }: { recovered: boolean }) {
   );
 }
 
+/** 최근 사례 한 줄의 감싸개: 서비스 리포트면 그 진행 기록으로 가는 링크, 장애 주입 실행이면 링크 없이 (서비스에 화면이 없다 — 관리 서버에서 본다, DECISIONS 35장). */
+function CaseLink({ x, className, children }: { x: RecoveryStats["recent"][number]; className: string; children: ReactNode }) {
+  if (x.chaos) return <div className={cn(className, "hover:bg-transparent")}>{children}</div>;
+  return (
+    <Link to={`/reports/${x.reportId}?tab=run`} className={className}>
+      {children}
+    </Link>
+  );
+}
+
 function Recent({ rows, worker }: { rows: RecoveryStats["recent"]; worker: (id: string) => string }) {
   return (
     <Card aria-labelledby="recent-title" className="px-0 pb-2">
@@ -86,7 +96,7 @@ function Recent({ rows, worker }: { rows: RecoveryStats["recent"]; worker: (id: 
       <ul aria-label="최근 장애 사례" className="mt-2 divide-y divide-line lg:hidden">
         {rows.map((x, i) => (
           <li key={i}>
-            <Link to={`/reports/${x.reportId}?tab=run`} className="press-row block px-5 py-3 hover:bg-fill/60">
+            <CaseLink x={x} className="press-row block px-5 py-3 hover:bg-fill/60">
               <span className="flex flex-wrap items-center gap-1.5 text-[15px] font-semibold">
                 {worker(x.worker)}
                 <Outcome recovered={x.recovered} />
@@ -95,8 +105,9 @@ function Recent({ rows, worker }: { rows: RecoveryStats["recent"]; worker: (id: 
               <span className="mt-0.5 block text-[13px] text-mute">
                 {x.symbol} · {ERROR_LABEL[x.errorType]}
                 {x.recovered && ` · ${formatLatency(x.recoveryMs)} 만에 복구`} · {formatDateTime(x.at)}
+                {x.chaos && " · 관리 서버에서 보기"}
               </span>
-            </Link>
+            </CaseLink>
           </li>
         ))}
       </ul>
@@ -130,9 +141,13 @@ function Recent({ rows, worker }: { rows: RecoveryStats["recent"]; worker: (id: 
                 <td className="tabular-nums">{formatLatency(x.recoveryMs)}</td>
                 <td className="text-right">
                   {/* 파란 글자는 brand-ink (brand는 흰 바탕 3.7:1 — 버튼 바탕·아이콘용) */}
-                  <Link to={`/reports/${x.reportId}?tab=run`} className="font-semibold text-brand-ink hover:underline">
-                    리포트 #{x.reportId}
-                  </Link>
+                  {x.chaos ? (
+                    <span className="text-[13px] text-mute">장애 주입 #{x.reportId} · 관리 서버</span>
+                  ) : (
+                    <Link to={`/reports/${x.reportId}?tab=run`} className="font-semibold text-brand-ink hover:underline">
+                      리포트 #{x.reportId}
+                    </Link>
+                  )}
                 </td>
               </tr>
             ))}

@@ -5,18 +5,22 @@
 (stock_selection — 엔진이 만든다, docs/design/AI_AGENT_WORKFLOW.md). 목록·계획은 기본이 종목 리포트이고 ?team=으로 고른다.
 신청은 늘 종목 리포트이고, 선정 실행에는 PDF가 없다.
 지운 리포트(deleted_at — 신청한 팀원이 지움, autotrade/hide.py)는 목록·상세·PDF·SSE에서 없는 것과 같다 (비용·한도·복구 통계는 그대로 센다).
+장애 주입 실행(source "chaos")도 같다 (payloads.public_reports). 장애 주입은 공개 신청에서 받지 않고(400) 관리 서버가 아래 내부 API로만
+만든다 — 세션·CSRF 없이 서명만 본다 (autohealing/control.py, docs/API.md "장애 주입 내부 API", docs/DECISIONS.md 35장).
 """
 from datetime import date
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from django.http import FileResponse
+from django.db.models import Q
+from django.http import FileResponse, Http404
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.exceptions import NotFound
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from trading import market
@@ -26,17 +30,19 @@ from autotrade import hide
 from config.api import Rejected, page
 
 from .limits import budget, quota
-from .autohealing import chaos
+from .autohealing import control
 from .orchestration import registry
 from .models import Report
-from .payloads import detail, iso, nicknames, plan, summary
+from .payloads import detail, iso, nicknames, plan, public_reports, summary
 from .output.pdf import ensure_report_file
 
 KST = ZoneInfo("Asia/Seoul")
 TEAM_CHOICE = "team은 stock_report 또는 stock_selection입니다."
 SOURCE_CHOICE = "source는 user 또는 auto입니다."
+FEED_CHOICE = "feed는 team입니다."
 VIEWS = ("easy", "expert")   # PDF 판 (화면의 ?view와 같은 값)
 VIEW_CHOICE = "view는 easy 또는 expert입니다."
+CHAOS_ADMIN_ONLY = "장애 주입은 관리 서버에서만 켭니다."
 
 
 def choice(request, key: str, choices, message: str, default: str | None = None) -> str | None:
@@ -62,11 +68,14 @@ class ReportsView(APIView):
         """리포트 목록 (팀 전체 공용, 최신순). ?symbol=로 종목을, ?mine=1이면 내가 신청한 것만 (같이 쓸 수 있다).
 
         ?team= (기본 stock_report — 선정 실행은 ?team=stock_selection일 때만 나온다), ?source=user|auto. 모르는 값이면 400.
+        ?feed=team이면 팀 피드 — 실패는 내가 신청한 것만 남긴다 (UX-15).
+        리포트 탭 목록이 10개씩 서버 페이지로 넘기므로 거르기는 여기서 한다 (count도 거른 뒤의 수, docs/DECISIONS.md 34장).
+        장애 주입 실행은 어떤 조건에서도 나오지 않는다 (같은 날 만든 ?chaos=1 거르기는 지웠다 — 보내도 무시, 35장).
         """
         team = choice(request, "team", registry.TEAMS, TEAM_CHOICE, registry.TEAM)
         source = choice(request, "source", (Report.USER, Report.AUTO), SOURCE_CHOICE)
-        reports = (Report.objects.select_related("user").filter(team=team, deleted_at__isnull=True)
-                   .order_by("-created_at", "-id"))
+        feed = choice(request, "feed", ("team",), FEED_CHOICE)
+        reports = public_reports().select_related("user").filter(team=team).order_by("-created_at", "-id")
         if source:
             reports = reports.filter(source=source)
         symbol = (request.query_params.get("symbol") or "").strip().upper()
@@ -74,6 +83,8 @@ class ReportsView(APIView):
             reports = reports.filter(symbol=symbol)
         if request.query_params.get("mine") == "1":  # B8 (Claude). 자동 리포트는 신청자가 없어 빠진다
             reports = reports.filter(user=request.user)
+        if feed == "team":  # 남의 실패·자동 리포트 실패(신청자 없음)는 서비스가 고장 난 것처럼 보인다
+            reports = reports.filter(~Q(status=Report.FAILED) | Q(user=request.user))
         names = nicknames()
         return page(request, reports, lambda report: summary(report, names, request.user))
 
@@ -83,21 +94,20 @@ class ReportsView(APIView):
         (한도를 넘었어도). 하루 한도를 넘으면 429 {"detail", "limit", "used"}.
 
         순서 (docs/tasks/00-공통.md 2절 — 각 담당이 자기 한 줄을 이 자리 순서대로 더한다):
-        입력 검사(종목 → 4의 chaos.parse) → 같은 종목 진행 중이면 200 → Claude의 quota.check → 2의 budget.check → 생성.
+        입력 검사(chaos가 있으면 400 → 종목) → 같은 종목 진행 중이면 200 → Claude의 quota.check → 2의 budget.check → 생성.
+        본문에 chaos가 있으면 값과 상관없이 400이다 (2026-10-12, docs/DECISIONS.md 35장 — 캐시된 옛 화면이 보내도 장애 주입 없이
+        조용히 만들어지지 않게. 증권사를 부르기 전에 본다). 장애 주입은 관리 서버가 내부 API(ChaosRunsView)로만 켠다.
         """
         now = timezone.now()  # 한도를 센 시각과 생성 시각을 같게 (자정 무렵 신청이 다른 날로 세이지 않게)
-        symbol = request.data.get("symbol") if isinstance(request.data, dict) else None
-        if not isinstance(symbol, str) or not symbol.strip():
-            raise Rejected("종목코드를 입력하세요.")
-        item = market.stock_item(symbol)  # 증권사 조회 불가면 Unavailable(503)
-        if item is None:
-            raise Rejected("종목을 찾을 수 없습니다.")
-        chaos_config = chaos.parse(request.data.get("chaos"))  # 4: 장애 주입 설정 (잘못되면 400, 없거나 꺼져 있으면 None)
+        if isinstance(request.data, dict) and "chaos" in request.data:
+            raise Rejected(CHAOS_ADMIN_ONLY)
+        item = stock_of(request.data)
         with transaction.atomic():
             # 같은 사용자의 동시 신청(두 번 누름)을 줄 세운다 — 한도 검사도 이 잠금 안에서 한다
             get_user_model().objects.select_for_update().filter(pk=request.user.pk).first()
-            active = Report.objects.select_related("user").filter(
-                user=request.user, team=Report.STOCK_REPORT, symbol=item["symbol"], status__in=Report.ACTIVE,
+            active = Report.objects.select_related("user").filter(  # 옛 장애 주입 리포트(신청자가 있는 chaos)는 돌려주지 않는다
+                user=request.user, source=Report.USER, team=Report.STOCK_REPORT, symbol=item["symbol"],
+                status__in=Report.ACTIVE,
             ).order_by("id").first()
             if active is not None:
                 return Response(detail(active, request.user), status=status.HTTP_200_OK)
@@ -107,9 +117,20 @@ class ReportsView(APIView):
                 return Response(e.body(), status=e.status_code)
             budget.check(now)  # 팀 전체 AI 비용 예산
             report = Report.objects.create(user=request.user, team=Report.STOCK_REPORT, symbol=item["symbol"],
-                                           name=item["name"], market=item["market"], chaos=chaos_config,
-                                           created_at=now)
+                                           name=item["name"], market=item["market"], created_at=now)
         return Response(detail(report, request.user), status=status.HTTP_201_CREATED)
+
+
+def stock_of(data) -> dict:
+    """신청 본문의 종목(symbol) 확인 → 종목 정보 {"symbol", "name", "market", ...}. 비었으면·없는 종목이면 400, 증권사 조회 불가면 503.
+    공개 신청(ReportsView.post)과 장애 주입 내부 API(ChaosRunsView.post)가 같이 쓴다."""
+    symbol = data.get("symbol") if isinstance(data, dict) else None
+    if not isinstance(symbol, str) or not symbol.strip():
+        raise Rejected("종목코드를 입력하세요.")
+    item = market.stock_item(symbol)  # 증권사 조회 불가면 Unavailable(503)
+    if item is None:
+        raise Rejected("종목을 찾을 수 없습니다.")
+    return item
 
 
 class QuotaView(APIView):
@@ -122,8 +143,8 @@ class QuotaView(APIView):
 
 
 def visible(pk: int) -> Report:
-    """지우지 않은 리포트 하나 (없거나 지웠으면 404)."""
-    report = Report.objects.select_related("user").filter(pk=pk, deleted_at__isnull=True).first()
+    """서비스에 나오는 리포트 하나 (없거나 지웠거나 장애 주입 실행이면 404 — 상세·PDF·DELETE가 같이 쓴다)."""
+    report = public_reports().select_related("user").filter(pk=pk).first()
     if report is None:
         raise NotFound("리포트를 찾을 수 없습니다.")
     return report
@@ -196,3 +217,53 @@ class RecoveryStatsView(APIView):
         if not 1 <= days <= stats.MAX_DAYS:
             raise Rejected(f"days는 1~{stats.MAX_DAYS} 사이의 정수입니다.")
         return Response(stats.recovery_stats(days))
+
+
+# --- 장애 주입 내부 API (관리 서버 전용, docs/API.md "장애 주입 내부 API", docs/DECISIONS.md 35장) ---
+
+class InternalView(APIView):
+    """관리 서버가 SSH 터널로만 부르는 내부 API 공통: 세션 인증을 쓰지 않으므로 CSRF와 무관하고, 서명(X-Chaos-*)만 본다.
+
+    공개 nginx는 /api/internal/을 404로 막는다. CHAOS_CONTROL_SECRET이 비었으면(기능 꺼짐) 없는 경로와 같은 Django 404다
+    (DRF 오류 형식 {"detail"}이 아니다 — 서명·메서드보다 먼저 본다). 서명이 틀리거나 오래됐거나 다시 쓰면 401 (control.verify).
+    """
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def dispatch(self, request, *args, **kwargs):
+        if not control.secret():
+            raise Http404  # DRF의 예외 처리 밖이라 Django의 404 처리기(없는 경로와 같은 응답)로 간다
+        return super().dispatch(request, *args, **kwargs)
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        control.verify(request.headers, request.body)  # 본문 바이트 그대로 (request.data를 읽기 전)
+
+
+class ChaosOptionsView(InternalView):
+    @extend_schema(operation_id="internal_chaos_options", responses=OpenApiTypes.OBJECT)
+    def get(self, request):
+        """ChaosOptions: 관리자 화면의 고르기용 {"workers", "errorTypes", "scopes", "defaults"} (종목 리포트 팀)."""
+        return Response(control.options(plan(registry.TEAM)))
+
+
+class ChaosRunsView(InternalView):
+    @extend_schema(operation_id="internal_chaos_runs_create", request=OpenApiTypes.OBJECT,
+                   responses={201: OpenApiTypes.OBJECT})
+    def post(self, request):
+        """장애 주입 실행 만들기 {"symbol", "chaos", "requestedBy"} → 201 ChaosRun {"id", "status", "symbol", "name", "chaos"}.
+
+        순서 (docs/API.md 오류 순서): requestedBy가 활성 staff가 아니면 403 → 종목 400(공개 신청과 같은 확인) →
+        chaos.parse 400(끈 설정·없음도 400) → 진행 중인 장애 주입 실행이 있으면 409 {"detail", "id"} → 팀 AI 하루 예산 429 → 생성.
+        실행은 source "chaos"·신청자 없음이고, 신청한 관리자 아이디는 chaos.requestedBy에 남는다 (엔진 루프가 실행기에서 차례로 돌린다).
+        """
+        now = timezone.now()
+        data = request.data if isinstance(request.data, dict) else {}
+        requested_by = control.staff_username(data.get("requestedBy"))
+        item = stock_of(data)
+        config = control.parse_config(data.get("chaos"))
+        try:
+            report = control.create_run(item, config, requested_by, now)
+        except control.Busy as e:  # 본문에 id가 있어 Response를 직접 (config.api는 detail 외 필드를 버린다)
+            return Response(e.body(), status=e.status_code)
+        return Response(control.run_body(report), status=status.HTTP_201_CREATED)

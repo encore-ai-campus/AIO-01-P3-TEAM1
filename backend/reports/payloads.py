@@ -1,4 +1,8 @@
-"""AI 리포트 응답 형식 (docs/API.md "AI 리포트" 타입: ReportSummary · ReportDetail · SharedState · TraceEvent). API와 SSE가 같이 쓴다."""
+"""AI 리포트 응답 형식 (docs/API.md "AI 리포트" 타입: ReportSummary · ReportDetail · SharedState · TraceEvent). API와 SSE가 같이 쓴다.
+
+장애 주입은 공개 API에 없다 (2026-10-12, docs/DECISIONS.md 35장): 응답에 chaosEnabled·chaos를 내지 않고, 장애 주입 실행(source "chaos")은
+목록·상세·PDF·SSE가 모두 public_reports()로 읽어 없는 것과 같다. 켜는 길은 내부 API(views.ChaosRunsView), 보는 곳은 관리 서버.
+"""
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -63,9 +67,9 @@ def requester(report: Report, names: dict[int, str]) -> str:
     return names.get(report.user_id) or report.user.get_username()
 
 
-def chaos_enabled(report: Report) -> bool:
-    """장애 주입을 켜고 신청했는지."""
-    return isinstance(report.chaos, dict) and report.chaos.get("enabled") is True
+def public_reports():
+    """서비스 사용자 경로(목록·상세·PDF·SSE)에 나오는 리포트: 지우지 않았고(deleted_at) 장애 주입 실행(source "chaos")이 아닌 것."""
+    return Report.objects.filter(deleted_at__isnull=True).exclude(source=Report.CHAOS)
 
 
 def has_pdf(report: Report) -> bool:
@@ -83,7 +87,7 @@ def summary(report: Report, names: dict[int, str] | None = None, user=None) -> d
         "id": report.id, "symbol": report.symbol, "name": report.name, "market": report.market,
         "status": report.status, "currentStep": report.current_step,
         "source": report.source, "team": report.team, "requestedBy": requester(report, names),
-        "chaosEnabled": chaos_enabled(report), "costUsd": report.cost_usd, "hasPdf": has_pdf(report),
+        "costUsd": report.cost_usd, "hasPdf": has_pdf(report),
         "canDelete": user is not None and hide.can_delete_report(report, user),
         **conclusion(report),  # B3 opinion·oneLiner (Claude). 담당 4의 새 필드는 이 위에 더한다 (docs/DECISIONS.md 14-2)
         "createdAt": iso(report.created_at), "startedAt": iso(report.started_at), "finishedAt": iso(report.finished_at),
@@ -114,5 +118,5 @@ def detail(report: Report, user=None) -> dict:
     return summary(report, user=user) | {
         "content": report.content, "state": shared_state(report),
         "trace": [trace_event(event) for event in events], "plan": plan(report.team),
-        "chaos": report.chaos, "recovery": stats.report_recovery(events),
+        "recovery": stats.report_recovery(events),
     }
