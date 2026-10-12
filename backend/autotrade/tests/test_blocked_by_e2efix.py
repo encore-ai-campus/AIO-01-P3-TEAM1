@@ -7,7 +7,7 @@ from datetime import timedelta
 import pytest
 from django.utils import timezone
 
-from autotrade import risk
+from autotrade.plans import risk
 
 from .conftest import make_rec
 
@@ -70,7 +70,7 @@ def test_blocked_by_agrees_with_preview(api, fake, user):
 
 def test_blocked_by_on_plan_detail_and_activation(api, fake):
     rec = make_rec()
-    plan = api.post(f"/api/recommendations/{rec.id}/activate", {}, format="json").json()
+    plan = api.post(f"/api/recommendations/{rec.id}/activate", {"budgetKrw": 1_000_000}, format="json").json()
     assert plan["recommendation"]["blockedBy"] == []
     assert api.get(f"/api/trade-plans/{plan['id']}").json()["recommendation"]["blockedBy"] == []
 
@@ -87,7 +87,7 @@ def test_us_budget_sentence_has_no_double_particle(api, fake):
     rec = make_rec(symbol="AAPL", name="Apple", market_="US", entry=190, target=230, stop=180, price_at_creation=200)
     tiny = api.get(f"/api/recommendations/{rec.id}/preview?budgetKrw=1000").json()
     sentence = next(r for r in tiny["reasons"] if "최소 주문 금액" in r)
-    assert "이(가)" not in sentence and "줄인 매수 금액($" in sentence and ")이 최소 주문 금액 $1보다 적음" in sentence
+    assert "이(가)" not in sentence and sentence == "내가 정한 금액으로 살 매수 금액($0.71)이 최소 주문 금액 $1보다 적음"
 
 
 def test_halt_switch_blocks_every_recommendation(api, fake):

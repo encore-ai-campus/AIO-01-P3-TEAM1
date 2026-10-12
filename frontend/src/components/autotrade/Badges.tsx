@@ -1,10 +1,10 @@
 // 추천 출처·리스크 단계·계획 상태·보유 방식 배지. 상태는 색 + 아이콘 + 글자로 같이 보인다.
-// easy면 쉬운 보기 문구(docs/컨셉변경계획.md 4-4, lib/plainText.ts), 아니면 전문가 보기 문구.
+// easy면 쉬운 보기 문구(docs/plans/컨셉변경계획.md 4-4, lib/plainText.ts), 아니면 전문가 보기 문구.
 // 칩은 움직이지 않는다: 며칠씩 이어지는 '체결 대기' 동안 깜빡이면 아무 일 없는 대기에 움직임이 가장 많아진다 (trade-09).
 import type { HoldingStyle, Recommendation, RecommendationSource, RiskLevel } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { RISK_LEVEL, SOURCE, STYLE_BADGE, blockedCodes, planStatusOf, timeLeftShort } from "../../lib/autotrade";
-import { HOLDING_STYLE_TEXT, blockedShort, planStatusText, priceExpiredText } from "../../lib/plainText";
+import { HOLDING_STYLE_TEXT, MANUAL_START_TEXT, blockedShort, planStatusText, priceExpiredText } from "../../lib/plainText";
 import { Icon } from "../Icon";
 
 const chip = "inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[12px] font-bold whitespace-nowrap";
@@ -132,12 +132,35 @@ export function BlockedMark({ r, easy, className }: { r: ReadinessInput; easy?: 
   );
 }
 
+/** 시연용 수동 시작 계획 표시 (TradePlan.manualStart, DECISIONS 31장). 줄어들지 않는다 (chip에 shrink-0). */
+export function ManualStartBadge({ id, className }: { id?: string; className?: string }) {
+  return (
+    <span id={id} className={cn(chip, "bg-warn-soft text-warn-ink", className)} title={MANUAL_START_TEXT.planNote.expert}>
+      <Icon name="alert" className="size-3.5" />
+      {MANUAL_START_TEXT.badge}
+    </span>
+  );
+}
+
 /**
  * 내 주식의 주문·보유·예약 행이 진행 중 모의 자동매매에 묶여 있다는 표시 (trade-05). 일반 주문처럼 보여 바로 취소하면 계획까지 끝나므로
- * 행만 봐도 알게 한다. stopping: 계획의 모두 팔기 예약(멈추는 중).
+ * 행만 봐도 알게 한다. stopping: 계획의 모두 팔기 예약(멈추는 중). manual: 시연용 수동 시작 계획이면 끝에 " · 시연용" (DECISIONS 31장).
  */
-export function AutoTradeBadge({ planId, easy, stopping = false, className }: { planId: number; easy?: boolean; stopping?: boolean; className?: string }) {
-  const text = stopping ? (easy ? "모의 자동매매 멈추는 중" : `자동매매 #${planId} 매도`) : easy ? "모의 자동매매" : `자동매매 #${planId}`;
+export function AutoTradeBadge({
+  planId,
+  easy,
+  stopping = false,
+  manual = false,
+  className,
+}: {
+  planId: number;
+  easy?: boolean;
+  stopping?: boolean;
+  manual?: boolean;
+  className?: string;
+}) {
+  const text =
+    (stopping ? (easy ? "모의 자동매매 멈추는 중" : `자동매매 #${planId} 매도`) : easy ? "모의 자동매매" : `자동매매 #${planId}`) + (manual ? " · 시연용" : "");
   return (
     <span className={cn(chip, stopping ? "bg-warn-soft text-warn-ink" : "bg-brand-soft text-brand-ink", className)}>
       <Icon name="flow" className="size-3.5" />

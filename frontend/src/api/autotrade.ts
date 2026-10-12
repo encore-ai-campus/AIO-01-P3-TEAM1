@@ -20,7 +20,7 @@ import type {
 /**
  * 보유 중 계획의 모두 팔기(전량 매도) 요청을 지켜보는 두 조회 (계획 화면의 '매도 요청됨' ↔ '매도 예약이 취소됨' — trade-v06. 판단은 PlanPage).
  * - reservation: 그 주문의 매도 예약이 지금 있는지. 사건 이력(exit_requested)만 보면 예약을 내 주식에서 취소한 뒤에도 '팔도록 요청했어요'에
- *   멈춘다 (서버는 예약이 없으면 중단을 다시 받는다 — backend/autotrade/executor.py cancel).
+ *   멈춘다 (서버는 예약이 없으면 중단을 다시 받는다 — backend/autotrade/plans/executor.py cancel).
  * - held: 그 주문이 아직 보유 중(EXIT_WATCHING)인지. 장이 열리면 엔진이 예약을 먼저 지우고 팔며, 계획은 같은 바퀴의 뒤 단계에서야
  *   청산 완료가 된다 — 예약이 없어도 이미 팔린 것일 수 있다 (trade-r1).
  * 내 주식 화면과 같은 쿼리 키(useReservations · useOrders("active")와 같은 요청)라 캐시를 같이 쓰고, 필요할 때(enabled)만 받는다.

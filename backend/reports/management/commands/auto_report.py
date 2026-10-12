@@ -1,4 +1,4 @@
-"""오늘의 자동 리포트를 지금 한 번 시작한다 (엔진 루프의 "자동 리포트" 단계와 같은 일. reports/auto.py, docs/tasks/01-인프라.md T1-6).
+"""오늘의 자동 리포트를 지금 한 번 시작한다 (엔진 루프의 "자동 리포트" 단계와 같은 일. reports/autoreport/auto.py, docs/tasks/01-인프라.md T1-6).
 
     python manage.py auto_report [--market KR] [--top 3] [--force] [--wait]
 
@@ -17,7 +17,7 @@ from django.core.management.base import BaseCommand, CommandError
 from trading import service
 
 from config import engine
-from reports import auto, conf
+from reports.autoreport import auto, conf
 from reports.models import Report
 
 POLL_SEC = 2.0          # --wait: 엔진 루프가 실행 중인 리포트를 다시 보는 간격
@@ -26,7 +26,7 @@ WAIT_LIMIT_SEC = 1800   # --wait: 리포트 하나를 기다리는 최대 시간
 
 def run_report(report: Report) -> None:
     """리포트 하나를 이 프로세스에서 실행한다 (Orchestrator. 예외를 밖으로 내지 않는다)."""
-    importlib.import_module("reports.orchestrator").run_report(report)
+    importlib.import_module("reports.orchestration.orchestrator").run_report(report)
 
 
 class Command(BaseCommand):

@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 from django.utils import timezone
@@ -222,6 +223,22 @@ def test_team_limit(api, user, ai, limits, monkeypatch, django_user_model):
     assert api.post("/api/analyses", {"symbol": "005930"}, content_type="application/json").status_code == 202
     response = api.post("/api/analyses", {"symbol": "005380"}, content_type="application/json")
     assert response.status_code == 429 and "팀 전체" in response.json()["detail"]
+    assert api.get("/api/analyses/quota").json()["remaining"] == 0
+
+
+def test_team_budget_includes_report_cost(api, user, ai, limits, monkeypatch):
+    """팀 전체 예산은 리포트와 같이 쓴다: 리포트 실제 비용(자동 리포트 포함)을 빼고 남은 만큼만 분석 (2026-10-08)."""
+    from reports.models import Report
+
+    monkeypatch.setenv("AI_DAILY_BUDGET_USD", "0.9")  # 리포트가 없으면 3회
+    Report.objects.create(source=Report.AUTO, symbol="005930", name="삼성전자", market="KR", cost_usd=0.5)
+    Report.objects.create(user=user, symbol="000660", name="SK하이닉스", market="KR", cost_usd=0.3,
+                          created_at=quota.today_start() - timedelta(seconds=1))  # 어제는 세지 않는다
+    assert quota.usage(user, Decimal("0.5")).remaining == 1
+    assert api.get("/api/analyses/quota").json()["remaining"] == 1  # (0.9 − 0.5) ÷ 0.3 → 1회
+    assert api.post("/api/analyses", {"symbol": "005930"}, content_type="application/json").status_code == 202
+    response = api.post("/api/analyses", {"symbol": "005380"}, content_type="application/json")
+    assert response.status_code == 429 and "팀 전체 AI 비용 예산" in response.json()["detail"]
     assert api.get("/api/analyses/quota").json()["remaining"] == 0
 
 

@@ -1,6 +1,6 @@
 # 공통 결정 (계획서 6장 단계 2)
 
-작성 2026-10-02. 계획서 `docs/TEAM_PAPER_TRADING_PLAN.md`를 구현하면서 여러 작업자가 같이 따라야 하는 결정을 모은다.
+작성 2026-10-02. 계획서 `docs/plans/TEAM_PAPER_TRADING_PLAN.md`를 구현하면서 여러 작업자가 같이 따라야 하는 결정을 모은다.
 바꾸려면 이 파일을 먼저 고치고 관련 작업자에게 알린다.
 
 ## 1. 저장소 구조와 실행
@@ -13,7 +13,7 @@ backend/            paper-backend: Django 프로젝트 (config/, accounts/, trad
 frontend/           Vite + React + TypeScript
 backtest/           백테스트 (DB 없이 단독 실행, engine을 import)
 deploy/             compose.dev.yml (로컬 Redis. `--profile postgres`로 PostgreSQL도)
-docs/               DESIGN.md(엔진 설계), DECISIONS.md(이 파일), KIWOOM.md(키움 API 확인 결과)
+docs/               기준 문서(API·DECISIONS(이 파일)·DEPLOY·KIWOOM)와 종류별 폴더(guides·plans·design·records·evaluation 등) — 문서 지도는 docs/README.md (29장)
 ```
 
 - 엔진 실행: `uv run python -m paper_engine <명령>` (루트에서). 테스트: `uv run pytest`, `uv run pytest backtest`.
@@ -302,7 +302,8 @@ API 계약은 `docs/API.md`. 아래는 그 배경 결정이다. 앞 장과 다�
   (종목 하나 = 행 하나, 대표 시나리오와 판정 요약, 실행 기록 경로) 목록·상세 API로 내준다. 엔진 CLI·전략이 만든 기록도 같이 보인다.
 - 웹에서 요청한 분석은 엔진 CLI를 하위 프로세스로 돌린다: `python -m paper_engine analyze <종목> --by <아이디> --equity <초기 자금>`
   (`--buy`는 주지 않는다. 엔진 계좌에 자동 매수하지 않는다). 한도는 횟수로 건다: 팀원별 하루 `AI_DAILY_ANALYSES_PER_USER`(기본 5),
-  전체 하루 `AI_DAILY_BUDGET_USD ÷ 0.3`(기본 33회).
+  전체 하루 `AI_DAILY_BUDGET_USD ÷ 0.3`(기본 33회). 2026-10-08부터 팀 전체 몫은 리포트와 같은 예산이다: 오늘 쓴 분석 예상 비용과 리포트 실제 비용을
+  뺀 나머지 ÷ 0.3 (`reports/limits/budget.py` `used_usd`, `analysis/quota.py` `team_left`). 리포트 비용이 없으면 전과 같다.
 
 ### 8-5. 프론트엔드
 
@@ -352,7 +353,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 
 | 문서의 개념 | 이 저장소에서 |
 |---|---|
-| Execution Plan, 계획 검증 | `backend/reports/team_definitions.yaml`의 steps(`depends_on`, `join`, `retry`) + `registry.py`의 검증 (없는 앞 단계·중복 step id·순환·없는 Worker·대체 모델·검토 재시도) |
+| Execution Plan, 계획 검증 | `backend/reports/orchestration/team_definitions.yaml`의 steps(`depends_on`, `join`, `retry`) + `registry.py`의 검증 (없는 앞 단계·중복 step id·순환·없는 Worker·대체 모델·검토 재시도) |
 | Sequential / Parallel | step의 `mode`. 조사(`parallel_research`)는 병렬, 리포트 작성·검토는 순차 |
 | Join Guard | step의 `join: true`. Trace의 `join_guard` 사건(`join_completed`·`join_blocked`). 판단 코드는 미구현 |
 | Partial Failure 정책 | team의 `failure_policy`(fail_fast·best_effort·required_optional)와 step의 `required`·`optional`. 판단 코드는 미구현 |
@@ -379,10 +380,10 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 
 ### 9-4. Orchestrator를 붙일 자리 (구현할 때)
 
-- State와 Trace는 **`backend/reports/state.py`의 함수로만** 바꾼다 (Orchestrator만 State를 갱신한다. Worker는 독립 결과만 돌려준다).
+- State와 Trace는 **`backend/reports/orchestration/state.py`의 함수로만** 바꾼다 (Orchestrator만 State를 갱신한다. Worker는 독립 결과만 돌려준다).
   `start` · `set_step` · `record`(Trace 사건) · `add_result`(계약을 통과한 결과만) · `add_error` · `finish`.
 - 오래 걸리는 실행은 웹 요청 안에서 하지 않는다. `run_engine` 루프에서 `requested` 리포트를 집어 실행하는 식으로 붙인다 (8-2).
-- 붙인 뒤 `reports.registry.AGENTS_IMPLEMENTED`를 True로 바꾸면 화면이 SSE를 연다.
+- 붙인 뒤 `reports.orchestration.registry.AGENTS_IMPLEMENTED`를 True로 바꾸면 화면이 SSE를 연다.
 - Guard 사건의 `details`에는 대상을 넣는다: `join_guard`는 `{"step": <Join하는 step id>}`, `handoff_guard`는 `{"to": <넘겨받는 Worker id>}`
   (화면이 그래프의 어느 노드인지 찾는 데 쓴다). `workflow_completed`를 남긴 뒤 `finish`를 부른다 (끝난 리포트에는 Trace가 붙지 않는다).
 - 운영(4E)에서 SSE는 연결 하나가 요청 처리 스레드 하나를 60초까지 잡는다: gunicorn은 스레드 워커(gthread), nginx는 `/api/reports/*/events`에
@@ -400,7 +401,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 - 개발 중에 팀원이 같은 네트워크에서 DB를 직접 볼 수 있게, 호스트 PC 한 대에 PostgreSQL 16 컨테이너를 띄운다
   (`deploy/compose.dev.yml`의 `db`, 프로젝트 이름 `paper-dev`, 데이터는 볼륨 `paper-dev_pgdata`).
   호스트 PC의 `.env`: `POSTGRES_HOST=127.0.0.1`, `POSTGRES_PORT`(그 PC의 빈 포트), `POSTGRES_BIND=0.0.0.0`, 긴 임의 `POSTGRES_PASSWORD`,
-  `DJANGO_SECRET_KEY`. `scripts/dev.sh`가 컨테이너를 띄우고 마이그레이션을 적용한다. 접속 방법은 `scripts/dev.sh status`와 `TEAM_DEV_PLAN.md` 12장.
+  `DJANGO_SECRET_KEY`. `scripts/dev.sh`가 컨테이너를 띄우고 마이그레이션을 적용한다. 접속 방법은 `scripts/dev.sh status`와 `docs/plans/TEAM_DEV_PLAN.md` 12장.
 - **개발할 때만 연다.** 운영(EC2)에서는 DB 포트를 밖으로 열지 않는다. 비밀번호는 저장소·문서에 적지 않고 따로 전한다.
 - 혼자 개발할 때의 기본값은 여전히 SQLite다 (`POSTGRES_HOST`를 비워 둔다). SQLite에 쌓인 데이터는 `scripts/dev.sh import-sqlite`
   (`scripts/sqlite_to_postgres.py`)로 한 번 옮긴다: 계정(비밀번호 해시)·프로필·계좌·주문·체결·분석·리포트를 옮기고 세션·관리자 기록은 옮기지 않는다.
@@ -459,8 +460,9 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 
 ### 12-3. 판단은 결정론적 코드가 한다
 
-- 수량과 활성화 가능 여부는 **엔진 리스크 엔진 `judge/risk.py`의 `assess`를 그대로** 쓴다 (건당 위험 1%, 최소 손익비 1.5(2026-10-07 바뀜 — 21장), 매수 가능 금액,
-  총 금액 한도 `MAX_TOTAL_INVEST_KRW`, 매수 유의 종목). 사용자가 예산(`budgetKrw`)을 주면 수량을 그만큼 더 줄인다 (늘리지는 않는다).
+- ~~수량과 활성화 가능 여부는 **엔진 리스크 엔진 `judge/risk.py`의 `assess`를 그대로** 쓴다 (건당 위험 1%, 최소 손익비 1.5(2026-10-07 바뀜 — 21장), 매수 가능 금액,
+  총 금액 한도 `MAX_TOTAL_INVEST_KRW`, 매수 유의 종목). 사용자가 예산(`budgetKrw`)을 주면 수량을 그만큼 더 줄인다 (늘리지는 않는다).~~
+  **2026-10-11 바뀜 (28장)**: 넣을 돈은 사용자가 정하고(매수 가능 금액의 % 또는 원, 필수), 수량은 그 금액으로 계산하며, 리스크 엔진(`assess_budget`)은 한도를 점검만 한다 (넘으면 막는다).
 - 추천의 `rewardRisk`·`expectedReturn`도 같은 비용 계산(수수료·거래세·손절 미끄러짐 1%)으로 만든다. 화면의 숫자와 리스크 엔진의 판단이 어긋나지 않게.
 - 진입은 **지정가(= 추천 진입가)**로 한다. 모의 체결 규칙상 지정가는 그날 정규장이 끝나면 취소되므로, 진입 기한(`validUntil`) 안에서는
   엔진 루프가 다음 정규장에 다시 주문한다. 지금 가격이 이미 목표가 이상이거나 손절가 이하면 활성화하지 않는다.
@@ -475,7 +477,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
   (웹 요청이 Discord 응답을 기다리지 않게. 엔진이 잠깐 멈춰도 메시지가 사라지지 않게).
 - Discord는 서버 `.env`의 `DISCORD_WEBHOOK_URL` 채널 하나로 보낸다 (팀 채널. 배포 파이프라인 알림과 같은 채널을 써도 된다). 받는 사람이
   My Page에 Discord 사용자 ID를 넣어 두면 `<@ID>`로 멘션한다. Webhook 주소는 **비밀 값**이다 (`.env`에만, 로그·문서·화면에 넣지 않는다).
-- 전송 실패: 1회 재시도 → 첨부가 있으면 첨부 없이 글만 → 그래도 안 되면 실패로 기록하고 콘솔에 남긴다 (`TEAM_DEV_PLAN.md` 5-1의 "알림 실패", DR-NOTI-01).
+- 전송 실패: 1회 재시도 → 첨부가 있으면 첨부 없이 글만 → 그래도 안 되면 실패로 기록하고 콘솔에 남긴다 (`docs/plans/TEAM_DEV_PLAN.md` 5-1의 "알림 실패", DR-NOTI-01).
   웹 알림은 Discord와 무관하게 남는다.
 - **Discord에서 활성화**: Webhook은 보내기만 되므로(버튼을 눌러 서버로 돌아오는 상호작용은 봇이 있어야 한다) 추천 메시지에 **서명된 활성화 링크**를 넣는다.
   링크를 누르면 웹의 추천 화면이 열리고, 로그인한 사용자가 확인을 누르면 활성화된다 (`via: "discord"`). 봇(버튼·명령) 방식은 하지 않는다 —
@@ -509,7 +511,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 
 ## 13. 서비스 컨셉과 투자 방식 확장 결정 (2026-10-04)
 
-팀 회의를 열지 않고 **팀장(사용자) 권한으로** 정했다. `docs/컨셉변경계획.md` 13장(D-1~D-7)과 8장 계약 변경(B1~B10), `docs/투자서비스확장계획.md` 6장(E-1~E-7)의
+팀 회의를 열지 않고 **팀장(사용자) 권한으로** 정했다. `docs/plans/컨셉변경계획.md` 13장(D-1~D-7)과 8장 계약 변경(B1~B10), `docs/plans/투자서비스확장계획.md` 6장(E-1~E-7)의
 제안은 아래 표에서 따로 적은 것 말고는 **그대로 받아들였다**. 결정 목록·진행 상태는 `docs/결정필요사항.md`.
 
 ### 13-1. 컨셉 (D-1~D-7)과 계약 변경
@@ -521,7 +523,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 | D-3 | 보기 방식은 **주린이모드**로 하고 **계정(서버)에 저장**한다 (B10) | – |
 | D-4 | 연습용 예시(시연 규칙 추천)는 개발·시연 환경만 켜고, 배포는 리포트가 돌면 끈다 (`AUTOTRADE_DEMO`) | – |
 | D-5 | 서비스 이름 **"AI 리포트 데스크"** — 화면 머리말·로그인 화면·PDF·Discord 머리말·발표 자료에 쓴다. 저장소·패키지·코드 이름은 바꾸지 않는다. **→ 2026-10-05 바뀜: "종이배"**(사용자 요청, 15-7) **→ 2026-10-07 바뀜: "모매매"**(사용자 결정, 18장) | – |
-| D-6 | 투자 성향으로 수량 배수를 두지 않는다 (리스크 엔진 그대로, 예산 입력으로 충분) | – |
+| D-6 | 투자 성향으로 수량 배수를 두지 않는다 (리스크 엔진 그대로, 예산 입력으로 충분) — 2026-10-11부터 넣을 돈을 사용자가 정한다 (28장) | – |
 | D-7 | 장애 주입이 없는 failed 리포트는 하루 한도에서 뺀다 (담당 2의 T2-9) | – |
 | B1~B10 | 컨셉 계획 8장의 계약 변경을 모두 받아들인다. B1(`plainSummary`)·B3(`ReportSummary.opinion`·`oneLiner`)은 10/5 회의 없이 확정 → 담당 2·4의 뼈대 PR에 처음부터 넣는다 | 제안은 "10/5 오전 회의에서 정하고, 못 정하면 10/8" |
 
@@ -530,7 +532,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 | # | 결정 | 제안과 다른 점 |
 |---|---|---|
 | E-1 | 주린이모드 기본값은 진단 전 **켬**, 계정에 저장 | – |
-| E-2 | 진단 7문항·점수표는 `docs/투자서비스확장계획.md` 2-1의 제안값으로 구현하고 사용성 시험 뒤 조정 | – |
+| E-2 | 진단 7문항·점수표는 `docs/plans/투자서비스확장계획.md` 2-1의 제안값으로 구현하고 사용성 시험 뒤 조정 | – |
 | E-3 | 뉴스 출처: **네이버 폐기**, 발표까지 Google 뉴스 RSS 유지 + 출처 표시 (13-3) | 제안은 "네이버로 바꾸는 것을 검토" |
 | E-4 | 장기 보유의 종목당 비중 한도 **100%** (`RiskLimits.max_position = 1.0` — 한 종목에 계좌 전부까지 살 수 있다. 실제 한도는 현금) | 제안은 "팀 결정(값 미정)" |
 | E-5 | 펀더멘털 점검 기준값과 LLM 생략 기준은 제안값으로 시작하고, 과거 공시 몇 종목으로 검산 뒤 확정 | – |
@@ -559,7 +561,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 | 사용자 결정 | 뜻 |
 |---|---|
 | **표시·계산만 장마감 기준, 체결은 엔진 내부 장중** | 화면의 가격·평가·랭킹·미리 보기·추천 가격은 직전 정규장 종가로 계산하고 보인다. 모의 체결·청산 판단(체결 확인·예약 실행·재주문·활성화의 장중 확인·시장가 체결)만 지금처럼 장중 확인 가격을 쓴다 (14-1) |
-| **확장 1·2단계까지 구현** | `docs/투자서비스확장계획.md` 5장 로드맵의 1단계(장기투자)와 2단계 (a)(단타 연습)를 이번에 만든다. 2단계의 AI 팀(`day_plan`·`day_review`)은 추천 워크플로우라 팀 몫이고, 3단계(WebSocket 틱)는 하지 않는다. **→ 2단계 (a) 단타 연습은 2026-10-06 폐기 (16장)** |
+| **확장 1·2단계까지 구현** | `docs/plans/투자서비스확장계획.md` 5장 로드맵의 1단계(장기투자)와 2단계 (a)(단타 연습)를 이번에 만든다. 2단계의 AI 팀(`day_plan`·`day_review`)은 추천 워크플로우라 팀 몫이고, 3단계(WebSocket 틱)는 하지 않는다. **→ 2단계 (a) 단타 연습은 2026-10-06 폐기 (16장)** |
 
 ### 14-1. 장마감 기준
 
@@ -575,12 +577,13 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 - **코드 접점**: 엔진 `data/calendar.py`의 `close_basis_day`·`session_end_iso`·`close_of`(표준 라이브러리), 백엔드 `trading/market.py`의 `basis`·`closes`·`close_price`·`completed_candles`
   (종목·기준일별 캐시, 한 호출이 새로 받는 종목은 10개까지). `current_prices`·`confirmed_prices`·`last_price`는 **내부 경로 전용**으로 남긴다.
 - **장마감 기준인 것**: 시세(`Quote`)·종목 상세(완성 봉만)·계좌 평가·수익률·랭킹·일별 자산 기록(`record_equity`)·리스크 미리 보기와 활성화 수량·`priceAtCreation`·시연 추천 진입가·리포트 PDF 차트·(분봉은 2026-10-06 삭제 — 16장)·
-  **리포트 시세 Worker 결과**(`MarketResult.price`·`changePct`·지표 — 팀의 `market_agent`도 `market.close_price`·`completed_candles`를 쓰고 `asOf`를 낸다, `docs/tasks/00-공통.md` 10절. 리포트 상세·PDF는 팀 전체가 본다).
+  **리포트 시세 Worker 결과**(`MarketResult.price`·`changePct`·지표 — 팀의 `market_agent`도 `market.close_price`·`completed_candles`를 쓰고 `asOf`를 낸다, `docs/tasks/00-공통.md` 10절. 리포트 상세·PDF는 팀 전체가 본다.
+  2026-10-08부터 장 중에 만들면 `price`·`changePct`는 현재가 기준 — 26장).
   분석의 `priceAtAnalysis`는 분석 시각 가격 그대로 두는 **일부러 둔 예외**다 (화면 "분석 시각 가격", 장중이었으면 "장중 가격"이라고 밝힌다). 지표 기준일(`dataAsOf`)을 따로 낸다.
 - **일별 자산 기록(`record_equity`)** (2026-10-05 확정): 그날 기록은 **KR 기준일이 오늘이 된 뒤**(국내 거래일 15:40 KST = 정규장 종료 + `CLOSE_SETTLE_MIN`) 하루 한 번 남긴다.
   국내 보유는 그날 종가, **미국 보유는 그때의 최신 미국 종가**(장마감 기준 — `AccountSummary.pricesAsOf.US`와 같은 값, 15:40 KST에는 그날 새벽 끝난 뉴욕 정규장 종가)로 평가한다.
   왜: 15:30 직후에는 일봉 종가가 굳지 않았을 수 있고, 미국 보유를 장중 가격으로 평가하면 화면(종가)과 기록이 어긋난다. 그 전 기록은 기록한 때의 가격 그대로 둔다.
-- **`priceAtCreation`은 출처와 무관하게 만들 때의 종가다** (2026-10-05 확정): 분석에서 나온 추천(`autotrade.sources.from_analysis`)도 분석 시각 가격(`run.price_at_analysis`)이 아니라
+- **`priceAtCreation`은 출처와 무관하게 만들 때의 종가다** (2026-10-05 확정): 분석에서 나온 추천(`autotrade.recommend.sources.from_analysis`)도 분석 시각 가격(`run.price_at_analysis`)이 아니라
   추천을 만들 때의 종가(`market.close_price`)를 넣는다 — 추천 화면의 "추천 때 가격"과 미리 보기(종가)가 같은 기준이 되게. 분석 상세의 `priceAtAnalysis`는 위 예외대로 그대로다.
 - **장중 가격 숫자는 문장에 넣지 않는다**: `400`의 `detail`·`failureReason`·`PlanEvent.message`·알림 문장에 장중 확인 가격이나 그것으로 계산한 금액을 넣지 않는다 (정해진 문장 — `docs/API.md` 공통 규칙 표).
   이유: 일부러 틀린 목표가·손절가를 보내 거절 문장으로 장중 가격을 읽어 내는 길(특히 `PATCH /api/orders/{id}`)을 막아 "화면은 종가"가 실제로 지켜지게. 엔진 `buy_blockers`·`modify`와 재주문 점검 문장을 고친다.
@@ -617,8 +620,8 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
   | 01 T1-5 | 팀원 리포트 알림(user 부분)은 Claude `alerts.py`. 남는 것은 **자동 리포트 부분**: 팀 파일 `auto.py`의 `auto.after_finish(report)` — `source == "auto"`만 PDF·Discord, 그 밖은 아무것도 안 한다 (runner가 끝난 리포트마다 부른다) |
   | 01 T1-7 | `?mine=1`(B8)은 Claude. `?source=`는 그대로 1 (`source` 열이 생긴 뒤 `ReportsView.get`에 한 줄) |
   | 01 T1-19·T1-20·T1-21·T1-22·T1-23 | B4·B5·B10·B6·쉬운 보기 뼈대 → Claude |
-  | 02 T2-4 | `market_agent`는 `trading.market.close_price`·`completed_candles`(장마감 기준)로 자료를 만들고 `MarketResult.asOf`를 채운다 (`00-공통.md` 10절). `current_prices`·`last_price`·미완성 봉을 쓰지 않는다 |
-  | 02 T2-9 | 팀원별 횟수 한도(`quota.py`, `AI_DAILY_REPORTS_PER_USER`, `429`, `GET /api/reports/quota`)는 Claude. 2에게 남는 것은 **비용 예산**: 새 팀 파일 `backend/reports/budget.py`의 `check(now) -> None`(넘으면 `LimitExceeded`)과 `tests/test_budget.py`, `ReportsView.post`에 한 줄 (`cost_usd` 열이 생긴 뒤) |
+  | 02 T2-4 | `market_agent`는 `trading.market.close_price`·`completed_candles`(장마감 기준)로 자료를 만들고 `MarketResult.asOf`를 채운다 (`00-공통.md` 10절). `current_prices`·`last_price`·미완성 봉을 쓰지 않는다 (2026-10-08: 장 중에는 가격만 현재가 `live_prices` — 26장) |
+  | 02 T2-9 | 팀원별 횟수 한도(`quota.py`, `AI_DAILY_REPORTS_PER_USER`, `429`, `GET /api/reports/quota`)는 Claude. 2에게 남는 것은 **비용 예산**: 새 팀 파일 `backend/reports/limits/budget.py`의 `check(now) -> None`(넘으면 `LimitExceeded`)과 `tests/limits/test_budget.py`, `ReportsView.post`에 한 줄 (`cost_usd` 열이 생긴 뒤) |
   | 03 (B7 줄) · T3-4 · T3-12 | runner는 끝난 리포트마다 팀의 `auto.after_finish(report)`를 부른다 (자동 리포트용). 사용자 알림은 Claude `alerts`가 보내므로 runner가 따로 부를 것은 없다 (`alerts.notify_finished`를 불러도 된다). T3-12의 `healing.notify_failure` 호출과 완료 기준 "실패 1건에 `notify_failure` 호출 1번"은 빠진다. 실패할 때 `workflow_failed.details.reason`을 9절 코드로 남기는 것은 그대로 |
   | 04 T4-1 | **B3(`opinion`·`oneLiner`)는 Claude** (2026-10-05 바뀜 — Claude가 지금 `payloads.summary`에 넣는다). 4에게 남는 것: 모델 열·마이그레이션 0002, 같은 `summary`·`detail`의 `source`·`chaosEnabled`·`costUsd`·`hasPdf`·`requestedBy`("자동")·`chaos`·`recovery` — Claude가 넣은 B3 두 필드 위에 더한다 (지우지 않는다) |
   | 04 T4-8 | `healing.notify_failure`는 사용자 알림(`report_failed`)을 보내지 않아도 된다 (14-5) |
@@ -635,7 +638,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 
 - **보유 방식 `style`** (`PaperOrder.style`, 엔진 SQLite `paper_orders.style`): `swing` · `long` (`day`는 2026-10-06 단타 폐기로 지웠다 — 16장), 기본 `swing`. 웹 주문에 `style`이 없으면 목표·손절·기한이 모두 없을 때 `long`.
   기존 주문(과 기존 매수 예약)은 마이그레이션에서 같은 규칙으로 채운다 — 목표·손절이 다 갖춰지지 않은 기존 `swing`(기한만·목표만·손절만)은 그대로 두는 **예외**다:
-  있는 값대로만 자동 매도(기한만이면 기한 매도만), 배지는 "스윙", `PATCH`는 준 값만 바꾸고 둘 다를 요구하지 않는다. 새 주문·예약에는 허용하지 않는다 (아래 "보유 방식 규칙 더하기", 2026-10-05). 장기 보유가 웹 직접 매수라 `TradePlan`이 없으므로 주문 단위로 나눈다 (`docs/투자서비스확장계획.md` 3-1).
+  있는 값대로만 자동 매도(기한만이면 기한 매도만), 배지는 "스윙", `PATCH`는 준 값만 바꾸고 둘 다를 요구하지 않는다. 새 주문·예약에는 허용하지 않는다 (아래 "보유 방식 규칙 더하기", 2026-10-05). 장기 보유가 웹 직접 매수라 `TradePlan`이 없으므로 주문 단위로 나눈다 (`docs/plans/투자서비스확장계획.md` 3-1).
   `long`은 자동 매도가 없다 (엔진이 `long`이면 보유 기한을 쓰지 않는다).
 - **보유 방식 규칙 더하기** (2026-10-05 확정, `docs/API.md` "보유 방식"):
   - **`swing`은 목표가·손절가가 둘 다 있어야 한다** (없으면 `400`). `style` 없이 `days`만 주면 추론이 `swing`이라 역시 `400`이다 — 스윙의 자동 매도 기준은 목표·손절이고,
@@ -659,7 +662,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
   - 자료: 일봉·수급은 증권사 조회(지금 토스, 개발), 공시는 OpenDART, 뉴스는 Google 뉴스 RSS. 로컬 `.env`의 빈 `DART_API_KEY` 줄(U11)을 지워야 공시·재무가 실제로 나온다. 자료가 없으면 그 칸을 비우고 이유를 적는다.
 - **펀더멘털 점검** (`thesis_check`):
   - 산 이유 `InvestmentThesis`(사용자·종목당 하나: 이유 1~3, 점검 축, 기준선, 기준선 보고서)를 장기 보유를 고를 때 "왜 샀나요?"로 받는다. 기준선은 처음 저장할 때 DART `fundamentals`로 잡고, 자료가 없으면 다음 점검에서 채운다.
-  - 규칙은 `docs/투자서비스확장계획.md` 3-2 표의 제안값 그대로(E-5) 순수 함수 `engine/paper_engine/judge/fundamentals_check.py`에 둔다. 표에 숫자가 없던 "이익의 질"은 영업외 손익이 세전이익의 절반 이상이면 △로 정했다 (제안값).
+  - 규칙은 `docs/plans/투자서비스확장계획.md` 3-2 표의 제안값 그대로(E-5) 순수 함수 `engine/paper_engine/judge/fundamentals_check.py`에 둔다. 표에 숫자가 없던 "이익의 질"은 영업외 손익이 세전이익의 절반 이상이면 △로 정했다 (제안값).
     영업현금흐름은 이미 받는 DART 전체 재무제표의 현금흐름표(`ifrs-full_CashFlowsFromUsedInOperatingActivities`)에서 파싱만 더한다. 이자보상배율은 금융비용으로 나눈 **근사**다 (이자비용 계정이 없다 — 조사 보고서).
     **기간을 맞춘다**: ROE는 DART 공시 지표(`reported.roe` — 분기 보고서면 누적·연환산 아님)를 쓰지 않고 순이익(TTM) ÷ 기말 자본총계로 계산한다 (보고서 종류가 바뀌어도 기준선과 비교되게).
     이자보상배율은 최신 보고서의 **같은 누적 기간**의 영업이익 ÷ 금융비용이다 (TTM 영업이익 ÷ 누적 금융비용은 1분기 보고서에서 약 4배로 부푼다).
@@ -719,24 +722,24 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 ### 14-5. 리포트 끝 알림 (컨셉 계획 B7 바뀜)
 
 - **전**: 팀원의 runner가 `auto.after_finish`를 불러 완성 알림을, 담당 4의 `healing.notify_failure`가 실패 알림(`report_failed`)을 보낸다.
-- **지금**: 알림은 **모두 Claude 코드** — 새 파일 **`backend/reports/alerts.py`**가 보낸다 (`auto.py`는 자동 리포트 B9의 팀 파일이라 나눴다 — 14-2).
+- **지금**: 알림은 **모두 Claude 코드** — 새 파일 **`backend/reports/output/alerts.py`**가 보낸다 (`auto.py`는 자동 리포트 B9의 팀 파일이라 나눴다 — 14-2).
   `notify_finished(report)`(즉시, 예외를 밖으로 내지 않음)와 `sweep_finished(now, log)`(최근 24시간 안에 끝난 리포트 중 아직 알림이 없는 것)를 두고,
   `run_engine`의 새 단계 "리포트 알림"(추천 수집 다음)이 `alerts.sweep_finished`를 부른다. 팀 코드는 `alerts.notify_finished`를 불러도 되고 안 불러도 된다.
   `healing.notify_failure`는 사용자 알림을 보내지 않아도 된다. 자동 리포트의 끝 처리(PDF·Discord)는 팀의 `auto.after_finish(report)`(runner가 부른다)다.
 - **왜**: 팀 일을 줄여 추천 워크플로우에 집중하게 하고, 알림이 runner·healing의 구현 시점에 묶이지 않게 한다. sweep이 있어 어느 경로가 빠져도 한 번은 간다.
 - 완성: 이 리포트로 추천이 있으면(추천 알림 첫 줄 "리포트가 완성됐어요"가 그 역할) 따로 보내지 않고, 없으면 `report_completed`. 실패: `report_failed`, 본문은 실패 사유 코드
-  (`workflow_failed.details.reason`)의 쉬운 문장(`reports/text.py`), 모르면 "리포트를 만들지 못했어요. 다시 만들 수 있어요". 같은 사용자·kind·link 알림이 있으면 보내지 않는다.
+  (`workflow_failed.details.reason`)의 쉬운 문장(`reports/output/text.py`), 모르면 "리포트를 만들지 못했어요. 다시 만들 수 있어요". 같은 사용자·kind·link 알림이 있으면 보내지 않는다.
   자동 리포트(`source: auto`)는 건너뛴다 (팀 몫, B9).
 
 ### 14-6. 하루 리포트 한도 (D-7)
 
-- 새 `backend/reports/quota.py`, 설정 `AI_DAILY_REPORTS_PER_USER`(기본 3). 오늘(KST) 내가 신청한 리포트에서 **장애 주입 없이 failed로 끝난 것은 빼고** 센다.
+- 새 `backend/reports/limits/quota.py`, 설정 `AI_DAILY_REPORTS_PER_USER`(기본 3). 오늘(KST) 내가 신청한 리포트에서 **장애 주입 없이 failed로 끝난 것은 빼고** 센다.
   `chaos` 열이 아직 없으므로 `getattr(report, "chaos", None)`이 dict이고 `enabled`가 참일 때만 failed도 센다 (열이 생기기 전에는 failed를 모두 뺀다). JSON 필드는 Python에서 읽는다 (PostgreSQL 전용 조회를 쓰지 않는다).
 - 넘으면 `POST /api/reports` → `429 {"detail", "limit", "used"}` (`config.api`의 예외 처리는 `detail` 외 필드를 버리므로 `Response`를 직접 돌려준다). 같은 종목의 진행 중 리포트를 돌려주는 `200` 경로는 세지 않는다.
   남은 횟수는 `GET /api/reports/quota` (`limit`·`used`·`remaining`·`resetsAt`).
 - **2026-10-08 바뀜 (사용자 결정): 기본값은 무제한.** `AI_DAILY_REPORTS_PER_USER`가 비어 있으면(또는 숫자가 아니면) 한도가 없다 — `limit`·`remaining`이 `null`이고 `429`가 나지 않는다.
   숫자를 넣으면 전처럼 그 수가 한도다 (0이면 신청할 수 없다). 팀 전체 하루 비용 예산(`AI_DAILY_BUDGET_USD`, `budget.check`)은 그대로 적용된다.
-- 비용 합산 한도(분석 + 리포트 $)는 `cost_usd` 열이 생긴 뒤 팀원(2) 몫이다 — 새 팀 파일 `backend/reports/budget.py`의 `check(now)`. `quota.py`(Claude)에 넣지 않는다.
+- 비용 합산 한도(분석 + 리포트 $)는 `cost_usd` 열이 생긴 뒤 팀원(2) 몫이다 — 새 팀 파일 `backend/reports/limits/budget.py`의 `check(now)`. `quota.py`(Claude)에 넣지 않는다.
   `ReportsView.post`에서는 `quota.check` 바로 뒤에 `budget.check`를 한 줄로 부른다 (14-2의 순서).
 
 ### 14-7. 그 밖의 구현 결정
@@ -759,9 +762,9 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
   B6 알림 문장·오늘의 내 종목 뉴스 검사·펀더멘털 점검 알림이 모두 이것을 쓴다 (`docs/API.md` 공통 규칙 "금지 표현"). 전에는 B6 목록과 오늘의 내 종목 뉴스 목록이 달라 "사 볼 만해요"·"지금 사면"·"파세요" 등이 LLM 검사를 지나갔다.
 - **화면 문구**: 서비스 이름 "모매매"(D-5 → 15-7 → 2026-10-07 바뀜, 18장). 권유형 문장 금지(위 금지 표현 — "사세요"·"사 볼 만해요"·"좋아요"·"매수 기회"·"지금 사면"·"파세요" 등), 주어를 밝힌다("AI 의견"·"안전장치"). 면책 문장은 하나로 통일한다:
   "이 리포트는 AI가 만든 참고 자료이며 투자 권유가 아닙니다. 모든 매매는 모의 계좌에서만 이뤄집니다." 연습용 예시(시연 추천)는 "연습용 예시 계획 (AI 아님)"(D-4).
-- **PDF**: 이름 "모매매"(2026-10-07 바뀜 — 머리에 로고, 양식 판 `TEMPLATE_VERSION` 4), 맨 위 쉬운 요약 상자(`results.report_agent.plainSummary`, 없으면 "자료 없음") + 통일 면책 문장, 차트는 완성 일봉 + 범례 "YYYY-MM-DD 종가 기준".
+- **PDF**: 이름 "모매매"(2026-10-07 바뀜 — 머리에 로고, 2026-10-08 로고 바뀜 — 27장, 양식 판 `TEMPLATE_VERSION` 5), 맨 위 쉬운 요약 상자(`results.report_agent.plainSummary`, 없으면 "자료 없음") + 통일 면책 문장, 차트는 완성 일봉 + 범례 "YYYY-MM-DD 종가 기준".
   (2026-10-05 구현: 지표 카드 아래 "시세 지표: 종가 72,000원 · 10월 2일(금) 15:30 장마감 기준" 한 줄 — `market_agent`의 `price`·`asOf`, 없으면 "시세 지표 기준 시각: 자료 없음".
-  AI 의견 배지는 화면과 같은 "긍정적 · 지켜보기 · 부정적"(전의 매수·관망·회피는 권유로 읽혀서). **양식 판 `TEMPLATE_VERSION`**(그때 2, 2026-10-07 지금 4)을 파일 이름에 넣는다 —
+  AI 의견 배지는 화면과 같은 "긍정적 · 지켜보기 · 부정적"(전의 매수·관망·회피는 권유로 읽혀서). **양식 판 `TEMPLATE_VERSION`**(그때 2, 2026-10-07 4, 2026-10-08 지금 5)을 파일 이름에 넣는다 —
   `PAPER_ROOT/reports/<id>.v<판>.pdf` (2026-10-07부터 쉬운 판은 `<id>.v<판>.easy.pdf` — 20장). 양식이 바뀌면 판을 올려 예전 파일(판 번호 없는 `<id>.pdf` = 1판)을 다시 쓰지 않고 새로 만든 뒤 지운다.)
 - **이름과 목록 봉투** (2026-10-05 확정, `docs/API.md`): 목록 엔드포인트(자원의 모음을 돌려주는 것이 일인 응답)는 항목 배열을 늘 `results`에 담는다 (`GET /api/longterm/daily-moves`의 `items` → `results`, `date`는 그대로).
   한 대상을 돌려주는 객체(한 종목 — `StockDetail`·`TradePlanDetail`)는 목록 엔드포인트가 아니라 배열 필드가 자기 이름을 쓴다 (`candles`·`events`). (이 규칙을 정할 때는 단타 연습의 `MinuteCandles`·`DayReview`·`GET /api/day/*`도 있었으나 2026-10-06 폐기로 지웠다 — 16장.)
@@ -786,7 +789,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 사용자 요청: "UI/UX 개선점을 모두 조사하고 개선·테스트까지 — 자연스럽고 세련된 애니메이션, 사용자 경험 전반 향상, 컴포넌트 위치의 당위성, 다크모드 전환".
 범위는 `frontend/`뿐이다(백엔드·`docs/API.md` 계약 변경 없음, 외부 의존성 추가 없음). 9개 영역(앱 뼈대·홈·종목·리포트·모의투자·단타·마이 + 모션·다크 — 단타 화면은 2026-10-06 삭제, 16장)을 감사해
 305건을 찾고 검증자가 반박해 6건을 버리고 40건을 더했다. 공용 기반 → 화면 영역별 구현 → 통합 → 독립 검증 순으로 반영했다.
-**화면별 배치 순서와 그 이유는 `docs/화면배치.md`**에 적었다.
+**화면별 배치 순서와 그 이유는 `docs/design/화면배치.md`**에 적었다.
 
 ### 15-1. 모션 원칙
 
@@ -814,7 +817,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 
 ### 15-3. 색 토큰 규칙
 
-- **TSX에 색 값을 쓰지 않는다**: `#hex`·`rgb()`·`bg-white`·`bg-black` 금지. `src/colors.test.ts`가 검사한다(예외: `lib/chartTheme.ts`의 차트 대체값, `lib/theme.ts`의 테마색).
+- **TSX에 색 값을 쓰지 않는다**: `#hex`·`rgb()`·`bg-white`·`bg-black` 금지. `src/test/colors.test.ts`가 검사한다(예외: `lib/chartTheme.ts`의 차트 대체값, `lib/theme.ts`의 테마색).
 - **글자와 바탕을 나눈다**: `*-ink`는 글자(`brand-ink` 파란 글자 · `warn-ink` 경고 글자 · `up-ink` 오류·실패 글자 · `ok-ink` 초록 글자), `on-*`는 그 바탕 위 글자(`on-ink` 반전 표면 · `on-warn` · `on-medal`),
   `brand-dark`·`up-dark`는 버튼 hover 배경 전용. 아이콘·점·막대는 `brand`·`up`·`ok`·`warn` 그대로.
 - **반전 표면**(툴팁·토스트·선택 칩)은 `bg-ink` + `text-on-ink`(다크에서는 밝은 표면 + 어두운 글자, 의도), 그 위 아이콘은 `ok-inverse`·`up-inverse`. 배경막은 `scrim`, 스위치 손잡이는 `knob`, Segmented 선택 표시는 `thumb`, brand 바탕 위 그림(로고의 배)은 `on-brand`(두 테마 모두 흰색).
@@ -831,7 +834,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 | `useRevealAfterLoading`·`revealList`(처음 내용이 올 때 한 번 등장), `useChanged`, `useNewKeys`(실시간으로 붙는 새 항목), `usePresence`, `useModal`, `useSlidingIndicator`, `useTheme`·`useResolvedTheme` | `hooks/` | |
 | `press`(버튼 누름 scale .98), `press-row`(행·카드 링크 누름 배경), `reveal-fade`, `is-new`, `skeleton` | `index.css` | 모바일 누름 피드백(전에는 탭 하이라이트만 끄고 대신할 것이 없었다) |
 
-- `BrandMark`(로고 — size px, 48px 이상에서만 돛의 접힌 선, 고대비에서도 색 유지)·`BrandLockup`(로고 + 이름, 사이 = 마크의 1/4, 이름 800·자간 -0.02em): `components/BrandMark.tsx`. 화면에 서비스 이름을 넣을 때는 이것을 쓴다.
+- `BrandMark`(로고 — size px, 32px 이상은 속이 빈 ㅁ·더 작으면 속이 찬 사각형, `loop` 반복 모션, 고대비에서도 색 유지)·`Wordmark`("모매매" 글자 SVG — 세 ㅁ만 brand 색)·`BrandLockup`(로고 + 워드마크, 사이 = 마크의 1/4, 워드마크 높이 = 마크의 0.7배, 이름은 숨김 글자가 읽는다): `components/brand/BrandMark.tsx`, 도형 값은 `lib/brandShapes.ts`. 화면에 서비스 이름을 넣을 때는 이것을 쓴다 (2026-10-08 로고 바뀜 — 27장).
 - `Skeleton`: className에 모서리(rounded-*)를 주면 기본 rounded-lg를 뺀다(원·알약 자리).
 - 둥근 카드(overflow-hidden) 안의 행 링크는 `focus-visible:outline-offset-[-2px]` + 첫·마지막 행 모서리 맞춤으로 포커스 테두리가 잘리지 않게 한다. 요청을 보내는 버튼은 `disabled` 대신 `aria-disabled`(누름 무시·aria-busy·Spinner)로 포커스를 지키고, 누른 행이 사라지면 다음 행 → 앞 행 → 목록 제목 순으로 포커스를 옮긴다.
 - 토스트: `toast(문장, "info" | "success" | "error", { action })`. 길이에 따라 3~6초, 마우스·포커스·숨은 탭 동안 멈추고 눌러 닫는다. 모바일은 하단 탭·주문 바 위, PC는 본문 열 가운데, 시트가 열려 있으면 화면 위쪽.
@@ -853,22 +856,23 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 ### 15-6. 파일 소유와 다음 작업 규칙
 
 - 이번 변경은 담당 5의 원래 파일(`Layout.tsx`·`LoginPage.tsx`·`index.html`·`ReportsPage`·`ReportPage`·`components/reports/*` 등)을 포함한다. 14-2대로 Claude가 "합쳤다"고 알린 뒤 5가 그 위에서 다듬는다.
-- 화면을 고칠 때: 색은 토큰만, **라이트·다크 두 테마 × 모바일 390·PC 1280**을 함께 확인한다. 공용 부품·훅을 쓰고 비슷한 것을 새로 만들지 않는다. 배치를 바꾸면 `docs/화면배치.md`를 함께 고친다.
+- 화면을 고칠 때: 색은 토큰만, **라이트·다크 두 테마 × 모바일 390·PC 1280**을 함께 확인한다. 공용 부품·훅을 쓰고 비슷한 것을 새로 만들지 않는다. 배치를 바꾸면 `docs/design/화면배치.md`를 함께 고친다.
 
 ### 15-7. 이름과 로고: 종이배 (2026-10-05, 사용자 요청)
 
-> **2026-10-07 이름을 "모매매"로 바꿨다 (18장).** 아래 이름 풀이·"이름이 나가는 곳"의 문자열은 지난 이름의 기록이다. 로고와 "쓰지 않는 것"은 그대로 쓴다.
+> **2026-10-07 이름을 "모매매"로 바꿨다 (18장).** 아래 이름 풀이·"이름이 나가는 곳"의 문자열은 지난 이름의 기록이다.
+> **2026-10-08 로고(종이배 → ㅁ 블록 셋)·부제·풀이 한 줄도 바꿨다 (27장).** 아래 로고·부제·로그인 첫 화면과 "쓰지 않는 것"의 그림 규칙(배 색·물결·화살표·차트)은 지난 기록이다. "쓰지 않는 것"의 문구 규칙(배 은어·띄우다·접다 등)은 그대로 쓴다.
 
 - 사용자 요청: "앱 이름이랑 로고 디자인 멋있게 변경해줘. 앱 이름 자체를 바꿔도 됨". 시안 9개(쉬운 우리말·은유·로고 먼저 세 방향)를 세 기준(초보 명확성·안전 / 브랜드 힘 / 로고 완성도 — 1배율 16px까지 그려 봄)으로 심사해 1위를 골랐다.
 - **이름 "종이배"**(붙여 씀). '종이'가 두 가지를 뜻한다 — AI가 쓴 **리포트**(종이 위의 보고서)와 **모의투자**(paper trading, "종이 위에서 = 실제가 아니라 연습으로"). 이름이 처음부터 '진짜 돈이 아님'을 말해 실제 매매·수익 약속으로 읽힐 틈이 적다.
   부제 **"종이 위에서 연습하는 AI 리포트 모의투자"**. 영문은 설명할 때만 'Paper Boat'(상호처럼 'Paperboat' 한 단어로 쓰지 않는다 — 해외 음료 브랜드와 겹친다). 코드·저장소·패키지 이름은 그대로.
 - **로고**: 리포트 한 장을 접은 종이배 정면 실루엣(사다리꼴 선체 + 삼각 돛, 돛 꼭짓점을 둥글려 ▲ 상승 기호로 읽히지 않게). brand 둥근 타일 + 흰 배. 48px 이상에서만 돛에 접힌 선 하나("종이를 접었다").
-  파일: `frontend/src/components/BrandMark.tsx`(CSS 변수 `--color-brand`·`--color-on-brand` — 다크에서 타일이 #458ef7), `frontend/public/favicon.svg`(16px 최적화), `apple-touch-icon.png`(180px). 쓰는 곳: PC 왼쪽 메뉴(32px), 모바일 홈 머리(28px), 로그인(56~64px), 부팅 화면, PDF 머리.
+  파일: `frontend/src/components/brand/BrandMark.tsx`(CSS 변수 `--color-brand`·`--color-on-brand` — 다크에서 타일이 #458ef7), `frontend/public/favicon.svg`(16px 최적화), `apple-touch-icon.png`(180px). 쓰는 곳: PC 왼쪽 메뉴(32px), 모바일 홈 머리(28px), 로그인(56~64px), 부팅 화면, PDF 머리.
 - **이름이 나가는 곳**: 브라우저 탭 "〈화면〉 · 종이배", 홈 화면에 추가할 때의 이름(`apple-mobile-web-app-title` — 없으면 그 순간의 탭 제목이 이름이 된다), Discord 머리말 `[종이배 · 모의투자]`(`notifications/service.py`),
   A4 PDF(양식 판 `TEMPLATE_VERSION` 3 — 예전 판 파일은 다음 요청 때 새로 만든다): 모든 쪽 맨 위 머리 [로고 9mm + 이름 | 'AI 리포트 · 모의투자 연습용'] + 가는 선. 면책·날짜는 본문·꼬리말에 이미 있어 머리에 넣지 않는다.
 - 로그인 첫 화면: 로고 56px → 이름 26px → 부제(`SERVICE_TAGLINE`) → 설명 한 줄(`SERVICE_INTRO` "진짜 돈 대신 종이 위에서 — AI가 쓴 리포트를 읽고 따져 본 뒤, 가상 현금으로 모의투자를 연습해요.") → 3단계 칩. 상수는 `lib/plainText.ts`.
 - **쓰지 않는 것**: 배를 노란색으로 칠하지 않는다(세월호 추모의 노란 종이배와 겹친다), 물결·화살표·차트를 덧그리지 않는다. 문구에 배 은어(탑승·승선·선장·출항·순항 — 리딩방 은어와 닿는다), '띄우다'(주가 띄우기)·'접다'(포기), 침몰·가라앉다·구조, '배(倍)' 말장난을 쓰지 않는다.
-- 2·3위 후보(바꾸고 싶을 때): **"따져봄"**("AI 리포트로 따져 보는 모의투자 연습" — 검토 원칙을 가장 정확히 말하고 안전 심사 1위, 마크(안경)는 다시 다듬어야 함), **"검산"**(√ 체크 마크가 가장 독창적, 이름이 딱딱함). 이름은 `lib/plainText.ts` `SERVICE_NAME` 한 곳 + 백엔드 두 상수(`notifications/service.py` `HEADER`, `reports/pdf.py` `SERVICE_NAME`)다.
+- 2·3위 후보(바꾸고 싶을 때): **"따져봄"**("AI 리포트로 따져 보는 모의투자 연습" — 검토 원칙을 가장 정확히 말하고 안전 심사 1위, 마크(안경)는 다시 다듬어야 함), **"검산"**(√ 체크 마크가 가장 독창적, 이름이 딱딱함). 이름은 `lib/plainText.ts` `SERVICE_NAME` 한 곳 + 백엔드 두 상수(`notifications/service.py` `HEADER`, `reports/output/pdf.py` `SERVICE_NAME`)다.
 
 
 ## 16. 단타 폐기 (2026-10-06, 사용자 결정)
@@ -917,7 +921,8 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 - **실시간으로 바꾼 것**: `Quote`(`/api/quotes`, `StockDetail.quote`) — 증권사 현재가, `basis: "live"`, `asOf` = 받은 시각. `StockDetail.candles`는 오늘 진행 중인 봉까지.
   직접 주문의 시장가 매수 가능 점검 가격도 현재가로 (화면의 예상 금액 = 시세 × 수량과 같게). 화면 시세 폴링 60초 → 5초.
 - **`prevClose`**: 그 가격이 속한 거래일(오늘 정규장이 있으면 오늘, 없으면 마지막 일봉 날짜)의 전 거래일 종가. 장 달력을 못 받으면 평일을 거래일로 본다.
-- **그대로 장마감 기준인 것**: 계좌 평가·수익률·`Position`, 랭킹, 일별 자산 기록, 리스크 미리 보기와 활성화 수량, `priceAtCreation`, 시연 추천 진입가, 리포트(시세 Worker·PDF), 분석. 이유: 미리 보기에서 본 수량이 그대로 주문 수량이 되고 수익률·랭킹이 하루 동안 흔들리지 않게 (14-1 ①).
+- **그대로 장마감 기준인 것**: 계좌 평가·수익률·`Position`, 랭킹, 일별 자산 기록, 리스크 미리 보기와 활성화 수량, `priceAtCreation`, 시연 추천 진입가, ~~리포트(시세 Worker·PDF)~~, 분석.
+  (2026-10-08: 리포트 시세 Worker는 장 중에 만들면 현재가, 미리 보기·활성화의 가격 점검도 그때는 장중 가격 — 26장) 이유: 미리 보기에서 본 수량이 그대로 주문 수량이 되고 수익률·랭킹이 하루 동안 흔들리지 않게 (14-1 ①).
   그래서 같은 화면에서 시세(실시간)와 계좌 평가(장마감 기준)가 다를 수 있다 — 표기("실시간 · 시각" / "장마감 기준")로 구분한다.
 - **현재가를 받지 못하면** 그 종목은 장마감 기준 Quote(`basis: "close"`)로 낸다.
 - **조회량**: 현재가는 종목마다 1초 캐시를 팀 전체가 같이 쓴다. 키움은 국내 현재가를 여러 종목 한 번(`ka10095`)에 받으므로 한도(초당 5회) 안이다.
@@ -932,21 +937,22 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
   - 화면 `frontend/src/lib/plainText.ts` `SERVICE_NAME`: 왼쪽 메뉴·모바일 홈 머리·로그인·부팅 화면, 브라우저 탭 "〈화면〉 · 모매매", 로고의 읽기 이름.
     `frontend/index.html`의 `<title>`·`apple-mobile-web-app-title`도 같이.
   - Discord 머리말 `[모매매 · 모의투자]` (`backend/notifications/service.py` `HEADER`).
-  - A4 PDF 머리 (`backend/reports/pdf.py` `SERVICE_NAME`). 양식 판 `TEMPLATE_VERSION` 3 → 4 — 예전 판 PDF는 다음 요청 때 새 이름으로 다시 만든다.
+  - A4 PDF 머리 (`backend/reports/output/pdf.py` `SERVICE_NAME`). 양식 판 `TEMPLATE_VERSION` 3 → 4 — 예전 판 PDF는 다음 요청 때 새 이름으로 다시 만든다.
 - **그대로 둔 것**: 로고(종이배 모양 — `BrandMark.tsx`·`favicon.svg`·`apple-touch-icon.png`)와 15-7의 로고 규칙·"쓰지 않는 것",
   부제 "종이 위에서 연습하는 AI 리포트 모의투자"와 풀이 한 줄(`SERVICE_TAGLINE`·`SERVICE_INTRO`). 새 이름에 로고·부제를 맞출지는 `docs/결정필요사항.md` U24.
+  → 2026-10-08 로고·부제·풀이 한 줄도 새 이름에 맞춰 바꿨다 (27장, U24 결정).
 - **문서**: 지금 상태를 말하는 곳(`AGENTS.md`, `README.md`, 계획서들, `docs/API.md`, 이 문서의 현재 규칙 줄, 화면 배치)은 새 이름으로 고쳤다.
   지난 결정의 기록(15-7 본문, 작업 문서의 날짜 붙은 줄)은 지우지 않고 바뀐 사실만 덧붙였다.
 
 ## 19. 추천 워크플로우 구현: Orchestrator · Worker 11개 · 매매 종목 선정 팀 · 자동 리포트 (2026-10-07, 사용자 결정)
 
-사용자(팀장)가 "추천 워크플로우 구현 — 전부 구현"을 정했다. 2026-10-04 결정(14-2: 핵심 Agent 워크플로우는 담당 2·3·4)을 바꿔, 설계 예시 `docs/AI_AGENT_WORKFLOW.md`를
+사용자(팀장)가 "추천 워크플로우 구현 — 전부 구현"을 정했다. 2026-10-04 결정(14-2: 핵심 Agent 워크플로우는 담당 2·3·4)을 바꿔, 설계 예시 `docs/design/AI_AGENT_WORKFLOW.md`를
 Claude가 끝까지 만들었다. 팀원이 이미 만든 것(3의 T3-1 레지스트리 스키마, 4의 T4-1 마이그레이션 0002·T4-2~T4-5 호출기, 2의 계약 6개와 dy 브랜치의 계약 보강 `ce98783`) 위에 올렸다.
 약속(`docs/tasks/00-공통.md` 6~10절)은 그대로 따르고, 바뀐 것은 00-공통에 "2026-10-07"로 적었다.
 
 - **두 팀** (`Report.team`, 마이그레이션 0003): `stock_report`(종목 리포트, 기본)와 `stock_selection`(매매 종목 선정 — 하루 한 번, `symbol`은 시장 코드).
   `registry.execution_plan(team)`·`step_ids(team)`·`worker_ids(team)`, `state`는 리포트의 팀 계획으로 단계·Worker를 확인한다. 선정 실행은 목록·알림·추천 수집에서 빠진다.
-- **Orchestrator** (`reports/orchestrator.py`): 계획대로 병렬·순차 실행, 단계 제한 시간(180초) → `timeout`, Join Guard, 부분 실패 정책 셋, 검토 반복(RETRY ≤ 2), Handoff Guard(리스크 점검),
+- **Orchestrator** (`reports/orchestration/orchestrator.py`): 계획대로 병렬·순차 실행, 단계 제한 시간(180초) → `timeout`, Join Guard, 부분 실패 정책 셋, 검토 반복(RETRY ≤ 2), Handoff Guard(리스크 점검),
   비용 집계(`state.add_cost`). `state`의 쓰기는 프로세스 잠금으로 한 번에 하나 (병렬 Worker 스레드가 SQLite에서 "table is locked"를 내지 않게).
 - **실패 사유 코드 셋 추가**: `agent_failed`(Join이 없는 단계의 필수 Worker 실패), `no_llm`(AI 키 없음), `expired`(24시간 넘게 기다린 `requested` — 실행기를 처음 켤 때
   묵은 신청이 실제 비용으로 한꺼번에 돌지 않게. 계획서 Q5). 화면·알림 문장 표에 같이 넣었다. 필수 Worker가 단계 제한 시간을 넘기면 `timeout`(Q3).
@@ -954,11 +960,11 @@ Claude가 끝까지 만들었다. 팀원이 이미 만든 것(3의 T3-1 레지�
   왜: 주 모델이 계속 멈출 때 60초를 또 기다리지 않아 복구가 125초 → 65초, 대체 모델이 첫 호출에서만 멈추는 경우도 180초 안에 복구된다.
   `yubeen` 브랜치의 "timeout은 어느 모델이든 바로 다음 모델" 안과 지금 규칙을 가짜 시계로 비교해 고른 절충안이다 (`docs/works/todo/yubeen_리뷰_Orchestrator별도구현_2026-10-08.md` 3장).
   호출 한 번에 주 모델 실패가 2번에서 1번으로 줄어, 장애 주입 시연에서 Circuit Breaker(연속 3번)는 세 번째 호출에서 열린다.
-- **실행기** (`reports/runner.py`): 엔진 루프 "리포트 실행" 단계가 `requested`를 오래된 순으로 하나씩(동시에 하나). 엔진이 다시 뜨면 남은 `running`을 `engine_restarted`로 끝낸다.
+- **실행기** (`reports/orchestration/runner.py`): 엔진 루프 "리포트 실행" 단계가 `requested`를 오래된 순으로 하나씩(동시에 하나). 엔진이 다시 뜨면 남은 `running`을 `engine_restarted`로 끝낸다.
 - **Worker 11개**: 종목 리포트 6개(시세 — 장마감 기준 값을 코드가 덮어씀, 재무·공시, 뉴스, 작성, 검토 — 투자유의면 코드가 Handoff를 붙임, 리스크 — 투자유의 단계의 하한을 코드가 정함),
   선정 5개(후보 뉴스, 후보 공시 — 고위험 공시 낱말은 코드가 high로, 수급 — 합계는 코드, 선정 — 가격 없음, 선정 검토 — 후보 밖 종목이면 코드가 RETRY로). 외부 글은 입력 Guard(`guards.clean_text`)를 거친다.
-- **하루 파이프라인** (`reports/auto.py`, `AUTO_REPORT=on`일 때만 — 기본 off): 국내 거래일 `AUTO_REPORT_AT`(08:00) 뒤 규칙 선별(후보 30) → 선정 팀 실행 →
-  선정 Guard(`reports/selection.py`: 후보 밖·투자유의(조회 실패면 제외)·고위험 공시·같은 테마 2개까지, 모자라면 규칙 점수로 채움) → 상위 3종목 자동 리포트 → 끝나면 Discord로 PDF와 표지,
+- **하루 파이프라인** (`reports/autoreport/auto.py`, `AUTO_REPORT=on`일 때만 — 기본 off): 국내 거래일 `AUTO_REPORT_AT`(08:00) 뒤 규칙 선별(후보 30) → 선정 팀 실행 →
+  선정 Guard(`reports/autoreport/selection.py`: 후보 밖·투자유의(조회 실패면 제외)·고위험 공시·같은 테마 2개까지, 모자라면 규칙 점수로 채움) → 상위 3종목 자동 리포트 → 끝나면 Discord로 PDF와 표지,
   매수 의견이면 AI 추천(팀 전체 알림). 선정 팀이 실패하면 규칙 점수 상위로 Fallback하고 `selectedBy: "rule"`·`fallbackReason`을 남긴다. 증권사 조회가 안 되면 그날은 건너뛰고 Discord로 알린다.
   `AUTO_RECOMMEND=demo`(시연 추천)와 같이 켜지 않는다.
 - **독립 리뷰(2026-10-07, 구현하지 않은 작업자 7명 + 결과마다 반박 3명)**에서 확인된 19건을 고쳤다: Worker 결과 쓰기와 단계 시간 초과의 경합,
@@ -967,7 +973,7 @@ Claude가 끝까지 만들었다. 팀원이 이미 만든 것(3의 T3-1 레지�
   증권사 키 없이 매일 건너뜀 알림, 쉬운 실패 화면의 멈춘 단계, 문장 중복 등. 기록은 `docs/works/done/Hwanseok_리뷰_추천워크플로우_2026-10-07.md`.
 - **사람이 최종 결정**: 바뀌지 않았다. AI 추천은 사용자가 리포트를 읽고 "계획 활성화"를 눌러야 모의 자동매매가 시작된다 (12장).
 - **남은 것(팀원 몫)**: 4의 장애 주입(`chaos.py`, T4-6)과 복구 지표(`stats.py`·`recovery-stats` API, T4-7) — 지금 `recovery`는 고정값, 2의 비용 예산(`budget.py`),
-  실제 모델로 프롬프트 다듬기(T2-10), 설계서·장애 복구 보고서. 주린이모드 "AI 의견 대립" 제안(`docs/AI_AGENT_WORKFLOW.md` 6장)은 만들지 않았다.
+  실제 모델로 프롬프트 다듬기(T2-10), 설계서·장애 복구 보고서. 주린이모드 "AI 의견 대립" 제안(`docs/design/AI_AGENT_WORKFLOW.md` 6장)은 만들지 않았다.
 
 ## 20. 주린이모드 PDF: 쉬운 판 (2026-10-07, 사용자 결정)
 
@@ -975,7 +981,7 @@ Claude가 끝까지 만들었다. 팀원이 이미 만든 것(3의 T3-1 레지�
 
 - **두 판**: 쉬운 판과 자세한 판(지금까지의 PDF, 내용 그대로). `GET /api/reports/{id}/pdf?view=easy|expert` — 화면의 `?view`와 같은 값.
   없으면 요청한 사람의 주린이모드(켬 → 쉬운 판). 웹 쉬운 보기의 "PDF로 보기"는 `?view=easy`, 자세히 보기는 `?view=expert`를 붙여 "이 화면만 자세히 보기"를 따른다.
-- **쉬운 판 내용 = 웹 쉬운 보기와 같은 문장** (`backend/reports/easy_text.py` — 짝 TS 파일을 주석에 적고, 테스트가 두 쪽 문장이 같은지 본다):
+- **쉬운 판 내용 = 웹 쉬운 보기와 같은 문장** (`backend/reports/output/easy_text.py` — 짝 TS 파일을 주석에 적고, 테스트가 두 쪽 문장이 같은지 본다):
   AI 의견 배지와 한 줄 풀이, 신뢰 패널(검토 통과·인용 수·자료 시각·자동 복구 문장·"AI 검토는 사실을 보증하지 않아요"), 쉬운 요약 3줄,
   매매 계획(말로 — "웹의 매매 계획 카드에서 '실행 준비'를 거쳐 직접 '모의 자동매매 시작'을 눌러야 시작돼요" — 쉬운 보기의 버튼 이름. 누르지 않으면 실행되지 않고 기한이 지나면 만료된다), 근거와 위험·"이 의견이 틀리는 경우", 세 가지 경우(1주 기준 %),
   가격 흐름(사는 가격·목표 가격·손절 가격 가로선, 이동평균 없음), 조사 자료 요약, **용어 풀이**(종이에서는 눌러 볼 수 없어서 — 그 쪽에 나온 용어만, 화면 용어 사전 문장 그대로),
@@ -998,7 +1004,8 @@ AI가 낸 시나리오의 손익비가 2.0을 넘은 적이 없었다 (운영 �
 AI는 목표를 가깝게(+6~9%), 손절을 멀게(−5~−19%) 잡았다. 그래서 AI 추천은 활성화에서 거의 모두 `reward_risk_low`로 막혔다.
 
 - **손절가는 AI가 아니라 코드가 정한다** (`engine/paper_engine/judge/stops.py`): 최근 완성 봉 10개의 최저가 − ATR14×0.5를
-  기준가 − ATR14×2 ~ 기준가 − ATR14×1 안으로 맞추고 호가 단위로 내린다. 기준가는 분석할 때의 가격(엔진 분석 `lastPrice`, AI 리포트 직전 정규장 종가)이다.
+  기준가 − ATR14×2 ~ 기준가 − ATR14×1 안으로 맞추고 호가 단위로 내린다. 기준가는 분석할 때의 가격(엔진 분석 `lastPrice`, AI 리포트 시세 조사의 `price` —
+  2026-10-08부터 장 중이면 현재가, 아니면 직전 정규장 종가, 26장)이다.
   진입가가 아니라 기준가로 정하므로 AI는 손절가를 미리 받아 확률을 추정한다.
   - 엔진 교차검증: 제안 전에 종목 데이터의 `stopRule`(값·정하는 법)을 넣고, 제안된 `stopPrice`를 그 값으로 바꾼다 (`pipeline.apply_stop`).
     일봉·ATR이 모자라 정하지 못했거나 진입가가 손절가 이하면 사실 검증에서 거른다. 제안 AI의 응답 형식에서 `stopPrice`를 뺐다.
@@ -1020,7 +1027,7 @@ AI는 목표를 가깝게(+6~9%), 손절을 멀게(−5~−19%) 잡았다. 그�
 - **같은 종목이 아니라 다음 종목**으로 낸다: 이미 리포트한 종목과 선정 Guard가 뺀 종목을 빼고, 같은 선정 Guard(AI 선정안의 남은 순위 → 규칙 점수 순,
   투자유의·고위험 공시·같은 테마 검사)로 top개를 고른다. 선정 팀(LLM)은 다시 부르지 않는다.
   같은 종목을 다시 내면 손절가는 코드가 정하고(21장) 목표가는 AI가 저항선에 맞춰 거의 같게 낸다 (10/7 삼성전자 두 번 모두 진입 269,000·목표 287,000, 한미반도체 두 번 모두 목표 283,500).
-- **최대 2번** (`reports/auto.py` `RETRY_ROUNDS`). 다음 종목이 없거나, 그날(KST)이 지났으면 더 하지 않는다. 다시 시도가 실패해도 표지는 보낸다.
+- **최대 2번** (`reports/autoreport/auto.py` `RETRY_ROUNDS`). 다음 종목이 없거나, 그날(KST)이 지났으면 더 하지 않는다. 다시 시도가 실패해도 표지는 보낸다.
 - 그날 선별 파일: `retries`(다시 시도한 횟수), 더한 종목은 `picks`에 `retryRound`(1|2)를 붙여 더한다 (`docs/API.md` ScreeningResult).
   팀 채널에 "자동 리포트 다시 시도 n/2: …" 한 줄, 표지는 마지막 회차가 끝난 뒤 한 번 ("리포트 9개 (다시 시도 2번)").
   화면(오늘의 선별 결과)은 더한 종목에 "다시 시도 n차" 꼬리표를 단다. `manage.py auto_report --wait`도 다시 시도한 리포트까지 돌린다.
@@ -1029,7 +1036,7 @@ AI는 목표를 가깝게(+6~9%), 손절을 멀게(−5~−19%) 잡았다. 그�
 
 ## 23. 운영 E2E 점검 뒤 고칠 것: 오늘 산 종목 평가 · 시작할 수 없는 추천 표시 · 알림 합치기 · 토스 허용 분리 (2026-10-08, 사용자 결정)
 
-근거: `docs/운영E2E점검_UX리뷰_2026-10-08.md` (운영 서버에서 초보 투자자 관점으로 끝까지 돌려 본 결과). 사용자가 권장안을 모두 골랐다.
+근거: `docs/records/운영E2E점검_UX리뷰_2026-10-08.md` (운영 서버에서 초보 투자자 관점으로 끝까지 돌려 본 결과). 사용자가 권장안을 모두 골랐다.
 
 - **오늘 산 종목은 체결가로 평가한다 (UX-1).** 계좌·보유·랭킹의 장마감 기준 평가(14-1)는 그대로 두되, 평가할 종가의 기준 시각 **뒤에 체결된 보유**는
   그 종가 대신 체결가로 평가한다(손익 0, `Position.priceBasis: "today_fill"`). 기준일이 오늘로 바뀌면(KR 15:40) 그날 종가로 평가된다.
@@ -1055,11 +1062,13 @@ AI는 목표를 가깝게(+6~9%), 손절을 멀게(−5~−19%) 잡았다. 그�
   엔진 CLI의 팀 채널 알림 (12-4의 Discord 쪽 전부).
 - **방법: 코드 두 곳을 주석 처리했다** (설정 값을 지우지 않아도 꺼진다).
   - `engine/paper_engine/notify.py`의 `make_notifier` — Webhook·openclaw 분기를 주석 처리해 늘 `ConsoleNotifier`(콘솔 출력)를 돌려준다.
-    모든 Discord 전송(`config.engine.notifier()` → 알림 발송 `dispatch.tick`, 자동 리포트 `reports/auto.py`)이 이 함수를 거친다.
+    모든 Discord 전송(`config.engine.notifier()` → 알림 발송 `dispatch.tick`, 자동 리포트 `reports/autoreport/auto.py`)이 이 함수를 거친다.
   - `backend/notifications/service.py`의 `webhook_configured` — 늘 false. 화면(My Page 알림 설정)은 Discord 묶음(받기 스위치·사용자 ID·테스트 알림)을 접고
     "지금은 웹 알림으로만 와요"를 보인다. 테스트 알림 API는 `discord: "not_configured"`.
 - 끈 동안 생기는 Discord 글은 편지함(`notification_outbox`)에 `skipped`로 남고 엔진 콘솔에만 찍힌다 (보내지 않음). `DISCORD_WEBHOOK_URL`은 남겨 둬도 된다.
-- **바뀌지 않는 것**: GitHub Actions의 배포 결과 Discord 알림(`deploy.yml`의 `notify` 작업)은 서비스 기능이 아니라 그대로 둔다 (저장소 비밀 값 `DISCORD_WEBHOOK_URL`로 보낸다).
+- **배포 파이프라인의 Discord 알림도 없앴다** (2026-10-08 사용자 결정 "디스코드 알림은 구현 안 함"): `deploy.yml`의 `notify` 작업을 지웠다.
+  (처음에는 서비스 기능이 아니라며 남겨 두었지만, 저장소 비밀 값 `DISCORD_WEBHOOK_URL`을 넣은 적이 없어 늘 건너뛰기만 했다.)
+  배포 결과는 Actions 실행 결과(실행한 사람에게 GitHub 기본 실패 알림)와 관리 서버의 배포 기록(`record` 작업 — success·rolled_back·rollback_failed·failed·blocked)으로 본다.
 - **다시 켜려면**: 위 두 곳의 주석을 풀고 `return ConsoleNotifier()` / `return False` 줄을 지운다. 테스트 `engine/tests/test_notify.py`,
   `backend/notifications/tests/test_service.py`·`test_notifications_api.py`의 "disabled" 테스트를 예전 기대값(각 테스트 docstring에 적었다)으로 되돌린다.
 
@@ -1072,7 +1081,7 @@ AI는 목표를 가깝게(+6~9%), 손절을 멀게(−5~−19%) 잡았다. 그�
 
 - **직접 지우기는 만든 팀원만** 한다: 리포트는 신청한 팀원(끝난 `completed`·`failed`만), 계획 제안은 `requestedBy`인 팀원. 응답의 `canDelete`로 화면이 버튼을 보인다.
   자동 리포트·선정 실행·자동 추천은 만든 사람이 없어 아무도 지우지 않는다 — 아래 자동 정리와 기한이 내린다.
-- **지우기는 숨김이다** (`deleted_at`): 목록·상세·PDF·SSE·추천 API에서 빠지고(`404`) 행은 남는다. 이유: 행을 지우면 비용 예산(`reports/budget.py`)·하루 한도(`quota.py`)·
+- **지우기는 숨김이다** (`deleted_at`): 목록·상세·PDF·SSE·추천 API에서 빠지고(`404`) 행은 남는다. 이유: 행을 지우면 비용 예산(`reports/limits/budget.py`)·하루 한도(`quota.py`)·
   복구 통계(`stats.py`)·관리 서버가 세는 행이 사라져, 지우고 다시 만들어 한도를 되돌려 받는 길이 생기고 통계가 바뀐다. 그래서 **지워도 한도는 돌아오지 않는다** (확인 문구에 적는다).
 - **리포트와 그 제안은 같이 숨긴다** (어느 쪽을 지워도). 그 제안으로 **진행 중인 계획**(누구 것이든)이 있으면 지우지 않는다 — 다른 팀원이 산 이유를 지우지 않게.
   끝난 계획은 남고 계획 상세도 열린다. 지우기와 활성화는 추천 행을 잠그고 서로를 확인한다 (지운 뒤의 활성화는 `404`).
@@ -1081,4 +1090,175 @@ AI는 목표를 가깝게(+6~9%), 손절을 멀게(−5~−19%) 잡았다. 그�
   23장과의 관계: 목록 요청의 `blockedBy`는 지금처럼 시세를 보지 않고(요청마다 시세 조회를 하지 않는다), 시세는 엔진이 1분에 한 번만 본다. 그 1분 사이에는 '시작할 수 있음'으로 보일 수 있지만
   상세의 안전장치(종가)와 활성화의 장중 확인이 지금처럼 막는다. 기한으로 끝난 추천은 `expiredReason: "deadline"`이다 (예전 행도 `deadline`으로 낸다).
 - 고치지 않은 것: 추천이 생기는 순간 이미 가격이 지났으면 '계획 제안' 알림이 먼저 가고 1분 안에 정리된다(알림을 열면 끝난 제안으로 보인다 — 만들 때 막으면 리포트 끝 알림이 사라진다,
-  `reports/alerts.py`). 관리 서버(`paper_admin`)는 지운 리포트도 그대로 보인다(`deleted_at` 열).
+  `reports/output/alerts.py`). 관리 서버(`admin/`)는 지운 리포트도 그대로 보인다(`deleted_at` 열).
+
+## 26. 리포트 시세는 만들 때 가격: 장 중이면 현재가 (2026-10-08, 사용자 결정)
+
+근거: 사용자가 "조사 시 전일 종가를 가져오는 것 같다"고 했다. 운영 리포트 #44(엑스게이트, 10-08 15:23 KST 실행)의 조사 자료 요약 시세가
+"종가 18,700원 · 10월 7일(수) 15:30 장마감 기준"이었고, 그때 가격은 17,990원(−3.8%)이었다. 그날 리포트 #26~#47이 모두 10-07 종가를 썼다.
+17장에서 리포트를 장마감 기준으로 남겼기 때문이다 (기준일은 정규장 종료 + 10분에 바뀐다 — 14-1). 두 방법(① 판단은 종가로 두고 화면에 현재가를 같이 보이기,
+② 시세 조사가 장 중에는 현재가를 쓰기) 중 사용자가 ②를 골랐다. 계약은 `docs/API.md` 공통 규칙 "리포트 시세".
+
+- **언제**: 그 시장의 기준일 뒤 날짜의 정규장이 이미 시작됐을 때 (`trading.market.traded_since_basis`) — 정규장 중과, 끝났지만 기준일이 아직 바뀌기 전(KR 15:30~15:40).
+  장 시작 전(자동 리포트 08:00 포함)·장 마감 뒤·휴장에는 지금처럼 직전 정규장 종가다.
+- **리포트 시세 조사**(`market_agent`): `price` = 현재가, `priceBasis: "live"`, `asOf` = 받은 시각, `changePct` = 현재가 ÷ 직전 종가 − 1. 현재가를 받지 못하면 종가.
+  지표는 완성 봉만(그대로). 손절 가격의 기준가 = `price` — 엔진 분석이 `lastPrice`(현재가)와 완성 봉으로 손절가를 정하는 것과 같아진다 (21장).
+  작성 AI의 진입가 규칙("price에서 5% 안")과 검토 점검도 같은 `price`를 본다.
+- **표기**: "장중 가격 17,990원 · 10월 8일(목) 15:23 기준" (웹 쉬운 보기·쉬운 PDF·자세한 PDF). 리포트는 나중에도 읽으므로 "실시간 · 시각"이 아니라 날짜를 넣는다.
+- **미리 보기·활성화의 가격 점검**(`price_passed`)도 같은 때에는 장중 가격으로 본다 (미리 보기는 현재가, 활성화는 장중 확인 가격. 숫자 없는 정해진 문장).
+  왜: 리포트의 손절·목표가가 장중 가격 기준인데 어제 종가와 비교하면, 오른 날에는 손절가가 어제 종가보다 높아 시작할 수 있는 제안이 "직전 종가가 이미 손절가 이하"로 막히고,
+  내린 날에는 이미 지난 제안이 열려 보인다 (가격이 지난 제안 자동 정리는 이미 현재가를 본다 — 25장). 미리 보기의 수량·금액·자산·`lastPrice`는 그대로 장마감 기준이라
+  "본 수량이 그대로 활성화 수량"(14-1 ①)은 지켜진다. 활성화는 전에는 종가 점검 + 정규장 중 장중 확인이었고, 이제 그때는 장중 확인만 한다.
+- **그대로인 것**: `priceAtCreation`(만들 때의 직전 종가 — 화면 "추천 때 종가"), 재무 조사의 PER·PBR, 리포트 차트(완성 봉), 계좌 평가·랭킹, 분석(교차검증), 매매 종목 선정 팀.
+- 알아 둘 것: 같은 종목 리포트도 만든 시각에 따라 가격·손절가가 다르다 (시각을 표기로 밝힌다). 장 중 리포트의 손절가는 오늘 장중 저가를 보지 않는다 (지표처럼 완성 봉만).
+  예전 리포트(`priceBasis` 없음)는 종가로 읽어 표기가 바뀌지 않는다.
+
+## 27. 로고: ㅁ 블록 셋의 계단 · 워드마크 · 앱 인트로, 로그인 부제 (2026-10-08, 사용자 결정)
+
+ju 브랜치 `f2d42db`("인트로 로고 수정")가 15-7의 종이배 로고를 바꾸고 부제를 새로 썼다. 리뷰에서 이것이 미정이던 U24(새 이름에 로고·부제를 맞출지)를
+정하는 일이고, 15-7의 그림 규칙("▲ 상승 기호로 읽히지 않게", "화살표·차트를 덧그리지 않는다")과 부딪힌다고 알렸다 — 새 로고는 오르는 계단이다.
+사용자가 "로고 바꿀거야"라고 정해 main에 합쳤다. 이 장이 15-7의 로고·부제·로그인 첫 화면 줄을 대신한다.
+
+- **로고(아이콘)**: brand 둥근 타일(viewBox 32, rx 8 = 25%) + 흰 ㅁ 블록 셋이 왼쪽 아래에서 오른쪽 위로 오르는 계단. 이름의 세 ㅁ(모·매·매)이 아이콘의 세 블록이 된다.
+  ㅁ은 104 × 96 속이 빈 사각형(획 32, 아래 변만 살짝 기울임) 하나를 복사해 쓴다. **크기 단계**: 32px 이상은 속이 빈 ㅁ, 더 작으면 속이 찬 사각형(속 구멍이 1배율에서 뭉개져서).
+  도형 값은 `frontend/src/lib/brandShapes.ts` 한 곳 (`MU_PATH`·`ICON_BLOCKS`·`ICON_BLOCK_SCALE`). 색은 토큰만 — 타일 `--color-brand`, 블록 `--color-on-brand`.
+- **워드마크 "모매매"**: 굵은 직선 획 글자 SVG(viewBox 640 × 175), 세 ㅁ만 brand 색이고 나머지 획은 글자색(둘러싼 `text-*`). 장식이라 화면 읽기에서 숨기고 이름은 옆의 숨김 글자(sr-only)가 읽는다.
+  가로 잠금 `BrandLockup`(PC 왼쪽 메뉴 32px · 모바일 홈 머리 28px · 부팅 뼈대): 마크 + 워드마크, 사이 = 마크의 1/4, 워드마크 높이 = 마크의 0.7배.
+- **파비콘·홈 화면 아이콘**: `public/favicon.svg`는 16px 전용 모양(속이 찬 사각형 셋, 블록 사이 틈 0.8 — path·선 없음), `apple-touch-icon.png`(180px) 새 모양으로.
+- **PDF 머리**: 로고만 새 아이콘(32px 이상 판 — 속이 빈 ㅁ)으로 바꾸고 이름은 그대로 글자다(PDF에서 검색·복사되게). 도형 값은 `brandShapes.ts`를 `backend/reports/output/pdf.py`에 옮겨 적었고,
+  두 값이 같은지 `backend/reports/tests/output/test_pdf.py::test_logo_shapes_match_frontend`가 검사한다. 양식 판 `TEMPLATE_VERSION` 4 → 5 — 예전 판 PDF는 다음 요청 때 새 로고로 다시 만든다.
+- **로그인 첫 화면**: 로고 56px(반복 모션) → 워드마크 높이 28px(제목 `h1` 안, 이름은 숨김 글자) → 부제 14px → 풀이 한 줄 → 3단계 칩.
+  - 부제 `SERVICE_TAGLINE` **"여러 AI가 함께 검증하는 모의투자"** (전: "종이 위에서 연습하는 AI 리포트 모의투자"). 이 서비스의 핵심(여러 AI의 교차검증 + 모의투자)을 한 줄로.
+  - 풀이 한 줄 `SERVICE_INTRO` **"AI들이 조사하고 서로 따져 본 리포트를 읽고, 가상 현금으로 매매를 연습해요."** — 아래 안심 줄('실제 주문은 나가지 않아요')과 같은 말을 되풀이하지 않는다.
+  - 로고 반복 모션(`BrandMark loop`, `.brand-hop`): 세 블록이 계단을 오르는 순서로 한 칸씩 튀고 쉰다(4.2초 주기). 인트로가 도는 동안(`html[data-intro=playing]`)과 마우스를 올렸을 때는 멈추고, 움직임 줄이기에서는 가만히 있다.
+- **앱 인트로** (`components/brand/BrandIntro.tsx`, `components/brand/IntroGate.tsx`, 움직임은 `index.css`의 `.intro-*`): 5초 — 워드마크 → ㅁ을 뺀 획이 옅어짐 → 세 ㅁ이 계단 자리로 모이며 작아짐 → 파란 타일이 깔리고 ㅁ이 흰색(아이콘) → 아이콘이 왼쪽으로 밀리고 이름이 옆에.
+  끝나고 0.5초 머문 뒤 0.4초 동안 사라진다(덮개의 `animationend`에서 지움). 화면 전체를 덮으며 누르면 바로 끝난다.
+  - **나오는 때**: 앱을 주소 `/` 또는 `/login`으로 열 때(새로 열기·새로고침)마다. 처음 그릴 때의 주소로만 정해 앱 안에서 화면을 옮길 때는 다시 나오지 않는다. 주소 끝 `?intro=1`이면 어느 화면에서든.
+  - **건너뛰는 때**: 움직임 줄이기 설정, 디자인 검수 화면(`/ui/*`), 다른 화면 주소로 바로 연 경우(예: 알림 링크), 테스트(`MODE=test`).
+  - 알아 둘 것 (리뷰에서 말함, 바꾸지 않고 합침): 로그인한 사용자에게 `/`는 홈이라 홈을 새로고침하거나 홈 화면 아이콘으로 열 때도 약 5.9초 인트로가 나온다. 키보드(Esc·Enter)로는 끝나지 않는다.
+- **검수 화면** `/ui/brand` (`VITE_MOCK=1` 전용, 홈의 "발표·검수 도구" 카드에서): 인트로 다시 재생·전체 화면(발표 영상 녹화용)·크기별(16·24·32·48·96px)·가로 잠금.
+- **로고 규칙(15-7을 대신함)**: 늘이기·돌리기·기울이기, 그림자·그라데이션을 하지 않는다. 블록 색을 바꾸지 않는다(워드마크의 ㅁ만 brand 색으로 강조). 고대비(forced-colors)에서도 브랜드 색을 지킨다.
+  문구 규칙(배 은어·띄우다·접다·침몰·'배(倍)' 말장난을 쓰지 않음 — `lib/plainText.ts`)은 그대로 둔다.
+- **바꾼 파일**: `frontend/src/lib/brandShapes.ts`(새), `components/brand/BrandMark.tsx`(`BrandMark`·`Wordmark`·`BrandLockup`), `components/brand/BrandIntro.tsx`·`IntroGate.tsx`(새), `pages/BrandPreviewPage.tsx`(새),
+  `pages/LoginPage.tsx`, `App.tsx`, `index.css`, `lib/plainText.ts`, `public/favicon.svg`, `public/apple-touch-icon.png`, `index.html`, `components/home/DemoPreviewCard.tsx`, `backend/reports/output/pdf.py`(`LOGO_SVG`·`TEMPLATE_VERSION`)와 그 테스트.
+
+## 28. 투자 금액은 사용자가 정한다 · 종목 화면 보유 평가는 실시간 (2026-10-11, 사용자 결정)
+
+사용자가 "자동 매매 활성화 할 때, 프로그램이 투입 금액을 정하게 하지 말고 사용자가 내 자금의 몇 퍼센트 혹은 특정 액수를 정해서 투자할 수 있게",
+"종목 정보 창에서 실시간 정보를 사용하도록"이라고 정했다. 계획의 결정 B1~B5(아래 괄호)는 모두 권장안으로 갔다.
+12-3의 "수량은 `assess` 그대로 · 예산은 줄이기만"과 D-6의 "예산 입력으로 충분"을 이 장이 대신한다. 계약은 `docs/API.md` "AI 추천" 절("넣을 돈")과 "실행 불가 사유 코드" 표.
+
+- **넣을 돈은 사용자가 정한다 (필수)**: 실행 확인에서 `내 자금의 %`(1~100 정수) 또는 `금액(원)` 중 하나를 꼭 정한다. 기본값은 없다 — 정하기 전에는 시작 버튼이 꺼진다.
+  화면은 % 칩 10·25·50·100과 직접 입력을 준다.
+- **% 기준 = 매수 가능 금액** (B1): 현금 − 대기 매수 금액(`buyingPowerKrw`). 그 순간 값에 곱해 원 단위로 내리고, 계획의 `budgetKrw`에 그 금액을 남긴다.
+  총자산 기준이 아닌 까닭: 100%여도 현금을 넘지 않고, 가격 기준(종가·실시간)과 무관하다.
+- **수량은 코드가 계산한다**: 금액 ÷ 1주 매수 비용(진입가 × (1 + 수수료) × 환율). 국내는 내림 정수 주, 미국은 금액을 센트로 내린 소수점 수량.
+  진입가로 계산하므로 미리 보기 수량이 그대로 활성화 수량이다 (14-1 ①).
+- **한도는 점검만 한다 — 넘으면 막는다** (B2): 매수 금액이 매수 가능 금액보다 크면 `cash_short`, 총 금액 한도(`MAX_TOTAL_INVEST_KRW`)를 넘으면 `total_limit`,
+  1주(미국 $1) 미만이면 `budget_too_small`. 사용자가 정한 금액을 말없이 줄이지 않는다 (장기 매수 `assess_position`과 같은 방식 — 14-3).
+  엔진에 `judge/risk.assess_budget`을 더했고 `assess`(엔진 CLI·엔진 자체 계좌)는 그대로다.
+- **건당 위험 1%는 수량 제한에서 뺀다** (B3): 손절 시 손실이 총자산의 1%를 넘으면 `RiskPreview.largeLoss`로 경고 한 줄만 보인다 (막지 않는다).
+  손실 금액은 지금처럼 실행 확인 체크("손절 시 약 ○원을 잃을 수 있어요")로 받는다. 손익비·기대값·매수 유의·일일 손실 한도·기한·같은 종목·중단 스위치·`price_passed` 점검은 그대로다.
+- **재주문**: 같은 수량으로 다시 내고, 매수 가능 금액·총 금액 한도가 모자라면 그 안으로 줄이기만 한다. 건당 위험 한도로 다시 계산하지 않는다 (2026-10-11 전 계획도 같다).
+- **기록**: `TradePlan.budgetMode`(`percent`|`amount`, 예전 계획은 null)·`budgetPercent`, `activated` 사건 details에 같은 값. 계획 화면이 "내 자금의 25% (○원)"처럼 보인다.
+- **종목 화면 보유 평가는 실시간** (B5): 종목 상세의 보유 블록·"모의 보유" 한 줄의 평가 금액·손익·수익률을 시세(`Quote.price`, 5초)와 체결가·수량으로 **종목 통화로** 계산한다
+  (계획 화면의 현재 손익과 같은 함수 `frontend/src/lib/holding.ts`). 오늘 산 종목도 실시간 숫자다. 시세를 받지 못하면 지금처럼 장마감 기준 `Position` 값.
+  API는 바뀌지 않는다. 홈·마이·랭킹·`AccountSummary`는 그대로 장마감 기준이다 (14-1, 23장) — 그래서 같은 보유가 종목 화면(실시간)과 홈(장마감)에서 다를 수 있고, 화면 표기로 구분한다.
+- **AGENTS.md 안전 규칙**: "수량·활성화 여부는 리스크 엔진" → "넣을 돈은 사용자가 정하고, 수량 계산·한도 점검·활성화 여부는 리스크 엔진".
+
+## 29. 디렉터리 정리: 기능별 폴더 (2026-10-11, 사용자 결정)
+
+사용자가 "문서뿐만 아니라 코드 디렉터리도 기능별(agents, orchestrator 등)로 나누어서 깔끔하게 정리"하라고 정했다.
+파일 위치만 바꾸고 동작·함수 이름·Django 앱 이름·모델·마이그레이션은 그대로다 (관리 서버가 읽기 전용 DB 계정으로 표를 바로 읽는다).
+
+- **옮긴 방식**: `git mv`로 옮기고 같은 커밋에서 import·경로 문자열을 모두 고쳤다. 옛 경로를 이어 주는 호환 모듈은 두지 않는다
+  (호환 모듈이 있으면 테스트의 `monkeypatch`가 실제로 쓰이지 않는 모듈 객체를 고칠 수 있다). 앞 장들과 `docs/works/` 같은 지난 기록 속 경로도
+  새 경로로 바꿨다 — 경로는 찾아가는 링크이고 옛 모습은 git 이력에 남는다.
+- **문서**: 기준 문서(`API.md`·`DECISIONS.md`·`DEPLOY.md`·`KIWOOM.md`·`결정필요사항.md`·`교육용문서.md`)만 `docs/` 바로 아래에 두고,
+  나머지는 `guides/`(설치)·`plans/`(계획서)·`design/`(설계)·`records/`(시험 기록)·`evaluation/`(평가 기준·기여)로 나눴다.
+  저장소 루트의 계획·안내 5개(`SETUP_PROMPT.md`·`WSL2_SETUP.md`·`TEAM_DEV_PLAN.md`·`OPS_ADMIN_PLAN.md`·`DEPLOY_SPLIT_PLAN.md`)도 옮겨
+  루트에는 `README.md`·`AGENTS.md`만 남는다. 문서 지도는 `docs/README.md`. `교육용문서.md`는 앱 빌드가 그 자리를 가정해서
+  (`?raw` import, nginx 이미지의 NFC 이름 정리, `.dockerignore`의 `!docs/*.md`) 옮기지 않는다.
+- **`backend/reports`**: 앱 루트에는 Django가 정한 자리(`models.py`·`migrations/`·`admin.py`·`apps.py`·`urls.py`·`views.py`·`sse.py`·`payloads.py`·`management/`)만 남기고
+  기능 코드를 폴더 6개로 나눴다 — `orchestration/`(orchestrator·runner·registry·state와 YAML 두 개. registry가 YAML을 자기 폴더에서 찾는다),
+  `guardrails/`(guards·contracts·tidy), `autohealing/`(healing·chaos·stats), `autoreport/`(auto·selection·conf), `output/`(pdf·easy_text·alerts·text), `limits/`(quota·budget).
+  `agents/`는 팀별 폴더 `report_team/`·`selection_team/`으로 나누고, 팀 폴더와 이름이 겹치는 등록 파일 둘만 `team.py`로 이름을 바꿨다
+  (`agents/report_team.py` → `agents/report_team/team.py`). Orchestrator는 그대로 `agents.WORKERS`만 본다.
+  테스트도 같은 폴더로 나눴다 (`tests/<폴더>/`. 여러 폴더에 걸친 API·SSE·필드 테스트와 `conftest.py`는 `tests/` 바로 아래).
+  같은 앱 안은 상대 import, 다른 앱에서는 절대 import(`from reports.autohealing import healing`)를 쓴다. import 경로를 문자열로 적은 곳
+  (`orchestrator.TEAM_INPUTS`, `auto_report` 명령, 테스트의 `sys.modules`)과 관리 서버 CI의 경로 조건(`backend/reports/autohealing/stats.py`)도 바꿨다.
+- **`backend/autotrade`**: 루트에는 Django 자리와 앱 공통 모듈(`conf.py`·`text.py`·`tokens.py`·`hide.py`)만 두고, 추천 만들기는 `recommend/`(sources·demo·auto),
+  계획 진행은 `plans/`(risk·executor)로 옮겼다. 테스트는 9개라 나누지 않는다. `backend/tests/test_pages.py`(`/`·`/api/health`)는 `backend/config/tests/`로 옮겼다.
+- **`frontend/src`**: `src` 바로 아래의 화면 단위 테스트 27개와 `setupTests.ts`를 `src/test/`(`setup.ts`, 도우미 `render.tsx`·`time.ts`와 같은 곳)로 옮겼다.
+  한 파일만 보는 단위 테스트(`lib/*.test.ts` 등)는 그 파일 옆에 둔다. 기능 전용 부품은 `components/` 루트에서 기능 폴더로 옮겼다 —
+  `analysis/`(AnalysisCard·AnalysisRequest), `stock/`(OrderPanel), `charts/`(CandleChart·LineChart), `brand/`(BrandMark·BrandIntro·IntroGate), 그리고 `lib/useDebounced.ts` → `hooks/`.
+  `components/` 루트에는 여러 화면이 같이 쓰는 부품(`ui.tsx`·`Icon.tsx`·`Layout.tsx`·`Term.tsx`·`toast.ts`·`ToastProvider.tsx`·`RequireAuth.tsx`·`DeleteAction.tsx`·`AssetCard.tsx`)만 남는다.
+  `tsc`가 못 잡는 문자열 경로(`vi.mock`·`importOriginal`, `colors.test.ts`·`foundation.test.tsx`의 `import.meta.glob`, `?raw`, 동적 `import()`)도 고쳤다.
+- **옮기지 않은 것**: 엔진(`engine/paper_engine`)은 이미 기능 폴더(`agents/`·`data/`·`judge/`·`records/`·`longterm/`)로 나뉘어 있고 안전 규칙·CI가 경로를 박아 둔다
+  (`data/toss.py`만 토스 주소 허용, 손절은 `judge/stops.py`). 나머지 백엔드 앱(`accounts`·`trading`·`analysis`·`longterm`·`notifications`)은 기능 모듈이 몇 개뿐이라 그대로다.
+  프론트 `lib/`·`pages/`도 그대로다 — 백엔드 테스트가 `lib/plainText.ts`·`lib/reports.ts`·`lib/glossary.ts`·`lib/brandShapes.ts`와 `components/plan/PlanCard.tsx`·`components/reports/easy/`를
+  경로로 읽어 문장이 같은지 보고, 화면 파일은 라우터와 1:1이라 평평한 쪽이 찾기 쉽다.
+
+## 30. 선정 팀 검토가 끝나게: 마지막 검토는 코드가 판정 · 좁힌 검토 기준 · 이전 검토 전달 · 선정 자료의 가격 가림 (2026-10-12, 사용자 요청)
+
+사용자가 "선정팀 실패 원인 알아보고 고쳐"라고 했다. 매매 종목 선정 팀(19장)이 자주 `review_failed`로 끝나 자동 리포트가 규칙 점수 순(Fallback)으로 종목을 골랐다.
+`backend/reports`만 바꿨다 — 마이그레이션·설정 키·YAML(`select_review` maxRounds 2 그대로)·화면·관리 서버는 그대로다. Trace 계약은 `docs/API.md` "AI 리포트" 절 Trace 타입 주석.
+
+- **원인** (기록된 선정 실행 3회 — 로컬 #5·운영 #8 실패, 운영 #14 성공 — 의 Trace와 같은 입력의 재현으로 확인):
+  - 선정 검토 규칙이 "고칠 것이 하나라도 있으면 RETRY"였고, Orchestrator는 점수가 아니라 verdict만 본다 (같은 88점이 한 번은 PASS, 한 번은 RETRY였다).
+    세 번째 RETRY면 종목·순위에 문제가 없어도 AI 선정안 전체를 버리고 규칙 점수 순으로 돌아갔다 (#5: AI가 악재로 일부러 뺀 종목이 Fallback으로 들어왔다).
+  - 지적 20개가 모두 reason·evidence·summary 글에 관한 것이었다 — 출처 누락 6, 우려·수급 기간 생략 5, summary 불일치 4, 기대를 확정으로 쓴 과장 2, 뉴스 제목에서 옮긴 가격·목표가 3.
+    후보 밖 종목·고위험 공시·테마·순위 지적은 0개였고, 두 실패의 마지막 선정안도 코드 점검을 통과했다.
+  - 같은 검토 루프를 쓰는 종목 리포트 팀은 운영에서 검토까지 간 56회 중 51회 완료(다시 쓴 뒤 둘째 검토 PASS 31/44, 셋째 8/13)인데 선정 팀은 1/3, 0/2였다. 차이는 선정 팀에만 있던 것들이다:
+    ① 작성 규칙에 검토 기준(기대·전망을 확정으로 쓰지 않기, 수급 방향, summary 일반화 금지)과 "지시받지 않은 곳은 그대로"가 없었다 (종목 리포트 작성은 3616e02에서 고쳤다).
+    ② 다시 하는 검토가 자기 이전 지적을 몰라 매번 새 기준을 냈다 (#5: 1회차가 "그대로 두라"고 한 종목을 3회차가 "다른 종목은 우려를 적었다"며 지적).
+    ③ 선정안 evidence는 계약상 종목마다 3개에서 조용히 잘리는데, 검토는 그것을 모르고 "근거 추가"를 되풀이했다.
+    ④ 뉴스 제목의 "목표가 360,000원"이 evidence로 옮겨졌는데 코드 점검은 evidence를 보지 않았다 — 운영 #8은 이 지적 하나로 실패했다.
+    ⑤ 가격 정규식이 가격 아닌 숫자를 가격으로 봤다 — 같은 입력을 지금 코드로 다시 돌린 재현에서 운영 #8 입력 3회 중 1회가 선정 Worker가 쓴 "수주가 3.9조"("주가 3…"으로 읽음)
+      코드 점검 하나로 실패했다 (검토 점수 88·92·92).
+- **바꾼 규칙**:
+  1. **마지막 검토는 코드가 판정한다**: 선정 검토의 마지막 검토(시도 수 > `maxRounds`, 지금 3번째)가 RETRY여도 코드 점검(후보 표 밖 종목·공시 위험 high·권유 표현·가격·목표가)에
+     걸리는 것이 없으면 PASS + `acceptedWithNotes: true`로 바꾼다. 남은 지적은 State·Trace(`agent_completed.details.acceptedWithNotes`)·선정 실행 본문의 "검토 메모"에 남는다.
+     FAIL이거나 코드 점검 문제가 남으면 지금처럼 `review_failed` → 규칙 Fallback이다. 점수는 쓰지 않는다. 이 키는 코드만 붙인다 (LLM이 보내도 선정·종목 리포트 검토가 지운다).
+  2. **RETRY 기준을 좁혔다**: 사실이 조사 결과에 없음·반대 해석·기대를 확정으로 쓴 과장·다른 종목 재료·summary 불일치·가격·권유일 때만 RETRY다.
+     출처가 evidence에 없는 것, 우려·수급 기간 일부만 쓴 것, 종목마다 문체가 다른 것은 PASS다. evidence 3개 상한을 검토 규칙에 적었다.
+  3. **다시 하는 검토에 직전 지적과 "이번에 바뀐 부분"을 준다** (`WorkerContext.retry` = {round, review, draft}, 바뀐 부분은 코드가 이전 선정안과 비교한다).
+     이전 지적이 고쳐졌는지부터 보고, 바뀌지 않은 곳은 다시 문제 삼지 않는다. 종목 리포트 Worker의 입력·프롬프트는 바뀌지 않는다 (테스트로 고정).
+  4. **선정 작성 규칙을 검토 기준에 맞추고 다시 쓸 때 앞머리(RETRY_PREFIX)를 둔다**: 지시받지 않은 종목의 순위·reason·evidence는 글자 그대로 둔다 (3616e02와 같은 처방).
+  5. **가격**: 선정·선정 검토 프롬프트에 넣는 조사 결과 사본의 가격을 "(가격)"으로 가린다 (State에 저장된 원문은 그대로). evidence에서 가격·목표가·"(가격)"이 든 항목은
+     선정 Worker 코드가 지운다. reason·summary는 코드 점검이 막는다 (숫자 없는 "목표가 상향"·"(가격)" 포함). 가격 정규식이 등락률·기간·날짜·순위("주가 3.18% 하락", "순매수가 5일째", "주가 10월 들어")와
+     금액·개수("수주가 3.9조", "순매수가 120만주", "주주가 3명", "3억5000만원")를 가격으로 잘못 보던 것을 고쳤다 — "주가"·"매수가"·"매도가" 앞에 한글이 붙은 낱말
+     (수주가·대주주가·순매수가·공매도가)은 가격 낱말이 아니고, 회사 목표("수주·매출·판매·생산 목표가", "목표가 아니다")는 목표가 낱말이 아니다.
+     단위 없는 가격("20만 돌파")은 잡지 않는다 — 가입자·판매 수와 글이 같아, 잡으면 마지막 검토를 막는 오탐이 된다 (가격은 뒤의 종목 리포트가 정하고 evidence는 화면에 없다). 계약 상한 200자에서 잘린 reason은 마지막으로 끝난 문장까지 줄인다.
+  6. **관측**: 선정 Worker가 다시 쓴 곳 `agent_completed.details.changed`, `review_failed`의 남은 지적 `workflow_failed.details.message`.
+- **종목 리포트 팀에는 마지막 검토 판정을 넣지 않았다**: 진입·목표·손절 가격이 AI 추천과 리스크 엔진으로 이어지는 관문이고, 이미 91% 수렴하며, 작성 쪽 보존 규칙이 이미 있다.
+- **남는 실패**: FAIL, 마지막 검토까지 남은 코드 점검 문제, Worker 실패·시간 초과 — 이때는 규칙 Fallback이 맞는 결과다.
+- **받아들인 위험**: 검토가 문제 삼은 글이 그대로 선정 이유(aiReason)로 보일 수 있다 (완화: Trace·본문 "검토 메모", 선정 Guard는 그대로). 후속 후보: 지적된 aiReason 감추기,
+  화면 진행 문장에 acceptedWithNotes 표시, 종목 리포트 검토에도 이전 지적 전달.
+- **검증** (2026-10-12): 단위·종단 테스트(가짜 LLM), 저장된 출력을 그대로 되돌리는 비용 0 재현(바꾸기 전 코드는 #5·#8을 `review_failed`로 재현하고 바꾼 코드는 둘 다 완료),
+  같은 조사 결과로 선정·선정 검토만 실제 LLM으로 돌린 재현(#5·#8·#14 입력): 바꾸기 전 9회 중 완료 8회·첫 검토 PASS 3회(검토 횟수 중앙값 2, 1회 비용 중앙값 약 $0.15) →
+  바꾼 뒤 14회 모두 완료·첫 검토 PASS 10회(중앙값 1, 약 $0.07), evidence 속 가격 0건, 14회 모두 AI 선정. 남은 지적을 기록하고 통과한 경우(acceptedWithNotes)는 실제 LLM 14회에서는 나오지 않았다.
+- **되돌리기**: 커밋 revert만 하면 된다 (마이그레이션·설정·YAML 변경 없음).
+
+## 31. 시연용 수동 시작: 손익비·기대값 점검만 건너뛴다 (2026-10-12, 사용자 결정)
+
+사용자가 "손익비가 안나오는 계획도 '매매 계획' 컴포넌트에 수동매매 버튼을 추가해서 수동으로 계획을 시작할 수 있는 시연용 기능 만들어 (시연용이라고 명시해)"라고 정했다.
+자동 리포트의 계획 대부분이 손익비 기준(스윙 1.5)에 못 미쳐 발표에서 모의 자동매매를 시작해 보일 수 없었다. 계약은 `docs/API.md` "AI 추천" 절 규칙 "시연용 수동 시작".
+
+- **진입점**: 매매 계획 카드(쉬운 보기 리포트)와 실행 확인의 막힌 화면에 "수동매매 (시연용)" → `/recommendations/{id}?manual=1`.
+  보이는 조건은 금액 없는 미리 보기(내 계좌까지 본 결과)가 `reward_risk_low`·`ev_negative`**로만** 막았을 때다. 다른 사유가 하나라도 섞이면 보이지 않는다.
+- **넣을 돈과 확인은 그대로**: 넣을 돈은 사용자가 정하고(28장 — 기본값 없음), 확인 체크에 넷째 "안전장치의 손익비·기대 수익 점검을 통과하지 못한 계획을 시연용으로 직접 시작해요."를 더한다.
+  시작 버튼은 경고색 "모의 수동매매 시작 (시연용)"(전문가 보기 "수동매매 활성화 (시연용)")이다 — 들어가는 버튼은 사용자 말 그대로 "수동매매 (시연용)",
+  쉬운 보기의 시작 버튼에는 실제 매매로 읽히지 않게 "모의"를 넣는다. 이 기능이 보이는 모든 자리에 "시연용"을 쓴다.
+- **건너뛰는 것은 둘뿐이다**: `reward_risk_low`(비용 반영 손익비 < 최소 기준)·`ev_negative`(비용 반영 기대값 ≤ 0). 추천의 가격·확률과 수수료만으로 정해지는 계획 품질 판단이라
+  (23장 `ACCOUNT_FREE`·`blockedBy`와 같은 계산) 계좌·시장 상태와 무관하고, 사람이 덮어써도 모의 계좌 정합성과 계획 실행기 상태가 깨지지 않는다.
+  그대로인 점검: 넣을 돈·수량 계산, 매수 유의·일일 손실·일일 거래 한도, `budget_too_small`·`cash_short`·`total_limit`, `expired`, `plan_exists`·`position_exists`, `halted`,
+  `price_passed`(활성화의 장중 확인 포함), 주문 접수 때 엔진 모의 체결기의 점검. 재주문도 같은 둘만 건너뛴다.
+- **엔진은 그대로다**: `engine/paper_engine/judge/risk.py`에 건너뛰기 모드를 두지 않는다 (엔진 테스트의 "우회 모드 없음"). 웹의 활성화 판단(`backend/autotrade/plans/risk.py`
+  `MANUAL_SKIP_CODES`)이 사유를 `reasons`에서 `skippedReasons`로 옮길 뿐이고, `approved`는 엔진의 원래 판정(false)을 그대로 남긴다.
+- **기록**: `TradePlan.manual_start`(`db_default` False, 활성화 때 한 번 쓰고 바꾸지 않는다), `activated`·`risk_checked` 사건 details·message, 이 계획의 모든 알림 제목 앞
+  `[시연용 수동 시작]`, 계획·목록·홈의 배지 "시연용 수동 시작", Django 관리 화면의 필터.
+- **설정 키를 두지 않았다**: 운영 `.env.docker`가 2026-10-08부터 `AUTOTRADE_DEMO=off`라 그것으로 막으면 시연에서 `403`이 난다. 발표 뒤 끌지·지울지는 `docs/결정필요사항.md` U27.
+- **이름**: 원본의 실주문 리스크 우회 플래그와 헷갈리지 않게 "bypass" 대신 `manual_start`·`skipped`를 쓴다.
+- **AGENTS.md 안전 규칙**("AI는 제안만 한다")에 이 예외를 한 문장 더했다.
+- **같이 고친 것**: 실행 확인의 확인 체크는 화면이 "시작할 수 없음"으로 바뀌면(뒤로 가기, 중단 스위치 등) 지운다 — 전에는 체크 칸은 비었는데 시작 버튼이 켜진 채 남을 수 있었다 (일반 시작도 같다).

@@ -4,7 +4,7 @@
 바꾸려면 이 파일을 먼저 고치고 양쪽 작업자에게 알린다. 프론트 타입(`frontend/src/api/types.ts`)은 지금은 이 문서를 보고
 손으로 쓰고, OpenAPI 자동 생성(`drf-spectacular` → `openapi-typescript`) 비교는 CI 단계(4E)에서 붙인다.
 
-**2026-10-04 합의 (2026-10-05 구현)**: 서비스 컨셉 변경(`docs/컨셉변경계획.md` 8장, 결정 `docs/DECISIONS.md` 13장)의 계약 변경 B3·B4·B5·B6·B7·B8·B10과
+**2026-10-04 합의 (2026-10-05 구현)**: 서비스 컨셉 변경(`docs/plans/컨셉변경계획.md` 8장, 결정 `docs/DECISIONS.md` 13장)의 계약 변경 B3·B4·B5·B6·B7·B8·B10과
 구현 결정(`docs/DECISIONS.md` 14장: 장마감 기준(2026-10-06부터 시세는 실시간 — 17장) · 보유 방식 · 장기투자 · 리포트 끝 알림 · 하루 리포트 한도)을 아래 각 절에 넣었다.
 "구현 예정(2026-10-04, Claude)"으로 표시했던 것은 **2026-10-05에 모두 만들어** 그 자리를 "구현: 2026-10-05 (Claude)"로 바꿨다 (코드로 하나씩 확인했다).
 만들면서 계약 문장과 달라진 곳은 그 자리에 "2026-10-05 구현"으로 적었다. 앞으로 새로 합의한 것도 "구현 예정(날짜, 담당)" → 만들면 "구현: 날짜 (담당)"로 표시한다.
@@ -12,6 +12,17 @@
 표시 위치(2026-10-05): **새 타입**은 선언 줄(`type …`·`interface …`)에 표시하고 그 표시가 타입의 모든 필드를 덮는다. **이미 서버가 내는 타입에 더한 필드**는 그 필드 줄마다 표시한다. 절 전체가 새것이면(장기투자) 절 머리의 표시가 그 절의 엔드포인트를 덮는다. **가격 기준**(공통 규칙 "장마감 기준" 절 머리의 표시)은 문서 곳곳의 "장마감 기준"·"종가"·"완성 봉" 문구를 덮는다 — 그 밖의 새 동작(`style` 등)은 그 자리에 따로 표시한다.
 추천 워크플로우(리포트 Agent·Orchestrator·AutoHealing)와 그것에 붙은 B1(`plainSummary`, 출력 계약), 자동 리포트(B9)는 팀 몫이고, 그 밖은 Claude가 만든다 — **B3(`ReportSummary.opinion`·`oneLiner`)도 Claude가 `payloads.summary`에 넣었다** (2026-10-05 바뀜·구현. 같은 파일의 나머지 새 필드 — `summary`의 `source`·`chaosEnabled`·`costUsd`·`hasPdf`, `detail`의 `chaos`·`recovery` — 는 담당 4) (`docs/DECISIONS.md` 14-2, 파일 소유는 `docs/tasks/00-공통.md` 2절).
 B1(`ReportDraft.plainSummary`)은 HTTP가 아니라 리포트 출력 계약이라 `docs/tasks/00-공통.md` 10절에 있다 (화면은 `state.results.report_agent.plainSummary`로 읽는다).
+
+**2026-10-11 투자 금액은 사용자가 정한다** (사용자 결정, `docs/DECISIONS.md` 28장 — 구현: 2026-10-11 (Claude)): 계획 활성화의 수량을 리스크 엔진(건당 위험 1%)이 정하지 않는다.
+사용자가 `budgetPercent`(매수 가능 금액의 %) 또는 `budgetKrw`(원)를 **반드시** 정하고, 코드는 그 금액을 진입가로 나눠 수량을 계산한 뒤 한도를 **점검만** 한다 (넘으면 줄이지 않고 막는다).
+바뀐 곳: "AI 추천" 절의 `RiskPreview`·`TradePlan`·`activated` 사건·미리 보기·활성화·재주문 규칙, "실행 불가 사유 코드" 표.
+
+**2026-10-12 시연용 수동 시작** (사용자 결정, `docs/DECISIONS.md` 31장 — 구현: 2026-10-12 (Claude)): 리스크 엔진이 손익비·기대값(`reward_risk_low`·`ev_negative`)**만으로** 막은 계획을
+사용자가 '수동매매 (시연용)'을 눌러 넣을 돈을 정하고 확인한 뒤 직접 시작한다 (`manualStart`). 나머지 점검(넣을 돈·한도·가격·기한·같은 종목·중단 스위치·매수 유의)은 그대로다.
+바뀐 곳: "AI 추천" 절의 `RiskPreview.skippedReasons`·`skippedCodes`, `TradePlan.manualStart`, `activated`·`risk_checked` 사건 details, 미리 보기·활성화 요청, 규칙 "시연용 수동 시작", "실행 불가 사유 코드"의 코드가 나가는 자리.
+
+**2026-10-12 선정 팀 검토가 끝나게** (사용자 요청 "선정팀 실패 원인 알아보고 고쳐", `docs/DECISIONS.md` 30장 — 구현: 2026-10-12 (Claude)): HTTP 계약은 그대로이고,
+"AI 리포트" 절 Trace 타입 주석에 `agent_completed.details`의 `acceptedWithNotes`·`changed`와 `workflow_failed.details.message`(review_failed)를 더했다.
 
 **2026-10-06 단타 삭제** (사용자 결정, `docs/DECISIONS.md` 16장): 단타 연습(`/api/day/*`)·단타 퀴즈(`/api/me/day-trading-quiz`)·분봉(`/api/stocks/{symbol}/minute-candles`)과 `InvestorProfile.dayQuizPassedAt`·`dayTradingUnlocked`, `Recommendation`·`TradePlan`의 `horizon`, 보유 방식 `day`, 추천 출처 `day`, 청산 사유 `EOD`, 사유 코드 `day_entry_closed`·`day_trading_locked`를 계약에서 지웠다. 투자 방식은 `swing`·`long` 둘이다.
 
@@ -41,7 +52,8 @@ B1(`ReportDraft.plainSummary`)은 HTTP가 아니라 리포트 출력 계약이�
 
 ### 실시간 시세 (2026-10-06 사용자 결정, `docs/DECISIONS.md` 17장)
 
-**종목 조회의 시세는 실시간이다.** 계좌 평가·수익률·랭킹·일별 자산·추천 미리 보기·`priceAtCreation`·리포트는 그대로 아래 "장마감 기준"이다.
+**종목 조회의 시세는 실시간이다.** 계좌 평가·수익률·랭킹·일별 자산·추천 미리 보기·`priceAtCreation`은 그대로 아래 "장마감 기준"이다.
+리포트 시세 조사(`MarketResult`)와 미리 보기의 가격 점검(`price_passed`)은 2026-10-08부터 장 중이면 그때 가격이다 (아래 "리포트 시세").
 
 - **실시간인 것**: `Quote`(`GET /api/quotes`, `StockDetail.quote`), `StockDetail.candles`(오늘 정규장이 열렸으면 오늘 진행 중인 봉까지),
   직접 주문(`POST /api/orders`)의 시장가 매수 가능 점검 가격(화면의 예상 금액과 같은 현재가).
@@ -51,8 +63,30 @@ B1(`ReportDraft.plainSummary`)은 HTTP가 아니라 리포트 출력 계약이�
   장 달력을 받지 못하면 평일을 거래일로 본다. 일봉이 없으면 `prevClose`·`change`·`changeRate`가 null이다.
 - **현재가를 받지 못한 종목**은 그 종목만 장마감 기준 `Quote`(`basis: "close"`, 아래 규칙 그대로)로 낸다. 화면은 `basis`를 보고 표기를 고른다.
 - 화면 표기: `live`는 "실시간 · 15:20:31"(받은 시각, KST), `close`는 지금처럼 "10월 2일(금) 15:30 장마감 기준".
+- **종목 화면의 내 보유** (2026-10-11, DECISIONS 28장): 종목 상세 화면의 보유 평가(평가 금액·손익·수익률)는 화면이 이 `Quote.price`와 체결가·수량으로 **종목 통화로** 계산한다
+  (계획 화면의 현재 손익과 같다 — API 변경 없음). `Position`·`AccountSummary`(홈·마이·랭킹)는 그대로 장마감 기준이다.
 - 아래 "장중 가격을 쓰는 것"의 "화면에 가격으로 내지 않는다"는 시세에는 적용하지 않는다. 주문 거절 문장·알림 문장에 장중 **확인** 가격(체결 판단용 가격) 숫자를 넣지 않는 규칙은 그대로다.
   단 **현재가(Quote로 공개되는 값)로 계산한 금액은 넣어도 된다** — 예: 시장가 `long` 점검의 `cash_short` 문장 "매수 금액 ○원이 매수 가능 금액 ○원보다 큼"의 매수 금액(화면의 예상 금액과 같은 숫자).
+
+### 리포트 시세 (2026-10-08 사용자 결정, `docs/DECISIONS.md` 26장)
+
+**리포트를 장 중에 만들면 시세 조사는 그때 가격(현재가)을 쓴다.** 전에는 직전 정규장 종가였다 — 15:23에 만든 리포트가 어제 종가 18,700원을 보이고
+손절가도 그 값으로 정했는데, 그때 가격은 17,990원(−3.8%)이었다.
+
+- **언제 현재가인가** (`trading.market.traded_since_basis(market)`): 그 시장의 **기준일(아래 "장마감 기준") 뒤 날짜의 정규장이 이미 시작됐을 때** —
+  정규장 중, 그리고 정규장이 끝났지만 기준일이 아직 오늘로 바뀌기 전(KR 15:30~15:40 KST, US 뉴욕 16:00~16:10). 직전 종가보다 새 가격이 있다는 뜻이다.
+  장 시작 전·기준일이 오늘로 바뀐 뒤·휴장·장 달력을 받지 못함이면 아니다.
+- **리포트 시세 조사** (`market_agent`, `MarketResult`): 위 때에는 `price` = 현재가(실시간 시세와 같은 1초 캐시), `priceBasis: "live"`, `asOf` = 받은 시각,
+  `changePct` = 현재가 ÷ 직전 정규장 종가 − 1 (×100). 그 밖이거나 현재가를 받지 못하면 지금처럼 장마감 기준 종가(`priceBasis: "close"`, `asOf` = 정규장 종료 시각).
+  지표(RSI·변동성·지지·저항·ATR·이동평균)는 그대로 **완성 봉만**이다. 손절 가격(`MarketResult.stop`)의 기준가는 `price`다 (엔진 분석이 `lastPrice`를 쓰는 것과 같다).
+  작성 AI의 진입가가 `price`에서 5% 안인지 보는 검토 점검도 같은 값이다. `priceBasis`가 없는 예전 결과는 `"close"`로 읽는다.
+- **화면 표기** (웹 쉬운 보기·두 PDF 같음): live는 "장중 가격 17,990원 · 10월 8일(목) 15:23 기준"(받은 시각을 그 시장 현지 시각으로, 미국은 "15:23(뉴욕)"),
+  close는 지금처럼 "종가 18,700원 · 10월 7일(수) 15:30 장마감 기준". 차트는 그대로 완성 봉이고 범례는 마지막 봉의 "… 종가 기준"이다.
+- **계획 제안 미리 보기의 가격 점검** (`price_passed`): 위 때에는 직전 종가가 아니라 장중 가격으로 본다 — 미리 보기는 실시간 시세와 같은 현재가,
+  활성화는 장중 확인 가격. 문장은 장중 가격 숫자가 없는 정해진 문장("장중 가격이 이미 목표가 이상이에요" / "…손절가 이하예요")이다. 장중 가격을 받지 못하면 직전 종가로 본다.
+  그 밖의 때는 지금처럼 직전 종가로 본다. 이유: 장 중에 만든 리포트의 손절·목표가를 어제 종가와 비교하면, 오른 날에는 손절가가 어제 종가보다 높아 시작할 수 있는 제안이 막히고
+  내린 날에는 이미 지난 제안이 열려 보인다. 미리 보기의 `lastPrice`·자산은 그대로 장마감 기준이다. 수량은 사용자가 정한 금액을 진입가로 나눠 정하므로(2026-10-11) 본 수량이 그대로 활성화 수량이다.
+- 그대로인 것: `Recommendation.priceAtCreation`(만들 때의 직전 종가), 재무 조사의 PER·PBR(직전 종가), 계좌 평가·랭킹, 매매 종목 선정 팀.
 
 ### 장마감 기준 (2026-10-04 결정 — 구현: 2026-10-05 (Claude), `docs/DECISIONS.md` 14-1)
 
@@ -72,8 +106,8 @@ B1(`ReportDraft.plainSummary`)은 HTTP가 아니라 리포트 출력 계약이�
   미국 종목은 원화 환산에 지금 환율을 쓰므로 체결 뒤 환율이 바뀐 만큼 손익이 생긴다 (달러 기준 손익은 0).
 - **장마감 기준인 것**: ~~`Quote`, `StockDetail`(일봉은 완성 봉만)~~(2026-10-06 실시간으로 바뀜 — 현재가를 받지 못할 때만 장마감 기준), `AccountSummary`·`Position`(평가·수익률), `Ranking`,
   일별 자산(`/api/account/equity` — 그날 기록은 KR 기준일이 오늘이 된 뒤(국내 거래일 15:40 KST 이후) 남기고, 국내 보유는 그날 종가, 미국 보유는 그때의 최신 미국 종가(`AccountSummary.pricesAsOf.US`와 같은 값)로 평가한다),
-  `RiskPreview`(금액·자산 기준 포함)와 활성화 수량, `Recommendation.priceAtCreation`(출처와 무관하게 만들 때의 종가 — 분석에서 나온 추천(`from_analysis`)도 분석 시각 가격이 아니라 만들 때의 종가), 시연 추천의 진입가, 리포트 PDF 차트,
-  리포트 시세 Worker 결과(`state.results.market_agent`의 `price`·`changePct`와 지표 — `docs/tasks/00-공통.md` 10절 `MarketResult`. 리포트 상세·PDF가 팀 전체에 보인다.
+  `RiskPreview`의 자산(`equityKrw` 등 — 2026-10-11부터 수량·금액은 진입가로 계산해 가격 기준과 무관하다), `Recommendation.priceAtCreation`(출처와 무관하게 만들 때의 종가 — 분석에서 나온 추천(`from_analysis`)도 분석 시각 가격이 아니라 만들 때의 종가), 시연 추천의 진입가, 리포트 PDF 차트,
+  리포트 시세 Worker 결과(`state.results.market_agent`의 지표 — `docs/tasks/00-공통.md` 10절 `MarketResult`. ~~`price`·`changePct`~~ 2026-10-08부터 장 중에 만들면 현재가 — 위 "리포트 시세".
   이 항목은 팀(담당 2)이 Worker를 만들 때 지킨다 — 이 절 머리의 "구현" 표시는 Claude가 만든 나머지를 덮는다).
 - **장중 가격을 쓰는 것** (화면에 가격으로 내지 않는다): 체결 확인·청산·예약 실행·지정가 재주문, 활성화의 장중 확인(아래 "AI 추천" 절 규칙), 시장가 체결,
   주문 거절 검사(엔진 `buy_blockers`), `PATCH /api/orders/{id}`의 순서 검사. 체결가·청산가는 일어난 사실이라 그대로 보인다.
@@ -86,7 +120,7 @@ B1(`ReportDraft.plainSummary`)은 HTTP가 아니라 리포트 출력 계약이�
 | 자리 | 문장 |
 |---|---|
 | 활성화의 장중 확인, 재주문 점검(`risk.preview(…, plan=…)`) | "장중 가격이 이미 목표가 이상이에요" / "장중 가격이 이미 손절가 이하예요" (코드 `price_passed`) |
-| 미리 보기(종가) | "직전 종가({종가})가 이미 목표가 이상" / "직전 종가({종가})가 이미 손절가 이하" (코드 `price_passed`. 종가는 넣어도 된다. 예: "직전 종가(80,721원)가 이미 목표가 이상" — 2026-10-05 구현: 괄호를 넣었다, "{종가}가"는 "…원가"로 읽혀서) |
+| 미리 보기(종가 — 2026-10-08부터 기준일 뒤 정규장이 시작됐으면 위 줄의 장중 문장, "리포트 시세") | "직전 종가({종가})가 이미 목표가 이상" / "직전 종가({종가})가 이미 손절가 이하" (코드 `price_passed`. 종가는 넣어도 된다. 예: "직전 종가(80,721원)가 이미 목표가 이상" — 2026-10-05 구현: 괄호를 넣었다, "{종가}가"는 "…원가"로 읽혀서) |
 | 시장가 주문의 순서 검사 (엔진 `buy_blockers`) | "손절가 {stop} < 현재가 < 목표가 {target} 순서가 아님" (현재가 숫자 없음. 지정가 주문은 지금처럼 지정가 숫자를 쓴다) |
 | 매수 가능 금액 (엔진 `buy_blockers`) | "매수 가능 금액 부족 (가능 {가능 금액}원)" (장중 가격으로 계산한 "필요 금액"을 넣지 않는다) |
 | `PATCH /api/orders/{id}` 순서 검사 (엔진 `modify`) | "손절가 {stop} < 현재가 < 목표가 {target} 순서가 아님" |
@@ -356,7 +390,7 @@ interface Job {
 interface AnalysisQuota {
   usedToday: number;           // 내가 오늘(KST) 요청한 수
   limitPerUser: number;        // AI_DAILY_ANALYSES_PER_USER (기본 5)
-  remaining: number;           // 내 한도와 전체 예산 중 작은 쪽의 남은 횟수
+  remaining: number;           // 내 한도와 팀 전체 예산 중 작은 쪽의 남은 횟수 (팀 예산 = (AI_DAILY_BUDGET_USD − 오늘 쓴 분석 예상 비용 − 리포트 실제 비용) ÷ 0.3 — 2026-10-08부터 리포트 비용도 뺀다)
   estimatedCostUsd: number;    // 종목당 예상 비용 0.3
   enabled: boolean;            // AI 키(DEVPASS_APIKEY, ANALYSTS)가 있어 분석을 요청할 수 있는지
 }
@@ -379,7 +413,7 @@ interface AnalysisQuota {
 
 #### 투자자 프로필과 주린이모드 (2026-10-04 합의, 컨셉 계획 B10 — 구현: 2026-10-05 (Claude))
 
-마이 메뉴의 투자 성향·경험 진단(7문항)과 주린이모드 스위치. 원문은 `docs/투자서비스확장계획.md` 2장, 결정은 `docs/DECISIONS.md` 13-2(E-1·E-2).
+마이 메뉴의 투자 성향·경험 진단(7문항)과 주린이모드 스위치. 원문은 `docs/plans/투자서비스확장계획.md` 2장, 결정은 `docs/DECISIONS.md` 13-2(E-1·E-2).
 
 - 주린이모드는 **계정(서버)에 저장**한다. 기기를 바꿔도 같고, 웹 알림 문장이 같은 모드를 따른다. 진단 전 기본값은 **켬**(`true`).
   리포트 상세의 "이 화면만 자세히 보기"(`?view=expert`)는 화면만 바꾸고 이 값을 바꾸지 않는다 (서버 변경 없음).
@@ -484,7 +518,9 @@ interface AnalysisQuota {
 | `GET /api/jobs/{id}` | – | `200 Job` · 남의 작업 `404` |
 
 - 분석은 몇 분 걸린다. 프론트는 `POST` 뒤 `GET /api/jobs/{id}`를 5초 간격으로 확인하고, `DONE`이면 `result.analysisIds[0]`로 간다.
-- 한도(팀원별 하루 횟수, 전체 하루 횟수)는 **엔진이 실제로 시작한 작업을 실패해도 센다** (실패는 대부분 AI 비용을 쓴 뒤에 난다).
+- 한도(팀원별 하루 횟수, 팀 전체 하루 AI 비용 예산)는 **엔진이 실제로 시작한 작업을 실패해도 센다** (실패는 대부분 AI 비용을 쓴 뒤에 난다).
+  팀 전체 예산 `AI_DAILY_BUDGET_USD`는 리포트와 같이 쓴다 (2026-10-08 — 전에는 분석 수만 셌다): 분석 예상 비용(0.3/종목) + 리포트 실제 `cost_usd`(자동 리포트 포함)를 뺀 나머지로
+  분석 하나를 더 못 하면 `429 {"detail": "오늘 팀 전체 AI 비용 예산($10, 분석·리포트 합)을 다 썼습니다."}`. 셈은 `reports/limits/budget.py`의 `used_usd`와 같다.
 - 분석 결과는 팀 전체가 같이 본다 (요청자 표시). 지금 종가·등락률은 프론트가 `/api/quotes`로 따로 받는다 (장마감 기준).
 - 분석 상세의 가격은 `priceAtAnalysis`(분석 시각 가격)이고, 지표·일봉의 기준일은 `dataAsOf`다. 뉴스는 `newsItems`(제목·매체·시각)와 출처 표기 `newsProvider`로 보인다.
 - 리포트 탭의 "교차검증 분석" 묶음과 종목 상세의 보조 버튼 "AI 교차검증 분석"이 이 API를 쓴다 (`docs/DECISIONS.md` 13-1 D-1).
@@ -495,8 +531,8 @@ interface AnalysisQuota {
 
 작성 2026-10-02. 종목별로 AI 리포트를 신청하고, 여러 Agent가 협업하는 과정(Trace)을 화면에서 본다. 배경은 `docs/DECISIONS.md` 9장,
 개념은 `docs/교육용문서.md`(04 Distributed Collaboration)를 그대로 따른다.
-**2026-10-07 구현 (Claude, 사용자 요청 — `docs/AI_AGENT_WORKFLOW.md`, `docs/DECISIONS.md` 19장)**: Agent·Orchestrator가 돈다 (`ExecutionPlan.implemented = true`).
-엔진 루프(`run_engine`)의 "리포트 실행" 단계가 `requested` 리포트를 하나씩 잡아 실행 계획대로 Worker를 돌리고 Shared State·Trace를 남긴다 (`reports/runner.py` → `orchestrator.py`).
+**2026-10-07 구현 (Claude, 사용자 요청 — `docs/design/AI_AGENT_WORKFLOW.md`, `docs/DECISIONS.md` 19장)**: Agent·Orchestrator가 돈다 (`ExecutionPlan.implemented = true`).
+엔진 루프(`run_engine`)의 "리포트 실행" 단계가 `requested` 리포트를 하나씩 잡아 실행 계획대로 Worker를 돌리고 Shared State·Trace를 남긴다 (`reports/orchestration/runner.py` → `orchestrator.py`).
 팀(`team`)은 둘이다: **`stock_report`**(종목 리포트 — 팀원 신청과 자동 리포트)와 **`stock_selection`**(하루 한 번 자동 리포트할 종목을 고르는 매매 종목 선정 —
 `symbol`은 시장 코드 `"KR"`, `source: "auto"`). 선정 실행은 리포트 목록에 기본으로 나오지 않는다 (`?team=stock_selection`으로 본다).
 
@@ -505,10 +541,10 @@ interface AnalysisQuota {
 2026-10-07(담당 4, T4-1): `ReportSummary`의 `source`·`chaosEnabled`·`costUsd`·`hasPdf`, 자동 리포트의 `requestedBy` "자동", `ReportDetail`의 `chaos`·`recovery`를
 서버가 내기 시작했다 ("(구현)" 표시). `recovery`는 Trace 계산(T4-7) 전까지 장애 없음 고정값, `hasPdf`는 `pdf_path` 파일이 있을 때만 true(그 열을 채우는 것은 PDF 쪽 일),
 `chaos`는 장애 주입 신청(T4-6) 전까지 늘 null이다.
-2026-10-07(담당 4, T4-6): `POST /api/reports`의 `chaos`를 받는다 (`reports/chaos.py`). `enabled: false`면 저장하지 않아 `chaos`는 null,
+2026-10-07(담당 4, T4-6): `POST /api/reports`의 `chaos`를 받는다 (`reports/autohealing/chaos.py`). `enabled: false`면 저장하지 않아 `chaos`는 null,
 켜면 기본값·seed를 채워 저장한다. 주입한 timeout은 실제로 기다리지 않고 바로 실패로 처리한다 (시험 시간을 줄인다).
 2026-10-08: 신청에서 직접 주는 `seed`는 0 이상 2^53 미만 정수만 받는다 (그 밖은 `400`).
-2026-10-07(담당 4, T4-7): `recovery`를 Trace로 계산하고(`reports/stats.py`, 셈법 `docs/tasks/00-공통.md` 9절 — 화면 `frontend/src/lib/recovery.ts`와 같다), `GET /api/reports/recovery-stats`를 낸다.
+2026-10-07(담당 4, T4-7): `recovery`를 Trace로 계산하고(`reports/autohealing/stats.py`, 셈법 `docs/tasks/00-공통.md` 9절 — 화면 `frontend/src/lib/recovery.ts`와 같다), `GET /api/reports/recovery-stats`를 낸다.
 아직 끝나지 않은 실행의 장애는 `failures`에만 들고 `recovered`·`unrecovered`에는 들지 않는다.
 담당별 할 일은 `docs/tasks/`, 셈법과 모듈 경계는 `docs/tasks/00-공통.md`. 아래에서 "(추가)"로 표시한 것은 아직 서버가 내지 않는다.
 
@@ -528,6 +564,11 @@ type TraceStatus = "started" | "completed" | "failed" | "blocked" | "skipped";
 //   expired (2026-10-07 추가: 24시간 넘게 기다린 신청을 실행하지 않고 끝냄)
 // agent_skipped.details.reason: join_blocked · fail_fast · review_failed, 그 밖에는 workflow_failed의 사유 코드 (timeout·agent_failed 등)
 // review_retry.details: {round, target, issues: ["주장 — 문제", ...], instructions}
+// agent_completed.details (검토 Worker): verdict, score. 2026-10-12 (DECISIONS 30장): 선정 검토의 마지막 검토가 RETRY였지만 코드 점검(후보 표 밖 종목·고위험 공시·
+//   권유 표현·가격·목표가)을 통과해 남은 지적을 기록하고 통과하면 acceptedWithNotes: true (state.results.selection_review_agent에도 같은 키 — 코드만 붙인다)
+// agent_completed.details.changed (2026-10-12, 선정 Worker가 검토 RETRY로 다시 쓸 때만): 이전 선정안과 달라진 곳 ["구성·순위" | "<코드> reason" | "<코드> evidence" | "summary"]
+//   (빈 목록이면 아무것도 고치지 않은 것)
+// workflow_failed.details.message (선택): exception이면 예외 글, review_failed이면 남은 검토 지적 줄을 " / "로 이은 것 (2026-10-12, 300자. 지적이 없으면 "검토 판정 FAIL" 또는 "검토 판정 RETRY")
 // agent_failed는 두 가지다: details.final = false 는 LLM 호출 한 번의 실패(재시도·전환으로 이어진다),
 // details.final = true 는 그 Worker를 포기한 것. details.injected = true 는 장애 주입으로 일으킨 실패.
 // LLM 호출 한 번은 최대 4회 시도한다 (첫 시도 + 재시도 3회, 모델마다 2회 — 00-공통.md 7절). 넘거나 deadline이 지나면 그 Worker를 포기한다.
@@ -644,7 +685,7 @@ interface ScreeningResult {       // 자동 리포트의 그날 선별 결과 (�
   excluded: Record<string, unknown>[];  // ETF 등 제외 종목과 사유
   reportIds: number[];                  // 그날 만든 자동 리포트 (선정 뒤 auto.request가 채운다)
   recommendationIds: number[];          // 그날 만든 자동 추천 (자동 리포트의 AI 추천, 또는 AUTO_RECOMMEND=demo의 시연 추천 — 아래 "AI 추천" 절)
-  // (구현: 2026-10-07, AUTO_REPORT=on — docs/AI_AGENT_WORKFLOW.md 1·4·5장) 예전 파일에는 없을 수 있다
+  // (구현: 2026-10-07, AUTO_REPORT=on — docs/design/AI_AGENT_WORKFLOW.md 1·4·5장) 예전 파일에는 없을 수 있다
   candidates?: Record<string, unknown>[];   // 규칙을 통과한 후보 전부 (점수 순, 최대 30) — 선정 팀이 보는 후보 표
   selection?: { reportId: number | null; status: "running" | "done"; top: number };   // 선정 실행 (Report team "stock_selection"). top = 고를 종목 수 (AUTO_REPORT_TOP)
   selectedBy?: "ai" | "rule" | null;        // ai: 선정 팀이 고르고 선정 Guard가 거름 · rule: Fallback(규칙 점수 상위 → 선정 Guard) · null: 선정 중
@@ -670,7 +711,7 @@ interface ReportDetail extends ReportSummary {   // Snapshot
   trace: TraceEvent[];          // step 오름차순
   plan: ExecutionPlan;          // 그 리포트 팀(team)의 실행 계획 (구현: 2026-10-07)
   chaos: ChaosConfig | null;    // (구현) 신청 때의 장애 주입 설정 (서버가 채운 기본값·seed 포함)
-  recovery: RecoverySummary;    // (구현) Trace로 계산 (reports/stats.py)
+  recovery: RecoverySummary;    // (구현) Trace로 계산 (reports/autohealing/stats.py)
 }
 ```
 
@@ -686,9 +727,9 @@ interface ReportDetail extends ReportSummary {   // Snapshot
 | `GET /api/reports/{id}` | – | `200 ReportDetail` · `404` (**Snapshot API**: 새로고침·연결 복구에 쓴다. 지운 리포트도 `404`) |
 | `DELETE /api/reports/{id}` | – | `204` (2026-10-08, 아래 "리포트·계획 제안 지우기") · 남의 리포트·자동 리포트·선정 실행 `403 {"detail": "내가 신청한 리포트만 지울 수 있어요."}` · 아직 끝나지 않은 리포트 `400 {"detail": "아직 만드는 중인 리포트는 끝난 뒤에 지울 수 있어요."}` · 이 리포트의 계획 제안으로 진행 중인 계획이 있으면 `400 {"detail": "이 계획 제안으로 진행 중인 모의 자동매매가 있어 지울 수 없어요. 계획이 끝난 뒤에 지울 수 있어요."}` · 없거나 이미 지운 리포트 `404` |
 | `GET /api/reports/{id}/events` | 헤더 `Last-Event-ID` 또는 `?after=<step>` | `200 text/event-stream` (**SSE**) · 미로그인 `401` JSON · `404` |
-| `GET /api/reports/{id}/pdf?view=` | `view`: `easy`(쉬운 판) \| `expert`(자세한 판). 없으면 요청한 사람의 주린이모드(켬 → `easy`) — 2026-10-07 구현, `docs/DECISIONS.md` 20장 | 잘못된 `view` `400 {"detail": "view는 easy 또는 expert입니다."}` · `200 application/pdf` (A4. 처음 부르면 만들어 `PAPER_ROOT/reports/<id>.v<양식 판>.pdf`(Chrome이 없으면 `.html`)에 저장하고 다음부터 그 파일. `pdf_path` 열은 자동 리포트가 Discord로 보낸 파일(2026-10-07부터 쉬운 판)이고 이 API는 쓰지 않는다. 2026-10-05 구현: 양식 판 `TEMPLATE_VERSION`(`backend/reports/pdf.py`, 지금 4 — 2: 쉬운 요약·장마감 기준, 3: 이름 종이배·로고 머리, 4: 이름 모매매)을 파일 이름에 넣어, 양식이 바뀌면 판 번호 없는 예전 `<id>.pdf`(1판)·이전 판 파일을 쓰지 않고 새로 만든 뒤 지운다. 2026-10-07: 쉬운 판은 따로 `<id>.v<판>.easy.pdf` — 웹 쉬운 보기와 같은 문장으로 결론·신뢰·쉬운 요약·매매 계획(말로)·근거와 위험·이 의견이 틀리는 경우·세 가지 경우(1주 기준 %)·가격 흐름·조사 자료·용어 풀이를 싣고, 검토 점수·확률·신뢰도·모델 이름·비용은 싣지 않는다. 계좌마다 다른 값(수량·금액)은 넣지 않는다 — 파일이 리포트당 판마다 하나) · 완성 전 `409 {"detail"}` · `404` (선정 실행 `team: "stock_selection"`도 `404` — 2026-10-07) · Chrome이 없으면 `200 text/html`(같은 내용) — 2026-10-04 구현 |
+| `GET /api/reports/{id}/pdf?view=` | `view`: `easy`(쉬운 판) \| `expert`(자세한 판). 없으면 요청한 사람의 주린이모드(켬 → `easy`) — 2026-10-07 구현, `docs/DECISIONS.md` 20장 | 잘못된 `view` `400 {"detail": "view는 easy 또는 expert입니다."}` · `200 application/pdf` (A4. 처음 부르면 만들어 `PAPER_ROOT/reports/<id>.v<양식 판>.pdf`(Chrome이 없으면 `.html`)에 저장하고 다음부터 그 파일. `pdf_path` 열은 자동 리포트가 Discord로 보낸 파일(2026-10-07부터 쉬운 판)이고 이 API는 쓰지 않는다. 2026-10-05 구현: 양식 판 `TEMPLATE_VERSION`(`backend/reports/output/pdf.py`, 지금 4 — 2: 쉬운 요약·장마감 기준, 3: 이름 종이배·로고 머리, 4: 이름 모매매)을 파일 이름에 넣어, 양식이 바뀌면 판 번호 없는 예전 `<id>.pdf`(1판)·이전 판 파일을 쓰지 않고 새로 만든 뒤 지운다. 2026-10-07: 쉬운 판은 따로 `<id>.v<판>.easy.pdf` — 웹 쉬운 보기와 같은 문장으로 결론·신뢰·쉬운 요약·매매 계획(말로)·근거와 위험·이 의견이 틀리는 경우·세 가지 경우(1주 기준 %)·가격 흐름·조사 자료·용어 풀이를 싣고, 검토 점수·확률·신뢰도·모델 이름·비용은 싣지 않는다. 계좌마다 다른 값(수량·금액)은 넣지 않는다 — 파일이 리포트당 판마다 하나) · 완성 전 `409 {"detail"}` · `404` (선정 실행 `team: "stock_selection"`도 `404` — 2026-10-07) · Chrome이 없으면 `200 text/html`(같은 내용) — 2026-10-04 구현 |
 | `GET /api/reports/recovery-stats?days=7` | `days` 1~90, 기본 7 | `200 RecoveryStats` (기간 = 오늘(KST) 포함 최근 `days`일 안에 만든 리포트, 모든 팀) · 잘못된 `days` `400 {"detail": "days는 1~90 사이의 정수입니다."}` — 2026-10-07 구현 (담당 4, T4-7) |
-| `GET /api/reports/screening?market=KR&date=` | `date` 기본 오늘(KST) | `200 ScreeningResult` · 그날 선별이 없으면 `404` · 잘못된 `market`·`date` `400` — 2026-10-04 구현 (`reports/auto.py`가 남긴 파일을 읽는다. 2026-10-07부터 선정 팀 결과 키가 더해진다) |
+| `GET /api/reports/screening?market=KR&date=` | `date` 기본 오늘(KST) | `200 ScreeningResult` · 그날 선별이 없으면 `404` · 잘못된 `market`·`date` `400` — 2026-10-04 구현 (`reports/autoreport/auto.py`가 남긴 파일을 읽는다. 2026-10-07부터 선정 팀 결과 키가 더해진다) |
 
 SSE 형식 (실행 Event를 발생 즉시 한 방향으로 전달):
 - `event: trace` / `id: <step>` / `data: <TraceEvent JSON>` — `after`(또는 `Last-Event-ID`)보다 큰 step만, 순서대로.
@@ -714,9 +755,9 @@ SSE 형식 (실행 Event를 발생 즉시 한 방향으로 전달):
 - 리포트를 지우면 그 리포트의 계획 제안도 같이 숨기고, 계획 제안을 지우면 출처 리포트도 같이 숨긴다 (분석·시연 추천은 추천만).
 - 그 계획 제안으로 **진행 중인 계획**(누구 것이든 `active`·`entry_pending`·`holding`)이 있으면 지우지 않는다 (`400`). 끝난 계획은 그대로 남고 계획 상세(`TradePlanDetail.recommendation`)도 계속 열린다.
 - 두 DELETE가 같은 함수(`autotrade/hide.py`)를 쓴다 — 리포트·추천 숨김과 진행 중 계획 확인을 한 트랜잭션에서 추천 행을 잠그고 한다. 활성화도 같은 행을 잠그고 숨김을 다시 본다
-  (화면이 읽은 뒤 지워진 추천은 활성화 `404`). reports가 autotrade를 부르는 것은 리포트 끝 알림(`reports/alerts.py`)과 같다 — 리포트 API 응답에 추천 정보를 넣지 않는 위 규칙은 그대로다.
+  (화면이 읽은 뒤 지워진 추천은 활성화 `404`). reports가 autotrade를 부르는 것은 리포트 끝 알림(`reports/output/alerts.py`)과 같다 — 리포트 API 응답에 추천 정보를 넣지 않는 위 규칙은 그대로다.
 
-리포트 글 후처리와 쉬운 글 Guard (2026-10-08, DECISIONS 23장 — `backend/reports/tidy.py`, `guards.easy_jargon`):
+리포트 글 후처리와 쉬운 글 Guard (2026-10-08, DECISIONS 23장 — `backend/reports/guardrails/tidy.py`, `guards.easy_jargon`):
 - Worker 결과는 출력 계약을 통과한 뒤 State에 넣기 전에 후처리한다: 쉼표 없는 원 금액("201000원" → "201,000원"), 한국어 문장 속 의견 영어
   (buy·hold·watch·sell·avoid → 매수·지켜보기·지켜보기·매도·부정적, 뒤 조사 맞춤). `verdict` 같은 값 필드와 `citations`는 바꾸지 않는다. 추천의 근거·위험도 이 값을 옮긴다.
 - 종목 리포트 초안의 쉬운 글(`oneLiner`·`plainSummary`·`reasons`·`risks`)에 전문 용어(`tidy.JARGON` — 이동평균선·지지선·RSI·PER·밸류에이션 등)가 있으면
@@ -725,13 +766,14 @@ SSE 형식 (실행 Event를 발생 즉시 한 방향으로 전달):
 - 뉴스 근거에서 블로그·개인 콘텐츠를 뺀다 (네이버 블로그·프리미엄콘텐츠·포스트, 티스토리, 브런치 — 엔진 `data/news.py`). 교차검증 분석·장기투자 뉴스도 같다.
 - 화면은 옛 리포트(이 규칙 전)에도 같은 숫자·의견 치환과 용어 풀이(`frontend/src/lib/reports.ts`, `lib/reportTerms.ts`)를 그릴 때 적용한다.
 
-하루 리포트 한도 (2026-10-04 합의, D-7 — 구현: 2026-10-05 (Claude), `backend/reports/quota.py`, `docs/DECISIONS.md` 14-6):
+하루 리포트 한도 (2026-10-04 합의, D-7 — 구현: 2026-10-05 (Claude), `backend/reports/limits/quota.py`, `docs/DECISIONS.md` 14-6):
 - 팀원마다 오늘(KST) 한도에 세는 리포트 수가 `AI_DAILY_REPORTS_PER_USER`(기본 3)에 닿으면 `POST /api/reports`가 새 리포트를 만들지 않고 `429 {"detail", "limit", "used"}`를 돌려준다.
 - 세는 것: 오늘 내가 신청한 리포트에서 **장애 주입 없이 `failed`로 끝난 것을 뺀** 수. 장애 주입을 켠 리포트는 실패해도 센다.
   `chaos` 열이 생기기 전에는 장애 주입 여부를 알 수 없으므로 failed는 모두 빼고 센다 (열이 생기면 `chaos.enabled`가 참인 failed만 센다).
 - 같은 종목의 진행 중 리포트를 돌려주는 `200` 경로는 새로 세지 않는다. 자동 리포트(`source: "auto"`)·선정 실행(`team: "stock_selection"`)은 신청자가 없어 세지 않는다.
-- 비용 합산 한도(분석 + 리포트 $, `AI_DAILY_BUDGET_USD`)는 팀원(2) 몫이다 — 팀 파일 `backend/reports/budget.py`의 `check(now)`를 `ReportsView.post`에서 횟수 한도 바로 뒤에 부른다
-  (구현: 2026-10-08 `dy` — 팀 전체 오늘(KST) 분석 예상 비용 + 리포트 실제 `cost_usd`(실패·자동 리포트 포함)가 한도 이상이면 `429 {"detail": "오늘 AI 비용 예산을 다 썼어요. 내일 0시에 다시 신청할 수 있어요."}`. 자동 리포트 실행은 막지 않는다)
+- 비용 합산 한도(분석 + 리포트 $, `AI_DAILY_BUDGET_USD`)는 팀원(2) 몫이다 — 팀 파일 `backend/reports/limits/budget.py`의 `check(now)`를 `ReportsView.post`에서 횟수 한도 바로 뒤에 부른다
+  (구현: 2026-10-08 `dy` — 팀 전체 오늘(KST) 분석 예상 비용 + 리포트 실제 `cost_usd`(실패·자동 리포트 포함)가 한도 이상이면 `429 {"detail": "오늘 AI 비용 예산을 다 썼어요. 내일 0시에 다시 신청할 수 있어요."}`. 자동 리포트 실행은 막지 않는다.
+  본문에 `limit`·`used`가 없는 것이 횟수 한도 `429`와 다르다 — 프론트는 이것으로 둘을 나눠 문구를 고른다(2026-10-08). 분석 요청(`POST /api/analyses`)도 같은 예산을 본다)
   (넘으면 `429`, 본문 형식은 2가 이 절에 적는다). `quota.py`(횟수, Claude)와 파일을 나눈다 (`docs/tasks/00-공통.md` 2절).
 
 ---
@@ -742,12 +784,13 @@ SSE 형식 (실행 Event를 발생 즉시 한 방향으로 전달):
 → 엔진 루프가 계획대로 모의 주문·체결 대기·보유 감시·청산을 자동으로 하고 → 단계마다 웹 알림과 Discord로 알린다.**
 배경과 결정은 `docs/DECISIONS.md` 12장, 담당과 남은 일은 `docs/tasks/06-추천·자동매매.md`.
 
-- **AI는 제안만 한다.** 수량·한도·활성화 가능 여부·체결은 결정론적 코드(엔진 리스크 엔진 `judge/risk.py`, 모의 체결기)가 정한다.
+- **AI는 제안만 한다.** 넣을 돈은 사용자가 정하고(2026-10-11 — `budgetPercent` 또는 `budgetKrw`), 수량 계산·한도 점검·활성화 가능 여부·체결은 결정론적 코드(엔진 리스크 엔진 `judge/risk.py`, 모의 체결기)가 정한다.
   최소 손익비 기준(스윙 1.5)은 AI 프롬프트에 넣지 않는다 (리스크 엔진이 거른다). 손절 가격(`targets.stop`)은 코드가 정한다 — 시세 조사 `market_agent`의 `stop` (2026-10-07, `docs/DECISIONS.md` 21장).
+  예외 (2026-10-12, `docs/DECISIONS.md` 31장): **시연용 수동 시작**(`manualStart`) — 사용자가 '수동매매 (시연용)'을 누르고 확인한 계획만 리스크 엔진의 손익비·기대값 점검(`reward_risk_low`·`ev_negative`)을 건너뛴다. 나머지 점검은 그대로다 (아래 규칙 "시연용 수동 시작").
 - 추천의 출처는 셋이다: `report`(AI 리포트 Agent 워크플로우의 `report_agent` 결과 — 추천 워크플로우 팀이 구현), `analysis`(지금 있는 AI 교차검증 분석의
   BUY 판정), `demo`(**시연용 규칙 추천, AI 아님** — 일봉 ATR로 목표·손절을 정한다. 화면에 "연습용 예시 계획 (AI 아님)"을 표시한다).
 - 추천은 팀 전체가 같이 보고, **활성화는 팀원마다 자기 모의 계좌에** 한다 (같은 추천을 여러 명이 각자 활성화할 수 있다).
-- 가격은 장마감 기준이다 (공통 규칙): 미리 보기의 `lastPrice`·금액·자산, `priceAtCreation`(모든 출처 — `from_analysis`도 분석 시각 가격이 아니라 만들 때의 종가), 시연 추천의 진입가·일봉. 진입 체결 이후의 진행(체결 확인·재주문·청산)은 장중 확인 가격이다.
+- 가격은 장마감 기준이다 (공통 규칙): 미리 보기의 `lastPrice`·자산(수량·금액은 진입가로 계산 — 2026-10-11), `priceAtCreation`(모든 출처 — `from_analysis`도 분석 시각 가격이 아니라 만들 때의 종가), 시연 추천의 진입가·일봉. 진입 체결 이후의 진행(체결 확인·재주문·청산)은 장중 확인 가격이다.
 
 ## 타입
 
@@ -792,20 +835,35 @@ interface Recommendation {
 }
 
 interface RiskPreview {           // 리스크 엔진이 "내 계좌"로 계산한 결과 (활성화 전 확인용). 가격·자산은 장마감 기준
-  approved: boolean;              // 리스크 엔진 통과
+                                  // 2026-10-11: 수량 = 사용자가 정한 금액 ÷ 1주 매수 비용(진입가 × (1 + 수수료) × 환율), 국내는 내림 정수 주, 미국은 금액을 센트로 내린 소수점 수량.
+                                  //   금액(budgetKrw·budgetPercent)이 없으면 크기 계산 없이 점검만 한다 — quantity·amountKrw·expectedProfitKrw·maxLossKrw 0, limitedBy·maxLossRate null, largeLoss false
+  approved: boolean;              // 리스크 엔진 통과 (금액이 없으면 크기와 무관한 점검만 — 손익비·기대값·매수 유의·일일 한도).
+                                  // 시연용 수동 시작(manualStart=1)이어도 리스크 엔진의 원래 판정 그대로다 — 건너뛴 사유가 있으면 false (2026-10-12)
   activatable: boolean;           // approved && 추천이 open && 같은 종목의 진행 중 계획·주문 없음 && 중단 스위치 꺼짐
+                                  // (금액이 없으면 "금액만 정하면 시작할 수 있음"의 뜻 — 화면 머리 칩·시작할 수 없는 이유에 쓴다)
+                                  // 2026-10-12: manualStart=1이면 skippedCodes를 뺀 남은 사유로만 정한다 (approved=false·activatable=true가 될 수 있다)
   reasons: string[];              // 활성화할 수 없는 사유 (activatable이면 [])
   reasonCodes: string[];          // reasons[i]의 사유 코드 = reasonCodes[i] (같은 길이·같은 순서). 코드 표는 아래 "실행 불가 사유 코드"
                                   // (2026-10-04 합의, 컨셉 계획 B4 — 구현: 2026-10-05 (Claude))
+  skippedReasons: string[];       // 2026-10-12 (DECISIONS 31장 — 구현: 2026-10-12 (Claude)). 시연용 수동 시작(?manualStart=1)으로 건너뛴 사유 원문 — reasons에는 들지 않는다.
+                                  //   일반 미리 보기는 늘 []
+  skippedCodes: string[];         // 2026-10-12. skippedReasons[i]의 코드 (같은 길이·같은 순서) — reward_risk_low · ev_negative 중에서만 나온다. 일반 미리 보기는 []
   quantity: number;               // 주문할 수량 (국내는 정수 주)
   amountKrw: number;              // 매수 금액 (원화 환산)
   expectedProfitKrw: number;      // 목표가 도달 시 이익 (비용 반영)
   maxLossKrw: number;             // 손절 시 손실 (비용 반영, 양수)
-  limitedBy: string;              // 수량을 정한 제약: "건당 위험 한도" | "매수 가능 금액" | "총 금액 한도" | "유동성 한도" | "예산"
-  budgetKrw: number | null;       // 요청한 예산 (없으면 null)
+  limitedBy: string | null;       // 수량을 정한 것: "내가 정한 금액" (2026-10-11 — 전: "건당 위험 한도" | "매수 가능 금액" | "총 금액 한도" | "유동성 한도" | "예산"). 금액이 없으면 null
+  budgetMode: "percent" | "amount" | null;   // 2026-10-11. 요청이 budgetPercent면 "percent", budgetKrw면 "amount", 없으면 null
+  budgetPercent: number | null;   // 2026-10-11. 요청한 % (1~100 정수, 매수 가능 금액 기준). percent가 아니면 null
+  budgetKrw: number | null;       // 사용자가 정한 금액 (원). percent면 floor(buyingPowerKrw × budgetPercent / 100)로 바꾼 값. 없으면 null
+  buyingPowerKrw: number;         // 2026-10-11. 매수 가능 금액 = 현금 − 대기 매수 금액 (AccountSummary.buyingPowerKrw와 같다, 음수면 0). budgetPercent의 기준
+  equityKrw: number;              // 2026-10-11. 총자산 (장마감 기준, AccountSummary.equityKrw와 같다). maxLossRate의 분모
+  maxLossRate: number | null;     // 2026-10-11. maxLossKrw ÷ equityKrw (소수). 금액이 없거나 총자산이 0 이하면 null
+  largeLoss: boolean;             // 2026-10-11. 손절 시 손실이 총자산의 1%(엔진 LIMITS SWING risk_per_trade)를 넘음 — 경고만, 활성화를 막지 않는다
   lastPrice: number | null;       // 직전 정규장 종가 (못 받으면 null). 목표가·손절가와 비교하는 가격 (price_passed)
+                                  // — 2026-10-08: 기준일 뒤 정규장이 시작됐으면 price_passed는 장중 가격으로 본다 (공통 규칙 "리포트 시세". lastPrice는 그대로 종가)
   lastPriceAsOf: string | null;   // lastPrice의 기준 시각 (Quote.asOf와 같은 규칙. lastPrice가 null이면 null) — 구현: 2026-10-05 (Claude)
-  priceBasis: "close";            // 가격 기준. 지금은 "close" 하나뿐 (수량·금액·총자산 모두 종가로 계산) — 구현: 2026-10-05 (Claude)
+  priceBasis: "close";            // 가격 기준. 지금은 "close" 하나뿐 (총자산을 종가로 평가 — 2026-10-11부터 수량·금액은 진입가로 계산) — 구현: 2026-10-05 (Claude)
 }
 
 type TradePlanStatus = "active" | "entry_pending" | "holding" | "closed" | "cancelled" | "expired" | "failed";
@@ -820,8 +878,11 @@ interface TradePlan {
   source: RecommendationSource;
   status: TradePlanStatus;
   via: "web" | "discord";         // 어디서 활성화했나 (Discord 링크의 token으로 판단)
+  manualStart: boolean;           // 2026-10-12 (DECISIONS 31장 — 구현: 2026-10-12 (Claude)). 시연용 수동 시작 — 손익비·기대값 점검을 건너뛰고 활성화한 계획. 그 밖의 계획은 false
   quantity: number;
-  budgetKrw: number | null;
+  budgetMode: "percent" | "amount" | null;   // 2026-10-11. 넣은 돈을 정한 방식. null = 2026-10-11 전에 활성화한 계획 (리스크 엔진이 수량을 정함)
+  budgetPercent: number | null;   // 2026-10-11. percent면 그 % (매수 가능 금액 기준), 아니면 null
+  budgetKrw: number | null;       // 사용자가 정한 금액 (원, percent면 활성화 순간 바꾼 값). 2026-10-11 전 계획은 선택 예산 또는 null
   entryPrice: number; targetPrice: number; stopPrice: number; holdingDays: number;   // 활성화 때 추천에서 복사
   entryDeadline: string;          // 진입 기한 (= 추천의 validUntil)
   orderId: number | null;         // 지금 연결된 모의 주문 (Order). 재주문하면 바뀐다
@@ -834,8 +895,11 @@ interface TradePlan {
 }
 
 type PlanEventKind =
-  | "activated"        // 사용자가 활성화 (details: {via, budgetKrw, acknowledged}. acknowledged는 2026-10-04 합의 B5 — 구현: 2026-10-05 (Claude))
+  | "activated"        // 사용자가 활성화 (details: {via, budgetMode, budgetPercent, budgetKrw, acknowledged}. acknowledged는 2026-10-04 합의 B5 — 구현: 2026-10-05 (Claude). budgetMode·budgetPercent는 2026-10-11)
+                      //   2026-10-12: 시연용 수동 시작이면 + {manualStart: true, skippedCodes}, message "웹에서 계획 활성화 (시연용 수동 시작)" (일반 계획은 그대로)
   | "risk_checked"     // 리스크 엔진 점검 (details: {approved, quantity, limitedBy, rewardRisk, reasons})
+                      //   2026-10-12: 시연용 수동 시작이면 approved false + {manualStart: true, skippedCodes, skippedReasons},
+                      //   message "리스크 엔진 점검: {건너뛴 사유를 "; "로 이음} — 시연용 수동 시작으로 건너뜀. {넣은 돈}으로 {수량}"
   | "order_placed"     // 진입 지정가 주문 접수 (details: {orderId, limitPrice, quantity})
   | "order_requeued"   // 지정가가 그날 체결되지 않아 다음 정규장에 다시 주문 (details: {orderId, previousOrderId}, 수량이 줄었으면 + {quantity, previousQuantity})
   | "filled"           // 진입 체결 (details: {orderId, fillPrice, quantity})
@@ -894,8 +958,8 @@ interface NotificationSettings {
 | `GET /api/recommendations?status=open\|all&source=&sourceId=&symbol=` | 페이지. `status` 기본 `open`. `sourceId`는 `source`와 같이 (리포트·분석 화면이 자기 추천을 찾는다) | `200 {"count", "results": Recommendation[]}` (최신순, 팀 전체 공용). `source`가 `report`·`analysis`·`demo`가 아니면 `400` (2026-10-06: `source=day`도 모르는 값이라 `400`) |
 | `GET /api/recommendations/{id}` | – | `200 Recommendation` · `404` (지운 추천도 `404`) |
 | `DELETE /api/recommendations/{id}` | – | `204` (2026-10-08, AI 리포트 절 "리포트·계획 제안 지우기" — 리포트 추천이면 출처 리포트도 숨긴다) · 남이 만든·자동 추천 `403 {"detail": "내가 만든 계획 제안만 지울 수 있어요."}` · 진행 중인 계획이 있으면 `400 {"detail": "이 계획 제안으로 진행 중인 모의 자동매매가 있어 지울 수 없어요. 계획이 끝난 뒤에 지울 수 있어요."}` · 없거나 이미 지운 추천 `404` |
-| `GET /api/recommendations/{id}/preview?budgetKrw=` | `budgetKrw` 선택 (양수, 원) | `200 RiskPreview` (장마감 기준 — 구현: 2026-10-05 (Claude)) · `budgetKrw`가 숫자가 아니거나 0 이하 `400` · 증권사 조회 불가 `503` |
-| `POST /api/recommendations/{id}/activate` | `{"budgetKrw"?: number, "token"?: string, "acknowledged"?: boolean}` | `201 TradePlanDetail` (첫 주문 접수가 거절된 드문 경우도 `201` — 계획 `status: "failed"`, 아래 규칙) · 활성화할 수 없으면 `400 {"detail": 사유들을 "; "로 이은 것, "reasonCodes": string[]}` (`reasonCodes[i]`는 `detail`을 이은 사유 i번째의 코드 — 같은 길이·같은 순서, 미리 보기의 사유 + 장중 확인의 `price_passed` + 동시 활성화의 `plan_exists`. `Response`를 직접 돌려준다 — 구현: 2026-10-05 (Claude)) · 입력 오류(`budgetKrw`·`acknowledged` 형식, `token`이 만료·위조)는 `400 {"detail"}` (`reasonCodes` 없음) · `404` · 증권사 조회 불가 `503`. `acknowledged`: 실행 확인 체크리스트를 모두 켰는지 → `activated` 사건 details `{via, budgetKrw, acknowledged}`에 남긴다 (없으면 `false`, 불리언이 아니면 `400`. 서버가 활성화를 막지는 않는다 — 체크리스트는 화면 테스트로 보장) — (2026-10-04 합의, 컨셉 계획 B5 — 구현: 2026-10-05 (Claude)) |
+| `GET /api/recommendations/{id}/preview?budgetPercent=\|budgetKrw=&manualStart=` | 둘 중 하나 또는 없음 (2026-10-11). `budgetPercent`: 1~100 정수 (매수 가능 금액의 %). `budgetKrw`: 양수 (원). 없으면 크기 계산 없이 점검만. `manualStart`(2026-10-12, 선택 — 시연용 수동 시작 미리 보기): `1`·`true`면 켬, 없음·빈 값·`0`·`false`면 끔 (대소문자·앞뒤 공백 무시) | `200 RiskPreview` (장마감 기준 — 구현: 2026-10-05 (Claude)) · 둘 다 보냄 `400 {"detail": "budgetPercent와 budgetKrw 중 하나만 보냅니다."}` · `budgetKrw`가 숫자가 아니거나 0 이하, `budgetPercent`가 1~100 정수가 아님 `400` · `manualStart`가 그 밖의 값 `400 {"detail": "manualStart는 true 또는 false여야 합니다."}` (`reasonCodes` 없음) · 증권사 조회 불가 `503` |
+| `POST /api/recommendations/{id}/activate` | `{"budgetPercent": number \| "budgetKrw": number, "token"?: string, "acknowledged"?: boolean, "manualStart"?: boolean}` — 2026-10-11: `budgetPercent`(1~100 정수)와 `budgetKrw`(양수, 원) 중 **하나가 필수** (없으면 `400 {"detail": "투자 금액을 정해 주세요 (budgetPercent 또는 budgetKrw)."}`, 둘 다면 미리 보기와 같은 `400`, 둘 다 `reasonCodes` 없음) | `201 TradePlanDetail` (첫 주문 접수가 거절된 드문 경우도 `201` — 계획 `status: "failed"`, 아래 규칙) · 활성화할 수 없으면 `400 {"detail": 사유들을 "; "로 이은 것, "reasonCodes": string[]}` (`reasonCodes[i]`는 `detail`을 이은 사유 i번째의 코드 — 같은 길이·같은 순서, 미리 보기의 사유 + 장중 확인의 `price_passed` + 동시 활성화의 `plan_exists`. `Response`를 직접 돌려준다 — 구현: 2026-10-05 (Claude)) · 입력 오류(`budgetPercent`·`budgetKrw`·`acknowledged` 형식, 금액 없음, `token`이 만료·위조)는 `400 {"detail"}` (`reasonCodes` 없음) · `404` · 증권사 조회 불가 `503`. `acknowledged`: 실행 확인 체크리스트를 모두 켰는지 → `activated` 사건 details `{via, budgetMode, budgetPercent, budgetKrw, acknowledged}`에 남긴다 (없으면 `false`, 불리언이 아니면 `400`. 서버가 활성화를 막지는 않는다 — 체크리스트는 화면 테스트로 보장) — (2026-10-04 합의, 컨셉 계획 B5 — 구현: 2026-10-05 (Claude)) `manualStart` (2026-10-12, DECISIONS 31장 — 구현: 2026-10-12 (Claude)): 시연용 수동 시작 — 없으면 `false`, JSON 불리언이 아니면(`"true"`·`1`·`null` 포함) `400 {"detail": "manualStart는 true 또는 false여야 합니다."}` (검사 순서: 넣을 돈 형식 → 금액 없음 → `acknowledged` → `manualStart` → `token`). `true`면 `reward_risk_low`·`ev_negative`만 건너뛰고(남은 사유가 있으면 위 `400 {"detail", "reasonCodes"}` — 건너뛴 코드는 넣지 않는다) `201 TradePlanDetail`(`manualStart: true`). 남은 사유가 없는데 건너뛸 것도 없으면 `400 {"detail": "손익비·기대값 점검에 막히지 않은 계획은 수동 시작(시연용) 없이 시작합니다."}` (`reasonCodes` 없음, 계획을 만들지 않는다) |
 | `POST /api/recommendations/demo` | `{"symbol"?: string}` (없으면 시연 종목 목록에서 고른다) | `201 Recommendation` (source `demo`. 진입가는 직전 장마감 종가, ATR은 완성 일봉으로 — 구현: 2026-10-05 (Claude)) · 시연 추천이 꺼져 있으면(`AUTOTRADE_DEMO=off`) `403` · 하루 한도(`AUTOTRADE_DEMO_PER_USER`, 기본 5) 초과 `429` · 없는 종목·일봉 부족 `400` · 증권사 조회 불가 `503` |
 | `GET /api/trade-plans?status=active\|all` | 페이지. 기본 `active`(진행 중 셋) | `200 {"count", "results": TradePlan[]}` (**내 것만**, 최신순) |
 | `GET /api/trade-plans/{id}` | – | `200 TradePlanDetail` · 남의 계획 `404` |
@@ -907,19 +971,36 @@ interface NotificationSettings {
 | `POST /api/notification-settings/test` | – | `202 {"detail": string, "discord": "queued" \| "not_configured" \| "disabled"}` (웹 알림 하나를 만들고, 가능하면 Discord로도 보낸다) · 1분에 한 번만 (넘으면 `429`) |
 
 규칙:
-- **활성화** = 그 순간 리스크 엔진으로 수량을 정하고(`RiskPreview`와 **같은 계산 — 종가·종가 기준 자산**(구현: 2026-10-05 (Claude)), 화면에 보인 수량이 주문 수량이 된다) 계획을 `active`로 만든 뒤, 바로 한 번 진행해
+- **활성화** = 그 순간 사용자가 정한 금액으로 수량을 계산하고 리스크 엔진이 점검한 뒤(`RiskPreview`와 **같은 계산**, 화면에 보인 수량이 주문 수량이 된다) 계획을 `active`로 만든 뒤, 바로 한 번 진행해
   **진입 지정가 주문**(가격 = `entryPrice`, 목표·손절 = 추천 값, 기한 = `holdingDays`를 달력 일수로 바꾼 값)을 낸다. 주문은 기존 모의 주문
   (`POST /api/orders`와 같은 `trading.service.buy`, 요청자 `plan:<계획 id>`)이라 "내 주식"·주문 목록에도 보인다.
   **활성화 점검**(미리 보기 계산 + 아래 장중 확인)에서 막히면 `400 {"detail", "reasonCodes"}`이고 아무것도 만들지 않는다. 점검을 통과해 계획을 만든 뒤 첫 주문 접수가
   거절되면(점검과 접수 사이의 드문 경합 — 그사이 현금이 줄었거나 같은 종목 주문이 생김 등) 활성화는 `201`이고 계획은 이미 `failed`(`failureReason` "주문할 수 없음: …", `failed` 사건)로 돌아온다.
   화면은 `201`의 `status`를 보고 실패를 보인다. 증권사 조회의 일시 오류로 첫 주문을 못 내면 계획은 `active`로 남고 엔진 루프가 다시 낸다.
+- **넣을 돈** (2026-10-11 사용자 결정, DECISIONS 28장 — 구현: 2026-10-11 (Claude)): 사용자가 정한다. 리스크 엔진(건당 위험 1%)은 수량을 정하지도 줄이지도 않는다.
+  - `budgetPercent`는 그 순간의 매수 가능 금액(`buyingPowerKrw`)에 곱해 원 단위로 내린 금액이다 (계획의 `budgetKrw`에 그 값을 남긴다). 미리 보기와 활성화 사이에 매수 가능 금액이 바뀌면 수량도 바뀐다 (드문 경합).
+  - 수량 = 금액 ÷ 1주 매수 비용(진입가 × (1 + 수수료) × 환율). 국내는 내림 정수 주, 미국은 금액을 센트로 내린 소수점 수량. 1주(미국 $1) 미만이면 `budget_too_small`.
+  - 한도는 **점검만** 한다 — 넘으면 줄이지 않고 막는다 (장기 매수 `assess_position`과 같은 방식): 매수 금액(수수료 포함)이 매수 가능 금액보다 크면 `cash_short`, 총 금액 한도를 넘으면 `total_limit`.
+    그 밖의 점검(손익비·기대값·매수 유의·일일 손실 한도·기한·같은 종목·중단 스위치·`price_passed`)은 그대로다.
+  - 손절 시 손실이 총자산의 1%를 넘으면 `largeLoss: true` — 화면은 경고 한 줄만 보이고 막지 않는다 (손실 금액은 실행 확인 체크로 받는다).
+- **시연용 수동 시작** (2026-10-12 사용자 결정, DECISIONS 31장 — 구현: 2026-10-12 (Claude)): 금액 없는 미리 보기가 **손익비·기대값(`reward_risk_low`·`ev_negative`)으로만** 막은 계획을
+  사용자가 '수동매매 (시연용)'(매매 계획 카드·실행 확인의 막힌 화면 → `/recommendations/{id}?manual=1`)으로 직접 시작한다. 이 기능이 보이는 모든 자리에 "시연용"을 쓴다.
+  - 건너뛰는 것은 그 둘뿐이고(`backend/autotrade/plans/risk.py` `MANUAL_SKIP_CODES` = 화면 `frontend/src/lib/autotrade.ts` `MANUAL_SKIP_CODES`), 건너뛰는 때는 셋뿐이다:
+    미리 보기 `?manualStart=1`, 활성화 본문 `"manualStart": true`, `TradePlan.manualStart`인 계획의 재주문 점검. 설정 키로 켜고 끄지 않는다 (`AUTOTRADE_DEMO`와 무관).
+  - 그대로인 것: 넣을 돈 필수(28장)와 수량 계산, 매수 유의·일일 손실·일일 거래 한도, `budget_too_small`·`cash_short`·`total_limit`, `expired`, `plan_exists`·`position_exists`, `halted`,
+    `price_passed`(활성화의 장중 확인 포함), 주문 접수 때 엔진 모의 체결기의 점검. 엔진(`judge/risk.py`)은 그대로다 — 웹의 활성화 판단에서 사유를 `reasons`에서 `skippedReasons`로 옮길 뿐이다.
+  - 기록: `TradePlan.manualStart`(활성화 때 한 번 쓰고 바꾸지 않는다), `activated`·`risk_checked` 사건 details(`manualStart`·`skippedCodes`·`skippedReasons`, `approved: false`)와 message,
+    이 계획의 모든 알림 제목 앞 `[시연용 수동 시작] ` (웹 알림·Discord 편지함, 본문·숫자 줄은 그대로). 화면: 계획·목록·홈의 배지 "시연용 수동 시작", 실행 확인의 경고색 안내·넷째 확인 체크·"모의 수동매매 시작 (시연용)" 버튼(전문가 보기 "수동매매 활성화 (시연용)"), Discord 링크(`?t=`)로 들어왔으면 위쪽 Discord 띠 문장도 시연용 수동 시작을 말한다.
+  - 재주문도 같은 둘만 건너뛴다 (나머지 사유로 막히면 지금처럼 `failed`). 추천의 `blockedBy`와 목록·홈의 '시작할 수 없음' 표시는 바뀌지 않는다.
 - **활성화의 장중 확인** (구현: 2026-10-05 (Claude)): 미리 보기와 같은 계산을 통과한 뒤 하나를 더 본다. 그 시장이 정규장 중이고 장중 확인 가격이 이미
   목표가 이상이거나 손절가 이하면 활성화하지 않는다 (`400`, `reasonCodes`에 `price_passed`. 문장: "장중 가격이 이미 목표가 이상이에요" / "장중 가격이 이미 손절가 이하예요" —
   장중 가격 숫자는 문장에 넣지 않는다). 정규장 밖이면 이 확인은 없다 (종가 기준 판단만).
+  2026-10-08: 기준일 뒤 정규장이 시작됐으면(정규장 중, KR 15:30~15:40) 종가 점검 대신 장중 확인 가격으로만 본다 — 종가는 지난 가격이다 (공통 규칙 "리포트 시세").
 - 엔진 루프(`run_engine`)가 진행 중 계획을 계속 진행한다: 체결되면 `holding`, 지정가가 그날 정규장에 체결되지 않아 취소되면 진입 기한 안에서
   다음 정규장에 **다시 주문**(`order_requeued`), 기한이 지나면 주문을 취소하고 `expired`, 보유 중 목표·손절·기한으로 청산되면 `closed`.
   모의 주문을 "내 주식"에서 직접 취소하면 계획은 `cancelled`, 직접 매도하면 `closed`(`MANUAL`)가 된다.
-  재주문 때는 리스크 엔진을 다시 돌려 **수량을 새 계산값 이하로 줄여** 낸다(늘리지 않는다. 재주문의 계산은 지금처럼 장중 확인 가격). 그때 막히면(지금 가격이 목표가 이상·손절가 이하, 매수 가능 금액 부족 등)
+  재주문 때는 리스크 엔진으로 다시 점검하고 **같은 수량**으로 낸다 — 매수 가능 금액·총 금액 한도가 모자라면 그 안으로 **줄이기만** 한다 (늘리지 않는다. 2026-10-11 바뀜: 건당 위험 한도로 다시 계산하지 않는다 — 2026-10-11 전 계획도 같다.
+  재주문의 가격 점검은 지금처럼 장중 확인 가격). 줄인 수량이 1주(미국 $1) 미만이면 `budget_too_small`로 막힌다. 그때 막히면(지금 가격이 목표가 이상·손절가 이하, 매수 가능 금액 부족 등)
   계획은 `failed`로 끝난다 (`failureReason` "다시 주문할 수 없음: 장중 가격이 이미 목표가 이상이에요" 등 — 장중 가격 숫자를 넣지 않는다, 공통 규칙). 엔진이 체결 시점에 취소한 진입 주문(현금 부족 등)도 `failed`다 (`cancelled`는 사용자가 멈춘 경우만).
 - **중단**(`cancel`): `active`·`entry_pending`이면 주문을 취소하고 `cancelled`. `holding`이면 전량 매도를 요청하고(정규장 밖이면 매도 예약)
   `exit_requested`를 남긴다 — 계획은 매도가 끝나면 `closed`(`MANUAL`)가 된다. 이미 매도 예약이 있으면 사건을 다시 남기지 않고 지금 계획을 `200`으로 돌려준다.
@@ -928,7 +1009,7 @@ interface NotificationSettings {
   현재가를 받지 못한 종목은 다음 번에 본다. 목록 `status=open`에서 빠지고 `blockedBy`에 `expired`가 들어간다. 이미 시작한 계획은 자기 값으로 그대로 진행한다.
   목록의 `blockedBy`는 지금처럼 시세를 보지 않는다(23장) — 시세는 이 정리 단계가 엔진에서 한 번 본다. 화면 문장(장중 가격 숫자는 넣지 않는다): 쉬운 보기 "가격이 이미 손절 가격 아래로 내려가 끝난 제안이에요" ·
   "가격이 이미 목표 가격을 넘어 끝난 제안이에요", 전문가 보기 "손절가 이탈로 만료" · "목표가 도달로 만료".
-- AI가 준 진입·목표·손절은 추천을 만들 때 **호가 단위로 내려** 맞춘다 (모의 주문에 들어가는 값과 같게). 미국 종목의 예산 제한은 소수점(금액) 기준이다.
+- AI가 준 진입·목표·손절은 추천을 만들 때 **호가 단위로 내려** 맞춘다 (모의 주문에 들어가는 값과 같게). 미국 종목은 정한 금액만큼 소수점(금액) 수량으로 산다.
 - 같은 종목에는 진행 중 계획이 **하나만** 있다 (모의 계좌의 "같은 종목은 포지션 하나만" 규칙과 같다).
 - **Discord 활성화 링크** = `{PUBLIC_BASE_URL}/recommendations/{id}?t=<token>`. 웹 화면이 `t`를 읽어 활성화 요청의 `token`으로 보낸다.
   token은 서버가 서명한 값(추천 id + 만료 = `validUntil`)이고, 맞으면 `via: "discord"`로 기록한다. **로그인은 링크로도 필요하다**
@@ -948,7 +1029,7 @@ interface NotificationSettings {
 - **Discord로 보내지 않는 알림** (웹 알림만): `daily_move`·`thesis_check`(사용자별 묶음이라 팀 채널 하나에 사람 수만큼 쌓이고, 등락 설명이 공개 채널에서 권유로 읽힐 수 있다). 구현: 2026-10-05 (Claude).
 - **알림 합치기** (2026-10-08, DECISIONS 23장): 한 계획에서 몇 초 안에 이어진 사건(활성화 → 주문 접수 → 체결처럼 활성화 요청 하나 안에서 일어난 것)은
   웹 알림·Discord를 **마지막 상태 하나**로 보낸다 (예: 바로 체결되면 "샀어요" 하나). 사건 기록(`PlanEvent`, 계획 타임라인)은 그대로 다 남긴다.
-  구현 (2026-10-08, `autotrade/executor.py` `activate`): 바로 체결 → `filled` 하나("모의 자동매매를 시작하자마자 모의 계좌에서 … 샀어요"),
+  구현 (2026-10-08, `autotrade/plans/executor.py` `activate`): 바로 체결 → `filled` 하나("모의 자동매매를 시작하자마자 모의 계좌에서 … 샀어요"),
   지정가 대기 → `order_placed` 하나(제목 "{종목} 모의 자동매매를 시작하고 매수 주문을 냈어요", 본문에 매도 규칙·진입 기한), 실패 → `failed` 하나,
   첫 주문을 일시 오류로 못 냄 → `plan_activated` 하나. 엔진 루프가 나중에 만드는 사건(체결·재주문·청산 등)은 지금처럼 하나씩이다.
 - 프론트 폴링: 알림 개수 15초, 진행 중 계획 5초(진행 중 계획이 있을 때만. 없으면 30초 — 2026-10-08), 추천 목록 30초.
@@ -965,7 +1046,9 @@ interface NotificationSettings {
 | `RiskPreview.reasonCodes` (`GET /api/recommendations/{id}/preview`) | `reasons`와 같은 길이·같은 순서 |
 | 활성화 거절 `POST /api/recommendations/{id}/activate` → `400 {"detail", "reasonCodes"}` | `detail`을 이은 사유와 같은 길이·같은 순서 (`price_passed`·`plan_exists` 포함) |
 | 장기 매수의 비중 점검 거절 `POST /api/orders`(long) → `400 {"detail", "reasonCodes"}` | 같은 규칙 (`cash_short`·`position_limit`·`total_limit`) |
+| `RiskPreview.skippedCodes` (미리 보기 `?manualStart=1`일 때만, 2026-10-12) · 시연용 수동 시작 계획의 `activated`·`risk_checked` 사건 details `skippedCodes` | `skippedReasons`와 같은 길이·같은 순서. `reward_risk_low`·`ev_negative` 중에서만 |
 
+시연용 수동 시작(위 규칙, DECISIONS 31장)이면 `reward_risk_low`·`ev_negative`는 `reasonCodes`가 아니라 `skippedCodes`로 간다 (화면 상수 `frontend/src/lib/autotrade.ts` `MANUAL_SKIP_CODES`와 같다).
 `400` 본문에 `reasonCodes`가 있으면 "실행 불가 사유", 없으면 입력 오류다 (화면이 둘을 나눈다). 본문에 `detail` 밖의 필드가 있으므로 `Response`를 직접 돌려준다 (`config.api`의 예외는 `detail` 밖을 버린다).
 엔진 `RiskAssessment.codes`·`assess_position`의 `codes`가 사유와 같은 길이·순서로 코드를 내고, `autotrade/risk.preview`가 (코드, 문장) 짝으로 중복을 지운다.
 엔진 접수 점검의 거절 `OrderRejected.codes`(`buy_checks`)에는 이 표 밖의 내부 코드(`invalid_order`·`market_closed`·`order_too_large`·`fx_unavailable`)도 있다 — API로 내지 않는다 (`trading.service`가 `400 {"detail"}`로 바꾸고, 쉬운 알림 문장은 이 표에 있는 코드만 쓴다. 2026-10-05 구현).
@@ -977,21 +1060,21 @@ interface NotificationSettings {
 | `daily_loss_limit` | 일일 손실 한도 도달 (`assess`. SWING 한도(AI 추천 계획)는 style swing 주문의 손실만 센다 — 2026-10-05 구현, 장기 보유 손실은 어느 한도에도 세지 않는다) |
 | `daily_trades_limit` | 일일 매매 건수 한도 도달 (`assess`. SWING에는 건수 한도가 없어 지금은 나오지 않는다 — 2026-10-06 단타 폐기로 하루 10건 한도(DAY)가 없어졌다) |
 | `warning_stock` | 매수 유의 종목 (투자경고 등, `assess`) |
-| `size_too_small` | 리스크 엔진이 정한 수량이 1주 미만 (미국 종목은 최소 주문 금액 미만) — 예산과 무관 (`assess`) |
-| `budget_too_small` | 예산(`budgetKrw`)으로 줄인 수량이 1주 미만 (미국 종목은 최소 주문 금액 미만) (`risk.preview`) |
+| `size_too_small` | 리스크 엔진이 정한 수량이 1주 미만 (미국 종목은 최소 주문 금액 미만) (`assess` — 엔진 CLI·엔진 자체 계좌. 2026-10-11부터 계획 미리 보기·활성화에서는 나오지 않는다) |
+| `budget_too_small` | 내가 정한 금액(`budgetKrw`, 또는 `budgetPercent`로 바꾼 금액)으로 1주 미만 (미국 종목은 최소 주문 금액 $1 미만). 재주문에서 한도 안으로 줄인 수량이 1주 미만일 때도 (`assess_budget` — 2026-10-11) |
 | `expired` | 추천의 활성화 기한(`validUntil`)이 지남 |
 | `plan_exists` | 같은 종목에 진행 중인 내 계획이 있음 |
 | `position_exists` | 같은 종목에 진행 중인 모의 주문이 있음 (같은 종목은 포지션 하나만) |
 | `halted` | 중단 스위치가 켜져 있음 (새 모의 매수 중단) |
-| `price_passed` | 가격이 이미 목표가 이상이거나 손절가 이하 — 미리 보기는 종가로 본다. 활성화는 정규장 중이면 장중 확인 가격으로 한 번 더 보고(문장 "장중 가격이 이미 …"), 재주문은 장중 확인 가격으로 본다 |
-| `cash_short` | 장기 보유 매수 금액(수량 × 지정가 또는 직전 종가, 수수료 포함)이 매수 가능 금액보다 큼 (`assess_position`) — `POST /api/orders`(long). 구현: 2026-10-05 (Claude) |
+| `price_passed` | 가격이 이미 목표가 이상이거나 손절가 이하 — 미리 보기·활성화는 기준일 뒤 정규장이 시작됐으면(정규장 중 등, 공통 규칙 "리포트 시세" — 2026-10-08) 장중 가격으로(문장 "장중 가격이 이미 …"), 아니면 직전 종가로 본다. 재주문은 장중 확인 가격으로 본다 |
+| `cash_short` | 장기 보유 매수 금액(수량 × 지정가 또는 직전 종가, 수수료 포함)이 매수 가능 금액보다 큼 (`assess_position`) — `POST /api/orders`(long). 구현: 2026-10-05 (Claude). 2026-10-11: 계획 미리 보기·활성화도 — 내가 정한 금액으로 산 매수 금액(수량 × 진입가, 수수료 포함)이 매수 가능 금액보다 큼 (`assess_budget`) |
 | `position_limit` | 장기 보유 매수가 종목당 비중 한도(100%)를 넘음 (`assess_position`). 한도가 100%라 거의 나오지 않는다 — `POST /api/orders`(long). 구현: 2026-10-05 (Claude) |
-| `total_limit` | 장기 보유 매수 뒤 총 투자 금액이 총 금액 한도(`MAX_TOTAL_INVEST_KRW`)를 넘음 (`assess_position`) — `POST /api/orders`(long). 구현: 2026-10-05 (Claude) |
+| `total_limit` | 장기 보유 매수 뒤 총 투자 금액이 총 금액 한도(`MAX_TOTAL_INVEST_KRW`)를 넘음 (`assess_position`) — `POST /api/orders`(long). 구현: 2026-10-05 (Claude). 2026-10-11: 계획 미리 보기·활성화도 같은 조건 (`assess_budget`) |
 
 ### 리포트 끝 알림 (2026-10-04 합의, 컨셉 계획 B7 — 2026-10-04 규칙 바뀜, 구현: 2026-10-05 (Claude))
 
-리포트 하나가 끝나면 신청자에게 알림이 **한 번만** 간다 (웹 알림 + Discord, `notifications.service.notify`). **알림은 모두 새 파일 `backend/reports/alerts.py`(Claude 담당)가 보낸다** —
-팀원의 runner·healing은 사용자 알림을 보내지 않아도 된다 (`docs/DECISIONS.md` 14-5, `docs/tasks/00-공통.md` 8절). `backend/reports/auto.py`(자동 리포트 B9)는 2026-10-07 사용자 요청으로 Claude가 구현했다 (`docs/DECISIONS.md` 19장).
+리포트 하나가 끝나면 신청자에게 알림이 **한 번만** 간다 (웹 알림 + Discord, `notifications.service.notify`). **알림은 모두 새 파일 `backend/reports/output/alerts.py`(Claude 담당)가 보낸다** —
+팀원의 runner·healing은 사용자 알림을 보내지 않아도 된다 (`docs/DECISIONS.md` 14-5, `docs/tasks/00-공통.md` 8절). `backend/reports/autoreport/auto.py`(자동 리포트 B9)는 2026-10-07 사용자 요청으로 Claude가 구현했다 (`docs/DECISIONS.md` 19장).
 - **보내는 자리 둘** (어느 쪽이 먼저 처리해도 한 번):
   - `alerts.notify_finished(report) -> None` — 끝난 리포트 하나를 바로 처리한다. 예외를 밖으로 내지 않는다. 팀 코드(runner 또는 팀의 `auto.after_finish`)가 리포트를 끝낸 뒤 불러도 되고 부르지 않아도 된다.
   - `alerts.sweep_finished(now, log) -> int` — `run_engine`의 "리포트 알림" 단계(추천 수집 다음)가 매 바퀴 부른다. 최근 24시간 안에 끝난 리포트 중 아직 알림이 없는 것을 처리하고 보낸 수를 돌려준다.
@@ -999,10 +1082,10 @@ interface NotificationSettings {
 - **대상**: 팀원 신청 종목 리포트만 (`team: "stock_report"`). 선정 실행(`stock_selection`)과 자동 리포트(`source: "auto"`. 열이 없으면 `"user"`로 본다)는 건너뛴다 — 자동 리포트의 PDF·Discord 발송은 추천 워크플로우 팀 몫이다
   (B9, 01 T1-5의 자동 리포트 부분 — 팀 파일 `auto.py`의 `auto.after_finish(report)`, runner가 끝난 리포트마다 부른다. `00-공통.md` 8절).
 - **완성** (`completed`): 이 리포트로 추천이 있으면(`verdict` buy이고 `0 < stop < entry < target` — `00-공통.md` 10절) `report_completed`를 보내지 않는다 —
-  추천 알림(`recommendation`)의 본문 첫 줄 "리포트가 완성됐어요"가 그 역할이다. 판단 전에 추천을 만들 수 있으면 먼저 만든다(`autotrade.sources.from_report`, 이미 있으면 그대로).
+  추천 알림(`recommendation`)의 본문 첫 줄 "리포트가 완성됐어요"가 그 역할이다. 판단 전에 추천을 만들 수 있으면 먼저 만든다(`autotrade.recommend.sources.from_report`, 이미 있으면 그대로).
   추천이 없으면(지켜보기·부정적·가격 조건이 맞지 않음) `report_completed` 하나 (`link`: `/reports/{id}`).
 - **실패** (`failed`, 엔진 재시작 정리 포함): `report_failed` 하나 (`link`: `/reports/{id}`). 본문은 실패 사유 코드(`00-공통.md` 9절의 `join_blocked`·`review_failed`·`timeout`·`engine_restarted`·`exception`·`agent_failed`·`no_llm`·`expired`)의
-  쉬운 문장 (`backend/reports/text.py`). 사유는 Trace의 마지막 `workflow_failed.details.reason`이고, 없거나 모르는 코드면 "리포트를 만들지 못했어요. 다시 만들 수 있어요".
+  쉬운 문장 (`backend/reports/output/text.py`). 사유는 Trace의 마지막 `workflow_failed.details.reason`이고, 없거나 모르는 코드면 "리포트를 만들지 못했어요. 다시 만들 수 있어요".
 - **중복 방지**: 같은 사용자에게 같은 kind·같은 `link`의 알림이 이미 있으면 보내지 않는다 (두 경로가 겹치거나 엔진이 다시 떠도 한 번).
 - 예전 계획의 `system` kind와 `healing.notify_failure`의 사용자 알림은 쓰지 않는다.
 
@@ -1010,7 +1093,7 @@ interface NotificationSettings {
 
 # 장기투자 (`backend/longterm`) — 오늘의 내 종목 뉴스 · 산 이유와 펀더멘털 점검
 
-작성 2026-10-04 (2026-10-04 합의 — 구현: 2026-10-05 (Claude)). 확장 1단계다. 원문은 `docs/투자서비스확장계획.md` 3-2, 조사는
+작성 2026-10-04 (2026-10-04 합의 — 구현: 2026-10-05 (Claude)). 확장 1단계다. 원문은 `docs/plans/투자서비스확장계획.md` 3-2, 조사는
 `docs/research/장기투자_뉴스·펀더멘털_조사.md` 4~5장, 결정은 `docs/DECISIONS.md` 14-3.
 
 - 장기 보유(`style: "long"`, "모의 트레이딩" 절의 "보유 방식")에는 자동 매도가 없다. 대신 매일 장 마감 뒤 **오늘의 내 종목 뉴스**를, 정기공시가 나오면 **펀더멘털 점검**을 준다.

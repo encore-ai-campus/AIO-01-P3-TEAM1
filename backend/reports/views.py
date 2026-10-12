@@ -1,8 +1,8 @@
 """AI 리포트 API (docs/API.md "AI 리포트"): 실행 계획, 리포트 목록·신청, 하루 한도, 상세(Snapshot). SSE는 sse.py.
 
-신청은 requested 행만 만든다 (실행은 엔진 루프의 reports.runner — docs/DECISIONS.md 9-1).
+신청은 requested 행만 만든다 (실행은 엔진 루프의 reports.orchestration.runner — docs/DECISIONS.md 9-1).
 팀(Report.team)이 둘이다: 팀원이 신청하는 종목 리포트(stock_report)와 하루 한 번 자동으로 도는 매매 종목 선정
-(stock_selection — 엔진이 만든다, docs/AI_AGENT_WORKFLOW.md). 목록·계획은 기본이 종목 리포트이고 ?team=으로 고른다.
+(stock_selection — 엔진이 만든다, docs/design/AI_AGENT_WORKFLOW.md). 목록·계획은 기본이 종목 리포트이고 ?team=으로 고른다.
 신청은 늘 종목 리포트이고, 선정 실행에는 PDF가 없다.
 지운 리포트(deleted_at — 신청한 팀원이 지움, autotrade/hide.py)는 목록·상세·PDF·SSE에서 없는 것과 같다 (비용·한도·복구 통계는 그대로 센다).
 """
@@ -25,10 +25,12 @@ from accounts.modes import beginner_mode_of
 from autotrade import hide
 from config.api import Rejected, page
 
-from . import budget, chaos, quota, registry
+from .limits import budget, quota
+from .autohealing import chaos
+from .orchestration import registry
 from .models import Report
 from .payloads import detail, iso, nicknames, plan, summary
-from .pdf import ensure_report_file
+from .output.pdf import ensure_report_file
 
 KST = ZoneInfo("Asia/Seoul")
 TEAM_CHOICE = "team은 stock_report 또는 stock_selection입니다."
@@ -166,8 +168,8 @@ class PdfView(APIView):
 class ScreeningView(APIView):
     @extend_schema(responses=OpenApiTypes.OBJECT)
     def get(self, request):
-        """ScreeningResult: 그날(기본 오늘, KST)의 선별 결과 (reports/auto.py가 남긴 파일). 없으면 404 (docs/tasks/01 T1-7)."""
-        from . import auto  # 선별 파일 읽기 (선별 자체는 엔진 루프·관리 명령이 한다)
+        """ScreeningResult: 그날(기본 오늘, KST)의 선별 결과 (reports/autoreport/auto.py가 남긴 파일). 없으면 404 (docs/tasks/01 T1-7)."""
+        from .autoreport import auto  # 선별 파일 읽기 (선별 자체는 엔진 루프·관리 명령이 한다)
 
         market_ = (request.query_params.get("market") or "KR").strip().upper()
         if market_ not in ("KR", "US"):
@@ -187,10 +189,10 @@ class RecoveryStatsView(APIView):
     @extend_schema(operation_id="reports_recovery_stats", responses=OpenApiTypes.OBJECT)
     def get(self, request):
         """RecoveryStats: 최근 days일(기본 7, 1~90, 오늘 포함) 리포트의 호출 장애 자동 복구 지표 (담당 4, T4-7)."""
-        from . import stats  # 셈법은 stats.py (docs/tasks/00-공통.md 9절)
+        from .autohealing import stats  # 셈법은 stats.py (docs/tasks/00-공통.md 9절)
 
         text = (request.query_params.get("days") or "7").strip()
-        days = int(text) if text.isdigit() else 0
+        days = int(text) if text.isdecimal() else 0  # isdigit은 '²'도 참이라 int()가 실패한다
         if not 1 <= days <= stats.MAX_DAYS:
             raise Rejected(f"days는 1~{stats.MAX_DAYS} 사이의 정수입니다.")
         return Response(stats.recovery_stats(days))

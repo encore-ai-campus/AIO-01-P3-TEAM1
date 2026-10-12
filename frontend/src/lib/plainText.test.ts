@@ -36,6 +36,22 @@ describe("쉬운 문장 표", () => {
     expect(plain.reasonSentence(null, "원문")).toBe("원문");
   });
 
+  it("계획 문맥(plan)은 넣을 돈 문장, 장기 매수 주문(기본)은 그대로 (같은 사유 코드 — 2026-10-11)", () => {
+    expect(plain.reasonSentence("cash_short", null, "plan")).toBe("넣을 돈이 매수 가능 금액보다 많아요");
+    expect(plain.reasonSentence("total_limit", null, "plan")).toBe("모의 자동매매에 넣을 수 있는 총 금액 한도를 넘어요");
+    expect(plain.reasonSentence("budget_too_small", null, "plan")).toBe("이 금액으로는 1주도 살 수 없어요");
+    expect(plain.reasonSentence("cash_short")).toBe("매수 가능 금액보다 사려는 금액이 커요");
+    expect(plain.reasonSentence("total_limit")).toBe("총 투자 금액 한도를 넘어요");
+    expect(plain.reasonSentence("halted", null, "plan")).toBe(plain.REASON_TEXT.halted); // 계획 문장이 없는 코드는 같은 문장
+    const blocked = new ApiError(400, "매수 금액 2,000,000원이 매수 가능 금액 1,000,000원보다 큼; 총 금액 한도(5,000,000원)를 넘습니다", {
+      detail: "",
+      reasonCodes: ["cash_short", "total_limit"],
+    });
+    expect(plain.rejectionSentences(blocked, "plan")).toEqual(["넣을 돈이 매수 가능 금액보다 많아요", "모의 자동매매에 넣을 수 있는 총 금액 한도를 넘어요"]);
+    expect(plain.errorSentence(blocked)).toBe("매수 가능 금액보다 사려는 금액이 커요 · 총 투자 금액 한도를 넘어요"); // 주문 화면 문장은 그대로
+    for (const t of Object.values(plain.PLAN_REASON_TEXT)) expect(forbidden(t, PERSUASION)).toEqual([]);
+  });
+
   it("코드·원문 짝을 쉬운 문장으로 (같은 문장은 한 번, 코드가 모자라면 원문)", () => {
     const out = plain.reasonSentences(["halted", "price_passed", "price_passed"], ["중단", "종가가 목표가 이상", "장중 가격이 이미 손절가 이하예요", "코드 없는 원문"]);
     expect(out).toEqual([plain.REASON_TEXT.halted, plain.REASON_TEXT.price_passed, "코드 없는 원문"]);
@@ -45,9 +61,9 @@ describe("쉬운 문장 표", () => {
     const blocked = new ApiError(400, "새 모의 매수가 중단되어 있습니다.; 신기한 사유", { detail: "x", reasonCodes: ["halted", "unknown_code"] });
     expect(plain.rejectionSentences(blocked)).toEqual([plain.REASON_TEXT.halted, "신기한 사유"]);
     expect(plain.errorSentence(blocked)).toBe(`${plain.REASON_TEXT.halted} · 신기한 사유`);
-    const input = new ApiError(400, "예산은 0보다 큰 숫자여야 합니다.", { detail: "예산은 0보다 큰 숫자여야 합니다." });
+    const input = new ApiError(400, "budgetKrw는 0보다 큰 숫자여야 합니다.", { detail: "budgetKrw는 0보다 큰 숫자여야 합니다." });
     expect(plain.rejectionSentences(input)).toBeNull();
-    expect(plain.errorSentence(input)).toBe("예산은 0보다 큰 숫자여야 합니다.");
+    expect(plain.errorSentence(input)).toBe("budgetKrw는 0보다 큰 숫자여야 합니다.");
     expect(plain.rejectionSentences(new Error("boom"))).toBeNull();
   });
 
@@ -97,7 +113,23 @@ describe("쉬운 문장 표", () => {
       failed: sentence("failed", {}),
     };
     for (const [kind, text] of Object.entries(made)) expect(text, kind).toContain("모의");
-    expect(made.activated).toBe("모의 자동매매를 시작했어요 (예산 1,000,000원)");
+    expect(made.activated).toBe("모의 자동매매를 시작했어요 (예산 1,000,000원)"); // 2026-10-11 전 계획 (budgetMode 없음)
+    // 2026-10-11부터: 넣은 돈을 정한 방식대로
+    expect(sentence("activated", { via: "web", budgetMode: "percent", budgetPercent: 25, budgetKrw: 1_570_626, acknowledged: true })).toBe(
+      "모의 자동매매를 시작했어요 (넣은 돈: 내 자금의 25% · 1,570,626원)",
+    );
+    expect(sentence("activated", { via: "web", budgetMode: "amount", budgetPercent: null, budgetKrw: 1_000_000 })).toBe("모의 자동매매를 시작했어요 (넣은 돈: 1,000,000원)");
+    expect(sentence("risk_checked", { approved: true, quantity: 5, limitedBy: "내가 정한 금액" })).toBe(
+      "넣은 돈으로 모의 주문 수량 5주를 계산했고, 안전장치가 한도를 확인했어요",
+    );
+    // 시연용 수동 시작 (DECISIONS 31장): approved=false를 남기지만 막힌 것이 아니다 — 그 말을 먼저 한다
+    expect(sentence("activated", { budgetMode: "percent", budgetPercent: 10, budgetKrw: 1_000_000, manualStart: true })).toBe(
+      "시연용으로 모의 자동매매를 직접 시작했어요 (넣은 돈: 내 자금의 10% · 1,000,000원)",
+    );
+    expect(sentence("risk_checked", { approved: false, manualStart: true, quantity: 14, limitedBy: "내가 정한 금액" })).toBe(
+      "시연용 수동 시작이라 안전장치의 손익비·기대 수익 점검을 건너뛰고, 넣은 돈으로 모의 주문 수량 14주를 계산했어요",
+    );
+    expect(sentence("risk_checked", { approved: false, quantity: 14 })).toBe("안전장치가 모의 주문을 막았어요");
     expect(made.order_placed).toBe("모의 계좌에서 181,000원 이하에 5주를 사는 주문을 넣었어요");
     expect(made.order_requeued).toContain("(수량 5주 → 4주)");
     expect(made.closed).toBe("손절 가격에 닿아 손실이 더 커지지 않게 모의 계좌에서 98,700원에 팔았어요 (손익 -1,234원)");

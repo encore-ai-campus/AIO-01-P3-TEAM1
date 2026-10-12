@@ -10,7 +10,8 @@ from paper_engine.llm import LlmError, LlmTimeout
 from trading import market
 
 from config.api import Unavailable
-from reports import healing, registry
+from reports.autohealing import healing
+from reports.orchestration import registry
 from reports.models import Report
 
 STOCKS = {
@@ -116,7 +117,7 @@ def fake_llm():
 SAMPLES = {
     "MarketResult": {"trend": "up", "summary": "20일 이동평균 위에서 오르는 흐름", "price": 70000, "changePct": 1.5,
                      "asOf": "2026-10-06T15:30:00+09:00", "rsi": 58.2, "volatilityPct": 1.8, "volumeRank": 3,
-                     "support": 68000, "resistance": 72000, "stop": 66000, "signals": ["20일선 위"],
+                     "support": 68000, "resistance": 72000, "stop": 66000, "priceBasis": "close", "signals": ["20일선 위"],
                      "evidence": ["일봉 120개"]},
     "FundamentalResult": {"summary": "영업이익이 늘었다", "metrics": {"per": 12.0, "pbr": 1.1, "roe": 9.5,
                                                                "revenueGrowthPct": 5.0, "opMarginPct": 11.0},
@@ -205,6 +206,6 @@ def fake_worker():
 @pytest.fixture
 def inline_workers(monkeypatch):
     """Orchestrator가 Worker를 스레드 없이 부른 스레드에서 돌리게 한다 (테스트 DB 트랜잭션 안에서 돈다)."""
-    from reports import orchestrator
+    from reports.orchestration import orchestrator
 
     monkeypatch.setattr(orchestrator, "make_executor", lambda workers: orchestrator.InlineExecutor())

@@ -55,7 +55,7 @@ jobs:
       - name: 실주문 코드 0건 확인
         # 모의매매 전용이다. 주문·계좌 API를 부르는 코드가 들어오면 막는다 (토스 조회 클라이언트의 주소만 예외).
         run: |
-          if git ls-files -- engine backend backtest scripts frontend/src deploy \
+          if git ls-files -- engine backend backtest scripts frontend/src deploy admin \
               | grep -v '^engine/paper_engine/data/toss\.py$' \
               | xargs -d '\n' grep -nIE 'create_order|LIVE_TRADING|--live\b|--bypass\b|tossinvest'; then
             echo "::error::실주문과 관련된 코드가 있습니다 (AGENTS.md의 규칙)"; exit 1

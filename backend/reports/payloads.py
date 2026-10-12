@@ -8,8 +8,9 @@ from config import engine
 from rest_framework import status
 from rest_framework.exceptions import APIException
 
-from . import registry, stats
-from .contracts import ONE_LINER_MAX, OPINIONS
+from .orchestration import registry
+from .autohealing import stats
+from .guardrails.contracts import ONE_LINER_MAX, OPINIONS
 from .models import Report, TraceEvent
 
 KST = ZoneInfo("Asia/Seoul")

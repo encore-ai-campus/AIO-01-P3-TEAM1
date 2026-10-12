@@ -1,9 +1,9 @@
-// 근거 3 · 위험 3 (출처 표시) · 이 의견이 틀리는 경우 (docs/컨셉변경계획.md 5장).
+// 근거 3 · 위험 3 (출처 표시) · 이 의견이 틀리는 경우 (docs/plans/컨셉변경계획.md 5장).
 // 근거 끝에 "(출처: …)"가 붙어 오면 근거마다 출처로 보이고, 리포트가 인용한 자료 목록(citations)은 아래에 한 번 보인다.
 // "틀리는 경우": 손절 가격 조건은 코드가 만든 손절 문장이 맡고(화면 숫자는 코드가 만든다), AI 문장이 그 손절 가격만 말하면 숨기고
 // 앞에 그 가격 조건이 붙어 있으면 떼어 다른 조건만 보인다 — 같은 뜻을 두 번 말하지 않게. 손절 가격과 다른 금액(환율·매출·다른 가격)은
 // 다른 조건이라 원문 그대로 보인다. 긍정적이 아닌 의견에는 손절 가격이 없으므로 '손절'이 든 위험을 옮기지 않는다.
-// 쉬운 PDF(backend/reports/easy_text.py·pdf.py 쉬운 판)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
+// 쉬운 PDF(backend/reports/output/easy_text.py·pdf.py 쉬운 판)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
 import type { Currency, ReportOpinion } from "../../../api/types";
 import { formatPrice } from "../../../lib/format";
 import { type DraftView, type ReportTargets, type SourcedLine, reasonsRisksView } from "../../../lib/reports";

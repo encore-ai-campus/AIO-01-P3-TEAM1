@@ -1,10 +1,13 @@
-// 리포트의 매매 계획 카드 (docs/컨셉변경계획.md 4-5). 리포트 상세(F-report)가 <PlanCard report={...} variant="full"|"mini" view />로 쓴다.
+// 리포트의 매매 계획 카드 (docs/plans/컨셉변경계획.md 4-5). 리포트 상세(F-report)가 <PlanCard report={...} variant="full"|"mini" view />로 쓴다.
 //
 // - 자료와 상태는 api/reports.ts usePlanCardData: 이 리포트의 추천(기한이 지난 것까지 — "기한 지남"을 보이려고)과,
-//   열린 추천이면 리스크 미리 보기(예산 없음)의 "이 계좌로는 ○주 · ○○원"(장마감 기준). 쉬운 보기의 단계 막대·안내 문장도 같은 훅이라 서로 다른 말을 하지 않는다.
+//   열린 추천이면 리스크 미리 보기(넣을 돈 없음 — 시작할 수 있는지만). 쉬운 보기의 단계 막대·안내 문장도 같은 훅이라 서로 다른 말을 하지 않는다.
+//   넣을 돈은 실행 확인에서 사용자가 정하므로(2026-10-11 DECISIONS 28장) 여기서는 계좌 금액 대신 계획의 목표·손절 비율(1주 기준, 비용 전 —
+//   '세 가지 경우'의 1주 기준 칸과 같은 말)을 보인다.
 // - 상태 (PlanCardState, 계산은 lib/autotrade.ts planCardState): 리포트가 아직 완성 전 · 지켜보기(hold) · 부정적(avoid) ·
 //   계획 준비 중(buy인데 추천이 아직 없음, 완성 직후 10분) · 계획 없음(buy인데 가격 조건이 맞지 않아 추천이 없음) · 기한 지남 ·
 //   실행 가능("실행 준비" → /recommendations/{id}) · 실행 불가(RiskPreview.reasonCodes → lib/plainText.ts reasonSentences).
+//   실행 불가가 손익비·기대값만이면 사유 아래에 시연용 수동매매 → /recommendations/{id}?manual=1 (DECISIONS 31장 — 경고색 상자, "시연용"을 밝힌다).
 //   "AI 의견: 긍정적"인데 실행할 수 없는 경우를 숨기지 않는다 — 안전장치가 다른 말을 하면 그 이유를 쉬운 말로 보인다.
 // - variant "mini": 리포트 상세 위쪽 "계획 미니" — 손절 시 손실·목표 이익·"실행 준비" 한 줄. "full": 쉬운 보기의 매매 계획 카드.
 // - view "expert": 같은 상태에 원래 용어(진입·목표·손절·손익비)와 사유 원문을 보인다.
@@ -18,13 +21,13 @@ import { usePlanCardData } from "../../api/reports";
 import type { Recommendation, ReportSummary, RiskPreview } from "../../api/types";
 import { useRevealAfterLoading } from "../../hooks/useMotionState";
 import type { ViewMode } from "../../hooks/useBeginnerMode";
-import { isRecBlocked, kstDayOf } from "../../lib/autotrade";
+import { canStartManually, isRecBlocked, kstDayOf, manualStartPath } from "../../lib/autotrade";
 import { cn } from "../../lib/cn";
-import { formatDayLabel, formatKrw, formatPrice, formatQty } from "../../lib/format";
+import { formatDayLabel, formatPrice, formatRate } from "../../lib/format";
 import { prefersReducedMotion } from "../../lib/motion";
-import { priceExpiredText, reasonSentences } from "../../lib/plainText";
+import { MANUAL_START_TEXT, priceExpiredText, reasonSentences } from "../../lib/plainText";
 import { Icon } from "../Icon";
-import { AsOf, LiveDot, Skeleton, Spinner } from "../ui";
+import { LiveDot, Skeleton, Spinner } from "../ui";
 
 export type PlanCardState =
   | "not_completed" // 리포트가 아직 만드는 중이거나 실패
@@ -52,7 +55,7 @@ export interface PlanCardProps {
 export const PLAN_CARD_ID = "plan";
 
 // watch·negative·no_plan과 Ready의 쉬운 가격 줄(사는 가격 … 손실이 더 클 수도 있어요)은
-// 쉬운 PDF(backend/reports/easy_text.py PLAN_TEXT)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
+// 쉬운 PDF(backend/reports/output/easy_text.py PLAN_TEXT)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
 const STATE_TEXT: Record<Exclude<PlanCardState, "ready" | "blocked" | "expired">, string> = {
   not_completed: "리포트가 완성되면 이 계좌 기준의 매매 계획을 보여 드려요.",
   watch: "AI는 지금은 지켜보자는 의견이에요. 실행할 계획이 없어요.",
@@ -157,7 +160,7 @@ export function PlanCard({ report, variant = "full", view = "easy", id, classNam
       </h2>
       <div className="mt-3">
         {state === "ready" && rec && preview ? (
-          <Ready rec={rec} preview={preview} easy={easy} />
+          <Ready rec={rec} easy={easy} />
         ) : state === "blocked" && rec && preview ? (
           <Blocked rec={rec} preview={preview} easy={easy} />
         ) : state === "expired" && rec ? (
@@ -219,20 +222,17 @@ function WatchActions({ symbol }: { symbol: string }) {
   );
 }
 
-function amounts(preview: RiskPreview) {
-  return {
-    gain: `+${formatKrw(preview.expectedProfitKrw)}`,
-    loss: `-${formatKrw(preview.maxLossKrw)}`,
-  };
+/** 계획의 목표·손절 비율 (1주 기준, 비용 전 — lib/reports.ts scenarioOf의 1주 기준 칸과 같은 계산). 넣을 돈은 실행 확인에서 정한다. */
+function rates(rec: Recommendation) {
+  return { gain: formatRate(rec.targetReturn), loss: formatRate(rec.stopLossRate) };
 }
 
-function Ready({ rec, preview, easy }: { rec: Recommendation; preview: RiskPreview; easy: boolean }) {
-  const a = amounts(preview);
+function Ready({ rec, easy }: { rec: Recommendation; easy: boolean }) {
+  const a = rates(rec);
   return (
     <>
-      <p className="text-[16px] font-semibold tabular-nums">
-        이 계좌로는 {formatQty(preview.quantity)} · {formatKrw(preview.amountKrw)}
-      </p>
+      <p className="text-[16px] font-semibold">{easy ? "넣을 돈은 실행 확인에서 정해요" : "투자 금액은 활성화 화면에서 정합니다"}</p>
+      <p className="mt-0.5 text-[13px] text-sub">1주 기준 비율 · 수수료·세금 빼기 전</p>
       {/* 이익·손실 상자는 세 가지 경우(ScenarioBoxes)와 같은 바탕 */}
       <dl className="mt-2 grid grid-cols-2 gap-2">
         <div className="rounded-xl bg-up-soft p-3">
@@ -253,11 +253,10 @@ function Ready({ rec, preview, easy }: { rec: Recommendation; preview: RiskPrevi
         ) : (
           <>
             진입 {formatPrice(rec.entryPrice, rec.currency)} · 목표 {formatPrice(rec.targetPrice, rec.currency)} · 손절 {formatPrice(rec.stopPrice, rec.currency)} ·
-            손익비 {rec.rewardRisk.toFixed(2)} · 수량 제약 {preview.limitedBy}
+            손익비 {rec.rewardRisk.toFixed(2)}
           </>
         )}
       </p>
-      <AsOf at={preview.lastPriceAsOf} market={rec.market} className="mt-1 block" />
       <Link
         to={`/recommendations/${rec.id}`}
         className="press mt-3 flex h-12 w-full items-center justify-center gap-1.5 rounded-xl bg-brand text-[16px] font-bold text-white hover:bg-brand-dark"
@@ -272,6 +271,7 @@ function Ready({ rec, preview, easy }: { rec: Recommendation; preview: RiskPrevi
 function Blocked({ rec, preview, easy }: { rec: Recommendation; preview: RiskPreview; easy: boolean }) {
   const lines = easy ? reasonSentences(preview.reasonCodes, preview.reasons) : preview.reasons;
   const planLink = rec.myPlan && preview.reasonCodes.includes("plan_exists") ? rec.myPlan.id : null;
+  const manual = canStartManually(preview); // 손익비·기대값으로만 막혔을 때만 (다른 사유가 섞이면 숨긴다)
   return (
     <>
       <p className="text-[15px] font-semibold">{easy ? "지금은 이 계획을 실행할 수 없어요" : "활성화할 수 없음"}</p>
@@ -290,7 +290,24 @@ function Blocked({ rec, preview, easy }: { rec: Recommendation; preview: RiskPre
           계획 자세히 보기
         </Link>
       </div>
+      {manual && <ManualStartOffer recId={rec.id} easy={easy} />}
     </>
+  );
+}
+
+/** 시연용 수동 시작 (DECISIONS 31장): 손익비·기대값으로만 막힌 계획을 실행 확인(?manual=1)에서 직접 시작하는 길. */
+function ManualStartOffer({ recId, easy }: { recId: number; easy: boolean }) {
+  return (
+    <div className="mt-3 rounded-xl bg-warn-soft p-3">
+      <p className="flex items-start gap-1.5 text-[13px] leading-snug text-warn-ink">
+        <Icon name="alert" className="mt-px size-4 shrink-0" />
+        {easy ? MANUAL_START_TEXT.cardNote.easy : MANUAL_START_TEXT.cardNote.expert}
+      </p>
+      <Link to={manualStartPath(recId)} className={cn(linkBtn, "mt-2 w-full bg-card text-warn-ink ring-1 ring-warn/40 hover:bg-fill")}>
+        <Icon name="play" className="size-4" />
+        {MANUAL_START_TEXT.button}
+      </Link>
+    </div>
   );
 }
 
@@ -328,7 +345,7 @@ function Mini({
   if (state === "not_completed") return null;
   const box = cn("flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl bg-fill px-3.5 py-2.5 text-[14px]", className);
   if (state === "ready" && rec && preview) {
-    const a = amounts(preview);
+    const a = rates(rec);
     return (
       <div aria-label="계획 미니" data-state={state} className={box}>
         <span className="tabular-nums">

@@ -32,8 +32,9 @@ class PlanEventInline(admin.TabularInline):
 
 @admin.register(TradePlan)
 class TradePlanAdmin(ReadOnly):
-    list_display = ("id", "user", "name", "symbol", "status", "via", "quantity", "order", "pnl_krw", "activated_at")
-    list_filter = ("status", "via")
+    list_display = ("id", "user", "name", "symbol", "status", "via", "manual_start", "quantity", "budget_mode",
+                    "budget_krw", "order", "pnl_krw", "activated_at")
+    list_filter = ("status", "via", "manual_start", "budget_mode")  # manual_start: 시연용 수동 시작 계획 (DECISIONS 31장)
     search_fields = ("symbol", "name", "user__username")
     inlines = [PlanEventInline]
 

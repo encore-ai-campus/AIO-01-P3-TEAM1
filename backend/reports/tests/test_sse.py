@@ -6,7 +6,8 @@ import json
 
 import pytest
 
-from reports import sse, state
+from reports import sse
+from reports.orchestration import state
 
 from .conftest import make_report
 

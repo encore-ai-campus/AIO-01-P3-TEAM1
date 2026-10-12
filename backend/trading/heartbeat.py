@@ -1,4 +1,4 @@
-"""엔진 상태 기록 (관리 서버 저장소 SHS5029/paper_admin의 API.md 5-1): run_engine이 30초마다 engine_status 행 하나를 고친다.
+"""엔진 상태 기록 (admin/API.md 5-1): run_engine이 30초마다 engine_status 행 하나를 고친다.
 
 관리 서버가 이 행으로 엔진이 마지막으로 동작한 시각(2분 넘으면 "멈춤"), 버전, 중단 스위치, 최근 단계 오류, 하루 한도를 본다.
 중단 스위치 파일과 한도 설정은 엔진 서버에만 있으므로 엔진이 값을 읽어 행에 적는다. 비밀 값은 넣지 않는다.
@@ -32,7 +32,7 @@ def clean_error(error: BaseException) -> str:
 def limits() -> dict:
     """관리 화면이 오늘 사용량과 견주는 하루 한도 (설정 값만)."""
     from analysis import quota as analysis_quota
-    from reports import quota as report_quota
+    from reports.limits import quota as report_quota
 
     return {"aiDailyBudgetUsd": float(analysis_quota.budget_usd()), "analysisCostUsd": float(analysis_quota.COST_PER_ANALYSIS_USD),
             "analysesPerUser": analysis_quota.per_user_limit(), "analysesTotal": analysis_quota.total_limit(),

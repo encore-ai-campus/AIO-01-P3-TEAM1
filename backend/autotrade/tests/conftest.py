@@ -15,7 +15,7 @@ from notifications import service as notices
 from paper_engine.data.calendar import MarketCalendar
 from trading.tests.conftest import KST, FakeClient, api, engine_setup, login, set_price, switch, user  # noqa: F401
 
-from autotrade import sources
+from autotrade.recommend import sources
 from autotrade.models import Recommendation
 from config import engine
 

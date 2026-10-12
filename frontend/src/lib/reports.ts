@@ -6,6 +6,7 @@ import type {
   ErrorType,
   ExecutionPlan,
   FailurePolicy,
+  QuoteBasis,
   RecommendationExpiredReason,
   ReportDetail,
   ReportOpinion,
@@ -197,7 +198,7 @@ export function eventText(e: TraceEvent, plan: ExecutionPlan | undefined): Event
   }
 }
 
-// ---------------------------------------------------------------- 쉬운 보기 (주린이모드 켬) — docs/컨셉변경계획.md 4-2·4-4·5장·6장
+// ---------------------------------------------------------------- 쉬운 보기 (주린이모드 켬) — docs/plans/컨셉변경계획.md 4-2·4-4·5장·6장
 // 화면 문구와 숫자는 코드가 만든다. LLM이 쓴 문장은 plainSummary·oneLiner·reasons·risks뿐이고, 금액은 리스크 미리 보기 값이다.
 // 주어를 밝히고("AI 의견", "검토 AI", "안전장치"), 권유·명령형을 쓰지 않는다 (docs/API.md "금지 표현").
 
@@ -208,7 +209,7 @@ const text = (v: unknown): string | null => (typeof v === "string" && v.trim() !
 const texts = (v: unknown, max: number): string[] =>
   Array.isArray(v) ? v.map(text).filter((x): x is string => x !== null).slice(0, max) : [];
 
-// 쉬운 PDF(backend/reports/easy_text.py)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
+// 쉬운 PDF(backend/reports/output/easy_text.py)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
 /** AI 담당자(Worker)의 쉬운 이름 ("Agent" 대신). 모르는 id는 "AI 담당자". */
 export const WORKER_EASY_NAME: Record<string, string> = {
   market_agent: "시세를 보는 AI",
@@ -234,7 +235,7 @@ export interface ProgressStepDef {
 }
 
 /**
- * 쉬운 진행 표시 다섯 단계 (docs/컨셉변경계획.md 4-2 "시세를 보는 중 → … → 검토하는 중").
+ * 쉬운 진행 표시 다섯 단계 (docs/plans/컨셉변경계획.md 4-2 "시세를 보는 중 → … → 검토하는 중").
  * noun: 진행형이 어색한 자리(실패 화면의 "어디서 멈췄는지")에 쓰는 명사형 이름.
  */
 export const PROGRESS_STEPS: readonly ProgressStepDef[] = [
@@ -405,7 +406,7 @@ export const EXPERT_FAILURE_NOTE: Record<string, string> = {
 };
 export const EXPERT_FAILURE_FALLBACK = "재시도와 대체 모델로도 복구하지 못했습니다. 어느 모델이 실패했는지는 “진행 기록” 탭에서 볼 수 있습니다.";
 
-// 쉬운 PDF(backend/reports/easy_text.py recovery_sentences)도 같은 규칙·문장을 쓴다 — 바꾸면 둘 다 고친다
+// 쉬운 PDF(backend/reports/output/easy_text.py recovery_sentences)도 같은 규칙·문장을 쓴다 — 바꾸면 둘 다 고친다
 /**
  * 자동 복구를 쉬운 문장으로 (신뢰 패널 둘째 줄·진행 표시, docs/tasks/04-autohealing.md T4-11).
  * 다른 모델로 바꿔 끝냈으면 "○○ AI가 늦어 다른 AI가 이어받았어요", 같은 모델로 다시 해서 끝냈으면 "한 번 더 시도해 끝냈어요",
@@ -484,7 +485,7 @@ export function oneLinerOf(r: Pick<ReportDetail, "status" | "oneLiner" | "state"
   return r.oneLiner !== null && r.oneLiner !== undefined ? cleanReportText(r.oneLiner) : (draftOf(r.state)?.oneLiner ?? null);
 }
 
-// 아래 근거·'틀리는 경우' 함수(splitSource ~ withoutPriceClause)는 쉬운 PDF(backend/reports/easy_text.py)가 그대로 옮겨 쓴다 — 바꾸면 둘 다 고친다
+// 아래 근거·'틀리는 경우' 함수(splitSource ~ withoutPriceClause)는 쉬운 PDF(backend/reports/output/easy_text.py)가 그대로 옮겨 쓴다 — 바꾸면 둘 다 고친다
 const SOURCE_TAIL = /\s*[([（]\s*(?:출처|근거)\s*[:：]\s*([^)\]）]+?)\s*[)\]）]\s*$/;
 
 /** "… (출처: DART 반기보고서)"처럼 끝에 붙은 출처를 떼어 낸다. 없으면 source null. */
@@ -522,7 +523,7 @@ function floorPrice(price: number, currency: Currency): number {
 }
 
 /**
- * 리포트가 제안한 사는·목표·손절 가격을 추천이 저장하는 값으로 (호가 단위 내림, 0 이하·없는 값은 그대로 — autotrade.sources.create와 같다).
+ * 리포트가 제안한 사는·목표·손절 가격을 추천이 저장하는 값으로 (호가 단위 내림, 0 이하·없는 값은 그대로 — autotrade.recommend.sources.create와 같다).
  * 추천이 아직 없을 때 쉬운 보기가 이 값으로 계획 판단·세 가지 경우·차트·'틀리는 경우'의 손절 문장을 그린다 — 쉬운 PDF(easy_text.tick_prices)와 같은 숫자.
  */
 export function floorTargets(targets: ReportTargets, currency: Currency): ReportTargets {
@@ -587,7 +588,7 @@ export interface ScenarioView {
 }
 
 /**
- * 시나리오 세 칸 (docs/컨셉변경계획.md 5장, LLM 숫자 없음). 목표·손절이 맞지 않으면 null.
+ * 시나리오 세 칸 (docs/plans/컨셉변경계획.md 5장, LLM 숫자 없음). 목표·손절이 맞지 않으면 null.
  * 리포트의 추천이 있고 안전장치가 1주 이상을 계산했으면 그 금액(비용 반영), 아니면 1주 기준 비율(비용 전).
  * plan: 매매 계획 카드와 같은 상태 — blocked면 금액은 그대로 두고(막힌 이유가 숫자로 보인다) 표시만 바꾸고, 기한이 지났으면 비율로.
  */
@@ -623,8 +624,8 @@ export function scenarioOf(
   };
 }
 
-// 신뢰 패널(trustOf·dataTimeText)은 쉬운 PDF(backend/reports/easy_text.py trust_lines·data_time_text)도 같은 규칙·문장을 쓴다 — 바꾸면 둘 다 고친다
-/** 신뢰 패널 (docs/컨셉변경계획.md 5장): 검토 통과 · 인용 수 · 자료 기준 시각 / 자동 복구 문장. 점수·고쳐 쓴 횟수는 펼친 곳에. */
+// 신뢰 패널(trustOf·dataTimeText)은 쉬운 PDF(backend/reports/output/easy_text.py trust_lines·data_time_text)도 같은 규칙·문장을 쓴다 — 바꾸면 둘 다 고친다
+/** 신뢰 패널 (docs/plans/컨셉변경계획.md 5장): 검토 통과 · 인용 수 · 자료 기준 시각 / 자동 복구 문장. 점수·고쳐 쓴 횟수는 펼친 곳에. */
 export interface TrustInfo {
   reviewed: boolean; // 검토 AI가 PASS
   score: number | null;
@@ -669,9 +670,10 @@ export function dataTimeText(iso: string | null | undefined): string {
 
 export interface MarketView {
   summary: string | null;
-  price: number | null; // 장마감 기준 종가 (MarketResult.price)
+  price: number | null; // MarketResult.price — basis close면 장마감 기준 종가, live면 리포트를 만들 때의 장중 가격
   changePct: number | null;
   asOf: string | null;
+  basis: QuoteBasis; // MarketResult.priceBasis (2026-10-08, docs/API.md "리포트 시세"). 없거나 다른 값이면 close (예전 결과)
   rsi: number | null;
   volatilityPct: number | null;
   signals: string[];
@@ -706,6 +708,7 @@ export function researchOf(state: Pick<SharedState, "results">): { market: Marke
           price: finite(m.price),
           changePct: finite(m.changePct),
           asOf: text(m.asOf),
+          basis: m.priceBasis === "live" ? "live" : "close",
           rsi: finite(m.rsi),
           volatilityPct: finite(m.volatilityPct),
           signals: texts(m.signals, 5),
@@ -737,7 +740,7 @@ export function researchOf(state: Pick<SharedState, "results">): { market: Marke
   };
 }
 
-/** 단계 막대 ① 만들기 ② 검토 ③ 실행 (docs/컨셉변경계획.md 3장 "단계 막대의 뜻"). */
+/** 단계 막대 ① 만들기 ② 검토 ③ 실행 (docs/plans/컨셉변경계획.md 3장 "단계 막대의 뜻"). */
 export const STEP_LABELS = ["만들기", "검토", "실행"] as const;
 /** skipped: 이 리포트로는 실행할 계획이 없다 (③ 없음 — 할 일이 남은 것처럼 보이지 않게). */
 export type StepState = "done" | "current" | "todo" | "failed" | "skipped";
@@ -759,7 +762,7 @@ export function stepsOf(status: ReportStatus, executed: boolean, plan?: PlanCard
 }
 
 /**
- * 완성 화면 머리의 다음 행동 안내 (매매 계획 카드 상태별, docs/컨셉변경계획.md 3장).
+ * 완성 화면 머리의 다음 행동 안내 (매매 계획 카드 상태별, docs/plans/컨셉변경계획.md 3장).
  * 준비 중·불러오는 중에는 없다 — 매매 계획 카드와 반대로 말하지 않게.
  * 실행할 계획이 없는 경우(지켜보기·부정적·계획 없음)도 없다: "실행할 계획이 없어요"는 매매 계획 카드 한 곳에서만 말한다 (UX-8 — 머리·결론·카드에서 세 번 되풀이했다).
  * 머리에서는 단계 막대 ③ '없음'이 같은 뜻을 보인다.
@@ -888,7 +891,7 @@ function recentDurations(reports: Pick<ReportSummary, "status" | "startedAt" | "
     .sort((a, b) => a - b);
 }
 
-/** 진행 화면의 예상 시간: 최근 완성 리포트(최대 take개)의 시작~끝 시간 중앙값. 3건 미만이면 null (docs/컨셉변경계획.md 4-6). */
+/** 진행 화면의 예상 시간: 최근 완성 리포트(최대 take개)의 시작~끝 시간 중앙값. 3건 미만이면 null (docs/plans/컨셉변경계획.md 4-6). */
 export function typicalDurationMs(reports: Pick<ReportSummary, "status" | "startedAt" | "finishedAt">[], take = 10): number | null {
   const ms = recentDurations(reports, take);
   if (ms.length < 3) return null;

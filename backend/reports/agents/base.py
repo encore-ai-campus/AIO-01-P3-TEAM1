@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Protocol
 if TYPE_CHECKING:
     from paper_engine.config import Config
     from paper_engine.data.broker import BrokerClient
-    from reports.healing import LlmReply
+    from reports.autohealing.healing import LlmReply
 
 
 class LlmCallerProtocol(Protocol):
@@ -46,8 +46,11 @@ class WorkerContext:
     cfg: Config
     client: BrokerClient | None
     # 팀 실행 전체가 같이 쓰는 입력 (Orchestrator가 실행 시작 때 한 번 만든다).
-    # 선정 팀(stock_selection)은 {"market", "day", "candidates": [규칙 후보 ...]} — reports.selection.team_inputs. 종목 리포트는 None
+    # 선정 팀(stock_selection)은 {"market", "day", "candidates": [규칙 후보 ...]} — reports.autoreport.selection.team_inputs. 종목 리포트는 None
     team_inputs: dict | None = None
+    # (2026-10-12) 검토 반복으로 다시 실행되는 검토 Worker에만 주는 값 (docs/DECISIONS.md 30장). 그 밖에는 None.
+    # {"round": n, "review": 직전 ReviewResult, "draft": 그 검토가 본 target 초안}. 선정 검토가 읽는다 (종목 리포트 검토·작성 Worker는 읽지 않는다)
+    retry: dict | None = None
 
 
 class Worker(Protocol):

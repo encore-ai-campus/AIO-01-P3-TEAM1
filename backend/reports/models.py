@@ -1,6 +1,6 @@
 """AI 리포트의 Shared State와 구조화된 Trace (docs/DECISIONS.md 9-2, docs/API.md "AI 리포트").
 
-두 표는 Orchestrator가 `reports.state`의 함수로만 바꾼다. 웹 API는 읽기와 신청(requested 행 만들기)만 한다.
+두 표는 Orchestrator가 `reports.orchestration.state`의 함수로만 바꾼다. 웹 API는 읽기와 신청(requested 행 만들기)만 한다.
 """
 from django.conf import settings
 from django.db import models
@@ -15,7 +15,7 @@ class Report(models.Model):
     MARKETS = [("KR", "KR"), ("US", "US")]
     USER, AUTO = "user", "auto"
     SOURCES = [(USER, USER), (AUTO, AUTO)]
-    # 어느 팀(team_definitions.yaml)이 실행하나: 종목 리포트 / 하루 한 번의 매매 종목 선정 (docs/AI_AGENT_WORKFLOW.md)
+    # 어느 팀(team_definitions.yaml)이 실행하나: 종목 리포트 / 하루 한 번의 매매 종목 선정 (docs/design/AI_AGENT_WORKFLOW.md)
     STOCK_REPORT, STOCK_SELECTION = "stock_report", "stock_selection"
     TEAMS = [(STOCK_REPORT, STOCK_REPORT), (STOCK_SELECTION, STOCK_SELECTION)]
 

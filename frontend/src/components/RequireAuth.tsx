@@ -5,7 +5,7 @@ import { errorMessage, setUnauthorizedHandler } from "../api/client";
 import { keys, useMe } from "../api/queries";
 import { cn } from "../lib/cn";
 import { markSessionExpired } from "../lib/session";
-import { BrandLockup } from "./BrandMark";
+import { BrandLockup } from "./brand/BrandMark";
 import { ErrorState, Skeleton } from "./ui";
 
 /** API가 401을 주면 로그인 정보를 지운다 → RequireAuth가 로그인 화면으로 보낸다. 로그인 상태였다면 '세션이 끝남'을 남긴다 (로그인 화면이 알린다). */

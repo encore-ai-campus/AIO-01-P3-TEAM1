@@ -1,4 +1,4 @@
-// 쉬운 문장 표 (docs/컨셉변경계획.md 4-4·4-5, docs/API.md). 화면 문구만이고 코드·API 이름은 그대로다.
+// 쉬운 문장 표 (docs/plans/컨셉변경계획.md 4-4·4-5, docs/API.md). 화면 문구만이고 코드·API 이름은 그대로다.
 // 규칙: 주어를 밝히고(AI 의견·안전장치), 명령형·권유형을 쓰지 않고(docs/API.md "금지 표현"), 손실은 "더 클 수도 있어요"까지 말한다.
 // 주문·체결·청산·자동매매를 말하는 쉬운 문장에는 "모의"를 넣는다 (실제 매매로 읽히지 않게).
 // 모르는 코드는 서버가 준 원문을 그대로 보인다 (reasonSentence의 fallback).
@@ -37,17 +37,17 @@ export interface Wording {
 
 /**
  * 서비스 이름 (docs/DECISIONS.md 18장 — 2026-10-07에 바뀜. 전 이름은 '종이배'(15-7), 그 전은 D-5). 붙여 쓰고 꾸밈말을 붙이지 않는다('AI 모매매' 아님).
- * 부제의 '종이 위에서'는 모의투자(paper trading — 실제가 아니라 종이 위에서 연습)를 뜻한다.
- * 문구에 쓰지 않는 말: 배 은어(탑승·승선·선장·출항·순항), 띄우다·접다, 침몰·가라앉다·구조, '배(倍)' 말장난 — 로고가 종이배 모양이라 그대로 지킨다.
- * 로고는 components/BrandMark.tsx. 백엔드에도 같은 이름이 둘 있다 (notifications/service.py HEADER, reports/pdf.py SERVICE_NAME).
+ * 부제는 이 서비스의 핵심(여러 AI의 교차검증 + 모의투자)을 한 줄로 말한다. 풀이 한 줄은 그것을 풀어 쓰고, 아래 안심 줄('실제 주문은 나가지 않아요')과 같은 말을 되풀이하지 않는다.
+ * 문구에 쓰지 않는 말: 배 은어(탑승·승선·선장·출항·순항), 띄우다·접다, 침몰·가라앉다·구조, '배(倍)' 말장난 — 옛 종이배 로고 때 정한 규칙이지만 문구가 깔끔해 그대로 지킨다.
+ * 로고는 components/brand/BrandMark.tsx. 백엔드에도 같은 이름이 둘 있다 (notifications/service.py HEADER, reports/output/pdf.py SERVICE_NAME).
  */
 export const SERVICE_NAME = "모매매";
 
 /** 부제: 이름 바로 아래 (로그인 첫 화면·발표 첫 장). */
-export const SERVICE_TAGLINE = "종이 위에서 연습하는 AI 리포트 모의투자";
+export const SERVICE_TAGLINE = "여러 AI가 함께 검증하는 모의투자";
 
-/** 첫 화면(로그인)의 풀이 한 줄: 부제의 '종이 위에서'를 풀어 말한다. */
-export const SERVICE_INTRO = "진짜 돈 대신 종이 위에서 — AI가 쓴 리포트를 읽고 따져 본 뒤, 가상 현금으로 모의투자를 연습해요.";
+/** 첫 화면(로그인)의 풀이 한 줄: 부제의 '여러 AI가 함께 검증'을 풀어 말한다. */
+export const SERVICE_INTRO = "AI들이 조사하고 서로 따져 본 리포트를 읽고, 가상 현금으로 매매를 연습해요.";
 
 /** 통일 면책 문장 (리포트·PDF·화면). */
 export const DISCLAIMER = "이 리포트는 AI가 만든 참고 자료이며 투자 권유가 아닙니다. 모든 매매는 모의 계좌에서만 이뤄집니다.";
@@ -89,7 +89,7 @@ export const NOT_SUITABILITY = "증권사의 공식 투자 성향 검사가 아�
  * 알림 종은 모바일은 화면 머리·PC는 왼쪽 메뉴에 있다 (Layout).
  */
 export const REPORT_KEEPS_RUNNING = "이 화면을 닫아도 계속 만들어요. 만드는 동안 '리포트' 메뉴에 표시가 붙고, 완성되면 알림으로 알려 드려요";
-// 쉬운 PDF(backend/reports/easy_text.py)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
+// 쉬운 PDF(backend/reports/output/easy_text.py)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
 export const AI_REVIEW_NOTE = "AI 검토는 사실을 보증하지 않아요";
 
 /** 화면 아래 공통 출처 줄 (docs/DECISIONS.md 14-1·17장). quoteProvider는 MarketStatus.quoteProvider. */
@@ -119,7 +119,7 @@ export interface OpinionText {
   tone: "positive" | "neutral" | "negative";
 }
 
-// 쉬운 PDF(backend/reports/easy_text.py OPINION_LINE, 배지는 text.py OPINION_LABEL)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
+// 쉬운 PDF(backend/reports/output/easy_text.py OPINION_LINE, 배지는 text.py OPINION_LABEL)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
 export const OPINION_TEXT: Record<ReportOpinion, OpinionText> = {
   buy: { badge: "긍정적", label: "AI 의견: 긍정적", line: "오를 근거가 더 많다고 봤어요", expert: "매수", tone: "positive" },
   hold: { badge: "지켜보기", label: "AI 의견: 지켜보기", line: "아직 판단하기 이르다고 봤어요", expert: "보유", tone: "neutral" },
@@ -188,7 +188,7 @@ export const REASON_TEXT: Record<ReasonCode, string> = {
   daily_trades_limit: "오늘 할 수 있는 주문 수를 다 썼어요. 내일 다시 할 수 있어요",
   warning_stock: "투자경고 같은 매수 유의 종목이라 안전장치가 막았어요",
   size_too_small: "안전장치가 정한 수량이 1주도 안 돼요(계좌 크기에 비해 손절 폭이 커요)",
-  budget_too_small: "예산으로는 1주도 살 수 없어요",
+  budget_too_small: "이 금액으로는 1주도 살 수 없어요",
   expired: "이 계획은 기한이 끝났어요. 가격이 바뀌었을 수 있으니 새로 만들어 보세요",
   plan_exists: "이미 이 종목으로 진행 중인 계획이 있어요",
   position_exists: "이미 이 종목의 모의 주문이나 보유가 있어요(한 종목은 하나만 진행해요)",
@@ -200,6 +200,18 @@ export const REASON_TEXT: Record<ReasonCode, string> = {
 };
 
 export const isReasonCode = (code: string): code is ReasonCode => code in REASON_TEXT;
+
+/**
+ * 사유 문장을 고르는 문맥: order = 장기 매수 주문(POST /api/orders long — assess_position), plan = 계획 미리 보기·활성화(assess_budget).
+ * 같은 코드(cash_short·total_limit)를 두 곳이 쓰지만 계획에서는 '내가 정한 금액(넣을 돈)'을 말한다 (2026-10-11 DECISIONS 28장).
+ */
+export type ReasonContext = "order" | "plan";
+
+/** 계획 문맥에서만 다른 문장 (없는 코드는 REASON_TEXT 그대로). */
+export const PLAN_REASON_TEXT: Partial<Record<ReasonCode, string>> = {
+  cash_short: "넣을 돈이 매수 가능 금액보다 많아요",
+  total_limit: "모의 자동매매에 넣을 수 있는 총 금액 한도를 넘어요",
+};
 
 /**
  * 목록 카드의 '지금은 시작할 수 없음 · …' 뒤에 붙는 한 마디 (Recommendation.blockedBy — 계좌와 무관한 사유만, DECISIONS 23장).
@@ -243,18 +255,18 @@ export function blockedShort(codes: readonly string[] | null | undefined, easy =
   return w ? (easy ? w.easy : w.expert) : reasonSentence(code);
 }
 
-/** 사유 코드 → 쉬운 문장. 모르는 코드면 같은 자리의 원문(fallback), 그것도 없으면 코드 그대로. */
-export function reasonSentence(code: string | null | undefined, fallback?: string | null): string {
-  if (code && isReasonCode(code)) return REASON_TEXT[code];
+/** 사유 코드 → 쉬운 문장. 모르는 코드면 같은 자리의 원문(fallback), 그것도 없으면 코드 그대로. context가 plan이면 계획 문장(PLAN_REASON_TEXT)을 먼저. */
+export function reasonSentence(code: string | null | undefined, fallback?: string | null, context: ReasonContext = "order"): string {
+  if (code && isReasonCode(code)) return (context === "plan" ? PLAN_REASON_TEXT[code] : undefined) ?? REASON_TEXT[code];
   return fallback || code || "";
 }
 
 /** reasonCodes와 원문 reasons(같은 길이·순서)를 쉬운 문장 목록으로 (같은 문장은 한 번만). 코드가 모자라면 원문을 그대로. */
-export function reasonSentences(codes: readonly string[] | null | undefined, raws: readonly string[] = []): string[] {
+export function reasonSentences(codes: readonly string[] | null | undefined, raws: readonly string[] = [], context: ReasonContext = "order"): string[] {
   const out: string[] = [];
   const n = Math.max(codes?.length ?? 0, raws.length);
   for (let i = 0; i < n; i++) {
-    const s = reasonSentence(codes?.[i], raws[i]);
+    const s = reasonSentence(codes?.[i], raws[i], context);
     if (s && !out.includes(s)) out.push(s);
   }
   return out;
@@ -264,9 +276,9 @@ export function reasonSentences(codes: readonly string[] | null | undefined, raw
  * 400 {detail, reasonCodes} 오류 → 쉬운 사유 문장 목록. 사유 코드가 없는 오류(입력 오류 등)는 null —
  * 그때는 ApiError.detail을 그대로 보인다.
  */
-export function rejectionSentences(err: unknown): string[] | null {
+export function rejectionSentences(err: unknown, context: ReasonContext = "order"): string[] | null {
   if (!isBlocked(err)) return null;
-  return reasonSentences(err.reasonCodes, err.detail.split("; "));
+  return reasonSentences(err.reasonCodes, err.detail.split("; "), context);
 }
 
 /** 오류를 화면 한 줄로: 실행 불가 사유면 쉬운 문장을 이어서, 아니면 서버 detail. */
@@ -279,6 +291,43 @@ export function errorSentence(err: unknown): string {
 }
 
 // ---------------------------------------------------------------- 매매 계획 · 자동매매
+
+/**
+ * 시연용 수동 시작 (2026-10-12 사용자 결정, DECISIONS 31장 — docs/API.md manualStart): 안전장치(리스크 엔진)가 손익비·기대값만으로 막은 계획을
+ * 시연을 위해 직접 시작한다. 이 기능이 나오는 모든 자리에 '시연용'을 쓴다. 청산 사유 MANUAL(사용자 매도)·연습용 예시(source demo)와 다른 것이다.
+ */
+export const MANUAL_START_TEXT = {
+  badge: "시연용 수동 시작",
+  button: "수동매매 (시연용)",
+  cardNote: {
+    easy: "시연용 기능이에요. 안전장치가 손익비·기대 수익 점검으로 막은 계획을 직접 시작해 볼 수 있어요. 넣을 돈과 다른 안전장치(매수 가능 금액·한도·가격)는 그대로 확인해요.",
+    expert: "시연용: 리스크 엔진의 손익비·기대값 점검만 건너뛰고 수동으로 활성화합니다. 투자 금액·한도·가격 점검은 그대로입니다.",
+  },
+  linkHint: { easy: "시연용 기능: 손익비·기대 수익 점검만 건너뛰고 직접 시작해요", expert: "시연용: 손익비·기대값 점검만 건너뜁니다" },
+  topNote: {
+    easy: "아래 실행 확인에서 넣을 돈을 정하고 확인하면 시연을 위해 직접 시작해요.",
+    expert: "아래 활성화 카드에서 투자 금액을 정하고 확인하면 시연을 위해 수동으로 활성화합니다.",
+  },
+  /** Discord 활성화 링크(?t=)의 띠 문장 — 그때는 위 topNote 띠를 따로 두지 않으므로 여기서 '시연용'과 실제 시작 버튼 이름(start)을 말한다 */
+  discordNote: {
+    easy: "시연용 수동 시작이에요. 내용을 확인하고 “모의 수동매매 시작 (시연용)” 버튼을 누르면 시연을 위해 내 모의 계좌에서 직접 시작해요 (Discord로 시작한 것으로 기록해요).",
+    expert: "시연용 수동 시작입니다. 내용을 확인하고 “수동매매 활성화 (시연용)” 버튼을 누르면 시연을 위해 내 모의 계좌에 계획이 수동으로 만들어집니다 (Discord로 활성화한 것으로 기록).",
+  },
+  banner: {
+    easy: "시연용 수동 시작이에요. 아래 이유로 안전장치가 막은 계획을 시연을 위해 직접 시작해요. 실제 투자 판단의 근거가 아니에요.",
+    expert: "시연용 수동 시작 — 리스크 엔진이 아래 사유로 거절한 계획을 시연을 위해 수동으로 활성화합니다. 그 밖의 점검은 그대로입니다.",
+  },
+  check: "안전장치의 손익비·기대 수익 점검을 통과하지 못한 계획을 시연용으로 직접 시작해요.",
+  checksHint: "위의 확인 넷을 모두 켜면 시작할 수 있어요.",
+  expertCheck: "시연용 수동 시작 (손익비·기대값 점검 건너뜀)",
+  previewSkipped: "리스크 엔진 기준 미달 — 시연용 수동 시작으로 건너뜀",
+  start: { easy: "모의 수동매매 시작 (시연용)", expert: "수동매매 활성화 (시연용)" }, // 쉬운 보기 시작 버튼에는 "모의"를 넣는다 (이 파일 머리 규칙)
+  planNote: {
+    easy: "시연용으로 직접 시작한 모의 자동매매예요. 안전장치의 손익비·기대 수익 점검을 건너뛰었어요.",
+    expert: "시연용 수동 시작: 리스크 엔진의 손익비·기대값 점검을 건너뛰고 활성화한 계획입니다.",
+  },
+  toast: "시연용 수동 시작 · ",
+} as const;
 
 export interface PlanStatusText extends Wording {
   line: string; // 쉬운 보기 설명 한 줄
@@ -343,11 +392,29 @@ export function planEventSentence(e: Pick<PlanEvent, "kind" | "details" | "messa
   const price = (v: unknown) => formatPrice(numOf(v), currency);
   switch (e.kind) {
     case "activated": {
+      // 2026-10-11부터 넣을 돈(budgetMode·budgetPercent·budgetKrw)을 남긴다. 그 전 계획은 선택 예산(budgetKrw)만
       const budget = numOf(d.budgetKrw);
-      return `모의 자동매매를 시작했어요${budget ? ` (예산 ${formatKrw(budget)})` : ""}`;
+      const percent = numOf(d.budgetPercent);
+      const put =
+        d.budgetMode === "percent" && percent !== null
+          ? ` (넣은 돈: 내 자금의 ${percent}%${budget !== null ? ` · ${formatKrw(budget)}` : ""})`
+          : d.budgetMode === "amount" && budget !== null
+            ? ` (넣은 돈: ${formatKrw(budget)})`
+            : budget
+              ? ` (예산 ${formatKrw(budget)})`
+              : "";
+      return d.manualStart === true ? `시연용으로 모의 자동매매를 직접 시작했어요${put}` : `모의 자동매매를 시작했어요${put}`;
     }
     case "risk_checked":
+      // 시연용 수동 시작(DECISIONS 31장)은 approved=false(리스크 엔진의 원래 판정)를 남기지만 막힌 것이 아니다 — approved보다 먼저 본다
+      if (d.manualStart === true) {
+        return qty !== null
+          ? `시연용 수동 시작이라 안전장치의 손익비·기대 수익 점검을 건너뛰고, 넣은 돈으로 모의 주문 수량 ${formatQty(qty)}를 계산했어요`
+          : "시연용 수동 시작이라 안전장치의 손익비·기대 수익 점검을 건너뛰었어요";
+      }
       if (d.approved === false) return "안전장치가 모의 주문을 막았어요";
+      // 2026-10-11부터 수량은 내가 정한 금액으로 계산하고 안전장치는 한도를 점검만 한다 (limitedBy "내가 정한 금액")
+      if (d.limitedBy === "내가 정한 금액" && qty !== null) return `넣은 돈으로 모의 주문 수량 ${formatQty(qty)}를 계산했고, 안전장치가 한도를 확인했어요`;
       return qty !== null ? `안전장치가 모의 주문 수량을 ${formatQty(qty)}로 정했어요` : "안전장치가 모의 주문 수량을 정했어요";
     case "order_placed":
       if (qty === null || numOf(d.limitPrice) === null) break;

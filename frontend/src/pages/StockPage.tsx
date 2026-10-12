@@ -1,9 +1,11 @@
-// /stocks/:symbol 종목 상세 (docs/컨셉변경계획.md 4-2, docs/DECISIONS.md 13-1 D-1, docs/투자서비스확장계획.md 2-3).
+// /stocks/:symbol 종목 상세 (docs/plans/컨셉변경계획.md 4-2, docs/DECISIONS.md 13-1 D-1, docs/plans/투자서비스확장계획.md 2-3).
 // 모바일 한 열(= DOM·읽는 순서): 시세(+ 내 모의 주문 한 줄)·차트 → 큰 버튼 "AI 리포트 만들기"(여정 ① 만들기) + 보조 "AI 교차검증 분석"
 //   → 펀더멘털 → 주문.
 // PC 2단: 왼쪽은 '보기'(시세·차트·펀더멘털), 오른쪽 sticky는 '하기' — 전문가 보기는 주문 패널, 쉬운 보기는 AI 리포트 묶음(그 사람의 주 행동).
 //   쉬운 보기의 직접 주문(고급)은 왼쪽 맨 아래 (펼치면 길어지므로 sticky 열에 두지 않는다). 같은 요소를 두 번 그리지 않고 grid 자리만 바꾼다.
 // 시세는 실시간(5초마다 새로 받음, Quote.basis "live" → "실시간 · 15:20:31"), 현재가를 받지 못한 종목만 직전 종가("장마감 기준").
+// 내 보유 평가('내 모의 주문' 한 줄·주문 패널의 보유 블록)도 이 시세와 체결가·수량으로 종목 통화로 계산한다 (lib/holding — 오늘 산 종목도 실시간 숫자).
+//   시세 가격을 받지 못하면 장마감 기준 계좌 값 (홈·마이·랭킹은 늘 장마감 기준).
 // 차트: 쉬운 보기는 종가 선(낮게 — 360×740에서 큰 버튼이 첫 화면에 들어오게), 전문가 보기는 캔들·이동평균·거래량.
 // 전문가 보기 모바일은 하단 고정 버튼 → 주문 바텀시트 (.order-dock: PC 패널과 한 벌 DOM, 열린 동안만 모달 — hooks/useModal).
 import { Suspense, lazy, type MouseEvent, type ReactNode, type RefObject, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
@@ -13,11 +15,12 @@ import { useAnalyses, useAnalysis, useMe, useReportPlan, useReports, useStock } 
 import { useReportQuota, useRequestReport } from "../api/reports";
 import { addRecentStock, useSymbolTrading } from "../api/trading";
 import type { AnalysisSummary, ChaosRequest, StockDetail } from "../api/types";
-import { AnalysisRequest } from "../components/AnalysisRequest";
+import { AnalysisRequest } from "../components/analysis/AnalysisRequest";
+import { isCountLimit } from "../components/errors/errorTypes";
 import { Icon } from "../components/Icon";
 import { FundamentalsPanel } from "../components/longterm/FundamentalsPanel";
 import { Collapse } from "../components/motion/Collapse";
-import { ACTED_MS, OrderPanel, type Prefill } from "../components/OrderPanel";
+import { ACTED_MS, OrderPanel, type Prefill } from "../components/stock/OrderPanel";
 import { ChaosForm } from "../components/reports/ChaosForm";
 import { AsOf, EmptyState, ErrorState, Flash, Notice, PageHeader, PriceChange, Skeleton, Spinner, VerdictBadge } from "../components/ui";
 import { useViewMode } from "../hooks/useBeginnerMode";
@@ -28,6 +31,7 @@ import { cn } from "../lib/cn";
 import { formatDateTime, formatDayLabel, formatKrw, formatPercent, formatPrice, formatQty, formatRate, formatRequester, trendClass } from "../lib/format";
 import { prefersReducedMotion } from "../lib/motion";
 import { useOrderBarPresence } from "../lib/orderBar";
+import { quoteHolding } from "../lib/holding";
 import { isTodayFill, todayFillText } from "../lib/orderText";
 import { quotePriceName, reportStatusText } from "../lib/plainText";
 import { stockAsOfBasis } from "../lib/quote";
@@ -36,7 +40,7 @@ import { quotaSentence, todayReport } from "../lib/reports";
 // 차트 라이브러리는 종목 상세에서만 쓰므로 따로 불러온다. 불러온 적이 있으면(다시 온 화면) 차트를 페이드하지 않는다
 let chartLoaded = false;
 const CandleChart = lazy(() =>
-  import("../components/CandleChart").then((m) => {
+  import("../components/charts/CandleChart").then((m) => {
     chartLoaded = true;
     return { default: m.CandleChart };
   }),
@@ -99,7 +103,7 @@ function ChaosPanel({ value, onChange }: { value: ChaosRequest | null; onChange:
 }
 
 /**
- * 큰 버튼 "AI 리포트 만들기" + 오늘 남은 횟수. 오늘 이 종목 리포트가 이미 있으면 "오늘 리포트 보기"가 먼저 (docs/컨셉변경계획.md 4-2 —
+ * 큰 버튼 "AI 리포트 만들기" + 오늘 남은 횟수. 오늘 이 종목 리포트가 이미 있으면 "오늘 리포트 보기"가 먼저 (docs/plans/컨셉변경계획.md 4-2 —
  * 고르는 규칙은 리포트 탭의 만들기 카드와 같은 lib/reports todayReport).
  * 리포트 목록과 한도를 둘 다 받을 때까지 버튼 자리에 뼈대를 둔다 — 틀린 버튼(누를 수 있는 '만들기')이 먼저 보였다가 바뀌지 않게.
  * 전문가 보기에는 접힌 '장애 주입(시연)'이 있다 (docs/tasks/05-프론트.md T5-22 — 끔 모드에서만).
@@ -121,7 +125,8 @@ function ReportCta({ stock, easy }: { stock: StockDetail; easy: boolean }) {
   const spent = quota?.remaining === 0;
   const chaosOn = !easy && chaos !== null;
   const create = () => request.mutate({ symbol: stock.symbol, chaos: chaosOn ? chaos : null }, { onSuccess: (r) => navigate(`/reports/${r.id}`) });
-  const limitError = request.error instanceof ApiError && request.error.status === 429;
+  // 429는 둘: 내 하루 횟수 한도(본문에 limit)면 한도 문장, 팀 비용 예산이면 서버 문장 (사람마다 한도가 남아 있어도 막힌다)
+  const limitError = request.error instanceof ApiError && isCountLimit(request.error);
   const errorText = request.isError ? (limitError ? "오늘은 다 만들었어요. 내일 0시에 다시 만들 수 있어요" : errorMessage(request.error)) : null;
   const shownError = useLast(errorText);
   const chaosLabel = chaosOn ? " · 장애 주입" : "";
@@ -238,17 +243,42 @@ function ReportCta({ stock, easy }: { stock: StockDetail; easy: boolean }) {
 
 type Trading = ReturnType<typeof useSymbolTrading>;
 
+/** 이 종목의 보유를 시세로 평가한 값 (종목 통화). 시세 가격이 없으면 null — 장마감 기준 계좌 값으로 돌아간다. */
+function holdingNow(t: Trading, stock: StockDetail) {
+  if (t.state !== "holding" || !t.order) return null;
+  return quoteHolding(stock.quote, {
+    avgPrice: t.position?.avgPrice ?? t.order.fillPrice,
+    quantity: t.order.quantity,
+    // 계좌를 아직 받지 못했으면 오늘 산 종목인지 모른다 — 시세가 직전 종가일 때 체결가와 견주지 않게 오늘 산 것으로 본다 (독립 리뷰)
+    todayFill: !t.position || isTodayFill(t.position),
+  });
+}
+
 /**
  * 내 모의 주문 한 줄 (보유·체결 대기·매수 예약). 한 줄 문장으로 — 시세 카드의 가격 이름('현재가'·'종가')·가격 글자와 겹치지 않게.
- * 오늘 산 보유(priceBasis "today_fill")는 수익률 대신 언제 평가되는지 (체결가로 평가해 손익이 0이다 — 어제 종가와 비교한 가짜 손익을 보이지 않는다).
+ * 보유는 시세로 평가한다 (오늘 산 종목도 실시간 숫자). 시세 가격이 없으면 장마감 기준 계좌 값이고, 그때 오늘 산 보유(priceBasis "today_fill")는
+ * 수익률 대신 언제 평가되는지 (체결가로 평가해 손익이 0이다 — 어제 종가와 비교한 가짜 손익을 보이지 않는다).
  */
 function summaryLine(t: Trading, stock: StockDetail, easy: boolean): ReactNode | null {
   if (t.state === "holding" && t.order) {
     const p = t.position;
+    const hv = holdingNow(t, stock);
     return (
       <span className="min-w-0 tabular-nums">
         <b className="font-semibold">모의 보유</b> {formatQty(t.order.quantity)}
-        {p &&
+        {hv ? (
+          <>
+            {" "}
+            · {formatPrice(hv.value, stock.currency)}
+            {hv.rate !== null && (
+              <>
+                {" "}
+                <span className={trendClass(hv.rate)}>{formatRate(hv.rate)}</span>
+              </>
+            )}
+          </>
+        ) : (
+          p &&
           (isTodayFill(p) ? (
             <>
               {" "}
@@ -259,7 +289,8 @@ function summaryLine(t: Trading, stock: StockDetail, easy: boolean): ReactNode |
               {" "}
               · {formatKrw(p.valueKrw)} <span className={trendClass(p.profitKrw)}>{formatRate(p.profitRate)}</span>
             </>
-          ))}
+          ))
+        )}
         {t.sellReservation && " · 매도 예약됨"}
       </span>
     );
@@ -283,9 +314,10 @@ function summaryLine(t: Trading, stock: StockDetail, easy: boolean): ReactNode |
 }
 
 /** 한 줄 요약이 바뀌었는지 가리는 열쇠 (같은 내용이면 같은 문자열). */
-function summaryKey(t: Trading): string | null {
+function summaryKey(t: Trading, stock: StockDetail): string | null {
   if (t.state === "holding") {
-    return `h:${t.order?.quantity}:${t.position?.valueKrw}:${t.position?.profitKrw}:${t.position?.priceBasis}:${Boolean(t.sellReservation)}`;
+    const hv = holdingNow(t, stock);
+    return `h:${t.order?.quantity}:${hv ? `${hv.value}:${hv.rate}` : `${t.position?.valueKrw}:${t.position?.profitKrw}:${t.position?.priceBasis}`}:${Boolean(t.sellReservation)}`;
   }
   if (t.state === "pending") return `p:${t.order?.quantity}:${t.order?.limitPrice}`;
   if (t.state === "reserved") return `r:${t.buyReservation?.quantity}:${t.buyReservation?.runAt}`;
@@ -307,7 +339,7 @@ function MySummary({
   className?: string;
 }) {
   const line = summaryLine(t, stock, easy);
-  const key = summaryKey(t);
+  const key = summaryKey(t, stock);
   // 접히는 동안 보일 마지막 내용 (요약이 바뀐 때만 새로 담는다 — 새 엘리먼트를 그대로 비교하면 매번 달라 끝없이 다시 그린다)
   const [last, setLast] = useState<{ key: string | null; line: ReactNode }>({ key, line });
   if (key !== null && key !== last.key) setLast({ key, line }); // 렌더 중 조건부 파생 상태

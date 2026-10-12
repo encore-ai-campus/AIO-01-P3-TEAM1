@@ -3,12 +3,14 @@ from io import StringIO
 
 import pytest
 from analysis import jobs
-from autotrade import auto, executor, sources
+from autotrade.recommend import auto, sources
+from autotrade.plans import executor
 from django.core.management import call_command
 from longterm import jobs as longterm_jobs
 from notifications import dispatch
-from reports import alerts, runner
-from reports import auto as reports_auto
+from reports.output import alerts
+from reports.orchestration import runner
+from reports.autoreport import auto as reports_auto
 
 from trading import service
 

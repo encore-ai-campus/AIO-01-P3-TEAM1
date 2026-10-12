@@ -157,7 +157,7 @@ def test_loop_recovers_and_shuts_down_report_runner(monkeypatch):
     """상주 루프: 시작할 때 이전 실행의 리포트를 정리하고(runner.recover), 끝낼 때(Ctrl+C) 도는 리포트를 기다린다(runner.shutdown)."""
     from types import SimpleNamespace
 
-    from reports import runner
+    from reports.orchestration import runner
 
     from trading.management.commands import run_engine
 
@@ -181,7 +181,7 @@ def test_loop_recovers_and_shuts_down_report_runner(monkeypatch):
 
 def test_once_waits_for_started_report(monkeypatch):
     """--once: 이번 바퀴에 시작한 리포트가 끝날 때까지 기다린다. recover·shutdown은 부르지 않는다."""
-    from reports import runner
+    from reports.orchestration import runner
 
     called = []
     monkeypatch.setattr(runner, "tick", lambda: called.append("tick") or 1)
