@@ -179,7 +179,7 @@ config.py       Config.broker · toss_client_id · toss_client_secret · toss_to
 
 - 시장가 매수: 정규장이면 현재 확인 가격에 즉시 체결. 정규장 밖이면 다음 정규장 시작 때 실행하는 **예약**으로 넣는다.
 - 지정가 매수: 확인 가격 ≤ 지정가면 그 확인 가격으로 체결. 그날 정규장이 끝날 때까지 안 되면 CANCELED.
-- 목표가·손절가·기한: `executor._check_local_exit` 방식 — 조건이 **2회 연속** 확인되면 확인 가격으로 매도.
+- 목표가·손절가·기한: `executor._check_exit` 방식 — 조건이 **2회 연속** 확인되면 확인 가격으로 매도.
   기한은 `expire_date`가 지난 뒤 첫 정규장에서 매도.
 - 사용자 매도: 보유 중(EXIT_WATCHING) 포지션을 전량 시장가 매도 (정규장 밖이면 예약). 대기(ENTRY_PENDING) 주문은 취소.
 - 비용: 수수료 = 금액 × `PAPER_COMMISSION_KR|US` (매수·매도 각각), 국내 매도는 거래세 `SELL_TAX_RATE["KR"]` 추가.
