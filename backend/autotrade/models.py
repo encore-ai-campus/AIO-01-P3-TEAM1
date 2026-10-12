@@ -71,6 +71,8 @@ class TradePlan(models.Model):
     LIVE = (ACTIVE, ENTRY_PENDING, HOLDING)  # 진행 중
     STATUSES = [(s, s) for s in (ACTIVE, ENTRY_PENDING, HOLDING, CLOSED, CANCELLED, EXPIRED, FAILED)]
     VIAS = [("web", "web"), ("discord", "discord")]
+    PERCENT, AMOUNT = "percent", "amount"  # 넣을 돈을 정한 방식 (docs/API.md TradePlan.budgetMode — 2026-10-11)
+    BUDGET_MODES = [(s, s) for s in (PERCENT, AMOUNT)]
 
     recommendation = models.ForeignKey(Recommendation, on_delete=models.PROTECT, related_name="plans")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="trade_plans")
@@ -81,7 +83,13 @@ class TradePlan(models.Model):
     status = models.CharField(max_length=14, choices=STATUSES, default=ACTIVE, db_index=True)
     via = models.CharField(max_length=8, choices=VIAS, default="web")
     quantity = models.FloatField()
+    # 사용자가 정한 금액 (원 — percent면 활성화 순간 매수 가능 금액 × % 를 원 단위로 내린 값). 2026-10-11 전 계획은 선택 예산 또는 None
     budget_krw = models.FloatField(null=True, blank=True)
+    budget_mode = models.CharField(max_length=8, choices=BUDGET_MODES, null=True, blank=True)  # None: 2026-10-11 전 계획
+    budget_percent = models.IntegerField(null=True, blank=True)  # percent면 1~100 (매수 가능 금액 기준), 아니면 None
+    # 시연용 수동 시작 (DECISIONS 31장): 손익비·기대값 점검(plans/risk.MANUAL_SKIP_CODES)을 건너뛰고 활성화했는지. 재주문 점검도 같은 사유를
+    # 건너뛴다. 활성화 때 한 번 쓰고 바꾸지 않는다. db_default: 이 열을 모르는 예전 코드(공유 개발 DB, 배포 중의 옛 컨테이너)가 행을 넣어도 되게
+    manual_start = models.BooleanField(default=False, db_default=False)
     entry_price = models.FloatField()
     target_price = models.FloatField()
     stop_price = models.FloatField()

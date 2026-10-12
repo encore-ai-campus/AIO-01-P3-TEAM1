@@ -14,7 +14,7 @@ import { cn } from "../../lib/cn";
 import { formatKrw, formatRate, formatSignedKrw, trendClass } from "../../lib/format";
 import { PricesAsOfLine } from "../AssetCard";
 import { Icon } from "../Icon";
-import { LineChart } from "../LineChart";
+import { LineChart } from "../charts/LineChart";
 import { useToast } from "../toast";
 import { ErrorState, Flash, Medal, RateText, Skeleton, Switch } from "../ui";
 

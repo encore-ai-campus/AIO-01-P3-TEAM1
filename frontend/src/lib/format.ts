@@ -107,6 +107,16 @@ export function formatLiveAsOf(iso: string | null | undefined): string {
   return `실시간 · ${p.hour}:${p.minute}:${p.second}`;
 }
 
+/**
+ * 장 중에 만든 리포트의 가격 시각 (docs/API.md 공통 규칙 "리포트 시세"): "10월 8일(목) 15:23 기준" (그 시장 현지 시각, 미국은 "15:23(뉴욕)").
+ * 리포트는 나중에도 읽으므로 "실시간 · 시각"이 아니라 날짜를 넣는다. 쉬운 PDF(backend/reports/output/pdf.py _live_at)와 같은 글자. 값이 없으면 "-".
+ */
+export function formatIntradayAsOf(iso: string | null | undefined, market: Market = "KR"): string {
+  if (!iso || Number.isNaN(new Date(iso).getTime())) return "-";
+  const p = parts(iso, { month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit" }, MARKET_TZ[market]);
+  return `${p.month}월 ${p.day}일(${p.weekday}) ${p.hour}:${p.minute}${market === "US" ? "(뉴욕)" : ""} 기준`;
+}
+
 /** 시세의 기준 표기: live는 "실시간 · 15:20:31", close(기본)는 formatAsOf("… 장마감 기준"). */
 export function formatQuoteAsOf(iso: string | null | undefined, market: Market = "KR", basis: QuoteBasis = "close"): string {
   return basis === "live" ? formatLiveAsOf(iso) : formatAsOf(iso, market);

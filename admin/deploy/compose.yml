@@ -1,0 +1,93 @@
+# 관리 서버 구성 (README.md). 서비스와 따로 두는 관리 서버에서만 띄운다.
+#
+#   배포(main push): GitHub Actions가 이미지를 GHCR에 올리고 deploy/remote_deploy.sh가 서버에서 받아 띄운다 (루트 .github/workflows/admin-deploy.yml)
+#   이 PC에서 직접 빌드: cd deploy && docker compose --env-file ../.env up -d --build
+#
+# 브라우저·Claude Code ─▶ web(ADMIN_HTTP_BIND:ADMIN_HTTP_PORT) ─┬─ /            관리자 화면 (web)
+#                                                               ├─ /api/admin/  api (server, 숫자는 여기서만 만든다)
+#                                                               └─ /mcp         mcp (같은 api를 사람별 토큰으로 부른다)
+# api ─▶ tunnel(SSH) ─▶ 서비스 서버 127.0.0.1:DB_LOCAL_PORT (읽기 전용 계정 paper_admin_ro)
+# web만 밖에 연다. 기본은 127.0.0.1(SSH 터널로 접속), 운영은 ADMIN_HTTP_BIND=0.0.0.0 · ADMIN_HTTP_PORT=80 (2026-10-08 사용자 결정 — README 9장).
+#
+# ADMIN_HOME(기본 ../..)에 secrets/(tunnel_key, known_hosts), records/deploys.jsonl을 둔다.
+name: paper-admin
+
+x-hardening: &hardening
+  restart: unless-stopped
+  read_only: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  tunnel:
+    <<: *hardening
+    image: ${IMAGE_PREFIX:-paper-admin}-tunnel:${IMAGE_TAG:-local}
+    build: ./tunnel
+    environment:
+      TUNNEL_TARGET: "${TUNNEL_TARGET:?.env에 TUNNEL_TARGET이 필요합니다 (예 admin-tunnel@서비스 서버 주소)}"
+      TUNNEL_PORT: ${TUNNEL_PORT:-22}
+      DB_LOCAL_PORT: ${DB_LOCAL_PORT:-15432}
+    volumes:
+      - ${ADMIN_HOME:-../..}/secrets:/keys:ro
+    tmpfs:
+      - /tmp
+      - /home/tunnel/.ssh
+
+  api:
+    <<: *hardening
+    image: ${IMAGE_PREFIX:-paper-admin}-server:${IMAGE_TAG:-local}
+    build: ../server
+    environment:
+      ADMIN_DATABASE_URL: postgresql://paper_admin_ro:${ADMIN_DB_PASSWORD:?.env에 ADMIN_DB_PASSWORD가 필요합니다}@tunnel:5432/${SERVICE_DB_NAME:-paper}
+      ADMIN_SECRET_KEY: ${ADMIN_SECRET_KEY:?.env에 ADMIN_SECRET_KEY가 필요합니다 (32자 이상)}
+      ADMIN_SERVICE_URL: ${ADMIN_SERVICE_URL:-}
+      ADMIN_HEALTH_INTERVAL_SEC: ${ADMIN_HEALTH_INTERVAL_SEC:-30}
+      ADMIN_COOKIE_SECURE: ${ADMIN_COOKIE_SECURE:-off}
+      ADMIN_DATA_DIR: /data
+      ADMIN_DEPLOYS_FILE: /records/deploys.jsonl
+      TZ: Asia/Seoul
+    volumes:
+      - admindata:/data                                  # 감사 기록·MCP 토큰 (컨테이너 사용자가 쓴다)
+      - ${ADMIN_HOME:-../..}/records:/records:ro         # 배포 기록 (호스트의 강제 명령 deploy_record.py가 쓴다)
+    tmpfs:
+      - /tmp
+    depends_on:
+      - tunnel
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/api/admin/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  mcp:
+    <<: *hardening
+    image: ${IMAGE_PREFIX:-paper-admin}-server:${IMAGE_TAG:-local}
+    build: ../server   # api와 같은 이미지 (직접 빌드할 때 api보다 먼저 받으려 하지 않게)
+    command: ["python", "-m", "paper_admin.mcp_server"]
+    environment:
+      ADMIN_API_URL: http://api:8100
+      TZ: Asia/Seoul
+    tmpfs:
+      - /tmp
+    depends_on:
+      api:
+        condition: service_healthy
+
+  web:
+    <<: *hardening
+    image: ${IMAGE_PREFIX:-paper-admin}-web:${IMAGE_TAG:-local}
+    build: ../web
+    ports:
+      - "${ADMIN_HTTP_BIND:-127.0.0.1}:${ADMIN_HTTP_PORT:-8080}:8080"
+    tmpfs:
+      - /tmp
+    depends_on:
+      api:
+        condition: service_healthy
+      mcp:
+        condition: service_started
+
+volumes:
+  admindata:

@@ -7,7 +7,7 @@ import { Navigate, useLocation, useNavigate } from "react-router";
 import { api, errorMessage } from "../api/client";
 import { keys, useMe } from "../api/queries";
 import type { Me } from "../api/types";
-import { BrandMark } from "../components/BrandMark";
+import { BrandMark, Wordmark } from "../components/brand/BrandMark";
 import { Icon } from "../components/Icon";
 import { Notice, Spinner } from "../components/ui";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
@@ -61,9 +61,12 @@ export function LoginPage() {
       <div className="w-full max-w-[400px] lg:rounded-3xl lg:bg-card lg:p-10">
         {expired && <Notice className="mb-6">로그인이 끝났어요. 다시 로그인하면 보던 화면으로 돌아가요.</Notice>}
         <div className="mb-8 flex flex-col items-center text-center">
-          {/* 세로 잠금: 로고 56px → 마크의 1/4(14px) → 이름 26px(800, 자간 -0.02em) → 부제 14px */}
-          <BrandMark size={56} />
-          <h1 className="mt-3.5 text-[26px] leading-tight font-extrabold tracking-[-0.02em]">{SERVICE_NAME}</h1>
+          {/* 세로 잠금: 로고 56px → 마크의 1/4(14px) → 워드마크 높이 28px(이름은 제목 안의 숨김 글자가 읽는다) → 부제 14px */}
+          <BrandMark size={56} loop />
+          <h1 className="mt-3.5 flex text-ink">
+            <span className="sr-only">{SERVICE_NAME}</span>
+            <Wordmark height={28} />
+          </h1>
           <p className="mt-1.5 text-[14px] leading-snug font-medium text-sub">{SERVICE_TAGLINE}</p>
           <p className="mt-5 text-[15px] leading-relaxed text-balance text-sub">{SERVICE_INTRO}</p>
           <ol aria-label="이용 순서" className="mt-4 flex flex-wrap justify-center gap-1.5">

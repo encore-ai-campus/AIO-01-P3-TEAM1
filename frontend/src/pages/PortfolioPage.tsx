@@ -1,4 +1,4 @@
-// /portfolio 모의투자 탭 (docs/컨셉변경계획.md 4-1·4-2): 진행 중 모의 자동매매 → 보유(스윙·장기 배지, 장마감 기준 평가)·대기 주문·체결 내역 →
+// /portfolio 모의투자 탭 (docs/plans/컨셉변경계획.md 4-1·4-2): 진행 중 모의 자동매매 → 보유(스윙·장기 배지, 장마감 기준 평가)·대기 주문·체결 내역 →
 // 끝난 계획 → 새 계획 제안(쉬운 보기는 리포트에서 나온 것만, 나머지는 접힌 "다른 계획 ○개").
 // 배치 (문서 4-2 순서 그대로):
 // - 모바일 한 열: 진행 중(가장 자주 보는 '지금 상태', 여정 ③) → 내 계좌 탭 → 끝난 계획(기록) → 새 계획 제안(다음 행동).
@@ -333,6 +333,8 @@ function Holdings({ easy, byOrder, plansReady }: { easy: boolean; byOrder: Map<n
                   )}
                 >
                   <Icon name="flow" className="size-4 shrink-0" />
+                  {/* 시연용 수동 시작 계획이면 앞에 '시연용' (체결 전 주문 행의 자동매매 배지 ' · 시연용'과 같이 — DECISIONS 31장) */}
+                  {plan.manualStart && "시연용 "}
                   {easy ? "모의 자동매매가 목표·손절에 자동으로 팔아요 · 계획 보기" : `자동매매 #${plan.id}가 청산을 관리합니다 · 계획 보기`}
                   <Icon name="chevron" className="ml-auto size-4 shrink-0" />
                 </Link>
@@ -418,7 +420,7 @@ function PendingRow({
         <p className="flex min-w-0 flex-wrap items-center gap-1.5 text-[16px] font-semibold">
           <span className="truncate">{o.name}</span>
           <StyleBadge style={o.style} />
-          {plan && <AutoTradeBadge planId={plan.id} easy={easy} />}
+          {plan && <AutoTradeBadge planId={plan.id} easy={easy} manual={plan.manualStart} />}
         </p>
         <p className="text-[13px] text-mute tabular-nums">
           {o.orderType === "LIMIT" ? `지정가 ${formatPrice(o.limitPrice, o.currency)}` : "시장가"} · {formatQty(o.quantity)} · {formatDateTime(o.createdAt)}
@@ -478,7 +480,7 @@ function ReservationRow({
           </span>
           <span className="truncate">{r.name}</span>
           {r.style && <StyleBadge style={r.style} />}
-          {plan && <AutoTradeBadge planId={plan.id} easy={easy} stopping={stopping} />}
+          {plan && <AutoTradeBadge planId={plan.id} easy={easy} stopping={stopping} manual={plan.manualStart} />}
         </p>
         <p className="text-[13px] text-mute tabular-nums">
           {formatQty(r.quantity)} · {r.runAt ? `${formatDateTime(r.runAt)} 실행 예정` : "다음 정규장 시작에 실행"}

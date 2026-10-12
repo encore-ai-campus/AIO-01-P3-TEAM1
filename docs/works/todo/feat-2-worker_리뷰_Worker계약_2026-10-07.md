@@ -2,10 +2,10 @@
 
 대상: 브랜치 `feat/2-worker`, 커밋 `acdb038` "리포트 Worker 출력 계약 6종과 공통 인터페이스 추가" (`main` 대비 파일 4개, +494줄).
 
-- `backend/reports/contracts.py` (+279) — 출력 계약 6종 검증(`validate`)과 LLM용 설명(`describe`)
+- `backend/reports/guardrails/contracts.py` (+279) — 출력 계약 6종 검증(`validate`)과 LLM용 설명(`describe`)
 - `backend/reports/agents/base.py` (+50) — Worker 공통 인터페이스(`WorkerError`, `LlmCallerProtocol` 등)
 - `backend/reports/agents/__init__.py` (+5)
-- `backend/reports/tests/test_contracts.py` (+160)
+- `backend/reports/tests/guardrails/test_contracts.py` (+160)
 
 기준 문서: `docs/tasks/02-worker.md`(T2-1~T2-7), `docs/tasks/00-공통.md`(6·7·10장), `docs/API.md`(PERSUASION).
 검사: `uv run ruff check` 통과, 테스트 28개 통과. 아래 표의 "확인"은 `validate`를 직접 불러 재현한 항목이고, 나머지는 코드와 명세를 대조해 찾은 것이다.
@@ -43,9 +43,9 @@
 | # | 위치 | 문제 | 고치는 방법 | 상태 |
 |---|---|---|---|---|
 | 12 | `contracts.py:249` | 계약이 `NAMES`, `_VALIDATORS`, 손으로 쓴 `_DESCRIPTIONS` 세 곳에 나뉘어 있다. T2-3은 필드 설명을 계약 정의에서 만들어 내라고 했다. 4번이 이 때문에 생겼다 | 필드 표(타입·nullable·enum·범위·길이) 하나로 `validate`와 `describe`를 함께 만든다. `NAMES = tuple(_VALIDATORS)`. `_number`/`_integer`의 중복 범위 검사, `_headline`/`_issue`/`_metrics`의 반복 dict comprehension도 정리됨 | 미수정 |
-| 13 | `contracts.py:191` | enum·한도를 다시 적었다. 이미 있는 것: `payloads.OPINIONS`, `payloads.ONE_LINER_MAX=80`, `autotrade/sources.py`의 `RISK_LEVELS`, `MIN/MAX_HOLDING_DAYS=1,20`, `MAX_ITEMS=3` | `contracts.py`에 한 번 정의하고 그쪽에서 import. 안 그러면 계약을 바꿀 때 읽는 쪽이 옛 값으로 조용히 자르거나 버림 | 미수정 |
+| 13 | `contracts.py:191` | enum·한도를 다시 적었다. 이미 있는 것: `payloads.OPINIONS`, `payloads.ONE_LINER_MAX=80`, `autotrade/recommend/sources.py`의 `RISK_LEVELS`, `MIN/MAX_HOLDING_DAYS=1,20`, `MAX_ITEMS=3` | `contracts.py`에 한 번 정의하고 그쪽에서 import. 안 그러면 계약을 바꿀 때 읽는 쪽이 옛 값으로 조용히 자르거나 버림 | 미수정 |
 | 14 | `agents/base.py:21` | `LlmCallerProtocol.__call__`이 `Any`를 돌려준다. `00-공통` 6·7장은 `LlmReply`. Orchestrator가 쓰는 `.calls`·`.cost_usd`도 선언 안 됨 | 6장 인터페이스대로 반환형 `LlmReply`, 속성 선언 (T2-2: "6장 인터페이스를 그대로") | 미수정 |
-| 15 | `tests/test_contracts.py:70` | `assert "ignored" not in result`가 MarketResult에서만 의미가 있다. 다른 5개 fixture엔 `ignored` 키가 없고, 안쪽 객체(targets, metrics, records, handoff)의 모르는 키 제거는 테스트하지 않는다 | 모든 계약·안쪽 객체에 모르는 키를 넣어 검사. 1·5·6·11번 경우도 테스트 추가 | 미수정 |
+| 15 | `tests/guardrails/test_contracts.py:70` | `assert "ignored" not in result`가 MarketResult에서만 의미가 있다. 다른 5개 fixture엔 `ignored` 키가 없고, 안쪽 객체(targets, metrics, records, handoff)의 모르는 키 제거는 테스트하지 않는다 | 모든 계약·안쪽 객체에 모르는 키를 넣어 검사. 1·5·6·11번 경우도 테스트 추가 | 미수정 |
 
 ## 5. 고치는 순서 제안
 

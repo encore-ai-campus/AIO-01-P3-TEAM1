@@ -1,17 +1,22 @@
-# 배포: main에 push → 검사(ci.yml) → 이미지 올리기(GHCR, 태그 = 커밋 해시) → 서버에서 받아 띄우기 → 상태 확인.
+# 배포: main에 push → 검사(ci.yml) → 이미지 올리기(GHCR, 태그 = 커밋 해시) → 서버에서 받아 띄우기 → 상태 확인 → 관리 서버에 배포 기록.
 # 검사가 실패하면 뒤 단계는 돌지 않는다 (배포 차단). 서버에서 새 버전이 뜨지 않으면 직전 버전으로 되돌린다 (deploy/remote_deploy.sh).
+# 결과는 Actions 실행 결과와 관리 서버의 배포 기록으로 본다. Discord 알림은 두지 않는다 (2026-10-08 사용자 결정, docs/DECISIONS.md 24장).
 #
 # 서버를 준비하기 전에는 검사만 돈다. 준비가 끝나면 저장소 변수 DEPLOY_ENABLED를 true로 바꾼다. 설정 방법은 docs/DEPLOY.md.
 #   변수(Settings → Secrets and variables → Actions → Variables): DEPLOY_ENABLED, DEPLOY_HOST, DEPLOY_USER, DEPLOY_DIR,
 #     DEPLOY_HOST_KEY, DEPLOY_PORT(선택, 기본 22)
-#   비밀 값(Secrets): DEPLOY_SSH_KEY, DISCORD_WEBHOOK_URL(선택)
-# 관리 서버에 배포 기록 남기기(선택, 관리 서버 저장소 SHS5029/paper_admin의 README 3-3): 변수 ADMIN_RECORD_HOST, ADMIN_RECORD_HOST_KEY, ADMIN_RECORD_USER(기본 ubuntu),
+#   비밀 값(Secrets): DEPLOY_SSH_KEY
+# admin/만 바뀐 push는 이 배포를 돌리지 않는다 (관리 서버는 admin-deploy.yml).
+# 관리 서버에 배포 기록 남기기(선택, admin/README.md 7-3): 변수 ADMIN_RECORD_HOST, ADMIN_RECORD_HOST_KEY, ADMIN_RECORD_USER(기본 ubuntu),
 #   DEPLOY_SERVER_NAME(기본 app) · 비밀 값 ADMIN_RECORD_SSH_KEY (관리 서버에서 기록 한 줄만 쓸 수 있는 강제 명령 키)
 name: Deploy
 
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "admin/**"
+      - ".github/workflows/admin-*.yml"
   workflow_dispatch:   # 같은 커밋을 다시 배포할 때 (Actions 화면에서 실행)
 
 permissions:
@@ -206,7 +211,7 @@ jobs:
           ACTOR: ${{ github.actor }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          # 관리 서버 저장소 API.md 5-2: success · rolled_back · rollback_failed · failed · blocked(검사 실패로 배포하지 않음). 취소는 남기지 않는다
+          # admin/API.md 5-2: success · rolled_back · rollback_failed · failed · blocked(검사 실패로 배포하지 않음). 취소는 남기지 않는다
           if [ "$CI_RESULT" = cancelled ] || [ "$DEPLOY_RESULT" = cancelled ]; then echo "취소됨: 남기지 않음"; exit 0; fi
           if [ "$CI_RESULT" != success ]; then result=blocked
           elif [ "$DEPLOY_RESULT" = success ]; then result=success
@@ -230,40 +235,3 @@ jobs:
           ssh -T -i ~/.ssh/record_key -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 \
             -o HostKeyAlias=paper-admin-server -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
             "${ADMIN_RECORD_USER:-ubuntu}@$ADMIN_RECORD_HOST" < "$RUNNER_TEMP/record.json"
-
-  notify:
-    name: Discord 알림
-    needs: [ci, publish, deploy]
-    if: always()
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - name: 결과 보내기
-        env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          CI_RESULT: ${{ needs.ci.result }}
-          PUBLISH_RESULT: ${{ needs.publish.result }}
-          DEPLOY_RESULT: ${{ needs.deploy.result }}
-          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
-          ACTOR: ${{ github.actor }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
-            echo "DISCORD_WEBHOOK_URL이 없어 알림을 건너뜁니다"; exit 0
-          fi
-          if [ "$CI_RESULT" = cancelled ] || [ "$DEPLOY_RESULT" = cancelled ]; then
-            title="⏹ 취소됨"
-          elif [ "$CI_RESULT" != success ]; then
-            title="❌ 검사 실패 — 배포하지 않았습니다"
-          elif [ "$DEPLOY_RESULT" = success ]; then
-            title="✅ 배포 성공"
-          elif [ "$PUBLISH_RESULT" = skipped ]; then
-            title="✅ 검사 통과 (배포는 꺼져 있습니다)"
-          else
-            title="❌ 배포 실패 — 서버는 직전 버전으로 되돌렸거나 그대로입니다 (로그 확인)"
-          fi
-          subject="$(printf '%s' "$COMMIT_MESSAGE" | head -n 1 | cut -c1-120)"
-          text="$(printf '%s\n`%s` %s — %s\n검사: %s · 이미지: %s · 배포: %s\n%s' \
-            "$title" "${GITHUB_SHA:0:7}" "$subject" "$ACTOR" "$CI_RESULT" "$PUBLISH_RESULT" "$DEPLOY_RESULT" "$RUN_URL")"
-          jq -n --arg content "$text" '{content: $content, allowed_mentions: {parse: []}}' \
-            | curl -fsS -m 20 -H 'Content-Type: application/json' -d @- "$DISCORD_WEBHOOK_URL" > /dev/null

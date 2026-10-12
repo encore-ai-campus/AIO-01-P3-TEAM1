@@ -1,6 +1,6 @@
 """기반 단계(2026-10-04) 확인: 보유 방식 style 열·마이그레이션, 저장소의 style별 하루 셈, run_engine의 새 단계.
 
-새 단계 함수(reports.alerts.sweep_finished, longterm.jobs.tick)는 가짜로 바꿔 부른 순서만 본다.
+새 단계 함수(reports.output.alerts.sweep_finished, longterm.jobs.tick)는 가짜로 바꿔 부른 순서만 본다.
 """
 from datetime import datetime
 from io import StringIO
@@ -8,13 +8,14 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from analysis import jobs
-from autotrade import auto, executor, sources
+from autotrade.recommend import auto, sources
+from autotrade.plans import executor
 from django.core.management import call_command
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 from longterm import jobs as longterm_jobs
 from notifications import dispatch
-from reports import alerts
+from reports.output import alerts
 
 from trading import service
 from trading.models import PaperOrder, Reservation

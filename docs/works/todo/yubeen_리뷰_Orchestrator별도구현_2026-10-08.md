@@ -19,6 +19,11 @@ main(`9b99bbd`) 대비 앞 6커밋·뒤 39커밋 (yubeen이 합쳐 둔 dy 쪽 �
 (시험의 절충안은 이때 바로 포기해 `test_gives_up_when_no_fallback_left`가 깨졌다 — 지금 규칙보다 나빠지지 않게).
 그래서 깨진 기존 테스트는 11개가 아니라 10개였고, 새 규칙 테스트 4개를 더했다. 나머지 항목(4장)은 그대로 남는다.
 
+**다시 확인 (2026-10-08 오후, main `0121f1d`)**: `yubeen` 끝 커밋은 그대로 `81373bf`(새 커밋 없음), 다른 팀 브랜치는 모두 main에 들어갔다.
+4장의 살릴 테스트를 지금 main에 얹어 돌렸다 (임시 작업 트리, 커밋 안 함): `test_llm_once.py` 4개 통과, `test_healing_decisions.py`는 Q2·Q8 통과,
+Q1(`test_timeout_goes_directly_to_fallback`)은 대체 모델 이름 `"fallback"`을 main의 `FALLBACK_POOL` 첫 모델 `gpt-5.6-luna`로 바꾸면 통과한다
+(YAML `fallbacks`를 쓰지 않는 main 방식 차이일 뿐, 순서는 절충안과 같다). `env.team`은 `.gitignore`에 넣었다. 테스트 두 파일과 설계서는 아직 옮기지 않았다.
+
 ## 1. 판단
 
 - **그대로 합칠 수 없다.** main과 28개 파일이 충돌한다 (`reports/agents/*` 8개, `contracts.py`·`guards.py`·`orchestrator.py`·`runner.py`·`state.py`,
@@ -84,7 +89,7 @@ yubeen 안만 옮기면 120초에 포기해 단계 시간이 남으므로 409행
   `test_orchestrator.py::test_step_timeout_with_fake_clock`.
 - **장애 주입 시연의 Circuit Breaker**: 호출 한 번에 주 모델 실패가 2번에서 1번으로 줄어, 연속 3번 실패해야 열리는 차단이 늦게 열린다
   (`test_injected_failures_count_in_report_breaker_only` — 두 번째 Worker 뒤에도 안 열림). 담당 4의 장애 주입 결과표(DR)·시연 프리셋을 다시 본다.
-- 문서: `docs/tasks/00-공통.md` 7절, `healing.py` 머리 설명, `docs/tasks/04-autohealing.md` T4-4, `TEAM_DEV_PLAN.md` 5-1·DR-LLM-01, `docs/DECISIONS.md` 19장, `docs/결정필요사항.md` U21.
+- 문서: `docs/tasks/00-공통.md` 7절, `healing.py` 머리 설명, `docs/tasks/04-autohealing.md` T4-4, `docs/plans/TEAM_DEV_PLAN.md` 5-1·DR-LLM-01, `docs/DECISIONS.md` 19장, `docs/결정필요사항.md` U21.
 - 프론트 예시 ③ "모델 실패 → 대체 모델로 복구"(`frontend/src/lib/reportExamples.ts`, `reports.test.tsx`)가 "시간 초과 → 같은 모델 재시도 → 대체 모델"을 보여 준다.
 
 ## 4. 살릴 것과 버릴 것
@@ -93,10 +98,10 @@ yubeen 안만 옮기면 120초에 포기해 단계 시간이 남으므로 409행
 |---|---|---|
 | Q1 timeout 정책 | **절충안으로 결정·반영** (2026-10-08, 사용자). S3에서 유일하게 복구, 나머지는 yubeen 안과 같거나 S4처럼 시간을 다 쓸 뿐 | 반영함 (`Hwanseok`) — 3장 "고칠 것" 전부. `orchestrator.py:409`는 고치지 않음(절충안은 180초를 다 써서 `timeout`) |
 | `engine/tests/test_llm_once.py` (4개) | 그대로 옮겨도 된다 — main 엔진에서 4개 모두 통과 (`complete_json_once`가 재시도하지 않고, 실패해도 든 비용을 남기는지) | 파일 하나 추가 |
-| `backend/reports/tests/test_healing_decisions.py` | Q2·Q8 두 개는 main에서 통과 — 회귀 테스트로 옮길 수 있다. Q1 하나는 정책을 정한 뒤 | main의 `test_healing.py` 형식(가짜 시계·`FALLBACK_POOL`)으로 고쳐서 |
+| `backend/reports/tests/test_healing_decisions.py` | Q2·Q8 두 개는 main에서 통과 — 회귀 테스트로 옮길 수 있다. Q1도 절충안 반영 뒤 대체 모델 이름만 바꾸면 통과 (2026-10-08 오후 확인) | main의 `test_healing.py` 형식(가짜 시계·`FALLBACK_POOL`)으로 고쳐서 |
 | `docs/설계서.md` (설계서 ①) | 담당 3의 설계서 몫이라 살린다. 그대로는 안 된다 | 이름 "종이배" → "모매매"(`DECISIONS.md` 18장). "timeout은 YAML의 다음 fallback" → main은 `FALLBACK_POOL`에서 하나(Q1 결정에 따라). 실패 사유 코드에 `agent_failed`·`no_llm`·`expired` 추가(`orchestrator.FAILURE_REASONS`) |
 | Orchestrator·Guard·Runner·`healing.py`·`state.py` 별도 구현, `agents/*` | 버린다 — main 구현과 중복 | — |
-| `env.team` | 버린다 — 실수로 커밋된 설정 파일. 키 값(키움·DevPass·DART·Django·DB 비밀번호)은 모두 비어 있어 비밀 유출은 없다. `.gitignore`에는 `.env.team`만 있고 `env.team`은 없다 | 브랜치에서 지우거나 `.gitignore`에 추가 |
+| `env.team` | 버린다 — 실수로 커밋된 설정 파일. 키 값(키움·DevPass·DART·Django·DB 비밀번호)은 모두 비어 있어 비밀 유출은 없다. `.gitignore`에는 `.env.team`만 있고 `env.team`은 없다 | `.gitignore`에 `env.team` 추가함 (2026-10-08) — 브랜치의 파일은 yubeen이 지운다 |
 
 재현: 시험 파일과 실험용 스위치 패치는 커밋하지 않았다. 다시 돌리려면 main 임시 트리에서 `healing.py`의 `RETRY_SAME_MODEL`(yubeen 안) 또는
 "`error_type is TIMEOUT and model == primary`면 같은 모델 재시도를 건너뜀"(절충안) 조건을 바꾸고, `test_healing.py`의 가짜 시계 `Client`로 위 대본을 돌린다.

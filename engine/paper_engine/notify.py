@@ -126,7 +126,7 @@ class WebhookNotifier:
     """Discord Webhook으로 팀 채널에 보낸다 (docs/DECISIONS.md 12-4). 표준 라이브러리만 쓴다.
 
     2,000자를 넘는 글은 나눠 차례로 보내고, embed·첨부는 마지막 조각에 붙인다. 멘션은 사용자(<@ID>)만 울린다 (@everyone 방지).
-    실패하면 1회 재시도 → 첨부가 있었으면 첨부 없이 글만 → 그래도 실패면 ok=False (TEAM_DEV_PLAN.md 6-4, DR-NOTI-01).
+    실패하면 1회 재시도 → 첨부가 있었으면 첨부 없이 글만 → 그래도 실패면 ok=False (docs/plans/TEAM_DEV_PLAN.md 6-4, DR-NOTI-01).
     Webhook 주소는 비밀 값이다: 오류·로그에 넣지 않는다. 같은 내용을 콘솔에도 출력한다 (로그용).
     """
 

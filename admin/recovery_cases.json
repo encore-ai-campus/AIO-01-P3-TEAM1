@@ -1,0 +1,765 @@
+{
+  "about": "복구 셈법 기준 사례 (admin/API.md 3장, 서비스 docs/tasks/00-공통.md 9절·backend/reports/autohealing/stats.py). 관리자 백엔드와 서비스 테스트가 같은 숫자를 내는지 확인한다. events는 한 리포트의 Trace, expected.summary는 그 리포트의 요약, expected.incidents는 장애 건(첫 실패 순서, recovered: true 복구 · false 포기 · null 진행 중).",
+  "cases": [
+    {
+      "name": "장애 없음",
+      "events": [
+        {
+          "step": 1,
+          "actor": "orchestrator",
+          "action": "workflow_started",
+          "status": "started",
+          "model": null,
+          "details": {
+            "chaos": false,
+            "source": "user"
+          },
+          "at": "2026-10-08T09:00:00+09:00"
+        },
+        {
+          "step": 2,
+          "actor": "market_agent",
+          "action": "agent_started",
+          "status": "started",
+          "model": null,
+          "details": {
+            "attempt": 1,
+            "step": "research"
+          },
+          "at": "2026-10-08T09:00:01+09:00"
+        },
+        {
+          "step": 3,
+          "actor": "market_agent",
+          "action": "agent_completed",
+          "status": "completed",
+          "model": "gemini-3.8-flash",
+          "details": {
+            "attempts": 1,
+            "recovered": false
+          },
+          "at": "2026-10-08T09:00:05+09:00"
+        },
+        {
+          "step": 4,
+          "actor": "orchestrator",
+          "action": "workflow_completed",
+          "status": "completed",
+          "model": null,
+          "details": {
+            "reason": null
+          },
+          "at": "2026-10-08T09:00:06+09:00"
+        }
+      ],
+      "expected": {
+        "summary": {
+          "failures": 0,
+          "recovered": 0,
+          "unrecovered": 0,
+          "injected": 0,
+          "recoveryMs": null
+        },
+        "incidents": []
+      }
+    },
+    {
+      "name": "한 번 실패 후 같은 모델로 복구 (주입)",
+      "events": [
+        {
+          "step": 1,
+          "actor": "news_agent",
+          "action": "agent_started",
+          "status": "started",
+          "model": null,
+          "details": {
+            "attempt": 1
+          },
+          "at": "2026-10-08T09:00:00+09:00"
+        },
+        {
+          "step": 2,
+          "actor": "news_agent",
+          "action": "agent_failed",
+          "status": "failed",
+          "model": "gemini-3.8-flash",
+          "details": {
+            "errorType": "timeout",
+            "attempt": 1,
+            "injected": true,
+            "final": false
+          },
+          "at": "2026-10-08T09:00:02+09:00"
+        },
+        {
+          "step": 3,
+          "actor": "news_agent",
+          "action": "agent_retry",
+          "status": "started",
+          "model": null,
+          "details": {
+            "attempt": 2,
+            "reason": "timeout"
+          },
+          "at": "2026-10-08T09:00:02.200+09:00"
+        },
+        {
+          "step": 4,
+          "actor": "news_agent",
+          "action": "agent_completed",
+          "status": "completed",
+          "model": "gemini-3.8-flash",
+          "details": {
+            "attempts": 2,
+            "recovered": true,
+            "recoveryMs": 1500
+          },
+          "at": "2026-10-08T09:00:03.500+09:00"
+        }
+      ],
+      "expected": {
+        "summary": {
+          "failures": 1,
+          "recovered": 1,
+          "unrecovered": 0,
+          "injected": 1,
+          "recoveryMs": 1500
+        },
+        "incidents": [
+          {
+            "worker": "news_agent",
+            "errorType": "timeout",
+            "injected": true,
+            "recovered": true,
+            "recoveryMs": 1500,
+            "at": "2026-10-08T09:00:02+09:00"
+          }
+        ]
+      }
+    },
+    {
+      "name": "두 번 실패 후 대체 모델로 복구 (한 run은 1건)",
+      "events": [
+        {
+          "step": 1,
+          "actor": "fundamental_agent",
+          "action": "agent_started",
+          "status": "started",
+          "model": null,
+          "details": {
+            "attempt": 1
+          },
+          "at": "2026-10-08T10:00:00+09:00"
+        },
+        {
+          "step": 2,
+          "actor": "fundamental_agent",
+          "action": "agent_failed",
+          "status": "failed",
+          "model": "gemini-3.8-flash",
+          "details": {
+            "errorType": "server_error",
+            "attempt": 1,
+            "injected": false,
+            "final": false
+          },
+          "at": "2026-10-08T10:00:01+09:00"
+        },
+        {
+          "step": 3,
+          "actor": "fundamental_agent",
+          "action": "agent_retry",
+          "status": "started",
+          "model": null,
+          "details": {
+            "attempt": 2,
+            "reason": "server_error"
+          },
+          "at": "2026-10-08T10:00:01.100+09:00"
+        },
+        {
+          "step": 4,
+          "actor": "fundamental_agent",
+          "action": "agent_failed",
+          "status": "failed",
+          "model": "gemini-3.8-flash",
+          "details": {
+            "errorType": "timeout",
+            "attempt": 2,
+            "injected": true,
+            "final": false
+          },
+          "at": "2026-10-08T10:00:02+09:00"
+        },
+        {
+          "step": 5,
+          "actor": "fundamental_agent",
+          "action": "agent_failover",
+          "status": "started",
+          "model": null,
+          "details": {
+            "from": "gemini-3.8-flash",
+            "to": "gpt-5.6-luna",
+            "reason": "timeout"
+          },
+          "at": "2026-10-08T10:00:02.100+09:00"
+        },
+        {
+          "step": 6,
+          "actor": "fundamental_agent",
+          "action": "agent_completed",
+          "status": "completed",
+          "model": "gpt-5.6-luna",
+          "details": {
+            "attempts": 3,
+            "recovered": true
+          },
+          "at": "2026-10-08T10:00:04+09:00"
+        }
+      ],
+      "expected": {
+        "summary": {
+          "failures": 1,
+          "recovered": 1,
+          "unrecovered": 0,
+          "injected": 0,
+          "recoveryMs": 3000
+        },
+        "incidents": [
+          {
+            "worker": "fundamental_agent",
+            "errorType": "server_error",
+            "injected": false,
+            "recovered": true,
+            "recoveryMs": 3000,
+            "at": "2026-10-08T10:00:01+09:00"
+          }
+        ]
+      }
+    },
+    {
+      "name": "포기 (복구 안 됨)와 처음부터 포기 (장애로 세지 않음)",
+      "events": [
+        {
+          "step": 1,
+          "actor": "market_agent",
+          "action": "agent_started",
+          "status": "started",
+          "model": null,
+          "details": {
+            "attempt": 1
+          },
+          "at": "2026-10-08T11:00:00+09:00"
+        },
+        {
+          "step": 2,
+          "actor": "market_agent",
+          "action": "agent_failed",
+          "status": "failed",
+          "model": "gemini-3.8-flash",
+          "details": {
+            "errorType": "bad_output",
+            "attempt": 1,
+            "injected": false,
+            "final": false
+          },
+          "at": "2026-10-08T11:00:01+09:00"
+        },
+        {
+          "step": 3,
+          "actor": "market_agent",
+          "action": "agent_failed",
+          "status": "failed",
+          "model": "gpt-5.6-luna",
+          "details": {
+            "errorType": "bad_output",
+            "attempt": 2,
+            "injected": false,
+            "final": false
+          },
+          "at": "2026-10-08T11:00:02+09:00"
+        },
+        {
+          "step": 4,
+          "actor": "market_agent",
+          "action": "agent_failed",
+          "status": "failed",
+          "model": null,
+          "details": {
+            "errorType": "bad_output",
+            "attempts": 2,
+            "final": true,
+            "message": "포기"
+          },
+          "at": "2026-10-08T11:00:03+09:00"
+        },
+        {
+          "step": 5,
+          "actor": "risk_agent",
+          "action": "agent_started",
+          "status": "started",
+          "model": null,
+          "details": {
+            "attempt": 1
+          },
+          "at": "2026-10-08T11:00:04+09:00"
+        },
+        {
+          "step": 6,
+          "actor": "risk_agent",
+          "action": "agent_failed",
+          "status": "failed",
+          "model": null,
+          "details": {
+            "errorType": "unknown",
+            "attempts": 1,
+            "final": true,
+            "message": "계약 위반"
+          },
+          "at": "2026-10-08T11:00:05+09:00"
+        },
+        {
+          "step": 7,
+          "actor": "orchestrator",
+          "action": "workflow_failed",
+          "status": "failed",
+          "model": null,
+          "details": {
+            "reason": "join_blocked"
+          },
+          "at": "2026-10-08T11:00:06+09:00"
+        }
+      ],
+      "expected": {
+        "summary": {
+          "failures": 1,
+          "recovered": 0,
+          "unrecovered": 1,
+          "injected": 0,
+          "recoveryMs": null
+        },
+        "incidents": [
+          {
+            "worker": "market_agent",
+            "errorType": "bad_output",
+            "injected": false,
+            "recovered": false,
+            "recoveryMs": null,
+            "at": "2026-10-08T11:00:01+09:00"
+          }
+        ]
+      }
+    },
+    {
+      "name": "두 Worker가 섞이고 같은 Worker가 다시 실행됨 (검토 RETRY), 목록 순서가 step과 다름",
+      "events": [
+        {
+          "step": 4,
+          "actor": "news_agent",
+          "action": "agent_failed",
+          "status": "failed",
+          "model": "gemini-3.8-flash",
+          "details": {
+            "errorType": "timeout",
+            "attempt": 1,
+            "injected": true,
+            "final": false
+          },
+          "at": "2026-10-08T12:00:03+09:00"
+        },
+        {
+          "step": 1,
+          "actor": "market_agent",
+          "action": "agent_started",
+          "status": "started",
+          "model": null,
+          "details": {
+            "attempt": 1
+          },
+          "at": "2026-10-08T12:00:00+09:00"
+        },
+        {
+          "step": 2,
+          "actor": "news_agent",
+          "action": "agent_started",
+          "status": "started",
+          "model": null,
+          "details": {
+            "attempt": 1
+          },
+          "at": "2026-10-08T12:00:00.500+09:00"
+        },
+        {
+          "step": 3,
+          "actor": "market_agent",
+          "action": "agent_failed",
+          "status": "failed",
+          "model": "gemini-3.8-flash",
+          "details": {
+            "errorType": "server_error",
+            "attempt": 1,
+            "injected": false,
+            "final": false
+          },
+          "at": "2026-10-08T12:00:02+09:00"
+        },
+        {
+          "step": 5,
+          "actor": "market_agent",
+          "action": "agent_completed",
+          "status": "completed",
+          "model": "gemini-3.8-flash",
+          "details": {
+            "attempts": 2,
+            "recovered": true
+          },
+          "at": "2026-10-08T12:00:04+09:00"
+        },
+        {
+          "step": 6,
+          "actor": "news_agent",
+          "action": "agent_failover",
+          "status": "started",
+          "model": null,
+          "details": {
+            "from": "gemini-3.8-flash",
+            "to": "gpt-5.6-luna",
+            "reason": "timeout"
+          },
+          "at": "2026-10-08T12:00:04.100+09:00"
+        },
+        {
+          "step": 7,
+          "actor": "news_agent",
+          "action": "agent_completed",
+          "status": "completed",
+          "model": "gpt-5.6-luna",
+          "details": {
+            "attempts": 2,
+            "recovered": true
+          },
+          "at": "2026-10-08T12:00:08+09:00"
+        },
+        {
+          "step": 8,
+          "actor": "report_agent",
+          "action": "agent_started",
+          "status": "started",
+          "model": null,
+          "details": {
+            "attempt": 1
+          },
+          "at": "2026-10-08T12:00:09+09:00"
+        },
+        {
+          "step": 9,
+          "actor": "report_agent",
+          "action": "agent_completed",
+          "status": "completed",
+          "model": "gemini-3.8-flash",
+          "details": {
+            "attempts": 1,
+            "recovered": false
+          },
+          "at": "2026-10-08T12:00:15+09:00"
+        },
+        {
+          "step": 10,
+          "actor": "orchestrator",
+          "action": "review_retry",
+          "status": "started",
+          "model": null,
+          "details": {
+            "round": 1,
+            "target": "report_agent"
+          },
+          "at": "2026-10-08T12:00:20+09:00"
+        },
+        {
+          "step": 11,
+          "actor": "report_agent",
+          "action": "agent_started",
+          "status": "started",
+          "model": null,
+          "details": {
+            "attempt": 1
+          },
+          "at": "2026-10-08T12:00:21+09:00"
+        },
+        {
+          "step": 12,
+          "actor": "report_agent",
+          "action": "agent_failed",
+          "status": "failed",
+          "model": "gemini-3.8-flash",
+          "details": {
+            "errorType": "bad_output",
+            "attempt": 1,
+            "injected": false,
+            "final": false
+          },
+          "at": "2026-10-08T12:00:25+09:00"
+        },
+        {
+          "step": 13,
+          "actor": "report_agent",
+          "action": "agent_completed",
+          "status": "completed",
+          "model": "gemini-3.8-flash",
+          "details": {
+            "attempts": 2,
+            "recovered": true
+          },
+          "at": "2026-10-08T12:00:27.250+09:00"
+        }
+      ],
+      "expected": {
+        "summary": {
+          "failures": 3,
+          "recovered": 3,
+          "unrecovered": 0,
+          "injected": 1,
+          "recoveryMs": 9250
+        },
+        "incidents": [
+          {
+            "worker": "market_agent",
+            "errorType": "server_error",
+            "injected": false,
+            "recovered": true,
+            "recoveryMs": 2000,
+            "at": "2026-10-08T12:00:02+09:00"
+          },
+          {
+            "worker": "news_agent",
+            "errorType": "timeout",
+            "injected": true,
+            "recovered": true,
+            "recoveryMs": 5000,
+            "at": "2026-10-08T12:00:03+09:00"
+          },
+          {
+            "worker": "report_agent",
+            "errorType": "bad_output",
+            "injected": false,
+            "recovered": true,
+            "recoveryMs": 2250,
+            "at": "2026-10-08T12:00:25+09:00"
+          }
+        ]
+      }
+    },
+    {
+      "name": "agent_started 없이 실패가 먼저 오고, 끝나지 않은 run이 남음 (진행 중은 장애 건수에만)",
+      "events": [
+        {
+          "step": 1,
+          "actor": "flow_agent",
+          "action": "agent_failed",
+          "status": "failed",
+          "model": "gemini-3.8-flash",
+          "details": {
+            "errorType": "timeout",
+            "attempt": 1,
+            "injected": true,
+            "final": false
+          },
+          "at": "2026-10-08T13:00:00+09:00"
+        },
+        {
+          "step": 2,
+          "actor": "flow_agent",
+          "action": "agent_completed",
+          "status": "completed",
+          "model": "gemini-3.8-flash",
+          "details": {
+            "attempts": 2,
+            "recovered": true
+          },
+          "at": "2026-10-08T13:00:00.750+09:00"
+        },
+        {
+          "step": 3,
+          "actor": "selector_agent",
+          "action": "agent_started",
+          "status": "started",
+          "model": null,
+          "details": {
+            "attempt": 1
+          },
+          "at": "2026-10-08T13:00:01+09:00"
+        },
+        {
+          "step": 4,
+          "actor": "selector_agent",
+          "action": "agent_failed",
+          "status": "failed",
+          "model": "gemini-3.8-flash",
+          "details": {
+            "attempt": 1,
+            "injected": false,
+            "final": false
+          },
+          "at": "2026-10-08T13:00:03+09:00"
+        }
+      ],
+      "expected": {
+        "summary": {
+          "failures": 2,
+          "recovered": 1,
+          "unrecovered": 0,
+          "injected": 1,
+          "recoveryMs": 750
+        },
+        "incidents": [
+          {
+            "worker": "flow_agent",
+            "errorType": "timeout",
+            "injected": true,
+            "recovered": true,
+            "recoveryMs": 750,
+            "at": "2026-10-08T13:00:00+09:00"
+          },
+          {
+            "worker": "selector_agent",
+            "errorType": "unknown",
+            "injected": false,
+            "recovered": null,
+            "recoveryMs": null,
+            "at": "2026-10-08T13:00:03+09:00"
+          }
+        ]
+      }
+    },
+    {
+      "name": "final 키가 없는 실패는 포기 · 모르는 errorType은 unknown · 장애가 열린 채 다시 시작하면 진행 중으로 남음",
+      "events": [
+        {
+          "step": 1,
+          "actor": "market_agent",
+          "action": "agent_started",
+          "status": "started",
+          "model": null,
+          "details": {
+            "attempt": 1
+          },
+          "at": "2026-10-08T14:00:00+09:00"
+        },
+        {
+          "step": 2,
+          "actor": "market_agent",
+          "action": "agent_failed",
+          "status": "failed",
+          "model": "gemini-3.8-flash",
+          "details": {
+            "errorType": "rate_limited",
+            "attempt": 1,
+            "injected": false,
+            "final": false
+          },
+          "at": "2026-10-08T14:00:01+09:00"
+        },
+        {
+          "step": 3,
+          "actor": "market_agent",
+          "action": "agent_started",
+          "status": "started",
+          "model": null,
+          "details": {
+            "attempt": 1
+          },
+          "at": "2026-10-08T14:00:05+09:00"
+        },
+        {
+          "step": 4,
+          "actor": "market_agent",
+          "action": "agent_completed",
+          "status": "completed",
+          "model": "gemini-3.8-flash",
+          "details": {
+            "attempts": 1,
+            "recovered": false
+          },
+          "at": "2026-10-08T14:00:08+09:00"
+        },
+        {
+          "step": 5,
+          "actor": "news_agent",
+          "action": "agent_started",
+          "status": "started",
+          "model": null,
+          "details": {
+            "attempt": 1
+          },
+          "at": "2026-10-08T14:00:10+09:00"
+        },
+        {
+          "step": 6,
+          "actor": "news_agent",
+          "action": "agent_failed",
+          "status": "failed",
+          "model": "gemini-3.8-flash",
+          "details": {
+            "errorType": "timeout",
+            "attempt": 1
+          },
+          "at": "2026-10-08T14:00:12+09:00"
+        },
+        {
+          "step": 7,
+          "actor": "news_agent",
+          "action": "agent_failed",
+          "status": "failed",
+          "model": "gemini-3.8-flash",
+          "details": {
+            "errorType": "timeout",
+            "attempt": 2,
+            "injected": true,
+            "final": false
+          },
+          "at": "2026-10-08T14:00:14+09:00"
+        },
+        {
+          "step": 8,
+          "actor": "news_agent",
+          "action": "agent_failed",
+          "status": "failed",
+          "model": null,
+          "details": {
+            "errorType": "timeout",
+            "attempts": 2,
+            "message": "포기"
+          },
+          "at": "2026-10-08T14:00:15+09:00"
+        }
+      ],
+      "expected": {
+        "summary": {
+          "failures": 2,
+          "recovered": 0,
+          "unrecovered": 1,
+          "injected": 1,
+          "recoveryMs": null
+        },
+        "incidents": [
+          {
+            "worker": "market_agent",
+            "errorType": "unknown",
+            "injected": false,
+            "recovered": null,
+            "recoveryMs": null,
+            "at": "2026-10-08T14:00:01+09:00"
+          },
+          {
+            "worker": "news_agent",
+            "errorType": "timeout",
+            "injected": true,
+            "recovered": false,
+            "recoveryMs": null,
+            "at": "2026-10-08T14:00:14+09:00"
+          }
+        ]
+      }
+    }
+  ]
+}

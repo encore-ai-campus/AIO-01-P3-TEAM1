@@ -93,6 +93,21 @@ def test_basis_switches_ten_minutes_after_close(clock):
     assert market.basis("US")["date"] == "2026-09-22"
 
 
+def test_traded_since_basis_from_open_until_basis_moves(clock):
+    """기준일 뒤 정규장이 시작됐는지 (리포트 시세 — docs/API.md "리포트 시세"): 장 시작 전 False, 정규장 중·15:30~15:40 True, 15:40부터 False."""
+    for at, expected in (("2026-09-22T08:59:59", False), ("2026-09-22T09:00:00", True), ("2026-09-22T12:00:00", True),
+                         ("2026-09-22T15:35:00", True), ("2026-09-22T15:40:00", False), ("2026-09-19T11:00:00", False)):
+        clock(at)
+        assert market.traded_since_basis("KR") is expected, at
+    clock("2026-09-22T10:00:00", NEW_YORK)  # 뉴욕 장중
+    assert market.traded_since_basis("US") is True
+    clock("2026-09-22T16:10:00", NEW_YORK)
+    assert market.traded_since_basis("US") is False
+    clock("2026-09-22T12:00:00")
+    clock.client.calendar_fails = True  # 장 달력을 받지 못하면 장마감 기준 쪽
+    assert market.traded_since_basis("KR") is False
+
+
 def test_basis_is_none_without_calendar(clock):
     clock.client.calendar_fails = True
     assert market.basis("KR") is None

@@ -2,12 +2,17 @@ import { describe, expect, it, vi } from "vitest";
 import type { PlanEvent, TradePlan } from "../api/types";
 import {
   STICKY_FIT_TOP,
+  budgetParams,
+  canStartManually,
   checkDiscordId,
   easySteps,
   ladderDistances,
+  manualStartPath,
   nextActionOf,
+  onlyManualSkip,
   otherKinds,
   parseBudget,
+  percentToKrw,
   plansByOrder,
   planWorkflow,
   priceLadder,
@@ -68,6 +73,11 @@ describe("planWorkflow", () => {
     expect(wf.outcome).toMatchObject({ tone: "error", text: "손익비 부족" });
   });
 
+  it("시연용 수동 시작(approved=false + manualStart)은 리스크 점검을 지나간 것 — 끝난 뒤에도 리스크 점검에서 멈춤으로 그리지 않는다 (DECISIONS 31장)", () => {
+    const events = [ev(1, "activated", { manualStart: true }), ev(2, "risk_checked", { approved: false, manualStart: true }), ev(3, "order_placed"), ev(4, "cancelled")];
+    expect(states(plan("cancelled"), events)).toEqual(["done", "done", "done", "stopped", "skipped", "skipped"]);
+  });
+
   it("주문 단계에서 실패하면 진입 주문에서 멈춘다", () => {
     expect(states(plan("failed"), [ev(1, "activated"), ev(2, "risk_checked", { approved: true }), ev(3, "failed")])).toEqual([
       "done",
@@ -120,11 +130,27 @@ describe("입력·시각", () => {
     expect(checkDiscordId("abc").error).toBe("Discord 사용자 ID는 숫자만 입력합니다.");
   });
 
-  it("parseBudget: 쉼표·원 허용, 0 이하는 오류", () => {
+  it("parseBudget(금액): 쉼표·원 허용, 원 미만은 버림, 0 이하는 오류", () => {
     expect(parseBudget("1,000,000원")).toEqual({ value: 1_000_000, error: null });
+    expect(parseBudget("1,000,000원", "amount")).toEqual({ value: 1_000_000, error: null });
+    expect(parseBudget("1500.7", "amount")).toEqual({ value: 1500, error: null });
     expect(parseBudget("")).toEqual({ value: null, error: null });
     expect(parseBudget("0").error).toBeTruthy();
     expect(parseBudget("abc").error).toBeTruthy();
+  });
+
+  it("parseBudget(%): 1~100 정수만 ('%' 허용), 비우면 정하지 않음", () => {
+    expect(parseBudget("25", "percent")).toEqual({ value: 25, error: null });
+    expect(parseBudget(" 100% ", "percent")).toEqual({ value: 100, error: null });
+    expect(parseBudget("", "percent")).toEqual({ value: null, error: null });
+    for (const bad of ["0", "101", "12.5", "abc", "-5"]) expect(parseBudget(bad, "percent"), bad).toEqual({ value: null, error: "1~100 사이의 정수로 입력해 주세요." });
+  });
+
+  it("budgetParams: 요청에는 budgetPercent·budgetKrw 중 하나만, percentToKrw는 원 단위로 내림 (서버와 같은 계산)", () => {
+    expect(budgetParams({ mode: "percent", value: 25 })).toEqual({ budgetPercent: 25 });
+    expect(budgetParams({ mode: "amount", value: 1_000_000 })).toEqual({ budgetKrw: 1_000_000 });
+    expect(percentToKrw(6_282_505, 25)).toBe(1_570_626);
+    expect(percentToKrw(-10, 50)).toBe(0); // 매수 가능 금액이 음수면 0
   });
 });
 
@@ -169,7 +195,23 @@ describe("모의투자 화면 도우미", () => {
     expect(nextActionOf(["halted"])).toBeNull();
     expect(nextActionOf(["daily_loss_limit"])).toBeNull();
     expect(nextActionOf(["budget_too_small"])).toBeNull();
+    // 넣을 돈 때문에 막힌 것은 금액을 고치면 풀린다 — 다른 화면으로 보내지 않는다 (2026-10-11)
+    expect(nextActionOf(["cash_short", "total_limit"])).toBeNull();
     expect(nextActionOf([])).toBeNull();
+  });
+
+  it("시연용 수동 시작 자격 (DECISIONS 31장): 사유가 손익비·기대값뿐일 때만, 주소는 ?manual=1 (+ Discord ?t=)", () => {
+    expect(onlyManualSkip(["reward_risk_low"])).toBe(true);
+    expect(onlyManualSkip(["ev_negative"])).toBe(true);
+    expect(onlyManualSkip(["reward_risk_low", "ev_negative"])).toBe(true);
+    expect(onlyManualSkip(["reward_risk_low", "plan_exists"])).toBe(false);
+    expect(onlyManualSkip([])).toBe(false);
+    expect(canStartManually({ activatable: false, reasonCodes: ["reward_risk_low", "ev_negative"] })).toBe(true);
+    expect(canStartManually({ activatable: false, reasonCodes: ["reward_risk_low", "halted"] })).toBe(false);
+    expect(canStartManually({ activatable: true, reasonCodes: [] })).toBe(false);
+    expect(canStartManually(undefined)).toBe(false);
+    expect(manualStartPath(7)).toBe("/recommendations/7?manual=1");
+    expect(manualStartPath(7, "demo-7")).toBe("/recommendations/7?manual=1&t=demo-7");
   });
 
   it("ladderDistances: 사기 전은 사는 가격까지, 보유 중은 목표·손절까지 (직전 종가 기준), 그 밖은 없음", () => {

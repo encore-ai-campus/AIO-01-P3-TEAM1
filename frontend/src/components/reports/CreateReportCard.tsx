@@ -1,7 +1,7 @@
 // 리포트 목록 맨 위의 만들기 카드: 종목 검색 → 고르기 → 큰 버튼 "AI 리포트 만들기" + 오늘 남은 횟수 (D-7).
 // 고르면 검색 결과를 접고 고른 종목을 칩("현대차 005380 · 바꾸기")으로 보인다 — 버튼이 입력칸 바로 아래로 올라와 엄지가 닿는다.
 // 오늘 그 종목 리포트가 이미 있으면(내 것·팀 것, 완성·만드는 중) 종목 상세와 같은 규칙: 주 버튼 "오늘 리포트 보기", "새로 만들기"는 작게
-// (docs/컨셉변경계획.md 4-2 — 같은 날 같은 종목을 다시 만들어 한도·비용·기다림을 쓰지 않게).
+// (docs/plans/컨셉변경계획.md 4-2 — 같은 날 같은 종목을 다시 만들어 한도·비용·기다림을 쓰지 않게).
 // 검색어를 바꾸는 동안은 이전 결과를 흐리게 남긴다 (스켈레톤으로 바뀌며 높이가 출렁이지 않게). 장애 주입(ChaosForm)은 전문가 보기에서만.
 // 결과를 고르면 포커스는 고른 종목 칩으로 간다 — 접히는 결과 목록(inert) 안에 남아 body로 떨어지지 않게, 화면 읽기에는 칩 이름('고른 종목 … 바꾸기')이 읽힌다.
 import { type Ref, useId, useRef, useState } from "react";
@@ -14,7 +14,7 @@ import type { ChaosRequest, ExecutionPlan, StockItem } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { errorSentence, reportStatusText } from "../../lib/plainText";
 import { todayReport } from "../../lib/reports";
-import { useDebounced } from "../../lib/useDebounced";
+import { useDebounced } from "../../hooks/useDebounced";
 import { Icon } from "../Icon";
 import { ErrorPanel } from "../errors/ErrorPanel";
 import { errorKindOf } from "../errors/errorTypes";

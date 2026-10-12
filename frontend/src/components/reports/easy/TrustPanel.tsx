@@ -1,7 +1,7 @@
-// 신뢰 패널 (docs/컨셉변경계획.md 5장·6장): 1줄 검토 통과 · 인용 수 · 자료 기준 시각, 2줄(있을 때만) 자동 복구 문장.
+// 신뢰 패널 (docs/plans/컨셉변경계획.md 5장·6장): 1줄 검토 통과 · 인용 수 · 자료 기준 시각, 2줄(있을 때만) 자동 복구 문장.
 // 작은 글씨 "AI 검토는 사실을 보증하지 않아요"(꼭 읽어야 하는 문장이라 보조 글자색). 점수·고쳐 쓴 횟수는 펼친 곳에 (쉬운 보기에서 점수로 오해하지 않게).
 // 펼침은 네이티브 details (index.css가 내용이 부드럽게 나타나게 한다). 열림 표시는 오른쪽 chevron이 돈다.
-// 쉬운 PDF(backend/reports/easy_text.py trust_lines)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
+// 쉬운 PDF(backend/reports/output/easy_text.py trust_lines)도 같은 문장을 쓴다 — 바꾸면 둘 다 고친다
 import { AI_REVIEW_NOTE } from "../../../lib/plainText";
 import { type TrustInfo, dataTimeText } from "../../../lib/reports";
 import { Icon } from "../../Icon";

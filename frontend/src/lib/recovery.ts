@@ -25,7 +25,7 @@ export function errorTypeOf(e: TraceEvent): ErrorType {
   return ERROR_TYPES.includes(t as ErrorType) ? (t as ErrorType) : "unknown";
 }
 
-// 쉬운 PDF(backend/reports/easy_text.py recovery_sentences)도 같은 판정을 쓴다 (final 없음 = 포기) — 바꾸면 둘 다 고친다
+// 쉬운 PDF(backend/reports/output/easy_text.py recovery_sentences)도 같은 판정을 쓴다 (final 없음 = 포기) — 바꾸면 둘 다 고친다
 /** LLM 호출 한 번의 실패인지 (재시도·전환으로 이어진다). final 표시가 없으면 포기로 본다. */
 export const isCallFailure = (e: TraceEvent) => e.action === "agent_failed" && e.details.final === false;
 export const isGiveUp = (e: TraceEvent) => e.action === "agent_failed" && e.details.final !== false;

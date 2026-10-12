@@ -219,7 +219,7 @@ export function useNow(active: boolean, ms = 30_000): number {
 }
 
 /**
- * 리포트의 매매 계획 (docs/컨셉변경계획.md 4-5): 이 리포트의 추천(만료 포함) 중 하나를 고르고, 열린 추천이면 리스크 미리 보기(예산 없음)로 상태를 정한다.
+ * 리포트의 매매 계획 (docs/plans/컨셉변경계획.md 4-5): 이 리포트의 추천(만료 포함) 중 하나를 고르고, 열린 추천이면 리스크 미리 보기(예산 없음)로 상태를 정한다.
  * 매매 계획 카드·계획 미니·쉬운 보기의 단계 막대와 안내 문장·세 가지 경우가 모두 이 훅을 쓴다 — 같은 추천·같은 상태를 보이게 (캐시도 같다).
  */
 export function usePlanCardData(report: Pick<ReportSummary, "id" | "status" | "opinion" | "finishedAt">) {

@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from django.utils import timezone
 
-from reports import registry, state
+from reports.orchestration import registry, state
 from reports.models import Report
 
 from .conftest import make_report

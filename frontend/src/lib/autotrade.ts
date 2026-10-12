@@ -3,6 +3,7 @@
 import type { IconName } from "../components/Icon";
 import type { PlanCardState } from "../components/plan/PlanCard";
 import type {
+  BudgetMode,
   HoldingStyle,
   Market,
   MarketSession,
@@ -20,7 +21,7 @@ import type {
 
 /**
  * 추천 출처. demo는 늘 "연습용 예시 · AI 아님"(docs/DECISIONS.md 13-1 D-4), 분석은 "AI 교차검증 분석"(리포트 없음)을 보인다
- * (docs/컨셉변경계획.md 4-3).
+ * (docs/plans/컨셉변경계획.md 4-3).
  */
 export const SOURCE: Record<RecommendationSource, { label: string; chip: string; icon: IconName; hint: string }> = {
   report: { label: "AI 리포트", chip: "bg-brand-soft text-brand-ink", icon: "doc", hint: "AI 리포트의 결론에서 나온 계획" },
@@ -115,7 +116,7 @@ export interface Workflow {
 
 const STEPS: { key: StepKey; label: string; hint: string }[] = [
   { key: "activate", label: "활성화", hint: "사용자가 계획을 켰다" },
-  { key: "risk", label: "리스크 점검", hint: "리스크 엔진이 수량·한도를 정한다" },
+  { key: "risk", label: "리스크 점검", hint: "내가 정한 금액으로 수량을 계산하고 리스크 엔진이 한도를 점검한다" },
   { key: "order", label: "진입 주문", hint: "진입가로 지정가 매수 주문" },
   { key: "wait", label: "체결 대기", hint: "체결되지 않으면 다음 정규장에 다시 주문" },
   { key: "hold", label: "보유 감시", hint: "목표가·손절가·보유 기한을 자동으로 본다" },
@@ -144,7 +145,8 @@ export function planWorkflow(plan: Pick<TradePlan, "status" | "exitReason" | "fa
     const n = DONE_BY_EVENT[e.kind];
     if (n !== undefined) done = Math.max(done, n);
     if (e.kind === "order_requeued") requeues += 1;
-    if (e.kind === "risk_checked" && e.details.approved === false) riskRejected = true;
+    // 시연용 수동 시작(DECISIONS 31장)은 approved=false를 남기지만 리스크 점검은 지나간 것이다 (끝난 뒤에도 '리스크 점검에서 멈춤'으로 그리지 않게)
+    if (e.kind === "risk_checked" && e.details.approved === false && e.details.manualStart !== true) riskRejected = true;
   }
   const ended = plan.status === "cancelled" || plan.status === "expired" || plan.status === "failed";
   // 끝난 상태에서 멈춘 단계 (리스크 엔진이 거절했으면 리스크 점검에서 멈춘 것)
@@ -177,7 +179,7 @@ export function planWorkflow(plan: Pick<TradePlan, "status" | "exitReason" | "fa
   return { steps, outcome, requeues };
 }
 
-/** 쉬운 보기의 단계 넷 (docs/컨셉변경계획.md 3장: 주문 → 사는 가격 기다리는 중 → 목표·손절 지켜보는 중 → 팔았어요). */
+/** 쉬운 보기의 단계 넷 (docs/plans/컨셉변경계획.md 3장: 주문 → 사는 가격 기다리는 중 → 목표·손절 지켜보는 중 → 팔았어요). */
 export type EasyStepKey = "order" | "wait" | "hold" | "sold";
 
 export interface EasyStep {
@@ -243,7 +245,7 @@ export function crossCheckSummary(scenarios: Pick<Scenario, "proposer" | "passed
   return { count, passed, selected, sentence: `${head} · 통과 ${passed} · 최종 승인 ${selected ?? "없음"}` };
 }
 
-// ---------------------------------------------------------------- 매매 계획 카드 (docs/컨셉변경계획.md 4-5)
+// ---------------------------------------------------------------- 매매 계획 카드 (docs/plans/컨셉변경계획.md 4-5)
 
 /** 리포트가 끝난 뒤 이 시간 안에 추천이 없으면 "계획 준비 중"(엔진 루프가 곧 만든다), 지나면 "계획 없음". */
 export const PREPARING_MS = 10 * 60_000;
@@ -259,7 +261,7 @@ export interface PlanCardInput {
   report: { status: ReportStatus; opinion: ReportOpinion | null; finishedAt: string | null };
   /** 리포트의 추천 (아직 받는 중이면 undefined). */
   recs: readonly Recommendation[] | undefined;
-  /** 고른 추천의 리스크 미리 보기 (예산 없음. 아직 받는 중이면 undefined). */
+  /** 고른 추천의 리스크 미리 보기 (넣을 돈 없음 — 크기 없이 점검만. 아직 받는 중이면 undefined). */
   preview: RiskPreview | undefined;
   now: number;
 }
@@ -294,6 +296,20 @@ export function blockedCodes(r: Pick<Recommendation, "status"> & { blockedBy?: r
 }
 
 export const isRecBlocked = (r: Pick<Recommendation, "status"> & { blockedBy?: readonly string[] }): boolean => blockedCodes(r).length > 0;
+
+/** 시연용 수동 시작(DECISIONS 31장)이 건너뛰는 사유 — 서버 backend/autotrade/plans/risk.py MANUAL_SKIP_CODES와 같다. */
+export const MANUAL_SKIP_CODES: readonly string[] = ["reward_risk_low", "ev_negative"];
+/** 사유가 하나 이상이고 모두 건너뛸 수 있는 것인지. */
+export const onlyManualSkip = (codes: readonly string[]): boolean => codes.length > 0 && codes.every((c) => MANUAL_SKIP_CODES.includes(c));
+/** 금액 없는 미리 보기(내 계좌까지 본 결과)가 손익비·기대값으로만 막았는지 — '수동매매 (시연용)' 자격. */
+export const canStartManually = (pv: Pick<RiskPreview, "activatable" | "reasonCodes"> | undefined): boolean =>
+  Boolean(pv && !pv.activatable && onlyManualSkip(pv.reasonCodes));
+/** 실행 확인의 시연용 수동 시작 주소 (Discord ?t=가 있으면 이어 붙인다). */
+export function manualStartPath(recId: number, token?: string | null): string {
+  const sp = new URLSearchParams({ manual: "1" });
+  if (token) sp.set("t", token);
+  return `/recommendations/${recId}?${sp}`;
+}
 
 /** 시작할 수 있는 것을 먼저 (같은 무리 안에서는 받은 순서 = 최신순 그대로). 목록·홈·모의투자 탭의 압축 목록이 같이 쓴다 (UX-2). */
 export function startableFirst<T extends Pick<Recommendation, "status"> & { blockedBy?: readonly string[] }>(recs: readonly T[]): T[] {
@@ -379,7 +395,7 @@ export function plansByOrder<T extends Pick<TradePlan, "orderId" | "status">>(pl
 /**
  * 시작할 수 없을 때 시작 버튼 아래에 줄 다음 행동 하나 (trade-15). 사유 코드 순서와 무관하게 우선순위로 고른다.
  * my_plan: 이미 진행 중인 내 계획 보기 · portfolio: 같은 종목 주문·보유가 있음 · other_plans: 이 계획 자체가 막힘(다른 계획 보기) ·
- * null: 기다리면 풀리거나(중단 스위치·하루 한도) 예산을 고치면 되는 경우 — 문장만 보인다.
+ * null: 기다리면 풀리거나(중단 스위치·하루 한도) 넣을 돈을 고치면 되는 경우(cash_short·total_limit·budget_too_small) — 문장만 보인다.
  */
 export function nextActionOf(codes: readonly string[]): "my_plan" | "portfolio" | "other_plans" | null {
   if (codes.includes("plan_exists")) return "my_plan";
@@ -619,11 +635,40 @@ export function checkDiscordId(raw: string): { value: string | null; error: stri
   return { value: v, error: null };
 }
 
-/** 원화 예산 입력 → 숫자 (쉼표 허용). 비었거나 0 이하·숫자가 아니면 null과 오류. */
-export function parseBudget(raw: string): { value: number | null; error: string | null } {
+// ---------------------------------------------------------------- 넣을 돈 (투자 금액, 2026-10-11 DECISIONS 28장)
+
+/** 실행 확인의 % 칩 (매수 가능 금액 기준). */
+export const BUDGET_PERCENT_CHIPS = [10, 25, 50, 100] as const;
+
+/** 정한 넣을 돈: percent = 매수 가능 금액의 %(1~100 정수), amount = 원. */
+export interface BudgetChoice {
+  mode: BudgetMode;
+  value: number;
+}
+
+/**
+ * 넣을 돈 입력 → 숫자. 비었으면 정하지 않음(null, 오류 없음).
+ * amount: 원 (쉼표·'원' 허용, 0 이하·숫자가 아니면 오류, 원 미만은 버린다). percent: 1~100 정수 ('%' 허용).
+ */
+export function parseBudget(raw: string, mode: BudgetMode = "amount"): { value: number | null; error: string | null } {
+  if (mode === "percent") {
+    const v = raw.replace(/[%\s]/g, "");
+    if (!v) return { value: null, error: null };
+    const n = Number(v);
+    if (!Number.isInteger(n) || n < 1 || n > 100) return { value: null, error: "1~100 사이의 정수로 입력해 주세요." };
+    return { value: n, error: null };
+  }
   const v = raw.replace(/[,\s원]/g, "");
   if (!v) return { value: null, error: null };
   const n = Number(v);
-  if (!Number.isFinite(n) || n <= 0) return { value: null, error: "예산은 0보다 큰 숫자로 입력해 주세요." };
+  if (!Number.isFinite(n) || n <= 0) return { value: null, error: "금액은 0보다 큰 숫자로 입력해 주세요." };
   return { value: Math.floor(n), error: null };
 }
+
+/** 미리 보기·활성화 요청에 넣을 값: budgetPercent와 budgetKrw 중 하나만 (docs/API.md "넣을 돈"). */
+export function budgetParams(b: BudgetChoice): { budgetPercent: number } | { budgetKrw: number } {
+  return b.mode === "percent" ? { budgetPercent: b.value } : { budgetKrw: b.value };
+}
+
+/** % → 원: 매수 가능 금액 × % / 100을 원 단위로 내린다 (서버와 같은 계산). */
+export const percentToKrw = (buyingPowerKrw: number, percent: number): number => Math.floor((Math.max(0, buyingPowerKrw) * percent) / 100);

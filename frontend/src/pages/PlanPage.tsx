@@ -1,4 +1,4 @@
-// /plans/:id 모의 자동매매 상세 (docs/컨셉변경계획.md 4-2). 진행 중이면 5초마다 다시 받는다 (queries.usePlan).
+// /plans/:id 모의 자동매매 상세 (docs/plans/컨셉변경계획.md 4-2). 진행 중이면 5초마다 다시 받는다 (queries.usePlan).
 // 쉬운 보기: 단계 넷(주문 → 사는 가격 기다리는 중 → 목표·손절 지켜보는 중 → 팔았어요) · 일어난 일을 쉬운 문장으로(kind + details) ·
 //   숫자 · "멈추기"(대화상자 "지금 가지고 있는 ○주를 모두 팔고 끝낼까요? …").
 // 전문가 보기: 머리(상태·via·활성화 시각) → 자동매매 워크플로우 그래프 → 사건 타임라인(서버 message) → 핵심 숫자 → 연결된 모의 주문 → 계획 중단.
@@ -8,13 +8,15 @@
 // 산 뒤에는 가격 사다리의 기준점이 산 가격이고 손절·목표 %도 산 가격 기준이다 (UX-3). 사는 가격을 기다리는 기한은 사기 전에만 보이고
 //   토·일이면 앞 금요일 장 마감으로, 보유 기한은 "11월 5일(목)까지 (최대 20거래일)"처럼 날짜와 거래일을 함께 (UX-11).
 //   보유 중 평가는 수수료·세금 빼기 전이라고 밝힌다 (UX-10).
+// 숫자 카드에 "넣은 돈"이 있다 (TradePlan.budgetMode — 2026-10-11부터: 내 자금의 %와 그때 바꾼 금액, 또는 금액. 그 전 계획은 "예산"만).
+// 시연용 수동 시작 계획(TradePlan.manualStart, DECISIONS 31장)은 출처 배지 옆 "시연용 수동 시작" 배지와 머리 카드 안 경고 한 줄 (쉬운·전문가 둘 다).
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigationType, useParams } from "react-router";
 import { useCancelPlan, useExitWatch, useOrderExpireDate } from "../api/autotrade";
 import { ApiError, errorMessage } from "../api/client";
 import { isPlanLive, useMarket, usePlan, useQuotes } from "../api/queries";
 import type { MarketSession, PlanEvent, TradePlanDetail } from "../api/types";
-import { PlanStatusChip, SourceBadge } from "../components/autotrade/Badges";
+import { ManualStartBadge, PlanStatusChip, SourceBadge } from "../components/autotrade/Badges";
 import { EasySteps, OutcomeNote, Pnl, PlanTimeline, WorkflowGraph } from "../components/autotrade/PlanWorkflow";
 import { PriceLadder } from "../components/autotrade/PriceLadder";
 import { Icon } from "../components/Icon";
@@ -46,7 +48,8 @@ import {
   formatSignedPrice,
   trendClass,
 } from "../lib/format";
-import { PLAN_STATUS_TEXT, planEventSentence, planExitText, quotePriceName } from "../lib/plainText";
+import { holdingValue } from "../lib/holding";
+import { MANUAL_START_TEXT, PLAN_STATUS_TEXT, planEventSentence, planExitText, quotePriceName } from "../lib/plainText";
 
 /**
  * 멈추기(계획 중단) 확인 시트. 문구·버튼은 연 순간의 상태로 고정한다 — 열린 채 5초 폴링으로 상태가 바뀌어도
@@ -198,9 +201,23 @@ function useHoldingValue(p: TradePlanDetail) {
   const holding = p.status === "holding";
   const { last: price, asOf, basis } = useLastPrice(p);
   const last = holding ? price : null;
-  const unrealized = last != null && p.fillPrice != null ? (last - p.fillPrice) * p.quantity : null;
-  const rate = last != null && p.fillPrice ? last / p.fillPrice - 1 : null;
-  return { holding, last, asOf: holding ? asOf : null, basis, unrealized, rate };
+  const value = holdingValue({ price: last, avgPrice: p.fillPrice, quantity: p.quantity }); // 종목 화면의 보유 평가와 같은 식 (lib/holding)
+  return { holding, last, asOf: holding ? asOf : null, basis, unrealized: value?.profit ?? null, rate: value?.rate ?? null };
+}
+
+/**
+ * 넣은 돈 한 줄의 값 (2026-10-11 — 사용자가 정한 금액). 쉬운 보기 "내 자금의 25% (1,234,000원)", 전문가 보기 "매수 가능 금액의 25% · 1,234,000원",
+ * 금액으로 정했으면 "1,234,000원". 그 전에 활성화한 계획(budgetMode 없음)은 null — 리스크 엔진이 수량을 정했으므로 보이지 않는다.
+ */
+function budgetText(p: TradePlanDetail, easy: boolean): string | null {
+  const won = p.budgetKrw != null ? formatKrw(p.budgetKrw) : null;
+  if (p.budgetMode === "percent" && p.budgetPercent != null) {
+    const base = easy ? `내 자금의 ${p.budgetPercent}%` : `매수 가능 금액의 ${p.budgetPercent}%`;
+    if (won === null) return base;
+    return easy ? `${base} (${won})` : `${base} · ${won}`;
+  }
+  if (p.budgetMode === "amount" || p.budgetMode === "percent") return won;
+  return null;
 }
 
 /** 진행 중 계획의 가격 사다리 + 남은 거리 한 줄 ("얼마나 남았나" — trade-25). 실행 확인에서 본 그림을 다시 쓴다. */
@@ -279,6 +296,7 @@ function Cell({ label, children, sub, subClass }: { label: string; children: Rea
 function Numbers({ p, className }: { p: TradePlanDetail; className?: string }) {
   const { holding, last, asOf, basis, unrealized, rate } = useHoldingValue(p);
   const span = useHoldingSpan(p);
+  const budget = budgetText(p, false);
   // 산 뒤에는 목표·손절 %를 체결가 기준으로 (UX-3)
   const base = p.fillPrice ?? p.entryPrice;
   return (
@@ -305,6 +323,7 @@ function Numbers({ p, className }: { p: TradePlanDetail; className?: string }) {
       </dl>
       {holding && <AsOf at={asOf} market={p.market} basis={basis} className="mt-1 block text-right" />}
       <dl className="mt-3">
+        {budget && <Row label="넣은 돈">{budget}</Row>}
         <Row label="진입가 (지정가)">{formatPrice(p.entryPrice, p.currency)}</Row>
         <Row label={p.fillPrice != null ? "목표가 (체결가 기준)" : "목표가"}>
           <span className="text-up">
@@ -318,7 +337,7 @@ function Numbers({ p, className }: { p: TradePlanDetail; className?: string }) {
         </Row>
         <Row label={p.status === "holding" ? "보유 기한" : "보유 기간"}>{span}</Row>
         {beforeFill(p) && <Row label="진입 기한">{formatDateTime(p.entryDeadline)}</Row>}
-        {p.budgetKrw != null && <Row label="예산">{formatKrw(p.budgetKrw)}</Row>}
+        {!p.budgetMode && p.budgetKrw != null && <Row label="예산">{formatKrw(p.budgetKrw)}</Row>}
         {p.filledAt && <Row label="체결 시각">{formatDateTime(p.filledAt)}</Row>}
         {p.closedAt && <Row label="청산 시각">{formatDateTime(p.closedAt)}</Row>}
       </dl>
@@ -329,6 +348,7 @@ function Numbers({ p, className }: { p: TradePlanDetail; className?: string }) {
 function EasyNumbers({ p, className }: { p: TradePlanDetail; className?: string }) {
   const { holding, last, asOf, basis, unrealized, rate } = useHoldingValue(p);
   const span = useHoldingSpan(p);
+  const budget = budgetText(p, true);
   return (
     <Card aria-labelledby="numbers-title" className={className}>
       <h2 id="numbers-title" className="mb-2 text-[17px] font-bold">
@@ -357,6 +377,7 @@ function EasyNumbers({ p, className }: { p: TradePlanDetail; className?: string 
         </div>
       )}
       <dl>
+        {budget && <Row label="넣은 돈">{budget}</Row>}
         <Row label="수량">{formatQty(p.quantity)}</Row>
         <Row label="사는 가격">{formatPrice(p.entryPrice, p.currency)} 이하</Row>
         {p.fillPrice != null && <Row label="산 가격">{formatPrice(p.fillPrice, p.currency)}</Row>}
@@ -369,7 +390,7 @@ function EasyNumbers({ p, className }: { p: TradePlanDetail; className?: string 
         </Row>
         <Row label={holding ? "보유 기한" : "보유 기간"}>{span}</Row>
         {beforeFill(p) && <Row label="사는 가격을 기다리는 기한">{entryDeadlineLabel(p.entryDeadline, p.market)}까지</Row>}
-        {p.budgetKrw != null && <Row label="예산">{formatKrw(p.budgetKrw)}</Row>}
+        {!p.budgetMode && p.budgetKrw != null && <Row label="예산">{formatKrw(p.budgetKrw)}</Row>}
       </dl>
     </Card>
   );
@@ -635,10 +656,16 @@ export function PlanPage() {
               </p>
               <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[13px] text-sub">
                 <SourceBadge source={p.source} />
+                {p.manualStart && <ManualStartBadge />}
                 <span>
                   {p.via === "discord" ? "Discord 링크로 시작" : "웹에서 시작"} · {formatDateTime(p.activatedAt)}
                 </span>
               </div>
+              {p.manualStart && (
+                <Notice tone="warn" className="mt-3">
+                  {MANUAL_START_TEXT.planNote.easy}
+                </Notice>
+              )}
               {waitingNotice && <Notice className="mt-3">{waitingNotice}</Notice>}
               {live && <LiveLine easy />}
             </Card>
@@ -696,12 +723,18 @@ export function PlanPage() {
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[13px] text-sub">
               <SourceBadge source={p.source} />
+              {p.manualStart && <ManualStartBadge />}
               <span className="inline-flex h-6 items-center gap-1 rounded-md bg-fill px-1.5 font-semibold">
                 <Icon name={p.via === "discord" ? "bell" : "home"} className="size-3.5" />
                 {p.via === "discord" ? "Discord 링크로 활성화" : "웹에서 활성화"}
               </span>
               <span>{formatDateTime(p.activatedAt)}</span>
             </div>
+            {p.manualStart && (
+              <Notice tone="warn" className="mt-3">
+                {MANUAL_START_TEXT.planNote.expert}
+              </Notice>
+            )}
             {waitingNotice && <Notice className="mt-3">{waitingNotice}</Notice>}
             {live && <LiveLine easy={false} />}
           </Card>

@@ -8,17 +8,19 @@
 - PlanEvent.message·failure_reason은 여기서 만들지 않는다 (executor가 원래 용어로 남긴다 — 전문가 보기).
 - 문장에 종목 이름 바로 뒤 조사(을/를)를 붙이지 않는다 (받침에 따라 달라지므로 "삼성전자 3주를"처럼 수량 뒤에 붙인다).
 """
+from dataclasses import replace
 from datetime import datetime
 
 from notifications.service import Notice
 from paper_engine.agents.executor import money, qty_text, signed_money
-from reports.text import COMPLETED_LINE
+from reports.output.text import COMPLETED_LINE
 from trading.store import KST
 
 from .models import Recommendation, TradePlan
 
 __all__ = ["money", "qty_text", "signed_money", "pct", "when", "day_time", "EXIT_LABEL", "REASON_TEXT",
-           "recommendation", "plan_activated", "order_placed", "order_requeued", "filled", "closed", "ended"]
+           "recommendation", "plan_activated", "order_placed", "order_requeued", "filled", "closed", "ended",
+           "MANUAL_START_TAG", "manual_tagged"]
 
 # 청산 사유: 전문가 이름 (docs/API.md "청산 사유" 표의 화면 이름)과 쉬운 문장 앞부분
 EXIT_LABEL = {"TARGET": "목표가 도달", "STOP": "손절가 도달", "EXPIRED": "보유 기한 경과", "MANUAL": "사용자 매도"}
@@ -33,7 +35,7 @@ REASON_TEXT = {
     "daily_trades_limit": "오늘 할 수 있는 주문 수를 다 썼어요",
     "warning_stock": "투자경고 같은 매수 유의 종목이라 안전장치가 막았어요",
     "size_too_small": "안전장치가 정한 수량이 1주도 안 돼요",
-    "budget_too_small": "예산으로는 1주도 살 수 없어요",
+    "budget_too_small": "내가 정한 금액으로는 1주도 살 수 없어요",
     "expired": "계획의 기한이 끝났어요",
     "plan_exists": "이미 이 종목으로 진행 중인 계획이 있어요",
     "position_exists": "이미 이 종목의 모의 주문이나 보유가 있어요",
@@ -88,7 +90,7 @@ def reason_sentences(codes) -> str:
 # --- 추천 ---
 
 def recommendation(rec: Recommendation) -> Notice:
-    """recommendation. 리포트 추천이면 본문 첫 줄이 "리포트가 완성됐어요" (리포트 완성 알림을 대신한다 — reports/alerts.py)."""
+    """recommendation. 리포트 추천이면 본문 첫 줄이 "리포트가 완성됐어요" (리포트 완성 알림을 대신한다 — reports/output/alerts.py)."""
     c = rec.currency
     entry, target, stop = money(rec.entry_price, c), money(rec.target_price, c), money(rec.stop_price, c)
     first = [COMPLETED_LINE] if rec.source == Recommendation.REPORT else []
@@ -112,6 +114,20 @@ def recommendation(rec: Recommendation) -> Notice:
         expert_title=f"{head} · {rec.name} ({rec.symbol})", expert_body="\n".join(expert),
         numbers=(f"진입 {entry} · 목표 {target} ({pct(rec.target_return)}) · 손절 {stop} ({pct(rec.stop_loss_rate)}) · "
                  f"손익비 {rec.reward_risk:.2f}"))
+
+
+# --- 시연용 수동 시작 ---
+
+MANUAL_START_TAG = "[시연용 수동 시작]"  # 시연용 수동 시작 계획 알림 제목의 꼬리표 (DECISIONS 31장)
+
+
+def manual_tagged(notice: Notice) -> Notice:
+    """시연용 수동 시작 계획(TradePlan.manual_start)의 알림: 쉬운·전문가 제목 앞에 MANUAL_START_TAG. 본문·숫자 줄은 그대로.
+
+    executor._later 한 곳에서 붙인다 (합친 알림·엔진 루프 알림이 모두 거기를 지난다). Notice는 frozen이라 새 객체를 돌려준다.
+    """
+    return replace(notice, title=f"{MANUAL_START_TAG} {notice.title}",
+                   expert_title=None if notice.expert_title is None else f"{MANUAL_START_TAG} {notice.expert_title}")
 
 
 # --- 계획 ---
@@ -158,7 +174,8 @@ def order_requeued(plan: TradePlan, order_id: int, quantity: float, previous_qua
     entry, _, _ = _plan_prices(plan)
     qty = qty_text(quantity)
     reduced = quantity < previous_quantity
-    shrink = f" 안전장치가 수량을 {qty_text(previous_quantity)}에서 {qty}로 줄였어요." if reduced else ""
+    shrink = (f" 매수 가능 금액·총 투자 금액 한도에 맞춰 수량을 {qty_text(previous_quantity)}에서 {qty}로 줄였어요."
+              if reduced else "")
     expert_shrink = f", 리스크 점검으로 {qty_text(previous_quantity)} → {qty}" if reduced else ""
     return Notice(
         title=f"{plan.name} 모의 매수 주문을 다시 냈어요",
@@ -212,7 +229,8 @@ END_EASY = {
     "engine_cancelled": "체결하려던 순간 모의 주문이 취소돼 모의 자동매매를 이어가지 못했어요.",
     "cash_short": "체결하려던 순간 모의 계좌의 현금이 모자라 모의 주문이 취소됐어요. 모의 자동매매를 이어가지 못했어요.",
     "requeue_blocked": "모의 주문을 다시 내기 전에 안전장치가 막아 모의 자동매매를 끝냈어요.",
-    "requeue_too_small": "모의 주문을 다시 내려 했지만 안전장치가 정한 수량이 1주도 안 돼 모의 자동매매를 끝냈어요.",
+    "requeue_too_small": ("모의 주문을 다시 내려 했지만 매수 가능 금액·총 투자 금액 한도 안에서는 1주도 살 수 없어 "
+                          "모의 자동매매를 끝냈어요."),
 }
 END_TITLE = {TradePlan.CANCELLED: "모의 자동매매를 멈췄어요", TradePlan.EXPIRED: "모의 자동매매가 사지 않고 끝났어요",
              TradePlan.FAILED: "모의 자동매매를 이어가지 못했어요"}

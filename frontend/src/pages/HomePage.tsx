@@ -1,4 +1,4 @@
-// 홈. 주린이모드(쉬운 보기)와 전문가 보기가 다르다 (docs/컨셉변경계획.md 4-2, docs/투자서비스확장계획.md 2-3).
+// 홈. 주린이모드(쉬운 보기)와 전문가 보기가 다르다 (docs/plans/컨셉변경계획.md 4-2, docs/plans/투자서비스확장계획.md 2-3).
 // 배치 원칙: 위에서 아래로 '지금 할 일 → 내가 시킨 일의 상태 → 참고 → 사회적 요소'. 늦게 오는 섹션이 위쪽에 끼어들지 않게
 // 늘 같은 자리를 두고(비면 한 줄), 생겼다 없어지는 섹션은 높이가 펼쳐지고 접힌다.
 // - 쉬운 보기: [3단계 안내 → 만드는 중인 리포트 → 진행 중인 모의 자동매매 → 최근 AI 리포트 → 오늘의 내 종목 뉴스] | [자산 → 최근 알림 → 랭킹]
@@ -10,7 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigationType } from "react-router";
 import { useAnalyses, useMarket, useMe, useQuotes, useReports } from "../api/queries";
 import type { MarketStatus } from "../api/types";
-import { AnalysisCard, AnalysisCardSkeleton } from "../components/AnalysisCard";
+import { AnalysisCard, AnalysisCardSkeleton } from "../components/analysis/AnalysisCard";
 import { AssetCard } from "../components/AssetCard";
 import { HomePlans, HomeRecommendations } from "../components/autotrade/HomeSummaries";
 import { GuideCard } from "../components/home/GuideCard";

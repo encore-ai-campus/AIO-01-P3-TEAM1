@@ -58,7 +58,7 @@ const Markdown = lazy(() => import("../components/reports/Markdown").then((m) =>
 type Tab = "report" | "run" | "more";
 const TABS: { value: Tab; label: string }[] = [
   { value: "report", label: "리포트" },
-  { value: "run", label: "진행 기록" }, // Trace (사용자 용어 "실행 준비·실행 확인"과 겹치지 않게 — docs/컨셉변경계획.md 4-3)
+  { value: "run", label: "진행 기록" }, // Trace (사용자 용어 "실행 준비·실행 확인"과 겹치지 않게 — docs/plans/컨셉변경계획.md 4-3)
   { value: "more", label: "자세히" },
 ];
 /** 선정 실행의 탭: 첫 탭은 리포트가 아니라 선정 결과 (값은 같다 — ?tab=report). */

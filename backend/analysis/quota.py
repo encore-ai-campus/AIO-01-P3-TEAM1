@@ -1,4 +1,6 @@
-"""AI 분석 한도 (docs/DECISIONS.md 8-4). 횟수로 건다: 팀원별 하루 요청 수, 전체 하루 예산 ÷ 종목당 예상 비용.
+"""AI 분석 한도 (docs/DECISIONS.md 8-4). 팀원별 하루 요청 수와 팀 전체 하루 AI 비용 예산으로 건다.
+팀 예산은 리포트와 같이 쓴다: 오늘 쓴 비용(분석 예상 비용 + 리포트 실제 비용, reports/budget.used_usd)을 뺀 나머지 ÷ 종목당 예상 비용
+(2026-10-08부터 — 전에는 분석 수만 셌다). 오늘 쓴 비용은 부르는 쪽(views)이 넘긴다 (이 앱이 reports를 부르지 않게).
 
 하루는 KST 기준이다. 엔진을 시작한 작업은 실패해도 센다 (실패는 대부분 AI 비용을 쓴 뒤에 난다 — 모델 응답 에러, 시간 초과).
 엔진을 띄우기 전에 끝난 실패만 세지 않는다. 한도 값은 환경 변수 → 저장소 .env 순으로 읽는다 (config.settings와 같은 방식).
@@ -50,8 +52,14 @@ def budget_usd() -> Decimal:
 
 
 def total_limit() -> int:
-    """floor(AI_DAILY_BUDGET_USD ÷ 0.3) (기본 10달러 → 33회). 소수 오차가 없게 Decimal로 나눈다."""
+    """floor(AI_DAILY_BUDGET_USD ÷ 0.3) (기본 10달러 → 33회) — 리포트 비용이 없을 때 하루 최대 분석 수. 소수 오차가 없게 Decimal로 나눈다."""
     return int(budget_usd() / COST_PER_ANALYSIS_USD)
+
+
+def team_left(spent_usd: Decimal) -> int:
+    """팀 전체 예산으로 더 요청할 수 있는 분석 수: floor((AI_DAILY_BUDGET_USD − 오늘 쓴 비용) ÷ 0.3), 0 이상.
+    리포트 비용이 없으면 total_limit() − 오늘 분석 수와 같다."""
+    return max(int((budget_usd() - spent_usd) / COST_PER_ANALYSIS_USD), 0)
 
 
 def today_start(now: datetime | None = None) -> datetime:
@@ -63,19 +71,18 @@ def today_start(now: datetime | None = None) -> datetime:
 class Usage:
     used: int          # 내가 오늘 요청한 수
     limit: int
-    used_total: int    # 팀 전체가 오늘 요청한 수
-    limit_total: int
+    team_left: int     # 팀 전체 예산으로 더 요청할 수 있는 수 (team_left())
 
     @property
     def remaining(self) -> int:
-        return max(0, min(self.limit - self.used, self.limit_total - self.used_total))
+        return max(0, min(self.limit - self.used, self.team_left))
 
 
-def usage(user) -> Usage:
-    today = (Job.objects.filter(type=Job.ANALYZE, created_at__gte=today_start())
+def usage(user, spent_usd: Decimal) -> Usage:
+    """spent_usd: 팀 전체가 오늘 쓴 AI 비용 (reports.limits.budget.used_usd — 분석 예상 비용 + 리포트 실제 비용)."""
+    today = (Job.objects.filter(type=Job.ANALYZE, user=user, created_at__gte=today_start())
              .exclude(status=Job.FAILED, started_at__isnull=True))
-    return Usage(used=today.filter(user=user).count(), limit=per_user_limit(),
-                 used_total=today.count(), limit_total=total_limit())
+    return Usage(used=today.count(), limit=per_user_limit(), team_left=team_left(spent_usd))
 
 
 def unavailable_reason(cfg: Config) -> str | None:

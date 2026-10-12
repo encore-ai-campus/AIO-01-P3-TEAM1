@@ -3,7 +3,7 @@
 지우기는 숨김이다: deleted_at을 적고 API에서 뺀다. 행은 남으므로 AI 비용·하루 리포트 한도·복구 통계는 그대로 센다 (지워도 한도는 돌아오지 않는다).
 만든 팀원만 지운다 — 리포트는 신청한 팀원, 추천은 requested_by. 리포트와 그 추천은 같이 숨긴다 (분석·시연 추천은 추천만).
 그 추천으로 진행 중인 계획이 있으면(누구 것이든) 지우지 않는다. 활성화(executor._start)도 추천 행을 잠그고 숨김을 확인하므로 둘이 엇갈리지 않는다.
-DELETE /api/reports/{id}(reports.views)와 DELETE /api/recommendations/{id}(views)가 같이 쓴다 (reports.alerts처럼 reports가 이 모듈을 부른다).
+DELETE /api/reports/{id}(reports.views)와 DELETE /api/recommendations/{id}(views)가 같이 쓴다 (reports.output.alerts처럼 reports가 이 모듈을 부른다).
 """
 from datetime import datetime
 

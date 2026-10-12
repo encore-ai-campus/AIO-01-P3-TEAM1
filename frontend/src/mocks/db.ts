@@ -6,6 +6,7 @@ import type {
   AnalysisDetail,
   AnalysisQuota,
   AnalysisSummary,
+  BudgetMode,
   Candle,
   DailyMove,
   DailyMoveList,
@@ -829,7 +830,7 @@ export function deleteReservation(userId: number, id: number) {
   if (i < 0) throw new MockError(404, "예약을 찾을 수 없습니다.");
   const removed = state.reservations[i];
   state.reservations.splice(i, 1);
-  // 서버와 같게: 계획의 전량 매도 예약을 지우면 그 계획은 다시 중단을 받는다 (backend/autotrade/executor.py cancel — 매도 예약이 없으면 다시 매도 요청)
+  // 서버와 같게: 계획의 전량 매도 예약을 지우면 그 계획은 다시 중단을 받는다 (backend/autotrade/plans/executor.py cancel — 매도 예약이 없으면 다시 매도 요청)
   if (removed.kind === "SELL") {
     for (const p of state.plans) if (p.orderId === removed.orderId && p.status === "holding") p.exitRequested = false;
   }
@@ -1220,7 +1221,8 @@ export function requestReport(user: MockUser, symbol: string, chaos?: ChaosReque
 }
 
 // ---------------------------------------------------------------- AI 추천 · 매매 계획 · 자동매매 · 알림
-// 리스크 엔진(judge/risk.py)의 계산을 단순하게 흉내 낸다: 건당 위험 1%, 최소 손익비 1.5(스윙), 매수 가능 금액, 총 금액 한도, 예산.
+// 리스크 엔진(judge/risk.py assess_budget)의 계산을 단순하게 흉내 낸다: 수량 = 내가 정한 금액 ÷ 1주 매수 비용 (2026-10-11 — 건당 위험 1%는 경고만),
+// 최소 손익비 1.5(스윙), 매수 가능 금액·총 금액 한도는 점검만(넘으면 막는다).
 // 가격은 장마감 기준(종가), 활성화는 정규장이면 장중 확인 가격으로 한 번 더 본다.
 // 계획은 시연용으로 시간이 지나면 저절로 진행한다 (주문 접수 → planStepMs 뒤 진입가 체결 → planStepMs 뒤 목표가 청산).
 
@@ -1230,6 +1232,10 @@ const STOP_SLIPPAGE = 0.01;
 const DEMO_PER_USER = 5;
 const DEMO_SYMBOLS = ["035420", "005380", "068270", "105560", "035720"];
 const LIVE: TradePlan["status"][] = ["active", "entry_pending", "holding"];
+// 시연용 수동 시작 (DECISIONS 31장 — 서버 backend/autotrade/plans/risk.py MANUAL_SKIP_CODES·views.py BAD_MANUAL·executor.py MANUAL_NOT_NEEDED와 같다)
+const MANUAL_SKIP_CODES = ["reward_risk_low", "ev_negative"];
+const BAD_MANUAL = "manualStart는 true 또는 false여야 합니다.";
+const MANUAL_NOT_NEEDED = "손익비·기대값 점검에 막히지 않은 계획은 수동 시작(시연용) 없이 시작합니다.";
 
 /** 1주 기준 이익·손실 (종목 통화, 수수료·세금·손절 미끄러짐 반영). */
 function perShare(r: { entryPrice: number; targetPrice: number; stopPrice: number; market: Market }) {
@@ -1395,6 +1401,13 @@ export function getRecommendation(userId: number, id: number): Recommendation {
   return toRecommendation(recOf(id), userId);
 }
 
+/** 요청의 넣을 돈 (budgetPercent 또는 budgetKrw 중 하나). */
+interface BudgetParam {
+  mode: BudgetMode;
+  percent: number | null;
+  krw: number | null;
+}
+
 interface RiskInput {
   userId: number;
   s: MockStock;
@@ -1402,7 +1415,7 @@ interface RiskInput {
   targetPrice: number;
   stopPrice: number;
   probability: number;
-  budgetKrw: number | null;
+  budget: BudgetParam | null;
 }
 
 interface RiskResult {
@@ -1410,12 +1423,17 @@ interface RiskResult {
   reasons: string[];
   codes: string[];
   quantity: number;
-  limitedBy: string;
+  budgetKrw: number | null; // 원으로 바꾼 넣을 돈 (percent면 floor(매수 가능 금액 × % / 100))
+  buyingPowerKrw: number;
+  equityKrw: number;
   gain: number;
   loss: number;
 }
 
-/** 리스크 엔진 assess 흉내 (종가 기준 자산·가격). approved는 리스크 엔진 사유만으로 정한다. */
+/**
+ * 리스크 엔진 assess_budget 흉내 (종가 기준 자산, 수량은 진입가로). approved는 리스크 엔진 사유만으로 정한다.
+ * 넣을 돈이 없으면 크기 계산 없이 점검만 한다 (수량 0).
+ */
 function assessRisk(x: RiskInput): RiskResult {
   if (!options.brokerReady) throw new MockError(503, "증권사 조회 키가 없어 종가를 받을 수 없습니다.");
   const { s } = x;
@@ -1424,14 +1442,22 @@ function assessRisk(x: RiskInput): RiskResult {
   const c = commissionRate(s.market);
   const { gain, loss } = perShare({ entryPrice: x.entryPrice, targetPrice: x.targetPrice, stopPrice: x.stopPrice, market: s.market });
   const unitKrw = x.entryPrice * fx * (1 + c);
-  const limits: [string, number][] = [
-    ["건당 위험 한도", Math.floor((acc.equityKrw * RISK_PER_TRADE) / (loss * fx))],
-    ["매수 가능 금액", Math.floor(Math.max(0, acc.buyingPowerKrw ?? 0) / unitKrw)],
-    ["총 금액 한도", Math.floor(MAX_TOTAL_INVEST_KRW / unitKrw)],
-  ];
-  const engineQty = Math.min(...limits.map((l) => l[1]));
-  if (x.budgetKrw !== null) limits.push(["예산", Math.floor(x.budgetKrw / unitKrw)]);
-  const [limitedBy, quantity] = limits.reduce((a, b) => (b[1] < a[1] ? b : a));
+  const power = Math.max(0, acc.buyingPowerKrw ?? 0);
+  const budgetKrw = x.budget ? (x.budget.mode === "percent" ? Math.floor((power * (x.budget.percent ?? 0)) / 100) : (x.budget.krw ?? 0)) : null;
+  let quantity = 0;
+  let tooSmall = false;
+  if (budgetKrw !== null) {
+    if (s.market === "KR") {
+      quantity = Math.floor(budgetKrw / unitKrw);
+      tooSmall = quantity < 1;
+    } else {
+      // 미국은 수수료를 뺀 매수 금액을 센트로 내린 소수점 수량 (최소 주문 금액 $1) — 엔진 assess_budget과 같은 식
+      const amount = Math.floor((budgetKrw / fx / (1 + c)) * 100) / 100;
+      quantity = amount / x.entryPrice;
+      tooSmall = amount < 1;
+    }
+    if (tooSmall) quantity = 0;
+  }
 
   const reasons: string[] = [];
   const codes: string[] = [];
@@ -1443,18 +1469,25 @@ function assessRisk(x: RiskInput): RiskResult {
   if (rr < MIN_REWARD_RISK) add("reward_risk_low", `손익비 ${rr.toFixed(2)}가 기준(${MIN_REWARD_RISK.toFixed(1)})보다 낮습니다.`);
   if (x.probability * gain - (1 - x.probability) * loss <= 0) add("ev_negative", "비용을 반영한 기대값이 0 이하입니다.");
   if (s.warnings.length) add("warning_stock", `매수 유의 종목입니다: ${s.warnings[0]}`);
-  if (quantity < 1) {
-    if (engineQty < 1) add("size_too_small", `${limitedBy === "예산" ? "건당 위험 한도" : limitedBy} 때문에 살 수 있는 수량이 0주입니다.`);
-    else add("budget_too_small", "예산 때문에 살 수 있는 수량이 0주입니다.");
+  if (budgetKrw !== null) {
+    // 넘으면 줄이지 않고 막는다 (assess_position과 같은 방식)
+    const need = quantity * unitKrw;
+    if (tooSmall) add("budget_too_small", s.market === "KR" ? `투자 금액 ${wonText(budgetKrw)}으로는 1주도 살 수 없습니다.` : `투자 금액 ${wonText(budgetKrw)}이 최소 주문 금액($1)보다 작습니다.`);
+    else if (need > power) add("cash_short", `매수 금액 ${wonText(Math.round(need))}이 매수 가능 금액 ${wonText(power)}보다 큼`);
+    if (!tooSmall && acc.investedKrw + pendingKrw(x.userId) + need > MAX_TOTAL_INVEST_KRW) add("total_limit", `총 금액 한도(${wonText(MAX_TOTAL_INVEST_KRW)})를 넘습니다`);
   }
-  if (s.close >= x.targetPrice) add("price_passed", `직전 종가 ${priceText(s.close, s.currency)}가 이미 목표가 이상`);
+  // 장 중이면 직전 종가는 지난 가격이다 — 장중 가격으로 본다 (숫자 없는 문장, docs/API.md "리포트 시세"). 장 밖이면 직전 종가
+  if (isOpen(s.market)) {
+    if (s.price >= x.targetPrice) add("price_passed", "장중 가격이 이미 목표가 이상이에요");
+    else if (s.price <= x.stopPrice) add("price_passed", "장중 가격이 이미 손절가 이하예요");
+  } else if (s.close >= x.targetPrice) add("price_passed", `직전 종가 ${priceText(s.close, s.currency)}가 이미 목표가 이상`);
   else if (s.close <= x.stopPrice) add("price_passed", `직전 종가 ${priceText(s.close, s.currency)}가 이미 손절가 이하`);
-  return { approved: reasons.length === 0, reasons, codes, quantity: Math.max(0, quantity), limitedBy, gain, loss };
+  return { approved: reasons.length === 0, reasons, codes, quantity, budgetKrw, buyingPowerKrw: power, equityKrw: acc.equityKrw, gain, loss };
 }
 
 /**
  * 같은 종목 진행 중 계획·주문, 중단 스위치 (미리 보기·활성화 공통).
- * 서버(autotrade.risk.evaluate)처럼 계획·주문을 따로 본다: 진행 중 계획은 진행 중 주문도 가지므로 둘 다 나온다.
+ * 서버(autotrade.plans.risk.evaluate)처럼 계획·주문을 따로 본다: 진행 중 계획은 진행 중 주문도 가지므로 둘 다 나온다.
  */
 function busyReasons(userId: number, s: MockStock, name: string, out: { reasons: string[]; codes: string[] }) {
   const busyPlan = state.plans.some((p) => p.userId === userId && p.symbol === s.symbol && LIVE.includes(p.status));
@@ -1473,28 +1506,41 @@ function busyReasons(userId: number, s: MockStock, name: string, out: { reasons:
   }
 }
 
-function previewOf(x: RiskInput, risk: RiskResult, extra: { reasons: string[]; codes: string[] }): RiskPreview {
+/** manual: 시연용 수동 시작 — 손익비·기대값 (코드, 문장) 짝을 reasons에서 빼 skipped로 옮긴다 (activatable은 남은 사유로, approved는 그대로). */
+function previewOf(x: RiskInput, risk: RiskResult, extra: { reasons: string[]; codes: string[] }, manual = false): RiskPreview {
   const fx = fxOf(x.s);
-  const reasons = [...risk.reasons, ...extra.reasons];
-  const codes = [...risk.codes, ...extra.codes];
+  const texts = [...risk.reasons, ...extra.reasons];
+  const pairs = [...risk.codes, ...extra.codes].map((code, i) => ({ code, text: texts[i] }));
+  const skipped = pairs.filter((pair) => manual && MANUAL_SKIP_CODES.includes(pair.code));
+  const kept = pairs.filter((pair) => !skipped.includes(pair));
+  const sized = x.budget !== null;
+  const maxLossKrw = Math.round(risk.loss * risk.quantity * fx);
   return {
     approved: risk.approved,
-    activatable: reasons.length === 0,
-    reasons,
-    reasonCodes: codes,
+    activatable: kept.length === 0,
+    reasons: kept.map((pair) => pair.text),
+    reasonCodes: kept.map((pair) => pair.code),
+    skippedReasons: skipped.map((pair) => pair.text),
+    skippedCodes: skipped.map((pair) => pair.code),
     quantity: risk.quantity,
     amountKrw: Math.round(x.entryPrice * risk.quantity * fx),
     expectedProfitKrw: Math.round(risk.gain * risk.quantity * fx),
-    maxLossKrw: Math.round(risk.loss * risk.quantity * fx),
-    limitedBy: risk.limitedBy,
-    budgetKrw: x.budgetKrw,
+    maxLossKrw,
+    limitedBy: sized ? "내가 정한 금액" : null,
+    budgetMode: x.budget?.mode ?? null,
+    budgetPercent: x.budget?.percent ?? null,
+    budgetKrw: risk.budgetKrw,
+    buyingPowerKrw: risk.buyingPowerKrw,
+    equityKrw: risk.equityKrw,
+    maxLossRate: sized && risk.equityKrw > 0 ? maxLossKrw / risk.equityKrw : null,
+    largeLoss: sized && maxLossKrw > risk.equityKrw * RISK_PER_TRADE, // 경고만 (막지 않는다)
     lastPrice: x.s.close,
     lastPriceAsOf: closeAsOf(x.s),
     priceBasis: "close",
   };
 }
 
-function computePreview(userId: number, r: MockRec, budgetKrw: number | null): RiskPreview {
+function computePreview(userId: number, r: MockRec, budget: BudgetParam | null, manual = false): RiskPreview {
   const s = stockOf(r.symbol);
   const input: RiskInput = {
     userId,
@@ -1503,7 +1549,7 @@ function computePreview(userId: number, r: MockRec, budgetKrw: number | null): R
     targetPrice: r.targetPrice,
     stopPrice: r.stopPrice,
     probability: r.probability,
-    budgetKrw,
+    budget,
   };
   const risk = assessRisk(input);
   const extra = { reasons: [] as string[], codes: [] as string[] };
@@ -1512,25 +1558,51 @@ function computePreview(userId: number, r: MockRec, budgetKrw: number | null): R
     extra.codes.push("expired");
   }
   busyReasons(userId, s, r.name, extra);
-  return previewOf(input, risk, extra);
+  return previewOf(input, risk, extra, manual);
 }
 
-function parseBudgetParam(raw: unknown): number | null {
-  if (raw === null || raw === undefined || raw === "") return null;
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n <= 0) throw new MockError(400, "예산은 0보다 큰 숫자여야 합니다.");
-  return n;
+const given = (v: unknown) => v !== null && v !== undefined && v !== "";
+
+/** budgetPercent(1~100 정수)·budgetKrw(양수, 원) 중 하나 → 넣을 돈. 둘 다 없으면 null, 둘 다·형식 오류는 400 (reasonCodes 없음). */
+function parseBudgetParams(percentRaw: unknown, krwRaw: unknown): BudgetParam | null {
+  if (given(percentRaw) && given(krwRaw)) throw new MockError(400, "budgetPercent와 budgetKrw 중 하나만 보냅니다.");
+  if (given(percentRaw)) {
+    const n = Number(percentRaw);
+    if (!Number.isInteger(n) || n < 1 || n > 100) throw new MockError(400, "budgetPercent는 1~100 사이의 정수여야 합니다.");
+    return { mode: "percent", percent: n, krw: null };
+  }
+  if (given(krwRaw)) {
+    const n = Number(krwRaw);
+    if (!Number.isFinite(n) || n <= 0) throw new MockError(400, "budgetKrw는 0보다 큰 숫자여야 합니다.");
+    return { mode: "amount", percent: null, krw: n };
+  }
+  return null;
 }
 
-export function riskPreview(userId: number, id: number, budget: string | null): RiskPreview {
-  return computePreview(userId, recOf(id), parseBudgetParam(budget));
+/** 미리 보기 ?manualStart=: 없음·빈 값·0·false는 끔, 1·true는 켬 (앞뒤 공백·대소문자 무시), 그 밖은 400 (사유 코드 없음). */
+function parseManualQuery(raw: string | null): boolean {
+  const v = (raw ?? "").trim().toLowerCase();
+  if (v === "" || v === "0" || v === "false") return false;
+  if (v === "1" || v === "true") return true;
+  throw new MockError(400, BAD_MANUAL);
 }
 
-/** 정규장이면 장중 확인 가격으로 한 번 더 본다 (문장에 장중 가격 숫자를 넣지 않는다). */
-function sessionPriceCheck(s: MockStock, target: number, stop: number) {
-  if (!isOpen(s.market)) return;
-  if (s.price >= target) throw blocked(["장중 가격이 이미 목표가 이상이에요"], ["price_passed"]);
-  if (s.price <= stop) throw blocked(["장중 가격이 이미 손절가 이하예요"], ["price_passed"]);
+/** 활성화 본문 manualStart: 없으면 끔, JSON 불리언이 아니면 400 (null·"true"·1 포함 — acknowledged와 같은 규칙). */
+function parseManualBody(v: unknown): boolean {
+  if (v === undefined) return false;
+  if (typeof v === "boolean") return v;
+  throw new MockError(400, BAD_MANUAL);
+}
+
+/** 미리 보기 (GET .../preview?budgetPercent=|budgetKrw=&manualStart=). 금액이 둘 다 없으면 크기 없이 점검만. */
+export function riskPreview(
+  userId: number,
+  id: number,
+  budgetPercent: string | null = null,
+  budgetKrw: string | null = null,
+  manualStart: string | null = null,
+): RiskPreview {
+  return computePreview(userId, recOf(id), parseBudgetParams(budgetPercent, budgetKrw), parseManualQuery(manualStart));
 }
 
 /** 가짜 Discord 활성화 링크의 token. 실제 서버는 추천 id + 만료를 서명한다. */
@@ -1547,8 +1619,11 @@ function planEvent(p: MockPlan, kind: string, message: string, details: Record<s
 
 const qtyText = (n: number) => `${n.toLocaleString("ko-KR")}주`;
 
-/** 계획을 만들고 바로 진입 지정가 주문까지 낸다. */
-function startPlan(user: MockUser, r: MockRec, pv: RiskPreview, budgetKrw: number | null, via: "web" | "discord", acknowledged: boolean): MockPlan {
+/** 계획 알림 제목: 시연용 수동 시작 계획이면 앞에 꼬리표 (서버 autotrade/text.py manual_tagged — 본문은 그대로). */
+const planTitle = (p: MockPlan, title: string) => (p.manualStart ? `[시연용 수동 시작] ${title}` : title);
+
+/** 계획을 만들고 바로 진입 지정가 주문까지 낸다. manual: 시연용 수동 시작 (사건 details·message에 남긴다). */
+function startPlan(user: MockUser, r: MockRec, pv: RiskPreview, via: "web" | "discord", acknowledged: boolean, manual = false): MockPlan {
   const now = kstIso();
   const p: MockPlan = {
     id: nextId(),
@@ -1561,8 +1636,11 @@ function startPlan(user: MockUser, r: MockRec, pv: RiskPreview, budgetKrw: numbe
     source: r.source,
     status: "active",
     via,
+    manualStart: manual,
     quantity: pv.quantity,
-    budgetKrw,
+    budgetMode: pv.budgetMode,
+    budgetPercent: pv.budgetPercent,
+    budgetKrw: pv.budgetKrw,
     entryPrice: r.entryPrice,
     targetPrice: r.targetPrice,
     stopPrice: r.stopPrice,
@@ -1584,23 +1662,37 @@ function startPlan(user: MockUser, r: MockRec, pv: RiskPreview, budgetKrw: numbe
   };
   state.plans.push(p);
   const link = `/plans/${p.id}`;
+  // 문장은 서버(backend/autotrade/plans/executor.py _start·_budget_text)와 같은 모양
+  const share = p.budgetMode === "percent" ? `(매수 가능 금액의 ${p.budgetPercent}%)` : "";
+  // 시연용 수동 시작이면 키를 더하고 문장 끝에 표시한다 (일반 계획의 details 키·문장은 그대로)
+  planEvent(p, "activated", `${via === "discord" ? "Discord 링크" : "웹"}에서 계획 활성화${manual ? " (시연용 수동 시작)" : ""}`, {
+    via,
+    budgetMode: p.budgetMode,
+    budgetPercent: p.budgetPercent,
+    budgetKrw: p.budgetKrw,
+    acknowledged,
+    ...(manual ? { manualStart: true, skippedCodes: pv.skippedCodes } : {}),
+  });
+  const budgetLine = `내가 정한 금액${share} ${wonText(p.budgetKrw ?? 0)}으로 ${qtyText(pv.quantity)}`;
   planEvent(
     p,
-    "activated",
-    `${via === "discord" ? "Discord 링크" : "웹"}에서 계획 활성화${budgetKrw ? ` (예산 ${wonText(budgetKrw)})` : ""}`,
-    { via, budgetKrw, acknowledged },
+    "risk_checked",
+    manual
+      ? `리스크 엔진 점검: ${pv.skippedReasons.join("; ")} — 시연용 수동 시작으로 건너뜀. ${budgetLine}`
+      : `리스크 엔진 점검 통과: ${budgetLine} (손익비 ${r.rewardRisk.toFixed(2)})`,
+    {
+      approved: pv.approved, // 리스크 엔진의 원래 판정 (시연용 수동 시작이면 false)
+      quantity: pv.quantity,
+      limitedBy: pv.limitedBy,
+      rewardRisk: r.rewardRisk,
+      reasons: [],
+      ...(manual ? { manualStart: true, skippedCodes: pv.skippedCodes, skippedReasons: pv.skippedReasons } : {}),
+    },
   );
-  planEvent(p, "risk_checked", `리스크 엔진 통과: ${qtyText(pv.quantity)} (${pv.limitedBy}), 손익비 ${r.rewardRisk.toFixed(2)}`, {
-    approved: true,
-    quantity: pv.quantity,
-    limitedBy: pv.limitedBy,
-    rewardRisk: r.rewardRisk,
-    reasons: [],
-  });
   notify(
     user.id,
     "plan_activated",
-    `${p.name} 계획 활성화`,
+    planTitle(p, `${p.name} 계획 활성화`),
     `${qtyText(p.quantity)} · 진입 ${priceText(p.entryPrice, p.currency)} · 목표 ${priceText(p.targetPrice, p.currency)} · 손절 ${priceText(p.stopPrice, p.currency)}`,
     link,
   );
@@ -1632,20 +1724,28 @@ function startPlan(user: MockUser, r: MockRec, pv: RiskPreview, budgetKrw: numbe
     limitPrice: p.entryPrice,
     quantity: p.quantity,
   });
-  notify(user.id, "order_placed", `${p.name} 진입 주문 접수`, `${qtyText(p.quantity)} ${priceText(p.entryPrice, p.currency)} 지정가. 체결되면 다시 알려 드립니다.`, link);
+  notify(user.id, "order_placed", planTitle(p, `${p.name} 진입 주문 접수`), `${qtyText(p.quantity)} ${priceText(p.entryPrice, p.currency)} 지정가. 체결되면 다시 알려 드립니다.`, link);
   return p;
 }
 
-export function activate(user: MockUser, id: number, body: { budgetKrw?: unknown; token?: unknown; acknowledged?: unknown }): TradePlanDetail {
+export function activate(
+  user: MockUser,
+  id: number,
+  body: { budgetPercent?: unknown; budgetKrw?: unknown; token?: unknown; acknowledged?: unknown; manualStart?: unknown },
+): TradePlanDetail {
   const r = recOf(id);
   const token = typeof body.token === "string" && body.token ? body.token : null;
   if (token && token !== demoToken(id)) throw new MockError(400, "활성화 링크가 만료되었거나 올바르지 않습니다.");
   if (body.acknowledged !== undefined && typeof body.acknowledged !== "boolean") throw new MockError(400, "acknowledged는 true 또는 false여야 합니다.");
-  const budgetKrw = parseBudgetParam(body.budgetKrw);
-  const pv = computePreview(user.id, r, budgetKrw);
-  if (!pv.activatable) throw blocked(pv.reasons, pv.reasonCodes);
-  sessionPriceCheck(stockOf(r.symbol), r.targetPrice, r.stopPrice);
-  const p = startPlan(user, r, pv, budgetKrw, token ? "discord" : "web", body.acknowledged === true);
+  const manual = parseManualBody(body.manualStart); // 시연용 수동 시작 (DECISIONS 31장)
+  // 넣을 돈은 필수 (2026-10-11) — 입력 오류라 reasonCodes 없이 400
+  const budget = parseBudgetParams(body.budgetPercent, body.budgetKrw);
+  if (!budget) throw new MockError(400, "투자 금액을 정해 주세요 (budgetPercent 또는 budgetKrw).");
+  const pv = computePreview(user.id, r, budget, manual);
+  if (!pv.activatable) throw blocked(pv.reasons, pv.reasonCodes); // 장 중이면 가격 점검이 이미 장중 가격이다 (assess)
+  // 건너뛸 것이 없는 계획에 시연용 표시를 붙이지 않는다 (Blocked 판정 뒤 — 다른 사유가 먼저 보이게, 서버와 같은 순서)
+  if (manual && pv.skippedCodes.length === 0) throw new MockError(400, MANUAL_NOT_NEEDED);
+  const p = startPlan(user, r, pv, token ? "discord" : "web", body.acknowledged === true, manual);
   return toPlanDetail(p);
 }
 
@@ -1671,7 +1771,7 @@ function closePlan(p: MockPlan, o: MockOrder) {
     { orderId: o.id, exitReason: o.exitReason, exitPrice: o.exitPrice, pnlKrw: o.pnlKrw },
     o.closedAt ?? kstIso(),
   );
-  notify(p.userId, "closed", `${p.name} 청산 (${why})`, `${priceText(o.exitPrice ?? 0, p.currency)}에 ${qtyText(p.quantity)} 매도 · 손익 ${krwText(o.pnlKrw ?? 0)}`, `/plans/${p.id}`);
+  notify(p.userId, "closed", planTitle(p, `${p.name} 청산 (${why})`), `${priceText(o.exitPrice ?? 0, p.currency)}에 ${qtyText(p.quantity)} 매도 · 손익 ${krwText(o.pnlKrw ?? 0)}`, `/plans/${p.id}`);
 }
 
 /** 진행 중 계획을 연결된 주문에 맞추고, 시연용으로 시간이 지나면 다음 단계로 보낸다. */
@@ -1690,7 +1790,7 @@ function advancePlans() {
         p.status = "expired";
         p.failureReason = "진입 기한까지 체결되지 않아 주문을 취소했습니다.";
         planEvent(p, "expired", "진입 기한이 지나 주문을 취소했습니다", { orderId: o.id });
-        notify(p.userId, "expired", `${p.name} 진입 기한 만료`, "진입가에 체결되지 않아 계획이 끝났습니다.", link);
+        notify(p.userId, "expired", planTitle(p, `${p.name} 진입 기한 만료`), "진입가에 체결되지 않아 계획이 끝났습니다.", link);
         continue;
       }
       if (o.status === "ENTRY_PENDING" && p.nextAt !== null && nowMs >= p.nextAt) enter(o, p.entryPrice, kstIso());
@@ -1704,12 +1804,12 @@ function advancePlans() {
           fillPrice: o.fillPrice,
           quantity: p.quantity,
         });
-        notify(p.userId, "filled", `${p.name} 진입 체결`, `${priceText(o.fillPrice ?? 0, p.currency)}에 ${qtyText(p.quantity)} 매수. 목표가·손절가를 자동으로 감시합니다.`, link);
+        notify(p.userId, "filled", planTitle(p, `${p.name} 진입 체결`), `${priceText(o.fillPrice ?? 0, p.currency)}에 ${qtyText(p.quantity)} 매수. 목표가·손절가를 자동으로 감시합니다.`, link);
       } else if (o.status === "CANCELED") {
         p.status = "cancelled";
         p.failureReason = "내 주식에서 주문을 직접 취소했습니다.";
         planEvent(p, "cancelled", "모의 주문이 취소되어 계획을 끝냈습니다", { reason: p.failureReason });
-        notify(p.userId, "cancelled", `${p.name} 계획 중단`, p.failureReason, link);
+        notify(p.userId, "cancelled", planTitle(p, `${p.name} 계획 중단`), p.failureReason, link);
         continue;
       }
     }
@@ -1778,7 +1878,7 @@ export function cancelPlan(userId: number, id: number): TradePlanDetail {
   p.nextAt = null;
   p.failureReason = "사용자가 계획을 중단했습니다.";
   planEvent(p, "cancelled", "사용자가 계획을 중단해 체결 대기 주문을 취소했습니다", { reason: p.failureReason });
-  notify(userId, "cancelled", `${p.name} 계획 중단`, "체결 대기 주문을 취소했습니다.", link);
+  notify(userId, "cancelled", planTitle(p, `${p.name} 계획 중단`), "체결 대기 주문을 취소했습니다.", link);
   return toPlanDetail(p);
 }
 
@@ -1793,7 +1893,7 @@ export function createDemo(user: MockUser, body: { symbol?: unknown }): Recommen
   if (!s) throw new MockError(400, `종목 ${symbol}을(를) 찾을 수 없습니다.`);
   const bars = candles(s).slice(-14);
   const atr = bars.reduce((n, b) => n + (b.high - b.low), 0) / bars.length;
-  const entry = roundTick(s.close, s.currency); // 직전 장마감 종가 그대로 (backend/autotrade/demo.py)
+  const entry = roundTick(s.close, s.currency); // 직전 장마감 종가 그대로 (backend/autotrade/recommend/demo.py)
   const created = new Date();
   const r = makeRec(nextId(), {
     source: "demo",
@@ -2232,7 +2332,10 @@ function seedAutotrade() {
     source: "analysis",
     status: "closed",
     via: "discord",
+    manualStart: false,
     quantity: 14,
+    budgetMode: null, // 2026-10-11 전에 활성화한 계획 (리스크 엔진이 수량을 정함)
+    budgetPercent: null,
     budgetKrw: null,
     entryPrice: 69_500,
     targetPrice: 77_000,

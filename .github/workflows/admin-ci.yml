@@ -1,0 +1,131 @@
+# 관리 서버 검사 (admin/, docs/plans/OPS_ADMIN_PLAN.md 7장): 관리자 백엔드·MCP(admin/server), 관리자 프론트(admin/web), 실제 서비스 스키마에서 읽기 전용 확인(schema).
+# 서비스 검사·배포(ci.yml, deploy.yml)와 따로 돈다: 관리자 앱을 고쳐도 유저 앱 검사·배포에 영향이 없다.
+# 서비스 모델·마이그레이션이 바뀌어도 돈다 (관리자 백엔드가 읽는 표·열이 바뀌었는지 확인). main은 admin-deploy.yml이 이 검사를 부른다.
+name: Admin CI
+
+on:
+  push:
+    branches-ignore: [main]
+    paths:
+      - "admin/**"
+      - "backend/*/models.py"
+      - "backend/*/migrations/**"
+      - "backend/reports/autohealing/stats.py"
+      - ".github/workflows/admin-*.yml"
+  pull_request:
+    paths:
+      - "admin/**"
+      - "backend/*/models.py"
+      - "backend/*/migrations/**"
+      - "backend/reports/autohealing/stats.py"
+      - ".github/workflows/admin-*.yml"
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: admin-ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  server:
+    name: 관리자 백엔드·MCP (린트·테스트)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: admin/server
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0   # 이 액션은 v8부터 major 태그를 내지 않는다. 정확한 버전을 적는다
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: admin/server/uv.lock
+      - name: 의존성 설치
+        run: uv sync --frozen
+      - name: 린트
+        run: uv run ruff check .
+      - name: 테스트 (SQLite)
+        run: uv run pytest -q
+
+  web:
+    name: 관리자 프론트 (린트·타입·테스트·빌드)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: admin/web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: admin/web/package-lock.json
+      - name: 의존성 설치
+        run: npm ci
+      - name: 린트
+        run: npx eslint .
+      - name: 타입 검사
+        run: npx tsc --noEmit
+      - name: 테스트
+        run: npx vitest run
+      - name: 빌드
+        run: npx vite build
+
+  schema:
+    name: 서비스 스키마에서 읽기 전용 확인 (PostgreSQL)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: paper
+          POSTGRES_USER: paper
+          POSTGRES_PASSWORD: ci-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U paper -d paper"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      PGPASSWORD: ci-only
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: |
+            uv.lock
+            admin/server/uv.lock
+      - name: 서비스 마이그레이션 (서비스 코드 그대로)
+        env:
+          DJANGO_DEBUG: "on"
+          DJANGO_SECRET_KEY: ci-only-not-a-secret
+          POSTGRES_HOST: 127.0.0.1
+          POSTGRES_PORT: "5432"
+          POSTGRES_DB: paper
+          POSTGRES_USER: paper
+          POSTGRES_PASSWORD: ci-only
+        run: |
+          uv sync --frozen
+          uv run python backend/manage.py migrate --noinput
+      - name: 읽기 전용 계정 만들기 (두 번 돌려도 된다)
+        run: |
+          for i in 1 2; do
+            psql -h 127.0.0.1 -U paper -d paper -v ON_ERROR_STOP=1 -v ro_password=ro-ci-only -q -f admin/deploy/readonly_role.sql
+          done
+      - name: 관리자 백엔드를 읽기 전용 계정으로 (모든 경로 200, 쓰기 실패)
+        working-directory: admin/server
+        env:
+          ADMIN_TEST_PG_DSN: postgresql://paper_admin_ro:ro-ci-only@127.0.0.1:5432/paper
+        run: |
+          uv sync --frozen
+          uv run pytest -q -m pg -rs

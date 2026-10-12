@@ -2,7 +2,7 @@ from django.contrib import admin
 
 from .models import Report, TraceEvent
 
-# Shared State와 Trace는 Orchestrator가 reports.state로만 바꾼다. 관리자 화면은 보기와 지우기만 한다.
+# Shared State와 Trace는 Orchestrator가 reports.orchestration.state로만 바꾼다. 관리자 화면은 보기와 지우기만 한다.
 STATE_FIELDS = ("status", "current_step", "results", "errors", "completed_agents", "failed_agents", "content",
                 "started_at", "finished_at")
 TRACE_FIELDS = ("step", "actor", "action", "status", "provider", "model", "latency_ms", "details", "at")

@@ -9,7 +9,8 @@ from django.db.models import Count
 from django.utils import timezone
 from trading.store import iso
 
-from . import hide, risk
+from . import hide
+from .plans import risk
 from .models import PlanEvent, Recommendation, TradePlan
 
 
@@ -82,7 +83,9 @@ def plan(p: TradePlan) -> dict:
     return {
         "id": p.id, "recommendationId": p.recommendation_id, "symbol": p.symbol, "name": p.name,
         "market": p.market, "currency": p.currency, "source": p.recommendation.source, "status": p.status,
-        "via": p.via, "quantity": p.quantity, "budgetKrw": p.budget_krw, "entryPrice": p.entry_price,
+        "via": p.via, "manualStart": p.manual_start,  # 시연용 수동 시작 (DECISIONS 31장)
+        "quantity": p.quantity, "budgetMode": p.budget_mode, "budgetPercent": p.budget_percent,
+        "budgetKrw": p.budget_krw, "entryPrice": p.entry_price,
         "targetPrice": p.target_price, "stopPrice": p.stop_price, "holdingDays": p.holding_days,
         "entryDeadline": iso(p.entry_deadline), "orderId": p.order_id, "fillPrice": p.fill_price,
         "filledAt": iso(p.filled_at), "exitPrice": p.exit_price, "exitReason": p.exit_reason,

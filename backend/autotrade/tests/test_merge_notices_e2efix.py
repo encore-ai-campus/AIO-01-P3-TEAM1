@@ -11,11 +11,13 @@ from notifications.service import notify as real_notify  # 모듈을 읽을 때 
 from paper_engine.wording import forbidden_phrases
 from trading import service
 
-from autotrade import executor, text
+from autotrade.plans import executor
+from autotrade import text
 from autotrade.models import PlanEvent, TradePlan
 from config.api import Rejected, Unavailable
 
 from .conftest import make_rec, set_price
+from .test_plans import BUDGET_KRW, PASSED, activate
 from .test_text import plan_of
 
 pytestmark = pytest.mark.django_db
@@ -23,8 +25,6 @@ pytestmark = pytest.mark.django_db
 PLAN_KINDS = ("plan_activated", "order_placed", "order_requeued", "filled", "closed", "cancelled", "expired", "failed")
 
 
-def activate(api, rec, **body):
-    return api.post(f"/api/recommendations/{rec.id}/activate", body, format="json")
 
 
 def plan_calls(sent) -> list[dict]:
@@ -107,10 +107,9 @@ def test_rolled_back_activation_sends_nothing(fake, user, sent, monkeypatch):
     """계획 만들기가 롤백되면 (plan_exists 경합) 모은 알림도 보내지 않는다."""
     from .test_plans import plan_in
     plan_in("active", make_rec(), user)
-    monkeypatch.setattr(executor.risk, "preview", lambda *a, **kw: {
-        "activatable": True, "quantity": 1, "limitedBy": "x", "approved": True, "reasons": [], "reasonCodes": []})
+    monkeypatch.setattr(executor.risk, "preview", lambda *a, **kw: PASSED)
     with pytest.raises(executor.Blocked):
-        executor.activate(make_rec(), user)
+        executor.activate(make_rec(), user, BUDGET_KRW)
     assert plan_calls(sent) == []
 
 

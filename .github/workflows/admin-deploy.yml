@@ -1,0 +1,153 @@
+# 관리 서버 배포: main에 admin/(또는 관리자 백엔드가 읽는 서비스 스키마)이 바뀌어 push → 검사(admin-ci.yml) → 이미지 올리기(GHCR, 태그 = 커밋 해시)
+# → 관리 서버에서 받아 띄우기 → 상태 확인. 검사가 실패하면 뒤 단계는 돌지 않는다. 새 버전이 뜨지 않으면 직전 버전으로 되돌린다 (admin/deploy/remote_deploy.sh).
+# 서비스 배포(deploy.yml)와 따로 돈다.
+#
+# 설정 (admin/README.md 8장). ADMIN_DEPLOY_ENABLED가 true가 아니면 검사만 돈다.
+#   변수: ADMIN_DEPLOY_ENABLED(true), ADMIN_HOST(관리 서버 주소), ADMIN_HOST_KEY(관리 서버 /etc/ssh/ssh_host_ed25519_key.pub 한 줄), ADMIN_USER(기본 ubuntu)
+#   비밀 값: ADMIN_DEPLOY_SSH_KEY(배포용 개인 키)
+name: Admin Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "admin/**"
+      - "backend/*/models.py"
+      - "backend/*/migrations/**"
+      - "backend/reports/autohealing/stats.py"
+      - ".github/workflows/admin-*.yml"
+  workflow_dispatch:   # 같은 커밋을 다시 배포할 때 (Actions 화면에서 실행)
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: 검사
+    uses: ./.github/workflows/admin-ci.yml
+
+  publish:
+    name: 이미지 올리기 (GHCR)
+    needs: ci
+    if: vars.ADMIN_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_prefix: ${{ steps.names.outputs.image_prefix }}
+      image_tag: ${{ steps.names.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: 이미지 이름 정하기
+        id: names
+        run: |
+          # 레지스트리 경로는 소문자여야 한다. 서비스 이미지(paper-trading-{web,engine,nginx})와 이름이 겹치지 않게 -admin을 붙인다
+          echo "image_prefix=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/paper-trading-admin" >> "$GITHUB_OUTPUT"
+          echo "image_tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 캐시 scope는 서비스 이미지(web·engine·nginx)와 겹치지 않게 admin-을 붙인다
+      - name: 올리기 (server — 관리자 API·MCP)
+        uses: docker/build-push-action@v7
+        with:
+          context: admin/server
+          push: true
+          tags: ${{ steps.names.outputs.image_prefix }}-server:${{ steps.names.outputs.image_tag }}
+          cache-from: type=gha,scope=admin-server
+          cache-to: type=gha,scope=admin-server,mode=max
+
+      - name: 올리기 (web — 관리자 화면 nginx)
+        uses: docker/build-push-action@v7
+        with:
+          context: admin/web
+          push: true
+          tags: ${{ steps.names.outputs.image_prefix }}-web:${{ steps.names.outputs.image_tag }}
+          cache-from: type=gha,scope=admin-web
+          cache-to: type=gha,scope=admin-web,mode=max
+
+      - name: 올리기 (tunnel — 서비스 DB SSH 터널)
+        uses: docker/build-push-action@v7
+        with:
+          context: admin/deploy/tunnel
+          push: true
+          tags: ${{ steps.names.outputs.image_prefix }}-tunnel:${{ steps.names.outputs.image_tag }}
+          cache-from: type=gha,scope=admin-tunnel
+          cache-to: type=gha,scope=admin-tunnel,mode=max
+
+  deploy:
+    name: 관리 서버 배포
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    concurrency:   # 배포는 한 번에 하나만. 도는 중인 배포를 끊지 않는다
+      group: deploy-admin
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: read
+    env:
+      ADMIN_HOST: ${{ vars.ADMIN_HOST }}
+      ADMIN_USER: ${{ vars.ADMIN_USER }}
+      IMAGE_PREFIX: ${{ needs.publish.outputs.image_prefix }}
+      IMAGE_TAG: ${{ needs.publish.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: SSH 준비
+        env:
+          ADMIN_HOST_KEY: ${{ vars.ADMIN_HOST_KEY }}
+          ADMIN_DEPLOY_SSH_KEY: ${{ secrets.ADMIN_DEPLOY_SSH_KEY }}
+        run: |
+          [ -n "$ADMIN_HOST" ] && [ -n "$ADMIN_HOST_KEY" ] && [ -n "$ADMIN_DEPLOY_SSH_KEY" ] \
+            || { echo "::error::ADMIN_HOST·ADMIN_HOST_KEY·ADMIN_DEPLOY_SSH_KEY가 필요합니다 (admin/README.md 8장)"; exit 1; }
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$ADMIN_DEPLOY_SSH_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          # 호스트 키 한 줄(종류 + 키)만 꺼내 별칭으로 고정한다 (주소가 IP든 이름이든 같은 방식)
+          printf '%s\n' "$ADMIN_HOST_KEY" \
+            | sed -nE 's/^.*((ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp[0-9]+) [A-Za-z0-9+\/=]+).*$/paper-admin-server \1/p' > ~/.ssh/known_hosts
+          [ -s ~/.ssh/known_hosts ] || { echo "::error::ADMIN_HOST_KEY에서 호스트 키를 읽지 못했습니다"; exit 1; }
+          cat > ~/.ssh/config <<EOF
+          Host admin-target
+            HostName $ADMIN_HOST
+            User ${ADMIN_USER:-ubuntu}
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            HostKeyAlias paper-admin-server
+            StrictHostKeyChecking yes
+            BatchMode yes
+            ConnectTimeout 20
+          EOF
+
+      - name: 파일 올리기 (compose·배포 스크립트·배포 기록 강제 명령)
+        run: |
+          ssh admin-target 'mkdir -p ~/paper_admin/app ~/paper_admin/records ~/paper_admin/secrets && touch ~/paper_admin/records/deploys.jsonl && chmod 644 ~/paper_admin/records/deploys.jsonl'
+          scp admin/deploy/compose.yml admin/deploy/remote_deploy.sh admin-target:paper_admin/app/
+          scp -r admin/deploy/tunnel admin-target:paper_admin/app/
+          scp admin/server/paper_admin/deploy_record.py admin-target:paper_admin/deploy_record.py
+          ssh admin-target 'chmod 755 ~/paper_admin/deploy_record.py ~/paper_admin/app/remote_deploy.sh'
+
+      - name: 서버에서 이미지 받아 띄우기
+        env:
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # 이 작업이 끝나면 못 쓰게 되는 토큰 (읽기 전용)
+        run: |
+          printf '%s' "$REGISTRY_TOKEN" | ssh admin-target "docker login ghcr.io -u '$REGISTRY_USER' --password-stdin"
+          ssh admin-target "cd ~/paper_admin/app && IMAGE_PREFIX='$IMAGE_PREFIX' IMAGE_TAG='$IMAGE_TAG' bash remote_deploy.sh"
+
+      - name: 서버의 레지스트리 로그인 지우기
+        if: always()
+        run: ssh admin-target "docker logout ghcr.io" || true
+
+      - name: 키 지우기
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

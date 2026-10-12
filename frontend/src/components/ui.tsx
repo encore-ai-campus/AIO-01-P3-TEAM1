@@ -19,7 +19,7 @@ import { cn } from "../lib/cn";
 import { formatPrice, formatQuoteAsOf, formatRate, formatSignedPrice, trendClass } from "../lib/format";
 import { parentPath } from "../lib/nav";
 import { NotificationBell } from "./autotrade/NotificationBell";
-import { BrandLockup } from "./BrandMark";
+import { BrandLockup } from "./brand/BrandMark";
 import { Icon, type IconName } from "./Icon";
 
 export function Card({

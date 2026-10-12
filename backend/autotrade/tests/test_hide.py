@@ -6,11 +6,13 @@ from datetime import timedelta
 
 import pytest
 from django.utils import timezone
-from reports import quota
+from reports.limits import quota
 from reports.models import Report
 from rest_framework.exceptions import NotFound
 
-from autotrade import executor, hide, sources
+from autotrade.plans import executor
+from autotrade import hide
+from autotrade.recommend import sources
 from autotrade.models import Recommendation, TradePlan
 
 from .conftest import login, make_rec, set_price
@@ -141,7 +143,7 @@ def test_activation_rechecks_deletion_under_lock(user, fake):
     rec = make_rec(requested_by=user)
     Recommendation.objects.filter(pk=rec.pk).update(deleted_at=timezone.now())
     with pytest.raises(NotFound):
-        executor.activate(rec, user)
+        executor.activate(rec, user, 1_000_000)
     assert not TradePlan.objects.exists()
 
 
