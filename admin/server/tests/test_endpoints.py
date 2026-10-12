@@ -152,7 +152,8 @@ def test_reports_list_and_kinds(staff_client, rows):
     assert row[chaos]["chaos"] is True and row[chaos]["source"] == "auto"
     assert set(row[failed]) == {"id", "team", "symbol", "name", "source", "status", "chaos", "failReason", "failures",
                                 "recovered", "unrecovered", "injected", "costUsd", "createdAt", "startedAt",
-                                "finishedAt", "durationMs"}
+                                "finishedAt", "durationMs", "chaosConfig"}
+    assert all(r["chaosConfig"] is None for r in data["results"])   # 저장된 설정은 상세(trace)에만 싣는다
     assert ok not in row
     assert [r["id"] for r in staff_client.get("/api/admin/reports?kind=failed").json()["results"]] == [failed]
     assert [r["id"] for r in staff_client.get("/api/admin/reports?kind=recovered").json()["results"]] == [recovered]

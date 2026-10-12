@@ -13,6 +13,7 @@ def test_defaults():
     assert s.data_dir == Path("./data") and s.deploys_path == Path("./data/deploys.jsonl")
     assert (s.service_url, s.health_interval_sec, s.engine_stale_sec, s.cookie_secure, s.api_url) == (
         "", 30, 120, False, "http://api:8100")
+    assert (s.chaos_secret, s.chaos_on, s.service_internal_url) == ("", False, "http://tunnel:8000")   # 장애 주입 꺼짐
 
 
 def test_overrides():
@@ -20,10 +21,13 @@ def test_overrides():
               "ADMIN_SERVICE_URL": "http://svc/", "ADMIN_COOKIE_SECURE": "on", "ADMIN_HEALTH_INTERVAL_SEC": "10"})
     assert s.deploys_path == Path("/records/deploys.jsonl") and s.audit_path == Path("/data/audit.jsonl")
     assert s.service_url == "http://svc" and s.cookie_secure is True and s.health_interval_sec == 10
+    s = load({**BASE, "ADMIN_CHAOS_SECRET": " shared-secret ", "ADMIN_SERVICE_INTERNAL_URL": "http://127.0.0.1:18000/"})
+    assert (s.chaos_secret, s.chaos_on, s.service_internal_url) == ("shared-secret", True, "http://127.0.0.1:18000")
 
 
 @pytest.mark.parametrize("env", [{**BASE, "ADMIN_SECRET_KEY": "k" * 31}, {**BASE, "ADMIN_SECRET_KEY": ""},
-                                 {**BASE, "ADMIN_DATABASE_URL": "mysql://x"}, {**BASE, "ADMIN_ENGINE_STALE_SEC": "x"}])
+                                 {**BASE, "ADMIN_DATABASE_URL": "mysql://x"}, {**BASE, "ADMIN_ENGINE_STALE_SEC": "x"},
+                                 {**BASE, "ADMIN_SERVICE_INTERNAL_URL": "tunnel:8000"}])
 def test_refuses_bad_config(env):
     with pytest.raises(ConfigError):
         load(env)

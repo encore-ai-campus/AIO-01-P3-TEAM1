@@ -2,6 +2,10 @@
 // 시각은 모두 "지금"에서 거꾸로 센다. 그래서 몇 초 전·몇 분 전 표시가 늘 그럴듯하다.
 import type {
   Alerts,
+  ChaosConfigRequest,
+  ChaosConfigSaved,
+  ChaosOptions,
+  ChaosRun,
   CostDay,
   Costs,
   DeployRecord,
@@ -158,19 +162,108 @@ interface Base {
 }
 
 const BASES: Base[] = [
-  { id: 108, team: "stock_report", symbol: "005930", name: "삼성전자", source: "user", status: "completed", chaos: true, failReason: null, costUsd: 0.412, createdAgo: 22 * MIN, durationMs: 96_000 },
+  { id: 108, team: "stock_report", symbol: "005930", name: "삼성전자", source: "chaos", status: "completed", chaos: true, failReason: null, costUsd: 0.412, createdAgo: 22 * MIN, durationMs: 96_000 },
   { id: 107, team: "stock_report", symbol: "000660", name: "SK하이닉스", source: "auto", status: "failed", chaos: false, failReason: "agent_failed", costUsd: 0.187, createdAgo: 2 * HOUR + 5 * MIN, durationMs: 71_500 },
   { id: 106, team: "stock_selection", symbol: "KR", name: "선정 KR", source: "auto", status: "completed", chaos: false, failReason: null, costUsd: 0.093, createdAgo: 3 * HOUR, durationMs: 38_200 },
   { id: 105, team: "stock_report", symbol: "035420", name: "NAVER", source: "user", status: "completed", chaos: false, failReason: null, costUsd: 0.356, createdAgo: 5 * HOUR + 2 * MIN, durationMs: 88_400 },
   { id: 104, team: "stock_report", symbol: "051910", name: "LG화학", source: "user", status: "running", chaos: false, failReason: null, costUsd: null, createdAgo: 4 * MIN, durationMs: null },
   { id: 103, team: "stock_report", symbol: "373220", name: "LG에너지솔루션", source: "user", status: "completed", chaos: false, failReason: null, costUsd: 0.401, createdAgo: 4 * DAY, durationMs: 104_000 },
-  { id: 102, team: "stock_report", symbol: "207940", name: "삼성바이오로직스", source: "user", status: "failed", chaos: true, failReason: "review_failed", costUsd: 0.221, createdAgo: 3 * DAY, durationMs: 60_300 },
+  { id: 102, team: "stock_report", symbol: "207940", name: "삼성바이오로직스", source: "chaos", status: "failed", chaos: true, failReason: "review_failed", costUsd: 0.221, createdAgo: 3 * DAY, durationMs: 60_300 },
   { id: 101, team: "stock_report", symbol: "005380", name: "현대차", source: "auto", status: "completed", chaos: false, failReason: null, costUsd: 0.298, createdAgo: 12 * DAY, durationMs: 79_000 },
 ];
 
+// --- 장애 주입 (F11, API.md 7장) ----------------------------------------------
+// 저장된 설정(reports.chaos)과 화면에서 신청한 실행. 신청한 실행은 만든 뒤 4초 대기 → 15초까지 실행 중 → 완료로 흉내 낸다.
+
+const ALL_ERROR_TYPES = ["timeout", "server_error", "bad_output"];
+const CHAOS_CONFIGS: Record<number, ChaosConfigSaved> = {
+  108: { enabled: true, probability: 0.8, errorTypes: ALL_ERROR_TYPES, workers: null, scope: "primary", seed: 4242, requestedBy: "admin" },
+  102: { enabled: true, probability: 0.8, errorTypes: ALL_ERROR_TYPES, workers: ["report_agent"], scope: "all", seed: 9001, requestedBy: "hwanseok" },
+};
+
+export function chaosOptions(): ChaosOptions {
+  return {
+    workers: [
+      { id: "market_agent", title: "시세·차트 Agent" },
+      { id: "fundamental_agent", title: "재무·공시 Agent" },
+      { id: "news_agent", title: "뉴스·심리 Agent" },
+      { id: "report_agent", title: "리포트 작성 Agent" },
+      { id: "review_agent", title: "검토 Agent" },
+      { id: "risk_agent", title: "리스크 점검 Agent" },
+    ],
+    errorTypes: ALL_ERROR_TYPES,
+    scopes: ["primary", "all"],
+    defaults: { probability: 0.5, scope: "primary" },
+  };
+}
+
+interface MockRun {
+  id: number;
+  symbol: string;
+  name: string;
+  created: number;
+  chaos: ChaosConfigSaved;
+}
+let mockRuns: MockRun[] = [];
+
+const runStatus = (r: MockRun): ReportRow["status"] => {
+  const age = Date.now() - r.created;
+  return age < 4_000 ? "requested" : age < 15_000 ? "running" : "completed";
+};
+
+/** 진행 중(대기·실행 중)인 장애 주입 실행 (서비스는 1건까지만 받는다 — 409) */
+export function runningChaosRun(): number | null {
+  return mockRuns.find((r) => runStatus(r) !== "completed")?.id ?? null;
+}
+
+/** POST /api/admin/chaos/runs 흉내: 서비스처럼 기본값과 seed를 채우고 신청한 관리자를 requestedBy로 붙인다. */
+export function createMockChaosRun(symbol: string, chaos: ChaosConfigRequest, by: string): ChaosRun {
+  const id = Math.max(...BASES.map((b) => b.id), ...mockRuns.map((r) => r.id)) + 1;
+  const saved: ChaosConfigSaved = {
+    enabled: true,
+    probability: chaos.probability ?? 0.5,
+    errorTypes: chaos.errorTypes ?? ALL_ERROR_TYPES,
+    workers: chaos.workers ?? null,
+    scope: chaos.scope ?? "primary",
+    seed: chaos.seed ?? Math.floor(Math.random() * 1_000_000),
+    requestedBy: by,
+  };
+  const name = BASES.find((b) => b.symbol === symbol)?.name ?? `종목 ${symbol}`;
+  mockRuns = [...mockRuns, { id, symbol, name, created: Date.now(), chaos: saved }];
+  return { id, status: "requested", symbol, name, chaos: saved };
+}
+
+export function resetMockChaos() {
+  mockRuns = [];
+}
+
+function chaosConfig(id: number): ChaosConfigSaved | null {
+  return CHAOS_CONFIGS[id] ?? mockRuns.find((r) => r.id === id)?.chaos ?? null;
+}
+
+function bases(): Base[] {
+  const runs: Base[] = mockRuns.map((r) => {
+    const status = runStatus(r);
+    return {
+      id: r.id,
+      team: "stock_report",
+      symbol: r.symbol,
+      name: r.name,
+      source: "chaos",
+      status,
+      chaos: true,
+      failReason: null,
+      costUsd: status === "completed" ? 0.38 : null,
+      createdAgo: Date.now() - r.created,
+      durationMs: status === "completed" ? 11_000 : null,
+    };
+  });
+  return [...runs, ...BASES];
+}
+
 export function reportRows(): ReportRow[] {
   const ev = events();
-  return BASES.map((b) => {
+  return bases().map((b) => {
     const mine = ev.filter((e) => e.reportId === b.id);
     const created = Date.now() - b.createdAgo;
     return {
@@ -191,6 +284,7 @@ export function reportRows(): ReportRow[] {
       startedAt: new Date(created + 2000).toISOString(),
       finishedAt: b.durationMs == null ? null : new Date(created + 2000 + b.durationMs).toISOString(),
       durationMs: b.durationMs,
+      chaosConfig: null, // 목록에는 싣지 않는다 (상세 trace만)
     };
   });
 }
@@ -283,7 +377,7 @@ export function trace(id: number): ReportTrace | null {
   const mine = events().filter((e) => e.reportId === id);
   const recovered = mine.filter((e) => e.recovered);
   return {
-    report: row,
+    report: { ...row, chaosConfig: chaosConfig(id) },
     recovery: {
       failures: mine.length,
       recovered: recovered.length,
@@ -291,7 +385,8 @@ export function trace(id: number): ReportTrace | null {
       injected: mine.filter((e) => e.injected).length,
       recoveryMs: recovered.length ? recovered.reduce((a, e) => a + (e.recoveryMs ?? 0), 0) : null,
     },
-    events: buildEvents(startAt, TRACES[id] ?? generic),
+    // 대기 중이면 사건이 아직 없고, 실행 중이면 시작한 데까지만
+    events: buildEvents(startAt, TRACES[id] ?? (row.status === "requested" ? [] : row.status === "running" ? generic.slice(0, 2) : generic)),
   };
 }
 

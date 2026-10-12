@@ -103,4 +103,4 @@ export const REPORT_STATUS_LABEL = {
   failed: "실패",
 } as const;
 export const TEAM_LABEL = { stock_report: "종목 리포트", stock_selection: "종목 선정" } as const;
-export const SOURCE_LABEL = { user: "사용자", auto: "자동" } as const;
+export const SOURCE_LABEL = { user: "사용자", auto: "자동", chaos: "장애 주입" } as const;

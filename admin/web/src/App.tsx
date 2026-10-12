@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router";
 import { RequireAuth } from "./components/Layout";
 import Alerts from "./pages/Alerts";
+import Chaos from "./pages/Chaos";
 import Costs from "./pages/Costs";
 import Deploys from "./pages/Deploys";
 import Engine from "./pages/Engine";
@@ -27,6 +28,7 @@ export default function App() {
         <Route path="costs" element={<Costs />} />
         <Route path="alerts" element={<Alerts />} />
         <Route path="tools" element={<McpTools />} />
+        <Route path="chaos" element={<Chaos />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

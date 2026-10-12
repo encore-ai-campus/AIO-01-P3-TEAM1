@@ -251,6 +251,82 @@ input {
   font-size: 12px;
 }
 
+/* F11 장애 주입: 신청 폼 · 실행 확인 */
+.chaos-form {
+  max-width: 760px;
+  margin-bottom: 20px;
+}
+.chaos-form > fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0 0 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+.chaos-form .field input {
+  width: 220px;
+}
+.presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: 8px;
+  width: 100%;
+}
+.preset {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 12px;
+  text-align: left;
+}
+.preset[aria-pressed="true"] {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.preset .muted {
+  font-size: 12px;
+}
+.chaos-form details {
+  width: 100%;
+}
+.chaos-form summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.chaos-custom {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}
+.checks {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 6px 12px 8px;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+.checks legend {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 0 4px;
+}
+.checks label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.button-row {
+  display: inline-flex;
+  flex: none;
+  gap: 8px;
+}
+
 /* 레벨 */
 .badge {
   display: inline-block;

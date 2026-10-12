@@ -87,7 +87,7 @@ export interface ReportRow {
   team: ReportTeam;
   symbol: string;
   name: string;
-  source: "user" | "auto";
+  source: "user" | "auto" | "chaos"; // chaos: 관리 서버에서 신청한 장애 주입 실행 (API.md 7장)
   status: "requested" | "running" | "completed" | "failed";
   chaos: boolean;
   failReason: string | null;
@@ -100,6 +100,7 @@ export interface ReportRow {
   startedAt: string | null;
   finishedAt: string | null;
   durationMs: number | null;
+  chaosConfig: ChaosConfigSaved | null; // 저장된 장애 주입 설정 — 리포트 상세(trace)에만, 목록은 null
 }
 export interface ReportList {
   from: string;
@@ -250,13 +251,49 @@ export interface McpTokenCreated {
   createdAt: string;
 }
 
+// F11 장애 주입 — GET /api/admin/chaos/options · POST /api/admin/chaos/runs (API.md 7장, 서비스 docs/API.md "장애 주입 내부 API")
+export type ChaosScope = "primary" | "all";
+export interface ChaosOptions {
+  workers: { id: string; title: string }[];
+  errorTypes: string[];
+  scopes: ChaosScope[];
+  defaults: { probability: number; scope: ChaosScope };
+}
+export interface ChaosConfigRequest {
+  enabled: true;
+  probability?: number;
+  errorTypes?: string[];
+  workers?: string[] | null; // null = 전부
+  scope?: ChaosScope;
+  seed?: number;
+}
+/** 서비스가 채워 저장한 설정 (서버 기본값·seed와 신청한 관리자 requestedBy 포함) */
+export interface ChaosConfigSaved extends ChaosConfigRequest {
+  probability: number;
+  errorTypes: string[];
+  workers: string[] | null;
+  scope: ChaosScope;
+  seed: number;
+  requestedBy?: string;
+}
+export interface ChaosRun {
+  id: number;
+  status: "requested";
+  symbol: string;
+  name: string;
+  chaos: ChaosConfigSaved;
+}
+
 // ---------------------------------------------------------------------------
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, detail: string) {
+  /** 오류 응답 본문 (409 진행 중인 장애 주입의 id처럼 detail 말고 더 실린 값) */
+  body: Record<string, unknown>;
+  constructor(status: number, detail: string, body: Record<string, unknown> = {}) {
     super(detail);
     this.status = status;
+    this.body = body;
   }
 }
 
@@ -287,19 +324,33 @@ export const apiState = {
   },
 };
 
-async function detailOf(res: Response): Promise<string> {
+async function errorOf(res: Response): Promise<{ detail: string; body: Record<string, unknown> }> {
   try {
-    const body = (await res.json()) as { detail?: unknown };
-    if (typeof body.detail === "string" && body.detail) return body.detail;
+    const body = (await res.json()) as unknown;
+    if (body && typeof body === "object" && !Array.isArray(body)) {
+      const b = body as Record<string, unknown>;
+      if (typeof b.detail === "string" && b.detail) return { detail: b.detail, body: b };
+    }
   } catch {
     /* 본문이 JSON이 아니면 아래 기본 문장 */
   }
-  return `요청에 실패했습니다 (HTTP ${res.status})`;
+  return { detail: `요청에 실패했습니다 (HTTP ${res.status})`, body: {} };
 }
 
-// 서비스 DB를 읽지 않는 경로(서비스 상태·배포 기록·로그인 확인)와, DB가 끊겨도 항목별로 200을 내는 개요는
+// 서비스 DB를 읽지 않는 경로(서비스 상태·배포 기록·로그인 확인·장애 주입 고르기 목록)와, DB가 끊겨도 항목별로 200을 내는 개요는
 // 성공해도 "DB 연결 안 됨" 띠를 끄지 않는다 (DB를 쓰는 경로가 성공해야 끈다).
-const DB_FREE = ["/api/admin/service", "/api/admin/deploys", "/api/admin/me", "/api/admin/overview", "/api/admin/login", "/api/admin/logout"];
+const DB_FREE = [
+  "/api/admin/service",
+  "/api/admin/deploys",
+  "/api/admin/me",
+  "/api/admin/overview",
+  "/api/admin/login",
+  "/api/admin/logout",
+  "/api/admin/chaos/options",
+];
+// 장애 주입 경로의 503은 대개 서비스 내부 API(터널)에 닿지 못한 것이다 — DB 문구일 때만 "DB 연결 안 됨" 띠를 켠다.
+const CHAOS_PREFIX = "/api/admin/chaos/";
+const DB_DOWN_DETAIL = "서비스 DB에 연결할 수 없습니다";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
@@ -308,8 +359,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   } catch {
     throw new ApiError(0, "관리자 서버에 연결할 수 없습니다");
   }
+  const failure = res.ok ? null : await errorOf(res);
   if (res.status === 503) {
-    if (!dbDown) {
+    if (!dbDown && (!path.startsWith(CHAOS_PREFIX) || failure?.detail === DB_DOWN_DETAIL)) {
       dbDown = true;
       emit();
     }
@@ -317,8 +369,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     dbDown = false;
     emit();
   }
-  if (!res.ok) {
-    const err = new ApiError(res.status, await detailOf(res));
+  if (failure) {
+    const err = new ApiError(res.status, failure.detail, failure.body);
     // 로그인 시도 자체의 401·429는 화면이 문구를 그대로 보여 준다.
     if (res.status === 401 && path !== "/api/admin/login") {
       authLost = true;
@@ -355,6 +407,14 @@ export const createMcpToken = (name: string) =>
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name }),
+  });
+
+/** 장애 주입 신청 (세션 쿠키로만). 만들어지면 201 ChaosRun, 서비스의 400·403·409·429·503은 ApiError(detail 그대로). */
+export const createChaosRun = (symbol: string, chaos: ChaosConfigRequest) =>
+  request<ChaosRun>("/api/admin/chaos/runs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ symbol, chaos }),
   });
 
 export function queryString(params: Record<string, string | number | undefined>): string {

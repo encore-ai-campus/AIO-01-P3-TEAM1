@@ -117,6 +117,7 @@ def report_row(r: dict, events: list[dict]) -> tuple[dict, list[recovery.Inciden
         "costUsd": usd(cost) if cost is not None else None,
         "createdAt": iso(r["created_at"]), "startedAt": iso(r.get("started_at")), "finishedAt": iso(r.get("finished_at")),
         "durationMs": ms_between(r.get("started_at"), r.get("finished_at")),
+        "chaosConfig": None,  # 목록에는 싣지 않는다 — report_trace만 채운다 (API.md 7장)
     }
     return row, found
 
@@ -168,6 +169,9 @@ def report_trace(db: Database, report_id: int) -> dict | None:
                       "FROM report_trace_events WHERE report_id = %(id)s ORDER BY step", {"id": report_id})
     events.sort(key=lambda e: int(e["step"]))
     row, found = report_row(rows[0], events)
+    chaos = rows[0].get("chaos")
+    # 저장된 장애 주입 설정 그대로 (requestedBy 포함) — 관리자 화면의 "같은 설정으로 다시"가 쓴다. 끈 설정이면 null
+    row["chaosConfig"] = clean_json(chaos) if chaos_on(chaos) else None
     items = []
     for e in events:
         details = e["details"] if isinstance(e.get("details"), dict) else {}

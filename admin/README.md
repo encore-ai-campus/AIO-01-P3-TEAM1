@@ -1,7 +1,7 @@
 # 모매매 관리 서버 (관리자 페이지 · 관리자 백엔드 · MCP)
 
-모의매매 서비스 "모매매"를 운영하는 사람이 보는 **조회 전용** 관리 서버다.
-서비스와 다른 서버에서 돌고, 서비스 DB는 SSH 터널 + 읽기 전용 계정으로만 읽는다.
+모의매매 서비스 "모매매"를 운영하는 사람이 보는 관리 서버다. **조회가 중심**이고, 쓰기는 MCP 토큰 만들기와 **장애 주입 신청**(F11, 2026-10-12)뿐이다.
+서비스와 다른 서버에서 돌고, 서비스 DB는 SSH 터널 + 읽기 전용 계정으로만 읽는다. 장애 주입은 서비스 DB에 쓰지 않고 같은 터널로 서비스의 서명된 내부 API를 부른다 (서비스 `docs/DECISIONS.md` 35장).
 계획은 루트 `docs/DEPLOY.md` 부록 A, API 계약은 이 폴더의 `API.md`다 (API를 바꾸면 `API.md`를 먼저 고친다).
 서비스 코드(`frontend/`, `backend/`)와 서로 import하지 않으며, 검사(`.github/workflows/admin-ci.yml`)와 배포(`admin-deploy.yml`)도 서비스와 따로다.
 
@@ -15,7 +15,7 @@
 
 `http://<관리 서버>/`에서 서비스의 **staff 계정**으로 로그인한다 (staff가 아니면 들어오지 못한다). 로그인하면 모든 메뉴가 같은 틀 안에 열린다.
 
-- **왼쪽 메뉴**: 아래 표의 9개.
+- **왼쪽 메뉴**: 아래 표의 10개.
 - **위쪽 막대**: 로그인한 아이디 · 마지막 갱신 시각 · **새로 고침**(지금 보이는 조회를 모두 다시 받는다) · 로그아웃.
 - **DB 끊김 알림**: 서비스 DB(터널)에 붙지 못하면 위에 "서비스 DB에 연결할 수 없습니다"를 띄운다. DB가 필요 없는 서비스 상태·배포 기록은 그대로 보인다.
 - **자동 갱신**: 화면이 보일 때만 다시 받는다. 15초 — 개요·서비스 상태·엔진 상태·MCP 도구·호출, 60초 — 나머지.
@@ -28,7 +28,8 @@
 | 엔진 상태 | `/engine` | F4 | – | 동작 중/멈춤과 마지막 동작 시각, 버전 · 호스트 · 시작 시각 · 새 모의 매수 중단 스위치 · 증권사 조회 키 · 마지막 한 바퀴, 한도, 최근 단계 오류 |
 | 배포 기록 | `/deploys` | F5 | 표시 개수 20·50·100·200건 | 서버별 지금 버전, 배포 기록(시각 · 서버 · 결과 · 태그 · 직전 · 누가 · 커밋 · 실행 링크) |
 | 리포트 장애 | `/reports` | F6 | 기간 1·7·30·90일, 종류(전체·실패·복구됨·장애 주입), 팀(종목 리포트·종목 선정) | 리포트 목록(상태 · 장애 주입 · 실패 사유 · 장애/복구/미복구 · 비용 · 걸린 시간). 줄을 누르면 리포트 상세 |
-| └ 리포트 상세 | `/reports/:id` | F6 | – | 리포트 요약, 복구 요약, 실행 기록(step · actor · action · 종류 · 모델 · latency · 상세) 시간순 |
+| └ 리포트 상세 | `/reports/:id` | F6 | – | 리포트 요약, 복구 요약, 실행 기록(step · actor · action · 종류 · 모델 · latency · 상세) 시간순. 진행 중이면 3초마다 다시 받는다. 장애 주입 실행이면 **같은 설정으로 다시**(seed 포함) |
+| 장애 주입 | `/chaos` | F11 | 종목 코드, 프리셋(복구 시연 · 정책 시연) 또는 직접 설정(실패 확률 · 실패 종류 · 대상 Worker · 범위 · seed) | **실행**(확인 — 실제 AI 비용, 팀 하루 예산에 든다) → 리포트 상세로. 최근 장애 주입 실행 10건. `ADMIN_CHAOS_SECRET`이 없으면 "꺼짐" |
 | 복구 지표 | `/recovery` | F7 | 기간 1·7·30·90일 | 자동 복구율 · 평균 복구 시간 · 장애 · 복구 · 미복구 · 장애 주입, errorType별 · Worker별, 최근 장애 20건 |
 | AI 비용 | `/costs` | F8 | 기간 7·14·30·90일 | 오늘 예산 사용 · 실제 비용 · 분석 요청 · 리포트 한도, 일별 비용(리포트 · 분석 · 장기투자)과 기간 합계 |
 | 알림·작업 실패 | `/alerts` | F9 | 기간 24·72·168시간 | Discord 발송 실패 · 오래된 대기 · 멈춘 발송과 그 목록, 멈춘 분석·리포트 작업 |
@@ -38,7 +39,7 @@
 
 ## 2. 기능
 
-모든 기능은 **조회만** 한다. 쓰기 요청은 로그인·로그아웃뿐이고, 서비스 DB에는 읽기 전용 계정으로 열 단위 SELECT만 한다.
+F11 말고는 **조회만** 한다. 쓰기 요청은 로그인·로그아웃, MCP 토큰 만들기, 장애 주입 신청(F11 — 세션 쿠키로만, 서비스 내부 API로만)이고, 서비스 DB에는 읽기 전용 계정으로 열 단위 SELECT만 한다.
 숫자와 상태는 관리자 백엔드 한 곳에서만 만들고, 화면과 MCP는 그것을 부른다. 비밀 값·개인 정보(비밀번호 해시, 세션, 토큰, 알림 본문, 리포트 본문, 사용자 이름)는 내지 않는다.
 
 | 번호 | 기능 | 하는 일 | 상태 기준 (`down` · `warn` · `unknown`) |
@@ -53,8 +54,9 @@
 | F8 | AI 비용 | 날짜별 리포트 · 분석 · 장기투자 비용과 오늘 예산 사용액(서비스가 새 리포트를 막는 셈과 같다) · 분석 요청 수 · 한 사람 리포트 수 | down: 예산 100% 이상 · warn: 80% 이상 · unknown: 예산을 모름 |
 | F9 | 알림·작업 실패 | Discord 알림 발송 실패 · 10분 넘은 대기 · 10분 넘게 멈춘 발송, 오래 멈춘 작업(분석 RUNNING 15분 · QUEUED 10분, 리포트 running 20분 · requested 30분) | warn: 하나라도 있음 |
 | F10 | MCP 도구·호출 | MCP 도구 9개와 부르는 경로, 토큰별 만든 시각 · 마지막 사용 · 호출 수, 토큰으로 들어온 호출 기록(누가 · 도구 · 응답 코드, 틀린 토큰 포함) | – |
+| F11 | 장애 주입 (2026-10-12) | 장애 주입 실행을 신청한다. 관리자 백엔드가 로그인한 staff 아이디를 붙여 서명(`ADMIN_CHAOS_SECRET`)하고 터널(`tunnel:8000` → 서비스 서버 `127.0.0.1:18000`)로 서비스 내부 API에 보낸다. 서비스 엔진이 실행하고, 결과는 F6·F7로 본다. MCP 도구는 없다. 서비스 화면에는 장애 주입이 없다 | – |
 
-자세한 응답 형식과 기준값은 `API.md` 2장(형식·레벨), 6장(F10)이다.
+자세한 응답 형식과 기준값은 `API.md` 2장(형식·레벨), 6장(F10), 7장(F11)이다.
 
 ## 3. MCP 서버
 
@@ -121,7 +123,8 @@ export PAPER_ADMIN_MCP_TOKEN="<토큰>"
 브라우저·Claude Code ─▶ 관리 서버 :80 web(nginx) ─┬─ /            관리자 화면
                                                   ├─ /api/admin/  api (FastAPI)
                                                   └─ /mcp         mcp (MCP, 사람별 토큰)
-api ─▶ tunnel(SSH) ─▶ 서비스 서버 127.0.0.1:15432 (PostgreSQL, 읽기 전용 계정 paper_admin_ro)
+api ─▶ tunnel(SSH) ─┬▶ 서비스 서버 127.0.0.1:15432 (PostgreSQL, 읽기 전용 계정 paper_admin_ro)
+                     └▶ 서비스 서버 127.0.0.1:18000 (web — 장애 주입 내부 API, 서명. F11)
 서비스 GitHub Actions ─SSH(강제 명령 키)─▶ 관리 서버 deploy_record.py ─▶ records/deploys.jsonl (F5 배포 기록)
 ```
 
@@ -130,6 +133,7 @@ api ─▶ tunnel(SSH) ─▶ 서비스 서버 127.0.0.1:15432 (PostgreSQL, 읽�
 - **엔진 상태**: `run_engine`이 30초마다 `engine_status` 행을 고친다 (`backend/trading/heartbeat.py`). 버전은 운영 compose의 `APP_VERSION`(= 이미지 태그).
 - **배포 기록**: 서비스 `deploy.yml`의 "관리 서버에 배포 기록" 작업이 결과 한 줄을 이 서버로 보낸다.
 - **DB 읽기**: 서비스 compose가 DB를 서버 안 `127.0.0.1:${DB_LOCAL_PORT:-15432}`에만 연다.
+- **장애 주입 내부 API** (F11): 서비스 compose가 web을 서버 안 `127.0.0.1:${WEB_LOCAL_PORT:-18000}`에만 열고, 공개 nginx는 `/api/internal/`을 `404`로 막는다. 서비스 `.env.docker`의 `CHAOS_CONTROL_SECRET` = 관리 서버 `.env`의 `ADMIN_CHAOS_SECRET`.
 
 ## 6. 개발
 
@@ -166,7 +170,7 @@ ADMIN_TEST_PG_DSN=postgresql://paper_admin_ro:ro-dev@127.0.0.1:55432/paper uv ru
 
 ### 7-2. 서비스 서버 쪽 (서비스 서버 관리자가 한 번)
 
-1. 서비스 `main`에 엔진 상태 표(`trading` 0004)와 compose의 `DB_LOCAL_PORT`가 배포됐는지 확인한다.
+1. 서비스 `main`에 엔진 상태 표(`trading` 0004)와 compose의 `DB_LOCAL_PORT`·`WEB_LOCAL_PORT`가 배포됐는지 확인한다. 장애 주입(F11)을 켜려면 서비스 `.env.docker`에 `CHAOS_CONTROL_SECRET`(관리 서버 `ADMIN_CHAOS_SECRET`과 같은 값)을 넣고, `DJANGO_ALLOWED_HOSTS`에 `127.0.0.1`이 있는지 본다.
 2. 읽기 전용 계정을 만든다 (비밀번호는 셸 기록에 남기지 않는다):
    ```bash
    read -rs RO_PASSWORD && export RO_PASSWORD     # 관리 서버 .env의 ADMIN_DB_PASSWORD와 같은 값
@@ -179,8 +183,9 @@ ADMIN_TEST_PG_DSN=postgresql://paper_admin_ro:ro-dev@127.0.0.1:55432/paper uv ru
    sudo adduser --disabled-password --shell /usr/sbin/nologin --gecos "" admin-tunnel
    sudo install -d -m 700 -o admin-tunnel -g admin-tunnel /home/admin-tunnel/.ssh
    # /home/admin-tunnel/.ssh/authorized_keys (0600, 소유 admin-tunnel) 한 줄:
-   # restrict,port-forwarding,permitopen="127.0.0.1:15432",command="/bin/false" ssh-ed25519 AAAA... paper-admin-tunnel
+   # restrict,port-forwarding,permitopen="127.0.0.1:15432",permitopen="127.0.0.1:18000",command="/bin/false" ssh-ed25519 AAAA... paper-admin-tunnel
    ```
+   `127.0.0.1:18000`은 장애 주입 내부 API(F11, 2026-10-12)다. 이미 만든 키에는 이 `permitopen`만 더하면 된다 (`permitopen`은 연결할 때 검사하므로 빠져 있어도 DB 터널은 그대로고 장애 주입만 `503`).
 
 ### 7-3. 관리 서버 쪽 키
 

@@ -1,6 +1,8 @@
-import { Link, useParams } from "react-router";
-import type { ReportTrace, TraceItem } from "../api";
-import { LevelBadge, Loaded, PageHeader, Stat } from "../components/ui";
+import { useState } from "react";
+import { Link, useNavigate, useParams } from "react-router";
+import { createChaosRun, type ChaosConfigSaved, type ReportTrace, type TraceItem } from "../api";
+import { ChaosConfirm, ChaosError, describeChaos, withoutRequester } from "../components/ChaosRun";
+import { Empty, LevelBadge, Loaded, PageHeader, Stat } from "../components/ui";
 import {
   DASH,
   REPORT_STATUS_LABEL,
@@ -12,7 +14,7 @@ import {
   fmtTime,
   fmtUsd,
 } from "../format";
-import { POLL_SLOW, useApi } from "../hooks";
+import { POLL_LIVE, POLL_SLOW, useApi } from "../hooks";
 
 const str = (v: unknown): string => (typeof v === "string" ? v : JSON.stringify(v));
 
@@ -71,12 +73,52 @@ function Row({ e }: { e: TraceItem }) {
   );
 }
 
+/** 대기·실행 중이면 3초마다 다시 받는다 (끝나면 60초) */
+const isLive = (t: ReportTrace | undefined) => t?.report.status === "requested" || t?.report.status === "running";
+
+/** 장애 주입 실행의 "같은 설정으로 다시": 저장된 설정에서 requestedBy만 빼고(seed 포함) 같은 종목으로 신청한다. */
+function Rerun({ symbol, config }: { symbol: string; config: ChaosConfigSaved }) {
+  const navigate = useNavigate();
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  async function run() {
+    setBusy(true);
+    setError(null);
+    try {
+      const created = await createChaosRun(symbol, withoutRequester(config));
+      setConfirming(false);
+      navigate(`/reports/${created.id}`);
+    } catch (err) {
+      setError(err);
+      setConfirming(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <p className="muted">
+        장애 주입 설정: {describeChaos(config)}{" "}
+        <button type="button" disabled={confirming || busy} onClick={() => setConfirming(true)}>
+          같은 설정으로 다시
+        </button>
+      </p>
+      {confirming && <ChaosConfirm busy={busy} onConfirm={() => void run()} onCancel={() => setConfirming(false)} />}
+      <ChaosError error={error} />
+    </>
+  );
+}
+
 export default function ReportDetail() {
   const { id } = useParams();
-  const q = useApi<ReportTrace>(`/api/admin/reports/${encodeURIComponent(id ?? "")}/trace`, POLL_SLOW);
+  const q = useApi<ReportTrace>(`/api/admin/reports/${encodeURIComponent(id ?? "")}/trace`, (t) => (isLive(t) ? POLL_LIVE : POLL_SLOW));
   return (
     <>
       <PageHeader title={`리포트 #${id}`}>
+        {isLive(q.data) && <span className="muted">진행 중 · 3초마다 새로 고침</span>}
         <Link to="/reports">← 목록</Link>
       </PageHeader>
       <Loaded q={q}>
@@ -89,6 +131,7 @@ export default function ReportDetail() {
               <Stat label="비용" value={fmtUsd(r.costUsd)} sub={`걸린 시간 ${fmtMs(r.durationMs)}`} />
               <Stat label="만든 시각" value={fmtTime(r.createdAt)} sub={`끝 ${fmtTime(r.finishedAt)}`} />
             </div>
+            {r.chaosConfig && <Rerun key={r.id} symbol={r.symbol} config={r.chaosConfig} />}
             <h2>복구 요약</h2>
             <div className="stats">
               <Stat label="장애" value={rc.failures} />
@@ -98,6 +141,7 @@ export default function ReportDetail() {
               <Stat label="복구 시간 합" value={fmtMs(rc.recoveryMs)} />
             </div>
             <h2>실행 기록 (시간순)</h2>
+            {events.length === 0 && <Empty>아직 실행 기록이 없습니다{isLive(q.data) ? " — 서비스 엔진이 차례로 실행하면 여기에 쌓인다." : "."}</Empty>}
             <table>
               <thead>
                 <tr>

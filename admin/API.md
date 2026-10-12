@@ -5,10 +5,10 @@
 
 ## 0. 공통 규칙
 
-- **조회만 한다.** 쓰기 요청은 로그인·로그아웃과 MCP 토큰 만들기(6장, 관리 서버의 자기 파일에만 쓴다)뿐이고, 서비스 DB에는 읽기 전용 계정(4장)으로만 붙는다.
+- **조회가 중심이다.** 쓰기 요청은 로그인·로그아웃, MCP 토큰 만들기(6장, 관리 서버의 자기 파일에만 쓴다), **장애 주입 신청**(7장, 2026-10-12 — 서비스 내부 API로만 보낸다)뿐이다. 서비스 DB에는 읽기 전용 계정(4장)으로만 붙고 쓰지 않는다.
 - 시각은 모두 ISO 8601에 시간대를 붙인다 (`2026-10-08T09:30:00+09:00`). 날짜 묶음(일별 비용 등)은 **KST 날짜**(`YYYY-MM-DD`)다.
 - 돈은 USD 숫자(소수), 시간 길이는 ms 또는 초(필드 이름에 `Ms`·`Sec`).
-- 오류 응답은 `{"detail": string}`이다. `400` 잘못된 값 · `401` 로그인·토큰 없음 · `403` 토큰으로 부른 토큰 만들기 · `404` 없음 · `409` 이미 있는 토큰 이름 · `429` 로그인 시도 초과 · `503` 서비스 DB에 붙지 못함("서비스 DB에 연결할 수 없습니다").
+- 오류 응답은 `{"detail": string}`이다. `400` 잘못된 값 · `401` 로그인·토큰 없음 · `403` 토큰으로 부른 토큰 만들기·장애 주입 신청 · `404` 없음 · `409` 이미 있는 토큰 이름·진행 중인 장애 주입 · `429` 로그인 시도 초과·팀 AI 예산 초과 · `503` 서비스 DB에 붙지 못함("서비스 DB에 연결할 수 없습니다")·서비스 내부 API에 닿지 못함("서비스에 연결할 수 없습니다").
 - 상태 단계 `Level`: `ok`(정상) · `warn`(살펴볼 것) · `down`(멈춤·실패) · `unknown`(자료 없음).
 - 비밀 값·개인 정보를 내지 않는다: 비밀번호 해시, 세션, 토큰, 알림 본문(`notification_outbox.content`), 리포트 본문, 사용자 이름·닉네임.
   오류 문장은 300자로 자르고 URL의 경로·쿼리(웹훅 주소 등)는 `…`로 가린다.
@@ -118,7 +118,7 @@ interface Deploys { servers: DeployServer[]; records: DeployRecord[]; total: num
 //   기간 = 리포트의 created_at이 오늘(KST)을 포함한 최근 days일 안 (첫날 0시 KST부터) — F7·서비스 reports.autohealing.stats와 같은 기간
 interface ReportRow {
   id: number; team: "stock_report" | "stock_selection"; symbol: string; name: string;
-  source: "user" | "auto"; status: "requested" | "running" | "completed" | "failed";
+  source: "user" | "auto" | "chaos"; status: "requested" | "running" | "completed" | "failed";   // chaos: 관리 서버에서 신청한 장애 주입 실행 (7장, 2026-10-12)
   chaos: boolean;               // chaos.enabled === true
   failReason: string | null;    // workflow_failed.details.reason (서비스 docs/API.md 실패 사유 코드)
   failures: number; recovered: number; unrecovered: number; injected: number;   // 3장 셈법
@@ -347,3 +347,33 @@ interface McpTokenCreated {
 - 감사 기록: `{"via": "session", "who": <staff 아이디>, "event": "token_created", "target": <토큰 이름>, "tool": null, "path": "/api/admin/mcp/tokens", "status": 201}`.
 - 지우기는 화면에 없다: 관리 서버에서 `python -m paper_admin.tokens revoke <이름>`.
 
+
+## 7. 장애 주입 (F11, 2026-10-12 추가 — 서비스 `docs/DECISIONS.md` 35장, 계획 `docs/plans/장애주입분리계획.md`)
+
+장애 주입을 켜고 신청하는 곳은 **관리 서버 하나**다 (서비스 화면·공개 API에는 없다). 관리자 백엔드는 서비스 DB에 쓰지 않고, 요청을 서명해
+**서비스 내부 API**(서비스 `docs/API.md` "장애 주입 내부 API")로 보낸다. 길: 관리자 백엔드 → tunnel 컨테이너의 `tunnel:8000` → SSH 터널 → 서비스 서버 `127.0.0.1:${WEB_LOCAL_PORT:-18000}`(web).
+실행은 서비스 엔진이 하고, 진행·실행 기록·복구는 지금의 2장 경로(`GET /api/admin/reports?kind=chaos`, `/reports/{id}/trace`, `/recovery`)로 본다.
+
+| 메서드·경로 | 요청 | 응답 |
+|---|---|---|
+| `GET /api/admin/chaos/options` | – | `200 ChaosOptions` (서비스 내부 API의 응답 그대로) · 기능 꺼짐 `404 {"detail": "장애 주입이 꺼져 있습니다 (ADMIN_CHAOS_SECRET 없음)"}` · 서비스에 닿지 못함 `503` |
+| `POST /api/admin/chaos/runs` | `{"symbol": string, "chaos": ChaosConfig 신청 형식}` (JSON) | `201 ChaosRun` (서비스 응답 그대로) · 서비스의 `400`·`403`·`409`·`429`는 상태와 `detail`(그리고 `409`의 `id`) 그대로 · 쿠키 없음·staff 아님 `401` · 토큰으로 부름 `403` · 기능 꺼짐 `404` · 서비스에 닿지 못함·서비스 서명 거절(`401`)·그 밖의 서비스 오류 `503 {"detail": "서비스에 연결할 수 없습니다"}` |
+
+```ts
+// 서비스 docs/API.md "장애 주입 내부 API"와 같은 모양
+interface ChaosOptions { workers: { id: string; title: string }[]; errorTypes: string[]; scopes: ("primary" | "all")[]; defaults: { probability: number; scope: "primary" | "all" } }
+interface ChaosConfigRequest { enabled: true; probability?: number; errorTypes?: string[]; workers?: string[] | null; scope?: "primary" | "all"; seed?: number }
+interface ChaosRun { id: number; status: "requested"; symbol: string; name: string; chaos: ChaosConfigRequest & { probability: number; errorTypes: string[]; workers: string[] | null; scope: "primary" | "all"; seed: number; requestedBy: string } }
+```
+
+- 두 경로 모두 로그인한 관리자만 부른다. **`POST`는 세션 쿠키로만** 부른다 — 토큰(`Authorization: Bearer`)으로 부르면 `403 {"detail": "토큰으로는 장애 주입을 신청할 수 없습니다. 관리자 화면에 로그인해 신청하세요."}` (쿠키가 같이 있어도).
+  6-1처럼 서비스 DB가 끊겼을 때 서명만 보고 통과시키지 않는다 (요청마다 staff·활성·지문을 다시 확인, 끊기면 `503`). MCP 도구는 만들지 않는다 (AI 도구가 비용이 드는 실행을 일으키지 않게 — 6장 9개 그대로).
+- 관리자 백엔드는 본문의 `symbol`·`chaos`에 **로그인한 staff 아이디를 `requestedBy`로 붙여** 서비스로 보낸다 (본문에 `requestedBy`가 있어도 버리고 덮어쓴다). 서명은 서비스 문서 그대로:
+  `X-Chaos-Timestamp: <유닉스 초>`, `X-Chaos-Signature: hex(HMAC-SHA256(ADMIN_CHAOS_SECRET, "<timestamp>." + 보낸 본문 바이트))`. 서비스 요청 제한 시간 10초.
+- 감사 기록: `POST`마다 `{"via": "session", "who": <staff 아이디>, "event": "chaos_requested", "target": <만든 리포트 id 또는 실패한 상태 코드 문자열>, "tool": null, "path": "/api/admin/chaos/runs", "status": <돌려준 상태 코드>}`.
+- 설정: `ADMIN_CHAOS_SECRET`(서비스 `CHAOS_CONTROL_SECRET`과 같은 값. 비우면 두 경로 `404`, 화면의 장애 주입 메뉴는 "꺼짐" 안내), `ADMIN_SERVICE_INTERNAL_URL`(기본 `http://tunnel:8000`).
+- 화면 `/chaos`(왼쪽 메뉴 **장애 주입**): 종목 코드(6자리) · 프리셋 **복구 시연**(`scope: "primary"`, `probability: 0.8`) / **정책 시연**(`scope: "all"`, `probability: 0.8`) · 직접 설정(실패 확률 · 실패 종류 · 대상 Worker · 범위 · seed) ·
+  **실행** 버튼과 확인(실제 AI 비용이 들고 팀 하루 예산에 든다) → 만들어지면 `/reports/:id`로 간다. 아래에 최근 장애 주입 실행 10건(`GET /api/admin/reports?kind=chaos&days=90&limit=10`).
+  리포트 상세 `/reports/:id`: `requested`·`running` 동안 3초마다 다시 받고 끝나면 멈춘다. 장애 주입 실행이면 **같은 설정으로 다시** 버튼 — 저장된 `chaos`에서 `requestedBy`를 빼고(seed 포함) 그대로 `POST`한다.
+  저장된 `chaos`는 `ReportTrace.report.chaosConfig`로 받는다 (아래).
+- `ReportRow`에 더한다: `chaosConfig: ChaosConfigRequest-저장 형식 | null` — 리포트 상세(`/reports/{id}/trace`)의 `report`에만 싣고 목록(`/reports`)에는 싣지 않는다 (`null`). 서비스 DB `reports.chaos` 그대로(`requestedBy` 포함).

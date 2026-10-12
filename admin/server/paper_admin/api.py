@@ -1,6 +1,7 @@
 """관리자 API `/api/admin/*` (API.md). `uvicorn paper_admin.api:app --host 0.0.0.0 --port 8100` (워커 1개).
 
-조회만 한다 (쓰기는 로그인·로그아웃과 MCP 토큰 만들기뿐 — 관리 서버 자기 파일에만). 오류 응답은 모두 {"detail": string}. OpenAPI·docs 경로는 끈다.
+조회가 중심이다: 쓰기는 로그인·로그아웃, MCP 토큰 만들기(관리 서버 자기 파일에만), 장애 주입 신청(7장 — 서비스 내부 API로만, 서비스 DB에는 쓰지 않는다)뿐.
+오류 응답은 모두 {"detail": string}. OpenAPI·docs 경로는 끈다.
 """
 import contextlib
 import json
@@ -15,6 +16,7 @@ from fastapi.responses import JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from . import chaos as chaos_api
 from . import deploys as deploy_log
 from . import mcp_usage, metrics
 from . import tokens as token_cli
@@ -27,6 +29,9 @@ from .util import iso, utcnow
 
 DB_DOWN = "서비스 DB에 연결할 수 없습니다"
 TOKEN_BY_TOKEN = "토큰으로는 토큰을 만들 수 없습니다. 관리자 화면에 로그인해 만드세요."
+CHAOS_BY_TOKEN = "토큰으로는 장애 주입을 신청할 수 없습니다. 관리자 화면에 로그인해 신청하세요."
+CHAOS_BODY = "본문은 {\"symbol\", \"chaos\"} JSON 객체여야 합니다"
+CHAOS_PATH = "/api/admin/chaos/runs"
 TOOL = re.compile(r"[a-z_]{1,40}")
 TITLES = {"service": "서비스 상태", "engine": "엔진 상태", "deploys": "배포 기록", "reports": "리포트 장애",
           "recovery": "복구 지표", "costs": "AI 비용", "alerts": "알림·작업 실패"}
@@ -48,9 +53,10 @@ def _bearer(request: Request) -> str | None:
 
 
 def create_app(settings: Settings, *, db: Database | None = None, monitor: HealthMonitor | None = None,
-               clock=utcnow) -> FastAPI:
+               chaos: chaos_api.ChaosClient | None = None, clock=utcnow) -> FastAPI:
     db = db or connect(settings.database_url)
     monitor = monitor or HealthMonitor(settings.service_url, settings.health_interval_sec)
+    chaos = chaos or chaos_api.ChaosClient(settings.service_internal_url, settings.chaos_secret)
     sessions = Sessions(settings.secret_key)
     limiter = LoginLimiter()
     tokens = TokenStore(settings.tokens_path)
@@ -66,7 +72,7 @@ def create_app(settings: Settings, *, db: Database | None = None, monitor: Healt
             close()
 
     app = FastAPI(title="paper-admin", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
-    app.state.settings, app.state.db, app.state.monitor = settings, db, monitor
+    app.state.settings, app.state.db, app.state.monitor, app.state.chaos = settings, db, monitor, chaos
 
     @app.exception_handler(RequestValidationError)
     async def _bad_request(_request: Request, exc: RequestValidationError):
@@ -92,6 +98,18 @@ def create_app(settings: Settings, *, db: Database | None = None, monitor: Healt
             audit.write(clock(), via="token", who=getattr(request.state, "token_name", None), event="request",
                         tool=tool if TOOL.fullmatch(tool) else None, path=path[:300], status=response.status_code)
         return response
+
+    def session_staff(request: Request, by_token: str):
+        """세션 쿠키로만 부르는 쓰기(토큰 만들기·장애 주입 신청). 토큰이면 403 (쿠키가 같이 있어도).
+        DB가 끊겨도 서명만 보고 통과시키지 않는다: 요청마다 staff·활성·지문을 다시 확인한다 (DBUnavailable → 503)."""
+        bearer = _bearer(request)
+        if bearer is not None:
+            request.state.token_name = tokens.name_for(bearer)  # 감사 기록에 누가 시도했는지 (틀린 토큰이면 None)
+            raise HTTPException(403, by_token)
+        staff = sessions.staff_for(db, request.cookies.get(COOKIE_NAME), clock())
+        if staff is None:
+            raise HTTPException(401, "로그인이 필요합니다.")
+        return staff
 
     def principal(request: Request) -> Principal:
         token = _bearer(request)
@@ -205,13 +223,7 @@ def create_app(settings: Settings, *, db: Database | None = None, monitor: Healt
     @app.post("/api/admin/mcp/tokens", status_code=201)
     def create_token(request: Request, body: dict | None = None):
         """API.md 6-1: 세션 쿠키로만. DB가 끊겨도 서명만 보고 통과시키지 않는다 (staff_for가 DBUnavailable → 503)."""
-        bearer = _bearer(request)
-        if bearer is not None:
-            request.state.token_name = tokens.name_for(bearer)  # 감사 기록에 누가 시도했는지 (틀린 토큰이면 None)
-            raise HTTPException(403, TOKEN_BY_TOKEN)
-        staff = sessions.staff_for(db, request.cookies.get(COOKIE_NAME), clock())
-        if staff is None:
-            raise HTTPException(401, "로그인이 필요합니다.")
+        staff = session_staff(request, TOKEN_BY_TOKEN)
         name = body.get("name") if isinstance(body, dict) else None
         name = name.strip() if isinstance(name, str) else ""
         if not token_cli.NAME.match(name):
@@ -225,6 +237,41 @@ def create_app(settings: Settings, *, db: Database | None = None, monitor: Healt
         audit.write(now, via="session", who=staff.username, event="token_created", target=name,
                     path="/api/admin/mcp/tokens", status=201)
         return {"name": name, "token": token, "createdAt": iso(now)}
+
+    @app.get("/api/admin/chaos/options", dependencies=authed)
+    def chaos_options():
+        """API.md 7장: 서비스 내부 API의 고르기용 목록을 그대로."""
+        if not settings.chaos_on:
+            raise HTTPException(404, chaos_api.OFF)
+        try:
+            return chaos.options()
+        except chaos_api.Unreachable:
+            raise HTTPException(503, chaos_api.UNREACHABLE) from None
+
+    @app.post(CHAOS_PATH, status_code=201)
+    async def chaos_run(request: Request):
+        """API.md 7장: 세션 쿠키로만. 로그인한 staff 아이디를 requestedBy로 붙여 서명해 서비스로 보내고, 결과를 감사 기록에 남긴다."""
+        staff = await run_in_threadpool(session_staff, request, CHAOS_BY_TOKEN)
+
+        def done(status: int, body: dict, target: str | None = None) -> JSONResponse:
+            audit.write(clock(), via="session", who=staff.username, event="chaos_requested",
+                        target=target or str(status), path=CHAOS_PATH, status=status)
+            return JSONResponse(body, status_code=status)
+
+        if not settings.chaos_on:
+            return done(404, {"detail": chaos_api.OFF})
+        try:
+            body = json.loads(await request.body() or b"null")
+        except ValueError:
+            body = None
+        if not isinstance(body, dict):
+            return done(400, {"detail": CHAOS_BODY})
+        try:
+            reply = await run_in_threadpool(chaos.create, body.get("symbol"), body.get("chaos"), staff.username)
+        except chaos_api.Unreachable:
+            return done(503, {"detail": chaos_api.UNREACHABLE})
+        created = reply.body.get("id") if reply.status == 201 else None
+        return done(reply.status, reply.body, str(created) if created is not None else None)
 
     @app.get("/api/admin/overview", dependencies=authed)
     def overview():

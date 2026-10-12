@@ -21,6 +21,12 @@ class Settings:
     cookie_secure: bool = False
     api_url: str = "http://api:8100"
     deploys_file: Path | None = None
+    chaos_secret: str = ""                               # 비우면 장애 주입(API.md 7장) 꺼짐
+    service_internal_url: str = "http://tunnel:8000"     # 서비스 내부 API (tunnel 컨테이너 → SSH → 서비스 서버 web)
+
+    @property
+    def chaos_on(self) -> bool:
+        return bool(self.chaos_secret)
 
     @property
     def deploys_path(self) -> Path:
@@ -53,6 +59,13 @@ def _flag(env: dict, key: str) -> bool:
     return (env.get(key) or "").strip().lower() in ("on", "1", "true", "yes")
 
 
+def _url(env: dict, key: str, default: str) -> str:
+    raw = (env.get(key) or "").strip() or default
+    if not raw.startswith(("http://", "https://")):
+        raise ConfigError(f"{key}는 http:// 또는 https://로 시작해야 합니다")
+    return raw.rstrip("/")
+
+
 def data_dir(env: dict | None = None) -> Path:
     """ADMIN_DATA_DIR (기본 ./data). 토큰 CLI처럼 비밀 키 없이 쓰는 곳도 이것만 읽는다."""
     env = os.environ if env is None else env
@@ -78,4 +91,6 @@ def load(env: dict | None = None) -> Settings:
         cookie_secure=_flag(env, "ADMIN_COOKIE_SECURE"),
         api_url=((env.get("ADMIN_API_URL") or "").strip() or "http://api:8100").rstrip("/"),
         deploys_file=Path(env["ADMIN_DEPLOYS_FILE"].strip()) if (env.get("ADMIN_DEPLOYS_FILE") or "").strip() else None,
+        chaos_secret=(env.get("ADMIN_CHAOS_SECRET") or "").strip(),
+        service_internal_url=_url(env, "ADMIN_SERVICE_INTERNAL_URL", "http://tunnel:8000"),
     )

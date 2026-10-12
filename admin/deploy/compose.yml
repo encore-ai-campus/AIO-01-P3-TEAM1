@@ -7,6 +7,7 @@
 #                                                               ├─ /api/admin/  api (server, 숫자는 여기서만 만든다)
 #                                                               └─ /mcp         mcp (같은 api를 사람별 토큰으로 부른다)
 # api ─▶ tunnel(SSH) ─▶ 서비스 서버 127.0.0.1:DB_LOCAL_PORT (읽기 전용 계정 paper_admin_ro)
+#                     └▶ 서비스 서버 127.0.0.1:WEB_LOCAL_PORT (장애 주입 내부 API — 서명, ADMIN_CHAOS_SECRET이 있을 때만. API.md 7장)
 # web만 밖에 연다. 기본은 127.0.0.1(SSH 터널로 접속), 운영은 ADMIN_HTTP_BIND=0.0.0.0 · ADMIN_HTTP_PORT=80 (2026-10-08 사용자 결정 — README 9장).
 #
 # ADMIN_HOME(기본 ../..)에 secrets/(tunnel_key, known_hosts), records/deploys.jsonl을 둔다.
@@ -29,6 +30,7 @@ services:
       TUNNEL_TARGET: "${TUNNEL_TARGET:?.env에 TUNNEL_TARGET이 필요합니다 (예 admin-tunnel@서비스 서버 주소)}"
       TUNNEL_PORT: ${TUNNEL_PORT:-22}
       DB_LOCAL_PORT: ${DB_LOCAL_PORT:-15432}
+      WEB_LOCAL_PORT: ${WEB_LOCAL_PORT:-18000}
     volumes:
       - ${ADMIN_HOME:-../..}/secrets:/keys:ro
     tmpfs:
@@ -47,6 +49,8 @@ services:
       ADMIN_COOKIE_SECURE: ${ADMIN_COOKIE_SECURE:-off}
       ADMIN_DATA_DIR: /data
       ADMIN_DEPLOYS_FILE: /records/deploys.jsonl
+      ADMIN_CHAOS_SECRET: ${ADMIN_CHAOS_SECRET:-}
+      ADMIN_SERVICE_INTERNAL_URL: ${ADMIN_SERVICE_INTERNAL_URL:-http://tunnel:8000}
       TZ: Asia/Seoul
     volumes:
       - admindata:/data                                  # 감사 기록·MCP 토큰 (컨테이너 사용자가 쓴다)

@@ -1,6 +1,24 @@
 // API.md의 모든 경로를 흉내 내는 MSW 핸들러. 로그인은 admin / admin1234만 성공한다.
 import { http, HttpResponse } from "msw";
-import { addMockToken, alerts, costs, dayWindow, deploys, engine, matchesKind, mcp, overview, recovery, reportRows, service, trace } from "./data";
+import type { ChaosConfigRequest } from "../api";
+import {
+  addMockToken,
+  alerts,
+  chaosOptions,
+  costs,
+  createMockChaosRun,
+  dayWindow,
+  deploys,
+  engine,
+  matchesKind,
+  mcp,
+  overview,
+  recovery,
+  reportRows,
+  runningChaosRun,
+  service,
+  trace,
+} from "./data";
 
 const SESSION_KEY = "paper-admin-mock-session";
 
@@ -106,6 +124,22 @@ export const handlers = [
     if (hours === null) return bad("hours", 1, 168);
     const limit = intParam(url, "limit", 200, 1, 500);
     return limit === null ? bad("limit", 1, 500) : HttpResponse.json(mcp(hours, limit));
+  }),
+  // F11 장애 주입 (API.md 7장). 서비스의 오류(400·409)도 흉내 낸다: 6자리가 아닌 종목은 400, 진행 중인 실행이 있으면 409 + id.
+  guarded("/api/admin/chaos/options", () => HttpResponse.json(chaosOptions())),
+  http.post("/api/admin/chaos/runs", async ({ request }) => {
+    if (request.headers.get("authorization")) return err(403, "토큰으로는 장애 주입을 신청할 수 없습니다. 관리자 화면에 로그인해 신청하세요.");
+    if (!isLoggedIn()) return unauthorized();
+    const body = (await request.json().catch(() => null)) as { symbol?: unknown; chaos?: unknown } | null;
+    if (!body || typeof body !== "object" || Array.isArray(body)) return err(400, '본문은 {"symbol", "chaos"} JSON 객체여야 합니다');
+    const symbol = typeof body.symbol === "string" ? body.symbol : "";
+    if (!/^\d{6}$/.test(symbol)) return err(400, `없는 종목입니다: ${symbol || "(빈 값)"}`);
+    const chaos = body.chaos as ChaosConfigRequest | undefined;
+    if (!chaos || typeof chaos !== "object" || chaos.enabled !== true) return err(400, "chaos.enabled가 true여야 합니다.");
+    const running = runningChaosRun();
+    if (running !== null)
+      return HttpResponse.json({ detail: "진행 중인 장애 주입 실행이 있어요. 끝난 뒤에 다시 신청해 주세요.", id: running }, { status: 409 });
+    return HttpResponse.json(createMockChaosRun(symbol, chaos, "admin"), { status: 201 });
   }),
   http.post("/api/admin/mcp/tokens", async ({ request }) => {
     if (request.headers.get("authorization")) return err(403, "토큰으로는 토큰을 만들 수 없습니다. 관리자 화면에 로그인해 만드세요.");
