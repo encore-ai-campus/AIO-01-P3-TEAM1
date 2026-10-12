@@ -214,3 +214,57 @@ def test_tokens_cli(tmp_path, monkeypatch, capsys):
     assert token_cli.main(["revoke", "bob"]) == 0
     assert store.name_for(raw) is None
     assert token_cli.main(["revoke", "bob"]) == 1
+
+
+def test_create_token_from_session(staff_client, settings, clock):
+    """API.md 6-1: 화면의 토큰 생성. 원문은 응답에만, 파일에는 해시, 감사 기록에는 누가·어떤 이름."""
+    res = staff_client.post("/api/admin/mcp/tokens", json={"name": " bob "})
+    assert res.status_code == 201
+    body = res.json()
+    assert body["name"] == "bob" and body["createdAt"] == "2026-10-08T12:00:00+09:00" and len(body["token"]) >= 40
+    assert TokenStore(settings.tokens_path).name_for(body["token"]) == "bob"
+    assert body["token"] not in settings.tokens_path.read_text() and body["token"] not in settings.audit_path.read_text()
+    assert audit_lines(settings)[-1] == {"at": "2026-10-08T12:00:00+09:00", "via": "session", "who": "admin",
+                                         "event": "token_created", "tool": None, "path": "/api/admin/mcp/tokens",
+                                         "status": 201, "target": "bob"}
+    me = staff_client.get("/api/admin/me", headers={"Authorization": f"Bearer {body['token']}"})
+    assert me.json() == {"username": "bob", "via": "token"}
+    listed = staff_client.get("/api/admin/mcp").json()["tokens"]
+    assert [t["name"] for t in listed] == ["bob"] and listed[0]["createdAt"] == body["createdAt"]
+
+
+def test_create_token_rejects_bad_or_duplicate_name(staff_client, settings, token):
+    assert staff_client.post("/api/admin/mcp/tokens", json={"name": "alice"}).json() == {"detail": "이미 있는 이름입니다: alice"}
+    assert staff_client.post("/api/admin/mcp/tokens", json={"name": "alice"}).status_code == 409
+    for body in ({"name": "bad name!"}, {"name": ""}, {"name": "x" * 65}, {"name": 3}, {}, None):
+        res = staff_client.post("/api/admin/mcp/tokens", json=body)
+        assert res.status_code == 400, body
+    assert staff_client.post("/api/admin/mcp/tokens", json={"name": "bad name!"}).json() == {"detail": token_cli.NAME_RULE}
+    assert [t["name"] for t in TokenStore(settings.tokens_path).load()] == ["alice"]
+    assert [x["event"] for x in audit_lines(settings)] == ["login"]
+
+
+def test_create_token_needs_session_not_token(client, staff_client, settings, token):
+    """토큰으로는 만들 수 없다 (쿠키가 같이 있어도). 쿠키도 없으면 401."""
+    res = staff_client.post("/api/admin/mcp/tokens", json={"name": "carol"}, headers={"Authorization": f"Bearer {token}"})
+    assert res.status_code == 403 and "토큰으로는" in res.json()["detail"]
+    staff_client.cookies.clear()
+    assert staff_client.post("/api/admin/mcp/tokens", json={"name": "carol"}).status_code == 401
+    assert [t["name"] for t in TokenStore(settings.tokens_path).load()] == ["alice"]
+    assert audit_lines(settings)[-1]["status"] == 403 and audit_lines(settings)[-1]["who"] == "alice"
+
+
+def test_create_token_rechecks_staff_in_db(staff_client, rows, app, settings, monkeypatch):
+    """DB가 끊기면 서명만 보고 통과시키지 않는다 (503). staff를 빼면 401."""
+    from paper_admin.db import DBUnavailable
+
+    rows.sql("UPDATE auth_user SET is_staff = 0 WHERE username = 'admin'")
+    assert staff_client.post("/api/admin/mcp/tokens", json={"name": "dave"}).status_code == 401
+    rows.sql("UPDATE auth_user SET is_staff = 1 WHERE username = 'admin'")
+
+    def down(*args, **kwargs):
+        raise DBUnavailable("OperationalError")
+
+    monkeypatch.setattr(app.state.db, "query", down)
+    assert staff_client.post("/api/admin/mcp/tokens", json={"name": "dave"}).status_code == 503
+    assert TokenStore(settings.tokens_path).load() == []

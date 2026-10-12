@@ -243,6 +243,12 @@ export interface McpStatus {
   summary: { calls: number; errors: number; invalid: number; byTool: { tool: string; calls: number; errors: number }[] };
   calls: McpCall[];
 }
+// 토큰 만들기 — POST /api/admin/mcp/tokens (API.md 6-1). token은 이 응답에만 있다.
+export interface McpTokenCreated {
+  name: string;
+  token: string;
+  createdAt: string;
+}
 
 // ---------------------------------------------------------------------------
 
@@ -343,6 +349,13 @@ export const login = (username: string, password: string) =>
 export const logout = () => request<void>("/api/admin/logout", { method: "POST" });
 
 export const fetchMe = () => request<Me>("/api/admin/me");
+
+export const createMcpToken = (name: string) =>
+  request<McpTokenCreated>("/api/admin/mcp/tokens", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
 
 export function queryString(params: Record<string, string | number | undefined>): string {
   const q = new URLSearchParams();

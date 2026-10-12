@@ -10,6 +10,7 @@ import type {
   HealthCheck,
   McpCall,
   McpStatus,
+  McpTokenCreated,
   McpTool,
   Overview,
   RecoveryStats,
@@ -464,6 +465,23 @@ function mcpCallsAll(): McpCall[] {
   ];
 }
 
+// 화면의 토큰 생성으로 만든 이름 (메모리, 새로 고침하면 사라진다)
+const createdTokens: { name: string; createdAt: string }[] = [];
+const MOCK_TOKEN_NAMES = ["dy", "hwanseok", "yubeen"];
+
+/** API.md 6-1. 같은 이름이 있으면 null. */
+export function addMockToken(name: string): McpTokenCreated | null {
+  if (MOCK_TOKEN_NAMES.includes(name) || createdTokens.some((t) => t.name === name)) return null;
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  const token = btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const createdAt = new Date().toISOString();
+  createdTokens.push({ name, createdAt });
+  return { name, token, createdAt };
+}
+export function resetMockTokens() {
+  createdTokens.length = 0;
+}
+
 export function mcp(hours: number, limit: number): McpStatus {
   const since = Date.now() - hours * HOUR;
   const all = mcpCallsAll();
@@ -485,7 +503,12 @@ export function mcp(hours: number, limit: number): McpStatus {
     endpoint: "/mcp",
     hours,
     tools: MCP_TOOLS,
-    tokens: [tokenRow("dy", 1), tokenRow("hwanseok", 2), tokenRow("yubeen", 0)],
+    tokens: [
+      tokenRow("dy", 1),
+      tokenRow("hwanseok", 2),
+      tokenRow("yubeen", 0),
+      ...createdTokens.map((t) => ({ name: t.name, createdAt: t.createdAt, lastUsedAt: null, calls: 0, errors: 0 })),
+    ].sort((a, b) => a.name.localeCompare(b.name)),
     summary: {
       calls: toolCalls.length,
       errors: toolCalls.filter((x) => !x.ok).length,

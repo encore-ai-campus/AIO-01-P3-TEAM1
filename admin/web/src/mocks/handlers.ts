@@ -1,6 +1,6 @@
 // API.md의 모든 경로를 흉내 내는 MSW 핸들러. 로그인은 admin / admin1234만 성공한다.
 import { http, HttpResponse } from "msw";
-import { alerts, costs, dayWindow, deploys, engine, matchesKind, mcp, overview, recovery, reportRows, service, trace } from "./data";
+import { addMockToken, alerts, costs, dayWindow, deploys, engine, matchesKind, mcp, overview, recovery, reportRows, service, trace } from "./data";
 
 const SESSION_KEY = "paper-admin-mock-session";
 
@@ -106,5 +106,14 @@ export const handlers = [
     if (hours === null) return bad("hours", 1, 168);
     const limit = intParam(url, "limit", 200, 1, 500);
     return limit === null ? bad("limit", 1, 500) : HttpResponse.json(mcp(hours, limit));
+  }),
+  http.post("/api/admin/mcp/tokens", async ({ request }) => {
+    if (request.headers.get("authorization")) return err(403, "토큰으로는 토큰을 만들 수 없습니다. 관리자 화면에 로그인해 만드세요.");
+    if (!isLoggedIn()) return unauthorized();
+    const body = (await request.json().catch(() => ({}))) as { name?: unknown };
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    if (!/^[0-9A-Za-z._-]{1,64}$/.test(name)) return err(400, "이름은 영문·숫자·._- 64자까지입니다");
+    const created = addMockToken(name);
+    return created ? HttpResponse.json(created, { status: 201 }) : err(409, `이미 있는 이름입니다: ${name}`);
   }),
 ];

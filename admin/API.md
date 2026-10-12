@@ -5,10 +5,10 @@
 
 ## 0. 공통 규칙
 
-- **조회만 한다.** 쓰기 요청은 로그인·로그아웃뿐이고, 서비스 DB에는 읽기 전용 계정(4장)으로만 붙는다.
+- **조회만 한다.** 쓰기 요청은 로그인·로그아웃과 MCP 토큰 만들기(6장, 관리 서버의 자기 파일에만 쓴다)뿐이고, 서비스 DB에는 읽기 전용 계정(4장)으로만 붙는다.
 - 시각은 모두 ISO 8601에 시간대를 붙인다 (`2026-10-08T09:30:00+09:00`). 날짜 묶음(일별 비용 등)은 **KST 날짜**(`YYYY-MM-DD`)다.
 - 돈은 USD 숫자(소수), 시간 길이는 ms 또는 초(필드 이름에 `Ms`·`Sec`).
-- 오류 응답은 `{"detail": string}`이다. `400` 잘못된 값 · `401` 로그인·토큰 없음 · `404` 없음 · `429` 로그인 시도 초과 · `503` 서비스 DB에 붙지 못함("서비스 DB에 연결할 수 없습니다").
+- 오류 응답은 `{"detail": string}`이다. `400` 잘못된 값 · `401` 로그인·토큰 없음 · `403` 토큰으로 부른 토큰 만들기 · `404` 없음 · `409` 이미 있는 토큰 이름 · `429` 로그인 시도 초과 · `503` 서비스 DB에 붙지 못함("서비스 DB에 연결할 수 없습니다").
 - 상태 단계 `Level`: `ok`(정상) · `warn`(살펴볼 것) · `down`(멈춤·실패) · `unknown`(자료 없음).
 - 비밀 값·개인 정보를 내지 않는다: 비밀번호 해시, 세션, 토큰, 알림 본문(`notification_outbox.content`), 리포트 본문, 사용자 이름·닉네임.
   오류 문장은 300자로 자르고 URL의 경로·쿼리(웹훅 주소 등)는 `…`로 가린다.
@@ -29,9 +29,11 @@
 - **서비스 DB(터널)가 끊겼을 때**는 서명·만료·로그아웃만 확인하고 통과시킨다: DB가 필요 없는 F3·F5와 `/me`는 200, DB가 필요한 경로는 `503`. 로그인은 `503`.
 - 같은 아이디로 10분 안에 5번 시도해 성공하지 못하면 10분 동안 `429` (시도는 검증 전에 센다 — 동시 요청으로 넘지 못한다).
   IP로는 막지 않는다: 관리자는 모두 SSH 터널로 들어와 주소가 같다. 없는 아이디도 가짜 해시로 같은 시간 검증한다 (응답 시간으로 staff 아이디를 알 수 없게).
-- 토큰은 관리 서버의 `ADMIN_DATA_DIR/mcp_tokens.json`에 **SHA-256 해시**로만 둔다. 만들기·목록·지우기: `python -m paper_admin.tokens add|list|revoke <이름>` (토큰 원문은 만들 때 한 번만 보인다).
-- 감사 기록은 `ADMIN_DATA_DIR/audit.jsonl`에 한 줄씩 더한다: `{"at", "via": "token"|"session", "who", "event": "login"|"login_failed"|"request", "tool", "path", "status"}`. 토큰·비밀번호는 적지 않는다.
-- 화면에서 쓰는 GET은 쿠키로, MCP는 토큰으로 부른다. 토큰으로는 로그인·로그아웃을 부르지 않는다.
+- 토큰은 관리 서버의 `ADMIN_DATA_DIR/mcp_tokens.json`에 **SHA-256 해시**로만 둔다. 만들기: 관리자 화면의 **토큰 생성**(6장 `POST /api/admin/mcp/tokens`) 또는 `python -m paper_admin.tokens add <이름>`.
+  목록·지우기: `python -m paper_admin.tokens list|revoke <이름>`. 토큰 원문은 만들 때 한 번만 보인다.
+- 감사 기록은 `ADMIN_DATA_DIR/audit.jsonl`에 한 줄씩 더한다: `{"at", "via": "token"|"session", "who", "event": "login"|"login_failed"|"request"|"token_created", "tool", "path", "status"}`.
+  `token_created`에는 만든 토큰 이름 `"target"`을 더한다. 토큰·비밀번호는 적지 않는다.
+- 화면에서 쓰는 GET과 토큰 만들기는 쿠키로, MCP는 토큰으로 부른다. 토큰으로는 로그인·로그아웃·토큰 만들기를 부르지 않는다.
 
 | 메서드·경로 | 요청 | 응답 |
 |---|---|---|
@@ -322,4 +324,26 @@ interface McpStatus {
 ```
 
 - 감사 기록은 파일 끝 4MB까지만 읽는다 (오래된 기록은 `lastUsedAt`·기간 셈에서 빠질 수 있다).
+
+### 6-1. 토큰 만들기 (2026-10-12 추가)
+
+관리자 화면 "MCP 도구·호출"의 **토큰 생성**이 쓴다. 토큰 원문은 이 응답에만 한 번 실리고, 화면은 그 원문을 넣은 `claude mcp add`·`codex mcp add` 명령을 복사할 수 있게 보인다.
+
+| 메서드·경로 | 요청 | 응답 |
+|---|---|---|
+| `POST /api/admin/mcp/tokens` | `{"name": string}` (JSON) | `201 McpTokenCreated` · 이름이 비었거나 형식이 틀림 `400` · 쿠키 없음·staff 아님 `401` · 토큰(`Authorization: Bearer`)으로 부름 `403` · 같은 이름이 있음 `409` · 서비스 DB 끊김 `503` |
+
+```ts
+interface McpTokenCreated {
+  name: string;                 // 토큰 이름 = 감사 기록·호출 기록의 who
+  token: string;                // 토큰 원문. 다시 볼 수 없다 (파일에는 SHA-256만)
+  createdAt: string;
+}
+```
+
+- **세션 쿠키로만** 부른다. 토큰으로 부르면 `403 {"detail": "토큰으로는 토큰을 만들 수 없습니다. 관리자 화면에 로그인해 만드세요."}` (쿠키가 같이 있어도).
+- 다른 경로와 달리 서비스 DB가 끊겼을 때 서명만 보고 통과시키지 않는다: 요청마다 뷰 `admin_staff_accounts`로 staff·활성·비밀번호 지문을 다시 확인하고, DB가 끊기면 `503`.
+- 이름은 `[0-9A-Za-z._-]{1,64}` (앞뒤 공백은 지운다). 틀리면 `400 {"detail": "이름은 영문·숫자·._- 64자까지입니다"}`, 이미 있으면 `409 {"detail": "이미 있는 이름입니다: <이름>"}`.
+- 감사 기록: `{"via": "session", "who": <staff 아이디>, "event": "token_created", "target": <토큰 이름>, "tool": null, "path": "/api/admin/mcp/tokens", "status": 201}`.
+- 지우기는 화면에 없다: 관리 서버에서 `python -m paper_admin.tokens revoke <이름>`.
 

@@ -1,5 +1,6 @@
 import { useState } from "react";
-import type { McpCall, McpStatus } from "../api";
+import type { McpCall, McpStatus, McpTokenCreated } from "../api";
+import McpConnect from "../components/McpConnect";
 import { Empty, LevelBadge, Loaded, PageHeader, Select, Stat } from "../components/ui";
 import { DASH, fmtTime } from "../format";
 import { POLL_FAST, useApi } from "../hooks";
@@ -20,6 +21,7 @@ function Status({ c }: { c: McpCall }) {
 export default function McpTools() {
   const [hours, setHours] = useState(24);
   const [tool, setTool] = useState("");
+  const [created, setCreated] = useState<McpTokenCreated | null>(null);
   const q = useApi<McpStatus>(`/api/admin/mcp?hours=${hours}&limit=500`, POLL_FAST);
   return (
     <>
@@ -42,11 +44,9 @@ export default function McpTools() {
               <p>
                 주소 <code>{url}</code> · 사람마다 따로 만든 토큰을 <code>Authorization: Bearer</code> 헤더로 보낸다. 모든 도구는 조회만 한다.
               </p>
-              <pre className="wrap">
-                <code>{`claude mcp add --transport http paper-admin ${url} --header "Authorization: Bearer <토큰>"`}</code>
-              </pre>
+              <McpConnect url={url} created={created} onCreated={setCreated} />
               <p className="muted">
-                토큰 만들기·지우기는 관리 서버에서: <code>python -m paper_admin.tokens add|list|revoke &lt;이름&gt;</code> (README 3장, 원문은 만들 때 한 번만 보인다)
+                토큰 지우기는 관리 서버에서: <code>python -m paper_admin.tokens revoke &lt;이름&gt;</code> (README 3장)
               </p>
 
               <div className="stats">
@@ -92,7 +92,7 @@ export default function McpTools() {
                 토큰 <span className="muted">({d.tokens.length}개)</span>
               </h2>
               {d.tokens.length === 0 ? (
-                <Empty>만든 토큰이 없습니다. 관리 서버에서 python -m paper_admin.tokens add &lt;이름&gt;으로 만든다.</Empty>
+                <Empty>만든 토큰이 없습니다. 위의 토큰 생성으로 만든다.</Empty>
               ) : (
                 <table className="narrow">
                   <thead>

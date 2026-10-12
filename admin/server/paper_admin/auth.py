@@ -224,9 +224,11 @@ class AuditLog:
         self.lock = threading.Lock()
 
     def write(self, now: datetime, *, via: str, who: str | None, event: str, path: str,
-              status: int, tool: str | None = None) -> None:
-        line = json.dumps({"at": iso(now), "via": via, "who": who, "event": event, "tool": tool,
-                           "path": path, "status": status}, ensure_ascii=False)
+              status: int, tool: str | None = None, target: str | None = None) -> None:
+        record = {"at": iso(now), "via": via, "who": who, "event": event, "tool": tool, "path": path, "status": status}
+        if target is not None:  # token_created: 만든 토큰 이름
+            record["target"] = target
+        line = json.dumps(record, ensure_ascii=False)
         with self.lock:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with self.path.open("a", encoding="utf-8") as f:

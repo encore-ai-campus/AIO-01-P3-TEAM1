@@ -32,7 +32,7 @@
 | 복구 지표 | `/recovery` | F7 | 기간 1·7·30·90일 | 자동 복구율 · 평균 복구 시간 · 장애 · 복구 · 미복구 · 장애 주입, errorType별 · Worker별, 최근 장애 20건 |
 | AI 비용 | `/costs` | F8 | 기간 7·14·30·90일 | 오늘 예산 사용 · 실제 비용 · 분석 요청 · 리포트 한도, 일별 비용(리포트 · 분석 · 장기투자)과 기간 합계 |
 | 알림·작업 실패 | `/alerts` | F9 | 기간 24·72·168시간 | Discord 발송 실패 · 오래된 대기 · 멈춘 발송과 그 목록, 멈춘 분석·리포트 작업 |
-| MCP 도구·호출 | `/tools` | F10 | 기간 24·72·168시간, 도구 | 연결 주소와 `claude mcp add` 명령, 도구 호출 · 실패 응답 · 틀린 토큰 수, 도구 목록, 토큰별 마지막 사용, 호출 기록 |
+| MCP 도구·호출 | `/tools` | F10 | 기간 24·72·168시간, 도구 | 연결 주소, **토큰 생성**(원문은 한 번만 보인다)과 토큰을 채운 `claude mcp add`·`codex mcp add` 명령 복사, 도구 호출 · 실패 응답 · 틀린 토큰 수, 도구 목록, 토큰별 마지막 사용, 호출 기록 |
 
 `cd web && VITE_MOCK=1 npm run dev`로 가짜 API(MSW)를 붙여 화면만 띄워 볼 수 있다 (admin / admin1234, [6장](#6-개발)).
 
@@ -69,12 +69,19 @@ Claude Code 같은 MCP 클라이언트에서 관리 서버의 상태를 묻는 *
 
 연결 (토큰 원문은 만들 때 한 번만 보인다):
 
+1. 관리자 화면 **MCP 도구·호출**(`/tools`)의 "연결"에서 토큰 이름(사람마다 하나, 영문·숫자·`._-`)을 넣고 **토큰 생성** (`POST /api/admin/mcp/tokens`, API.md 6-1 — 세션 쿠키로만, 토큰으로는 못 만든다).
+2. 원문이 채워진 명령을 **복사** 버튼으로 복사해 내 PC 터미널에서 실행한다. 화면을 벗어나면 원문은 다시 볼 수 없다.
+
 ```bash
-ssh ubuntu@<관리 서버> "cd ~/paper_admin/app && docker compose --env-file ../.env exec api python -m paper_admin.tokens add <이름>"
+# Claude Code
 claude mcp add --transport http paper-admin http://<관리 서버 퍼블릭 IP>/mcp --header "Authorization: Bearer <토큰>"
+# Codex — 토큰은 설정 파일에 두지 않고 실행할 때 환경 변수에서 읽는다. export 줄은 ~/.zshrc·~/.bashrc에도 넣어 둔다
+codex mcp add paper-admin --url http://<관리 서버 퍼블릭 IP>/mcp --bearer-token-env-var PAPER_ADMIN_MCP_TOKEN
+export PAPER_ADMIN_MCP_TOKEN="<토큰>"
 ```
 
-- 토큰 목록·지우기: 같은 자리에서 `python -m paper_admin.tokens list` · `revoke <이름>`.
+- 관리 서버 셸에서 만들 때: `ssh ubuntu@<관리 서버> "cd ~/paper_admin/app && docker compose --env-file ../.env exec api python -m paper_admin.tokens add <이름>"`.
+- 토큰 목록·지우기(화면에는 없다): 같은 자리에서 `python -m paper_admin.tokens list` · `revoke <이름>`.
 - 감사 기록 원본: `docker compose --env-file ../.env exec api tail /data/audit.jsonl`.
 
 ## 4. 도구 설명

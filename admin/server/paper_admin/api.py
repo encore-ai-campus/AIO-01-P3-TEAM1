@@ -1,10 +1,11 @@
 """관리자 API `/api/admin/*` (API.md). `uvicorn paper_admin.api:app --host 0.0.0.0 --port 8100` (워커 1개).
 
-조회만 한다 (쓰기는 로그인·로그아웃뿐). 오류 응답은 모두 {"detail": string}. OpenAPI·docs 경로는 끈다.
+조회만 한다 (쓰기는 로그인·로그아웃과 MCP 토큰 만들기뿐 — 관리 서버 자기 파일에만). 오류 응답은 모두 {"detail": string}. OpenAPI·docs 경로는 끈다.
 """
 import contextlib
 import json
 import re
+import threading
 from dataclasses import dataclass
 from typing import Literal
 
@@ -16,6 +17,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import deploys as deploy_log
 from . import mcp_usage, metrics
+from . import tokens as token_cli
 from .auth import (COOKIE_NAME, DUMMY_HASH, LOGIN_FAILED, SESSION_TTL, AuditLog, LoginLimiter, Sessions, TokenStore,
                    find_staff, verify_django_password)
 from .config import Settings, load
@@ -24,6 +26,7 @@ from .health import HealthMonitor
 from .util import iso, utcnow
 
 DB_DOWN = "서비스 DB에 연결할 수 없습니다"
+TOKEN_BY_TOKEN = "토큰으로는 토큰을 만들 수 없습니다. 관리자 화면에 로그인해 만드세요."
 TOOL = re.compile(r"[a-z_]{1,40}")
 TITLES = {"service": "서비스 상태", "engine": "엔진 상태", "deploys": "배포 기록", "reports": "리포트 장애",
           "recovery": "복구 지표", "costs": "AI 비용", "alerts": "알림·작업 실패"}
@@ -51,6 +54,7 @@ def create_app(settings: Settings, *, db: Database | None = None, monitor: Healt
     sessions = Sessions(settings.secret_key)
     limiter = LoginLimiter()
     tokens = TokenStore(settings.tokens_path)
+    token_lock = threading.Lock()  # 토큰 파일 읽기·확인·쓰기를 한 번에 (같은 이름이 동시에 둘 생기지 않게)
     audit = AuditLog(settings.audit_path)
 
     @contextlib.asynccontextmanager
@@ -197,6 +201,30 @@ def create_app(settings: Settings, *, db: Database | None = None, monitor: Healt
     @app.get("/api/admin/mcp", dependencies=authed)
     def mcp(hours: int = Query(24, ge=1, le=168), limit: int = Query(200, ge=1, le=500)):
         return mcp_usage.status(tokens, settings.audit_path, clock(), hours, limit)
+
+    @app.post("/api/admin/mcp/tokens", status_code=201)
+    def create_token(request: Request, body: dict | None = None):
+        """API.md 6-1: 세션 쿠키로만. DB가 끊겨도 서명만 보고 통과시키지 않는다 (staff_for가 DBUnavailable → 503)."""
+        bearer = _bearer(request)
+        if bearer is not None:
+            request.state.token_name = tokens.name_for(bearer)  # 감사 기록에 누가 시도했는지 (틀린 토큰이면 None)
+            raise HTTPException(403, TOKEN_BY_TOKEN)
+        staff = sessions.staff_for(db, request.cookies.get(COOKIE_NAME), clock())
+        if staff is None:
+            raise HTTPException(401, "로그인이 필요합니다.")
+        name = body.get("name") if isinstance(body, dict) else None
+        name = name.strip() if isinstance(name, str) else ""
+        if not token_cli.NAME.match(name):
+            raise HTTPException(400, token_cli.NAME_RULE)
+        now = clock()
+        with token_lock:
+            try:
+                token = token_cli.add(tokens, name, now)
+            except ValueError as e:
+                raise HTTPException(409, str(e)) from None
+        audit.write(now, via="session", who=staff.username, event="token_created", target=name,
+                    path="/api/admin/mcp/tokens", status=201)
+        return {"name": name, "token": token, "createdAt": iso(now)}
 
     @app.get("/api/admin/overview", dependencies=authed)
     def overview():

@@ -1,4 +1,4 @@
-"""MCP 토큰 관리: `python -m paper_admin.tokens add|list|revoke <이름>` (API.md 1장).
+"""MCP 토큰 관리: `python -m paper_admin.tokens add|list|revoke <이름>` (API.md 1장). 화면의 토큰 생성(API.md 6-1)도 add를 쓴다.
 
 토큰 원문은 add할 때 한 번만 출력하고, 파일(ADMIN_DATA_DIR/mcp_tokens.json, 0600)에는 SHA-256만 둔다.
 """
@@ -6,20 +6,22 @@ import argparse
 import re
 import secrets
 import sys
+from datetime import datetime
 
 from .auth import TokenStore, token_hash
 from .config import data_dir
 from .util import iso, utcnow
 
 NAME = re.compile(r"^[0-9A-Za-z._-]{1,64}$")
+NAME_RULE = "이름은 영문·숫자·._- 64자까지입니다"
 
 
-def add(store: TokenStore, name: str) -> str:
+def add(store: TokenStore, name: str, now: datetime | None = None) -> str:
     tokens = store.load()
     if any(t["name"] == name for t in tokens):
         raise ValueError(f"이미 있는 이름입니다: {name}")
     token = secrets.token_urlsafe(32)
-    tokens.append({"name": name, "sha256": token_hash(token), "createdAt": iso(utcnow())})
+    tokens.append({"name": name, "sha256": token_hash(token), "createdAt": iso(now or utcnow())})
     store.save(tokens)
     return token
 
@@ -46,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{t['name']}\t{t.get('createdAt') or '-'}")
         return 0
     if not NAME.match(args.name):
-        print("이름은 영문·숫자·._- 64자까지입니다", file=sys.stderr)
+        print(NAME_RULE, file=sys.stderr)
         return 1
     if args.cmd == "add":
         try:

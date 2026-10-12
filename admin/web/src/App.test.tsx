@@ -1,7 +1,8 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Overview } from "./api";
+import { claudeCommand, codexCommand } from "./components/McpConnect";
 import { costs, engine } from "./mocks/data";
 import { server } from "./mocks/server";
 import { renderApp } from "./testUtils";
@@ -293,6 +294,57 @@ describe("MCP 도구·호출 (F10)", () => {
     await waitFor(() => expect(callRows().some((r) => r.textContent?.includes("/api/admin/overview"))).toBe(false));
     expect(callRows().every((r) => r.textContent?.includes("report_trace") || !r.querySelector("td code"))).toBe(true);
     expect(screen.getByText("/api/admin/reports/1042/trace")).toBeTruthy();
+  });
+
+  /** 연결 명령 칸(제목 = 복사 버튼 이름 앞부분)의 글자 */
+  const blockText = (title: string) =>
+    screen.getByRole("button", { name: new RegExp(`^${title} 복사`) }).closest(".copy-block")?.querySelector("code")?.textContent;
+
+  it("토큰 생성: 원문을 한 번 보이고 Claude·Codex 명령에 채우며, 복사 버튼이 그 명령을 클립보드에 넣는다", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    try {
+      renderApp("/tools");
+      const url = `${window.location.origin}/mcp`;
+      await screen.findByText("도구 목록");
+      expect(blockText("Claude Code")).toBe(claudeCommand(url));
+      expect(blockText("Codex")).toBe(`codex mcp add paper-admin --url ${url} --bearer-token-env-var PAPER_ADMIN_MCP_TOKEN\nexport PAPER_ADMIN_MCP_TOKEN="<토큰>"`);
+
+      fireEvent.change(screen.getByLabelText("토큰 이름 (사람마다 하나)"), { target: { value: " newbie " } });
+      fireEvent.click(screen.getByRole("button", { name: "토큰 생성" }));
+      expect((await screen.findByRole("status")).textContent).toContain("newbie 토큰을 만들었습니다");
+      const token = blockText("토큰") ?? "";
+      expect(token).toMatch(/^[A-Za-z0-9_-]{40,}$/);
+      expect(blockText("Claude Code")).toBe(claudeCommand(url, token));
+      expect(blockText("Codex")).toBe(codexCommand(url, token));
+      await waitFor(() => expect(screen.getAllByRole("row").some((r) => r.textContent?.startsWith("newbie"))).toBe(true));
+
+      fireEvent.click(screen.getByRole("button", { name: "Claude Code 복사" }));
+      expect(await screen.findByRole("button", { name: "Claude Code 복사됨" })).toBeTruthy();
+      expect(writeText).toHaveBeenCalledWith(claudeCommand(url, token));
+
+      // 기간을 바꿔 조회가 다시 그려져도 방금 만든 원문은 남는다. 숨기면 자리 표시로 돌아간다.
+      fireEvent.change(screen.getByLabelText("기간"), { target: { value: "72" } });
+      expect(await screen.findByRole("status")).toBeTruthy();
+      expect(blockText("Claude Code")).toBe(claudeCommand(url, token));
+      fireEvent.click(screen.getByRole("button", { name: "숨기기" }));
+      expect(screen.queryByRole("status")).toBeNull();
+      expect(blockText("Claude Code")).toBe(claudeCommand(url));
+    } finally {
+      Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
+  it("토큰 이름이 틀리거나 이미 있으면 알리고 만들지 않는다", async () => {
+    renderApp("/tools");
+    const input = await screen.findByLabelText("토큰 이름 (사람마다 하나)");
+    fireEvent.change(input, { target: { value: "bad name!" } });
+    fireEvent.click(screen.getByRole("button", { name: "토큰 생성" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("이름은 영문·숫자·._- 64자까지입니다");
+    fireEvent.change(input, { target: { value: "dy" } });
+    fireEvent.click(screen.getByRole("button", { name: "토큰 생성" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("이미 있는 이름입니다: dy"));
+    expect(screen.queryByRole("status")).toBeNull();
   });
 
   it("메뉴에 MCP 도구·호출이 있다", async () => {

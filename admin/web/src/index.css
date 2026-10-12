@@ -200,6 +200,56 @@ input {
   color: var(--down);
   border: 1px solid #f5b5af;
 }
+.notice.warn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--warn-bg);
+  color: var(--warn);
+  border: 1px solid #f0d58a;
+}
+
+/* MCP 연결: 토큰 생성·명령 복사 */
+.token-form {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+.token-form input {
+  width: 220px;
+}
+.copy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 0 16px;
+}
+.copy-block {
+  margin-bottom: 12px;
+}
+.copy-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.notice.warn button,
+.copy-head button {
+  flex: none;
+  white-space: nowrap;
+}
+.copy-head button {
+  padding: 2px 10px;
+  font-size: 12px;
+}
+.copy-block .muted {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
 
 /* 레벨 */
 .badge {
