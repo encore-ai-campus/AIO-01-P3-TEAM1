@@ -60,7 +60,42 @@ export function SectionError({ onRetry, retrying = false, bare = false, classNam
  * 섹션 안 한 줄 빈 안내 (작은 아이콘 + 다음에 할 일 한 줄). to가 있으면 줄 전체가 그곳으로 가는 링크다.
  * 빈 섹션이 큰 자리를 차지하지 않게 한 줄로 둔다 — 같은 섹션의 목록 행과 같은 모양이라 자리도 그대로다.
  */
-export function EmptyRow({ icon, children, to, className }: { icon: IconName; children: ReactNode; to?: string; className?: string }) {
+export function EmptyRow({
+  icon,
+  children,
+  to,
+  action,
+  className,
+}: {
+  icon: IconName;
+  children: ReactNode;
+  to?: string;
+  /**
+   * PC(lg+)에만 보이는 다음 할 일 버튼 하나 (빈 섹션이 넓은 화면에서 읽고 끝나는 띠가 되지 않게). 모바일은 지금처럼 한 줄 안내만.
+   * 이름은 화면의 다른 링크와 겹치지 않게 고른다 (예: '종목 찾아보기'). 좁은 자리(PC 오른쪽 열)에서는 안내 아래 줄로 내려간다.
+   */
+  action?: { label: string; to: string };
+  className?: string;
+}) {
+  if (action) {
+    return (
+      <div className={cn("rounded-2xl bg-card px-5 py-3.5 @container lg:py-4", className)}>
+        <p className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span aria-hidden="true" className="grid size-9 shrink-0 place-items-center rounded-full bg-fill text-mute-weak">
+            <Icon name={icon} className="size-4" />
+          </span>
+          <span className="min-w-0 flex-1 text-[14px] leading-snug text-sub @max-[460px]:basis-[calc(100%-3rem)]">{children}</span>
+          <Link
+            to={action.to}
+            className="press hidden h-10 shrink-0 items-center gap-0.5 rounded-xl bg-fill pr-2.5 pl-3.5 text-[14px] font-semibold text-ink hover:bg-line lg:inline-flex @max-[460px]:ml-12"
+          >
+            {action.label}
+            <Icon name="chevron" className="size-4 text-mute" />
+          </Link>
+        </p>
+      </div>
+    );
+  }
   const body = (
     <>
       <span aria-hidden="true" className="grid size-9 shrink-0 place-items-center rounded-full bg-fill text-mute-weak">

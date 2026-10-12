@@ -386,6 +386,28 @@ describe("마이 · 프로필 오류 · 랭킹 · 내 수익률", () => {
   });
 });
 
+describe("마이 · PC 요약 줄 없음", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("PC에도 따로 요약 줄을 두지 않는다 — 닉네임·수익률은 아래 카드에 한 번씩만 (같은 숫자를 두 번 보이지 않는다)", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      media: query,
+      matches: query.includes("min-width: 64rem"),
+      addEventListener() {},
+      removeEventListener() {},
+    }));
+    renderApp("/my");
+    const mine = await screen.findByRole("region", { name: "내 수익률" });
+    expect(screen.queryByRole("region", { name: "내 요약" })).toBeNull();
+    const acc = db.account(1);
+    const rate = `${acc.profitRate > 0 ? "+" : ""}${(acc.profitRate * 100).toFixed(2)}%`;
+    expect(await within(mine).findByText(rate)).toBeTruthy();
+    const main = screen.getByRole("main");
+    const account = within(main).getByRole("region", { name: "계정" });
+    expect(within(main).getAllByText("@alice").every((el) => account.contains(el))).toBe(true);
+  });
+});
+
 describe("마이 · 배치 · 계정", () => {
   /** a가 b보다 문서에서 앞에 있는지 (모바일 한 열 순서 = PC 왼쪽 열 → 오른쪽 열 순서). */
   const before = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);

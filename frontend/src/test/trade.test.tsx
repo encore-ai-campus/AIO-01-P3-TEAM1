@@ -482,24 +482,32 @@ describe("종목 상세 · AI 리포트 만들기", () => {
     expect(cta.hasAttribute("aria-busy")).toBe(false);
   });
 
-  it("장애 주입(시연)은 전문가 보기에만 접혀 있고, 켜면 큰 버튼에 표시하고 요청에 싣는다", async () => {
+  it("장애 주입은 전문가 보기 맨 아래 접힌 '시연용 도구'에 있고(주 카드 밖), 켜면 리포트 카드의 큰 버튼에 표시하고 요청에 싣는다", async () => {
     const seen = recordBodies("/api/reports");
     renderApp("/stocks/005380");
     const cta = await screen.findByRole("region", { name: "AI 리포트" });
-    const toggle = await within(cta).findByRole("button", { name: /장애 주입 \(시연\)/ });
+    await within(cta).findByRole("button", { name: "AI 리포트 만들기" });
+    expect(within(cta).queryByRole("button", { name: /장애 주입/ })).toBeNull(); // 실서비스 카드에는 시연 도구를 두지 않는다
+    expect(within(cta).queryByText(/Agent 워크플로우|Trace/)).toBeNull();
+    const tools = screen.getByRole("region", { name: "시연용 도구" });
+    const toggle = within(tools).getByRole("button", { name: /시연용 도구/ });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(toggle);
-    fireEvent.click(await within(cta).findByRole("switch", { name: /장애 주입/ }));
+    expect(within(tools).getByText(/Agent 워크플로우\(Orchestrator·Worker\)/)).toBeTruthy();
+    expect(await within(tools).findByText(/교차검증 분석 1회 예상 비용 약 \$/)).toBeTruthy(); // 예상 비용도 여기 (교차검증 카드에는 남은 횟수만)
+    fireEvent.click(await within(tools).findByRole("switch", { name: /장애 주입/ }));
+    expect(within(toggle).getByText("장애 주입 켬")).toBeTruthy();
     fireEvent.click(await within(cta).findByRole("button", { name: "AI 리포트 만들기 · 장애 주입" }));
     await waitFor(() => expect(seen).toHaveLength(1));
     server.events.removeAllListeners();
     expect(seen[0]).toMatchObject({ symbol: "005380", chaos: { enabled: true } });
   });
 
-  it("쉬운 보기에는 장애 주입이 없다", async () => {
+  it("쉬운 보기에는 장애 주입(시연용 도구)이 없다", async () => {
     renderApp("/stocks/005380", "bob");
     await within(await screen.findByRole("region", { name: "AI 리포트" })).findByRole("button", { name: "AI 리포트 만들기" });
     expect(screen.queryByRole("button", { name: /장애 주입/ })).toBeNull();
+    expect(screen.queryByRole("region", { name: "시연용 도구" })).toBeNull();
   });
 });
 
@@ -689,7 +697,8 @@ describe("모의투자 탭", () => {
     const holdings = await screen.findByRole("list", { name: "보유 종목" });
     const samsung = within(holdings).getByText("삼성전자").closest("li")!;
     expect(within(samsung).getByText("스윙")).toBeTruthy();
-    expect(within(samsung).getByText(/종가 71,200원/)).toBeTruthy();
+    // 평균가·종가는 PC 표에서 각자 칸이라 이름('· 종가')과 숫자가 다른 요소다 — 행 글자로 본다
+    expect(samsung.textContent).toContain("· 종가 71,200원");
     const celltrion = within(holdings).getByText("셀트리온").closest("li")!;
     expect(within(celltrion).getByText("장기")).toBeTruthy();
     expect(within(celltrion).getByText("장기 보유 · 자동 매도 없음")).toBeTruthy();
@@ -751,7 +760,7 @@ describe("모의투자 탭", () => {
     renderApp("/portfolio?view=easy");
     const holdings = await screen.findByRole("list", { name: "보유 종목" });
     const samsung = within(holdings).getByText("삼성전자").closest("li")!;
-    expect(within(samsung).getByText(/· 산 가격 69,500원 ·/)).toBeTruthy();
+    expect(samsung.textContent).toMatch(/· 산 가격 69,500원 ·/); // 칸 이름과 숫자가 다른 요소 (PC 표의 칸) — 행 글자로 본다
     expect(within(samsung).getByText(/^목표 가격/)).toBeTruthy();
     expect(within(samsung).queryByText(/평균/)).toBeNull();
   });
@@ -1040,7 +1049,7 @@ describe("AI 교차검증 분석 (두 모드 모두 과정을 보인다)", () =>
 
   it("전문가 보기: 같은 과정 + 점수·확률, 주문 바로가기", async () => {
     renderApp("/analyses/5");
-    expect(await screen.findByText("AI 세 곳이 각자 계획을 내고 서로 검증했어요 · 통과 2 · 최종 승인 claude")).toBeTruthy();
+    expect(await screen.findByText("AI 세 곳이 각자 계획을 내고 서로 검증했어요 · 통과 2 · 최종 승인 Claude")).toBeTruthy(); // AI 이름은 두 보기 모두 Claude·GPT·Gemini
     expect(screen.getAllByText(/확률/).length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: "이 종목 주문하기" })).toBeTruthy();
     expect(await screen.findByText(LIVE_ASOF)).toBeTruthy(); // 위쪽 현재가 (분석의 가격은 "분석 시각 가격")
@@ -1145,8 +1154,28 @@ describe("AI 교차검증 분석 (두 모드 모두 과정을 보인다)", () =>
     renderApp("/analyses/5");
     const expert = await rows();
     expect(expert).toHaveLength(11);
-    expect(expert[0]).toBe("sma20 71,250");
-    expect(expert[5]).toBe("volatility20 0.312");
+    // 전문가 보기: 가격·RSI는 숫자 그대로, 등락률·변동성(소수로 온다)은 쉬운 보기와 같은 %로. 원래 키는 늘 보인다. PC는 키 앞에 한국어 이름(모바일은 hidden — 글자로는 DOM에 있다)
+    expect(expert[0]).toBe("20일 평균 가격 sma20 71,250");
+    expect(expert[5]).toBe("20일 변동성(1년 환산) volatility20 31.2%");
+    expect(expert[6]).toBe("5일 등락률 change5d +2.1%");
+    const ind = screen.getByRole("region", { name: "지표" });
+    expect(within(ind).getByText("20일 평균 가격").className.split(" ")).toEqual(expect.arrayContaining(["hidden", "lg:inline"]));
+    expect(within(ind).getByText("sma20")).toBeTruthy();
+  });
+
+  it("무효 조건: 원화 숫자는 쉼표·'원'으로, 쉬운 보기의 '종가 기준 X 이탈'은 쉬운 문장 · 전문가 보기는 예전 키(ma20)와 엔진 키(sma20)가 함께 오면 엔진 키만", async () => {
+    const base = db.getAnalysis(5);
+    const scenarios = base.scenarios.map((s) => ({ ...s, invalidation: "종가 기준 67700 이탈" }));
+    const a = { ...base, currency: "KRW" as const, scenarios, indicators: { ma20: 69_900, sma20: 70_200, rsi14: 55 } };
+    server.use(http.get("*/api/analyses/:id", ({ params }) => (Number(params.id) === 5 ? HttpResponse.json(a) : undefined)));
+    const easy = renderApp("/analyses/5", "bob");
+    expect((await screen.findAllByText("종가가 67,700원 아래로 내려가면 이 계획은 틀린 거예요.")).length).toBe(scenarios.length);
+    easy.unmount();
+    renderApp("/analyses/5");
+    expect((await screen.findAllByText("종가 기준 67,700원 이탈")).length).toBe(scenarios.length);
+    const ind = screen.getByRole("region", { name: "지표" });
+    expect(within(ind).queryByText("ma20")).toBeNull();
+    expect(within(ind).getByText("sma20")).toBeTruthy();
   });
 
   it("없는 분석·숫자가 아닌 주소는 기다리지 않고 '찾을 수 없음'과 목록으로 가는 길", async () => {

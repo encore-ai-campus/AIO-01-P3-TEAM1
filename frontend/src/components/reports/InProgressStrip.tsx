@@ -58,8 +58,10 @@ export function InProgressStrip({ expert }: { expert: boolean }) {
       { replace: true },
     );
     requestAnimationFrame(() => {
+      // PC는 목록 제목이 화면 읽기용(sr-only)이라 목록 카드로 내려간다
       const title = document.getElementById("list-title");
-      if (title && typeof title.scrollIntoView === "function") title.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+      const target = title?.closest("section") ?? title;
+      if (target && typeof target.scrollIntoView === "function") target.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
     });
   };
   return (

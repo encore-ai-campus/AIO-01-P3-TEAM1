@@ -1,4 +1,5 @@
 import type { ExecutionPlan, TraceEvent } from "../../api/types";
+import { cn } from "../../lib/cn";
 import { actorLabel } from "../../lib/reports";
 import { Icon } from "../Icon";
 import { Card } from "../ui";
@@ -16,12 +17,22 @@ function reviewRetries(trace: TraceEvent[]) {
 }
 
 /** 실제 review_retry Trace가 있을 때만 Feedback Loop를 별도 카드로 강조한다. */
-export function FeedbackLoopPanel({ trace, plan, example }: { trace: TraceEvent[]; plan: ExecutionPlan; example: boolean }) {
+export function FeedbackLoopPanel({
+  trace,
+  plan,
+  example,
+  className,
+}: {
+  trace: TraceEvent[];
+  plan: ExecutionPlan;
+  example: boolean;
+  className?: string;
+}) {
   const retries = reviewRetries(trace);
   if (retries.length === 0) return null;
 
   return (
-    <Card aria-labelledby="feedback-loop-title" className="border-warn/50 bg-warn-soft/40">
+    <Card aria-labelledby="feedback-loop-title" className={cn("border-warn/50 bg-warn-soft/40", className)}>
       <div className="flex items-start gap-2.5">
         <span className="grid size-9 shrink-0 place-items-center rounded-full bg-warn text-on-warn">
           <Icon name="restart" className="size-5" />

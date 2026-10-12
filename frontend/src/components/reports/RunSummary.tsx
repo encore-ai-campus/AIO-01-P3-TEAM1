@@ -2,7 +2,9 @@
 // 수치가 바뀌는 순간(ui.tsx Flash): 장애가 늘면 빨간 배경, 자동 복구가 늘면 초록 배경이 잠깐 깜빡이고, 복구 시간·비용은 새 값이 짧게 페이드한다
 // — 숫자를 세어 올리지 않는다. (포기 수만 바뀐 것은 초록으로 깜빡이지 않는다: 복구가 아니므로)
 // 실패한 실행에는 '장애 없음'을 붙이지 않는다 (실패인데 초록 문구가 나오지 않게). '리포트 완성 · 보기'는 보는 중에 완성됐을 때만 나타난다.
+// PC(lg): 사건이 없어도 네 칸을 '-'로 그린다 — 머리 띠 오른쪽 절반이 한 줄 글만 남아 비어 보이지 않고, 재생을 시작해도 띠 높이가 출렁이지 않게 (리뷰 29).
 import type { ExecutionPlan, SharedState, TraceEvent } from "../../api/types";
+import { useIsPc } from "../../hooks/useIsPc";
 import { useChanged } from "../../hooks/useMotionState";
 import { cn } from "../../lib/cn";
 import { formatLatency } from "../../lib/format";
@@ -51,6 +53,7 @@ export function RunSummary({
   example,
   onShowReport,
   showLabel = "리포트 완성 · 보기",
+  className,
 }: {
   plan: ExecutionPlan;
   trace: TraceEvent[];
@@ -59,6 +62,7 @@ export function RunSummary({
   example: boolean;
   onShowReport?: () => void; // 완성됐고 다른 탭을 보고 있을 때만
   showLabel?: string; // 그 버튼 글자 (선정 실행은 "선정 완료 · 보기")
+  className?: string;
 }) {
   const s = summarize(trace);
   const step = plan.steps.find((x) => x.id === state.currentStep);
@@ -75,9 +79,11 @@ export function RunSummary({
           : "실행 전";
   // '리포트 완성 · 보기'가 이 화면에서 새로 나타날 때만 올라오며 나타난다
   const showChanged = useChanged(Boolean(onShowReport));
+  const isPc = useIsPc();
+  const empty = trace.length === 0;
 
   return (
-    <Card aria-label="실행 요약" className="py-4">
+    <Card aria-label="실행 요약" className={cn("py-4", className)}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="flex flex-wrap items-center gap-1.5 text-[15px] font-bold">
           {headline}
@@ -98,26 +104,27 @@ export function RunSummary({
           </button>
         )}
       </div>
-      {trace.length === 0 ? (
+      {empty && !isPc ? (
         <p className="mt-1 text-[13px] text-mute">아직 실행 사건이 없습니다. 실행되면 장애·자동 복구·복구 시간·비용이 여기에 나옵니다.</p>
       ) : (
         <>
           <dl className="mt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-4">
             <Stat
               label="장애"
-              value={`${s.failures}건${s.injected > 0 ? ` (주입 ${s.injected})` : ""}`}
+              value={empty ? "-" : `${s.failures}건${s.injected > 0 ? ` (주입 ${s.injected})` : ""}`}
               tone={s.failures > 0 ? "fail" : undefined}
               flash={{ count: s.failures, tone: "trend" }}
             />
             <Stat
               label="자동 복구"
-              value={`${s.recovered}건${s.unrecovered > 0 ? ` · 포기 ${s.unrecovered}` : ""}`}
+              value={empty ? "-" : `${s.recovered}건${s.unrecovered > 0 ? ` · 포기 ${s.unrecovered}` : ""}`}
               tone={s.recovered > 0 ? "ok" : undefined}
               flash={{ count: s.recovered, tone: "ok" }}
             />
-            <Stat label="복구 시간" value={formatLatency(s.recoveryMs)} />
-            <Stat label="비용" value={cost === null ? "-" : formatCost(cost)} />
+            <Stat label="복구 시간" value={empty ? "-" : formatLatency(s.recoveryMs)} />
+            <Stat label="비용" value={empty || cost === null ? "-" : formatCost(cost)} />
           </dl>
+          {empty && <p className="mt-2 text-[13px] text-mute">아직 실행 사건이 없습니다. 실행되면 장애·자동 복구·복구 시간·비용이 여기에 나옵니다.</p>}
           {models.length > 0 && (
             <details className="group/models mt-2 text-[13px]">
               {/* 보이는 높이는 36px, 누르는 곳은 위아래 4px씩 넓혀 44px */}

@@ -31,7 +31,7 @@ function BootScreen() {
   return (
     <div aria-busy="true" aria-label="불러오는 중" className="min-h-dvh">
       <div className="animate-fade-in" style={{ animationDelay: "300ms" }}>
-        <div className="fixed inset-y-0 left-0 hidden w-60 flex-col border-r border-line bg-card px-4 py-6 lg:flex">
+        <div className="fixed inset-y-0 left-0 hidden w-(--side-w) flex-col border-r border-line bg-card px-4 pt-4 pb-6 lg:flex">
           {/* 왼쪽 메뉴(Layout)의 브랜드와 같은 자리·크기 — 뼈대가 실제 화면으로 바뀔 때 로고가 움직이지 않게 */}
           <div className="mb-8 px-3">
             <BrandLockup size={32} className="text-[19px] text-ink" />
@@ -42,8 +42,15 @@ function BootScreen() {
             ))}
           </div>
         </div>
-        <div className="lg:pl-60">
-          <div className="mx-auto w-full max-w-[1120px] space-y-3 px-4 lg:px-8 lg:pt-8">
+        <div className="lg:pl-(--side-w)">
+          {/* PC 위 바 자리 (Layout .pc-topbar와 같은 높이·폭: 검색 칸 + 오른쪽 버튼) */}
+          <div aria-hidden="true" className="hidden h-(--pc-header-h) lg:block">
+            <div className="mx-auto flex h-full w-full max-w-(--content-max) items-center gap-3 px-8">
+              <div className="skeleton h-11 w-full max-w-[400px] rounded-xl bg-card" />
+              <div className="skeleton ml-auto h-11 w-36 rounded-xl bg-card" />
+            </div>
+          </div>
+          <div className="mx-auto w-full max-w-(--content-max) space-y-3 px-4 lg:px-8 lg:pt-6">
             <div className="flex h-14 items-center px-2 lg:h-auto lg:px-0">
               <Skeleton className="h-6 w-28 lg:h-8 lg:w-40" />
             </div>

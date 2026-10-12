@@ -75,7 +75,7 @@ export function LivePlans() {
         // 처음부터 받지 못했다 — '없어요'라고 하면 계획이 사라진 줄 안다 (다시 받기만 실패했으면 받아 둔 목록을 그대로 둔다)
         <SectionError onRetry={() => void refetch()} retrying={isFetching} />
       ) : list.length === 0 ? (
-        <EmptyRow icon="clock" className={reveal ? "reveal-fade" : undefined}>
+        <EmptyRow icon="clock" action={{ label: "리포트 보러 가기", to: "/reports" }} className={reveal ? "reveal-fade" : undefined}>
           진행 중인 모의 자동매매가 없어요. 리포트를 검토한 뒤 시작할 수 있어요.
         </EmptyRow>
       ) : (

@@ -93,9 +93,9 @@ export function ReportChart({ candles, currency, lines }: { candles: Candle[]; c
   }, [colors]);
 
   // 차트 라이브러리 고지(lightweight-charts)는 차트 안 로고 대신 그림 밖 글자 링크로 둔다 — role="img" 안의 로고 링크는 이름 없는 Tab 정지점이 됐다.
-  // 전체 높이는 불러오는 동안의 자리(260·340px) 그대로 두고 그 안에서 차트와 고지 줄을 나눈다 (불러온 뒤 아래 내용이 밀리지 않게)
+  // 전체 높이는 불러오는 동안의 자리(260·340·420px) 그대로 두고 그 안에서 차트와 고지 줄을 나눈다 (불러온 뒤 아래 내용이 밀리지 않게)
   return (
-    <div className="flex h-[260px] w-full flex-col lg:h-[340px]">
+    <div className="flex h-[260px] w-full flex-col lg:h-[340px] xl:h-[420px]">
       <div ref={box} className="min-h-0 w-full flex-1" role="img" aria-label="종가 선 차트와 계획 가격 선" />
       <p className="mt-1 shrink-0 text-right text-[12px] leading-4">
         <a

@@ -1,7 +1,10 @@
 // /search 종목 검색 (하단 탭 '종목' — 여정 ① 만들기의 출발점). 가격은 실시간 (docs/API.md 공통 규칙 "실시간 시세" — 현재가를 받지 못한 종목만 직전 장마감 종가).
 // - 검색어는 주소(?q=)에 둔다(기록을 쌓지 않는 replace): 종목을 열었다가 뒤로 오면 검색어·결과·스크롤이 그대로다. 하단 탭 '종목'은 빈 /search로 간다.
 // - 검색어가 없으면 바로가기: 최근 본 종목(이 기기) → 내 보유 → 오늘 팀이 리포트를 만든 종목 (다시 찾는 빈도 순).
-//   모바일은 검색칸 아래, PC는 오른쪽 sticky 열 (왼쪽 검색·결과는 720px까지 — 이름과 가격 사이 시선이 멀어지지 않게).
+//   모바일은 검색칸 아래 목록. PC는 검색칸 아래 넓은 둘러보기: 최근 본 종목은 칩 한 줄, 보유·팀 리포트 종목은 가격·등락이 보이는 타일(3~4열).
+// - 검색 결과는 모바일 한 줄(이름·코드 / 가격·등락), PC는 열을 맞춘 표 (종목 | 현재가 | 등락률 | 표시) — 열 머리는 장식(aria-hidden),
+//   행은 그대로 ul > li > a. DOM 순서는 모바일과 같고 PC 자리는 그리드(display: contents)로만 옮긴다.
+// - 검색어를 넣어 결과가 뜨면 바로가기는 숨긴다 (모바일·PC 같다). 맞는 종목이 없으면 그 아래에 둔다.
 // - 검색어를 다듬는 동안 이전 결과를 흐리게 남긴다(keepPrevious — 스켈레톤으로 깜빡이며 목록이 밀리지 않게).
 // - Enter·키보드 '검색' 키는 키보드를 닫고, 맞는 종목이 하나뿐이면 바로 그 종목으로 간다. 탭의 첫 화면이라 뒤로 가기는 없다.
 import { type FormEvent, type ReactNode, useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
@@ -16,7 +19,7 @@ import { AsOf, EmptyState, ErrorState, Flash, PageHeader, RateText, Skeleton } f
 import { revealList, useRevealAfterLoading } from "../hooks/useMotionState";
 import { isTodayKst } from "../lib/autotrade";
 import { cn } from "../lib/cn";
-import { formatPrice } from "../lib/format";
+import { formatPrice, formatSignedPrice, trendClass } from "../lib/format";
 import { quotePriceName } from "../lib/plainText";
 import { useDebounced } from "../hooks/useDebounced";
 
@@ -66,23 +69,70 @@ function onlyMatch(results: StockItem[], term: string): StockItem | null {
 
 const stockPath = (symbol: string) => `/stocks/${encodeURIComponent(symbol)}`;
 
+type RowVariant = "row" | "tile";
+
+/**
+ * PC 표의 열 (검색 결과 행과 열 머리가 같이 쓴다): 종목 | 현재가 | (xl+ 전일 대비) | 등락률 | 표시(보유 중·오늘 리포트).
+ * 모바일 클래스는 그대로 두고 lg에서만 그리드가 된다. xl부터는 열을 비율로 나눠 넓은 화면에서도 이름과 가격 사이가 벌어지지 않게 한다.
+ */
+const TABLE_COLS =
+  "lg:grid lg:grid-cols-[minmax(0,1fr)_8.5rem_6.5rem_minmax(0,9.5rem)] lg:gap-x-6 xl:grid-cols-[minmax(0,2fr)_minmax(8rem,1fr)_minmax(7rem,1fr)_minmax(6rem,1fr)_minmax(10rem,1fr)]";
+
+/** 칸별 PC 자리. row = 표의 열, tile = 둘러보기 타일 (이름·코드 위, 가격·등락 아래). */
+const PLACE = {
+  row: {
+    link: cn(TABLE_COLS, "lg:grid-rows-[auto_auto] lg:gap-y-0.5 lg:py-2.5"),
+    info: "lg:contents",
+    nameLine: "lg:contents",
+    name: "lg:col-start-1 lg:row-start-1 lg:min-w-0",
+    badges: "lg:col-start-4 lg:row-span-2 lg:row-start-1 lg:self-center xl:col-start-5",
+    code: "lg:col-start-1 lg:row-start-2",
+    priceBox: "lg:contents",
+    price: "lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:self-center lg:text-right lg:text-[16px]",
+    change: "xl:col-start-3 xl:row-span-2 xl:row-start-1 xl:block xl:self-center xl:text-right xl:text-[15px]",
+    rate: "lg:col-start-3 lg:row-span-2 lg:row-start-1 lg:self-center lg:text-right lg:text-[15px] lg:font-semibold xl:col-start-4",
+    skeleton: "lg:col-span-2 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:w-auto lg:self-center xl:col-span-3",
+  },
+  tile: {
+    link: "lg:h-full lg:min-h-[132px] lg:flex-col lg:items-stretch lg:justify-between lg:gap-4 lg:rounded-2xl lg:bg-card lg:p-5 lg:hover:bg-card lg:hover:ring-2 lg:hover:ring-line",
+    info: "",
+    nameLine: "",
+    name: "",
+    badges: "",
+    code: "",
+    priceBox: "lg:flex lg:items-baseline lg:justify-between lg:gap-2 lg:text-left",
+    price: "lg:text-[20px] lg:font-bold",
+    change: "",
+    rate: "lg:text-[14px] lg:font-semibold",
+    skeleton: "lg:w-full",
+  },
+} satisfies Record<RowVariant, Record<string, string>>;
+
 /** 오른쪽 가격 칸 (시세를 받기 전에는 같은 폭의 자리 — 가격이 늦게 끼어들며 줄이 밀리지 않게). */
-function PriceCell({ quote, loading }: { quote: Quote | undefined; loading: boolean }) {
+function PriceCell({ quote, loading, variant }: { quote: Quote | undefined; loading: boolean; variant: RowVariant }) {
+  const at = PLACE[variant];
   if (!quote) {
     return loading ? (
-      <div aria-hidden="true" className="w-20 shrink-0">
-        <Skeleton className="ml-auto h-4 w-16" />
-        <Skeleton className="mt-1.5 ml-auto h-3 w-10" />
+      <div aria-hidden="true" className={cn("w-20 shrink-0", at.skeleton)}>
+        <Skeleton className={cn("ml-auto h-4 w-16", variant === "tile" && "lg:ml-0 lg:h-6 lg:w-24")} />
+        <Skeleton className={cn("mt-1.5 ml-auto h-3 w-10", variant === "tile" && "lg:hidden")} />
       </div>
     ) : null;
   }
   return (
-    <div className="shrink-0 text-right">
-      <p className="text-[15px] font-semibold tabular-nums">
+    <div className={cn("shrink-0 text-right", at.priceBox)}>
+      <p className={cn("text-[15px] font-semibold tabular-nums", at.price)}>
         <span className="sr-only">{quotePriceName(quote.basis)} </span>
         <Flash value={quote.price}>{formatPrice(quote.price, quote.currency)}</Flash>
       </p>
-      <RateText rate={quote.changeRate} className="text-[13px] font-medium" />
+      {/* 전일 대비 금액: PC 넓은 표(xl+)의 열에만 (모바일·타일은 등락률만) */}
+      {variant === "row" && typeof quote.change === "number" && (
+        <span className={cn("hidden font-medium tabular-nums", trendClass(quote.change), at.change)}>
+          <span className="sr-only">전일 대비 </span>
+          {formatSignedPrice(quote.change, quote.currency)}
+        </span>
+      )}
+      <RateText rate={quote.changeRate} className={cn("text-[13px] font-medium", at.rate)} />
     </div>
   );
 }
@@ -104,34 +154,47 @@ function Badge({ children, tone }: { children: string; tone: "brand" | "plain" }
 // 선 하나만 남거나 이웃 행의 테두리처럼 보인다. 카드의 아래 끝(마지막 행)과 위 끝(목록이 카드 맨 위일 때 첫 행)은 모서리를 카드와 맞춘다
 const ROW_FOCUS = "focus-visible:outline-offset-[-2px] [li:last-child>&]:rounded-b-2xl [ul:first-child>li:first-child>&]:rounded-t-2xl";
 
-/** 종목 한 줄 (검색 결과·바로가기 공용): 이름(+ 배지)·코드 / 현재가·등락. */
+/**
+ * 종목 한 줄 (검색 결과·바로가기 공용): 이름(+ 배지)·코드 / 현재가·등락. 모바일은 모두 같은 한 줄.
+ * PC: row = 표의 한 행(열 맞춤), tile = 둘러보기 타일.
+ */
 function StockRow({
   item,
   quote,
   quoteLoading,
   held = false,
   reported = false,
+  variant = "row",
 }: {
   item: { symbol: string; name: string; exchange?: string };
   quote: Quote | undefined;
   quoteLoading: boolean;
   held?: boolean;
   reported?: boolean;
+  variant?: RowVariant;
 }) {
+  const at = PLACE[variant];
   return (
-    <Link to={stockPath(item.symbol)} className={cn("press-row flex min-h-16 items-center gap-3 px-5 py-3 hover:bg-fill/60", ROW_FOCUS)}>
-      <div className="min-w-0 flex-1">
-        <p className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate text-[16px] font-semibold">{item.name}</span>
-          {held && <Badge tone="brand">보유 중</Badge>}
-          {reported && <Badge tone="plain">오늘 리포트</Badge>}
+    <Link
+      to={stockPath(item.symbol)}
+      className={cn("press-row flex min-h-16 items-center gap-3 px-5 py-3 hover:bg-fill/60", ROW_FOCUS, at.link, variant === "tile" && "lg:rounded-2xl")}
+    >
+      <div className={cn("min-w-0 flex-1", at.info)}>
+        <p className={cn("flex min-w-0 items-center gap-1.5", at.nameLine)}>
+          <span className={cn("truncate text-[16px] font-semibold", at.name)}>{item.name}</span>
+          {(held || reported) && (
+            <span className={cn("flex shrink-0 items-center gap-1.5", at.badges)}>
+              {held && <Badge tone="brand">보유 중</Badge>}
+              {reported && <Badge tone="plain">오늘 리포트</Badge>}
+            </span>
+          )}
         </p>
-        <p className="text-[13px] text-mute">
+        <p className={cn("text-[13px] text-mute", at.code)}>
           {item.symbol}
           {item.exchange && ` · ${item.exchange}`}
         </p>
       </div>
-      <PriceCell quote={quote} loading={quoteLoading} />
+      <PriceCell quote={quote} loading={quoteLoading} variant={variant} />
     </Link>
   );
 }
@@ -173,27 +236,28 @@ function Shortcuts({
   const quotes = quotesQ.data;
   const loading = quotesQ.isPending && symbols.length > 0;
   const empty = data.recent.length === 0 && data.holdings.length === 0 && data.team.length === 0;
+  // PC는 카드 대신 바탕 위 제목 + 타일 격자 (타일 하나가 카드)
   const list = (title: string, items: { symbol: string; name: string }[]) => (
-    <section aria-label={title} className="overflow-hidden rounded-2xl bg-card">
+    <section aria-label={title} className="overflow-hidden rounded-2xl bg-card lg:overflow-visible lg:rounded-none lg:bg-transparent">
       {/* tabIndex -1: '지우기' 뒤 포커스가 옮겨 오는 자리 (화면 머리 제목처럼 테두리 없이) */}
-      <h2 tabIndex={-1} className="px-5 pt-4 pb-1 text-[15px] font-bold outline-none">
+      <h2 tabIndex={-1} className="px-5 pt-4 pb-1 text-[15px] font-bold outline-none lg:px-1 lg:pt-0 lg:pb-3 lg:text-[17px]">
         {title}
       </h2>
-      <ul className="divide-y divide-line">
+      <ul className="divide-y divide-line lg:grid lg:grid-cols-3 lg:gap-3 lg:divide-y-0 2xl:grid-cols-4">
         {items.map((s) => (
           <li key={s.symbol}>
-            <StockRow item={s} quote={quotes?.get(s.symbol)} quoteLoading={loading} />
+            <StockRow item={s} quote={quotes?.get(s.symbol)} quoteLoading={loading} variant="tile" />
           </li>
         ))}
       </ul>
     </section>
   );
   return (
-    <div ref={box} className={cn("space-y-3", className)}>
+    <div ref={box} className={cn("space-y-3 lg:space-y-8", className)}>
       {data.recent.length > 0 && (
-        <section aria-labelledby="recent-stocks" className="rounded-2xl bg-card px-5 pt-3 pb-4">
-          <div className="flex items-center justify-between">
-            <h2 id="recent-stocks" className="text-[15px] font-bold">
+        <section aria-labelledby="recent-stocks" className="rounded-2xl bg-card px-5 pt-3 pb-4 lg:bg-transparent lg:px-1 lg:pt-0 lg:pb-0">
+          <div className="flex items-center justify-between lg:justify-start lg:gap-2">
+            <h2 id="recent-stocks" className="text-[15px] font-bold lg:text-[17px]">
               최근 본 종목
             </h2>
             <button
@@ -202,17 +266,17 @@ function Shortcuts({
                 refocus.current = true;
                 onClearRecent();
               }}
-              className="press -mr-2 h-11 rounded-xl px-2.5 text-[13px] font-semibold text-sub hover:bg-fill"
+              className="press -mr-2 h-11 rounded-xl px-2.5 text-[13px] font-semibold text-sub hover:bg-fill lg:mr-0 lg:h-9 lg:hover:bg-card"
             >
               지우기
             </button>
           </div>
-          <ul className="mt-1 flex flex-wrap gap-1.5">
+          <ul className="mt-1 flex flex-wrap gap-1.5 lg:mt-2 lg:gap-2">
             {data.recent.map((s) => (
               <li key={s.symbol}>
                 <Link
                   to={stockPath(s.symbol)}
-                  className="press inline-flex h-11 items-center rounded-full bg-fill px-4 text-[14px] font-semibold text-ink hover:bg-line"
+                  className="press inline-flex h-11 items-center rounded-full bg-fill px-4 text-[14px] font-semibold text-ink hover:bg-line lg:bg-card lg:px-5 lg:hover:bg-card lg:hover:ring-2 lg:hover:ring-line"
                 >
                   {s.name}
                 </Link>
@@ -224,7 +288,7 @@ function Shortcuts({
       {data.holdings.length > 0 && list("내 보유 종목", data.holdings)}
       {data.team.length > 0 && list("오늘 팀이 리포트를 만든 종목", data.team)}
       {empty && (
-        <p className="hidden rounded-2xl bg-card px-5 py-4 text-[14px] leading-relaxed text-sub lg:block">
+        <p className="hidden px-1 text-[14px] leading-relaxed text-mute lg:block">
           종목을 열어 보면 여기에 최근 본 종목이 모여요. 내 보유 종목과 오늘 팀이 리포트를 만든 종목도 함께 보여요.
         </p>
       )}
@@ -305,6 +369,14 @@ function Results({
             &nbsp;
           </p>
         ) : null}
+        {/* PC 표의 열 머리 (장식 — 화면 읽기는 행의 글자를 그대로 읽는다) */}
+        <div aria-hidden="true" className={cn("hidden border-b border-line px-5 py-2.5 text-[12px] font-medium text-mute", TABLE_COLS)}>
+          <span>종목</span>
+          <span className="text-right">현재가</span>
+          <span className="hidden text-right xl:block">전일 대비</span>
+          <span className="text-right">등락률</span>
+          <span />
+        </div>
         <ul {...revealList(reveal)} className={cn("divide-y divide-line transition-opacity duration-fast", dim && "opacity-60")}>
           {results.map((r) => (
             <li key={r.symbol}>
@@ -386,8 +458,8 @@ export function SearchPage() {
   const results = q ? (search.data?.results ?? []) : [];
   const settled = Boolean(q) && !search.isPending && !search.isPlaceholderData && !search.isError;
   const announce = settled ? (results.length ? `검색 결과 ${results.length}개` : "맞는 종목이 없어요") : "";
-  // 결과가 있으면 모바일에서는 바로가기를 숨긴다 (결과가 없을 때는 그 아래에 둔다)
-  const hideShortcutsOnMobile = hasText && q !== "" && (search.isPending || results.length > 0);
+  // 결과가 있으면 바로가기를 숨긴다 (결과가 없을 때는 그 아래에 둔다)
+  const hideShortcuts = hasText && q !== "" && (search.isPending || results.length > 0);
 
   // Enter로 낸 검색어의 결과가 오면: 맞는 종목이 하나뿐이면 그 종목으로
   const target = submitted !== null && submitted === q && search.data && !search.isPlaceholderData ? onlyMatch(search.data.results, submitted) : null;
@@ -421,13 +493,13 @@ export function SearchPage() {
   return (
     <>
       <PageHeader title="종목 검색" />
-      <div className="lg:grid lg:grid-cols-[minmax(0,720px)_minmax(0,1fr)] lg:items-start lg:gap-6">
+      <div>
         <div className="min-w-0">
-          <form role="search" onSubmit={submit} className="sticky top-14 z-20 -mx-4 bg-bg px-4 pb-3 lg:static lg:mx-0 lg:px-0">
-            <div className="flex h-12 items-center rounded-2xl bg-card pr-1 focus-within:ring-2 focus-within:ring-brand">
+          <form role="search" onSubmit={submit} className="sticky top-14 z-20 -mx-4 bg-bg px-4 pb-3 lg:static lg:mx-0 lg:px-0 lg:pb-4">
+            <div className="flex h-12 items-center rounded-2xl bg-card pr-1 focus-within:ring-2 focus-within:ring-brand lg:h-14 lg:pr-2">
               {/* 지우기 버튼은 label 밖에 둔다 (안에 있으면 검색칸 이름이 '… 검색어 지우기'로 읽힌다) */}
-              <label className="flex h-full min-w-0 flex-1 items-center gap-2 pl-4">
-                <Icon name="search" className="size-5 shrink-0 text-mute-weak" />
+              <label className="flex h-full min-w-0 flex-1 items-center gap-2 pl-4 lg:gap-3 lg:pl-5">
+                <Icon name="search" className="size-5 shrink-0 text-mute-weak lg:size-6" />
                 <span className="sr-only">종목명 또는 종목코드</span>
                 <input
                   ref={input}
@@ -444,7 +516,7 @@ export function SearchPage() {
                     setSubmitted(null);
                   }}
                   placeholder="종목명·코드 (예: 삼성전자)"
-                  className="h-full min-w-0 flex-1 bg-transparent text-[16px] outline-none placeholder:text-mute-weak [&::-webkit-search-cancel-button]:appearance-none"
+                  className="h-full min-w-0 flex-1 bg-transparent text-[16px] outline-none placeholder:text-mute-weak lg:text-[17px] [&::-webkit-search-cancel-button]:appearance-none"
                 />
               </label>
               {hasText && (
@@ -475,7 +547,7 @@ export function SearchPage() {
               className={cn(
                 "rounded-2xl bg-card transition-opacity duration-fast",
                 hasText && "opacity-60", // 입력한 뒤 찾기 전(300ms) — 지금 찾는 중
-                anyShortcut && "max-lg:hidden",
+                anyShortcut && "hidden", // 바로가기가 있으면 그것이 빈 화면이다 (모바일·PC 같다)
               )}
             >
               <EmptyState icon="search" title="어떤 종목을 볼까요?">
@@ -489,7 +561,7 @@ export function SearchPage() {
           data={shortcuts}
           onClearRecent={clearRecent}
           onEmptied={focusSearch}
-          className={cn("mt-3 lg:sticky lg:top-8 lg:mt-0", hideShortcutsOnMobile && "max-lg:hidden")}
+          className={cn("mt-3 lg:mt-4", hideShortcuts && "hidden")}
         />
       </div>
     </>

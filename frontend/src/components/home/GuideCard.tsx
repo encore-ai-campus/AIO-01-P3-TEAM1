@@ -38,13 +38,16 @@ const STEPS = [
   { n: 3, title: "모의 자동매매", body: "확인을 마치면 모의 계좌에서 정해 둔 가격대로 사고팔아요." },
 ] as const;
 
+/** 넓은 안내 카드의 격자: 왼쪽 단계(넓게) · 오른쪽 지금 할 일 260px. 좁으면 격자 없이 위아래 그대로. */
+const GUIDE_GRID = "@min-[680px]:grid @min-[680px]:grid-cols-[minmax(0,1fr)_260px] @min-[680px]:gap-x-6";
+
 const MAKING_LINE = "AI가 리포트를 만들고 있어요. 완성되면 알림으로 알려 드려요 — 그다음은 ② 검토예요.";
 const REVIEW_LINE = "완성된 내 리포트에서 AI 의견·근거·위험을 읽어요. 다 읽은 뒤 그 화면에서 ③ 모의 자동매매를 시작할 수 있어요.";
 
 /** 진단 전 한 줄: 진단하면 나에게 맞는 보기(주린이모드 켬·끔)를 추천받는다. 프로필을 받은 뒤 진단 전일 때만 펼쳐진다. */
-function DiagnosisHint({ open }: { open: boolean }) {
+function DiagnosisHint({ open, className }: { open: boolean; className?: string }) {
   return (
-    <Collapse open={open}>
+    <Collapse open={open} className={className}>
       <div className="pt-3">
         <p className="flex items-center gap-2 rounded-xl bg-brand-soft py-1.5 pr-1.5 pl-3.5 text-[14px] leading-snug text-brand-ink">
           <span id="guide-diagnosis" className="min-w-0 flex-1">
@@ -166,127 +169,134 @@ export function GuideCard({
   return (
     <div {...trackFocus}>
       <Card aria-labelledby="guide-title" className="@container">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h2 id="guide-title" tabIndex={-1} className="text-[19px] font-bold outline-none">
-              3단계로 연습해요
-            </h2>
-            <p className="mt-1 text-[14px] leading-snug text-balance text-sub">{GUIDE_LINE}</p>
+        {/* 넓은 카드(PC 홈 왼쪽 열 680px 이상): 제목 줄 아래 왼쪽에 세 단계, 오른쪽에 지금 할 일(설명 + 버튼) — 세로 길이를 줄인다.
+            DOM 순서는 그대로(제목 → 진단 → 단계 → 할 일 → 예시), 자리만 grid로 */}
+        <div className={GUIDE_GRID}>
+          <div className="flex items-start justify-between gap-3 @min-[680px]:col-span-2">
+            <div className="min-w-0">
+              <h2 id="guide-title" tabIndex={-1} className="text-[19px] font-bold outline-none">
+                3단계로 연습해요
+              </h2>
+              <p className="mt-1 text-[14px] leading-snug text-balance text-sub">{GUIDE_LINE}</p>
+            </div>
+            {/* 닫기 자리는 늘 둔다: 리포트를 받은 뒤 버튼이 나타나도 제목 줄이 다시 줄바꿈되지 않게 */}
+            {canClose ? <CloseButton onClose={onClose} /> : <span aria-hidden="true" className="-mt-1.5 -mr-2 size-11 shrink-0" />}
           </div>
-          {/* 닫기 자리는 늘 둔다: 리포트를 받은 뒤 버튼이 나타나도 제목 줄이 다시 줄바꿈되지 않게 */}
-          {canClose ? <CloseButton onClose={onClose} /> : <span aria-hidden="true" className="-mt-1.5 -mr-2 size-11 shrink-0" />}
-        </div>
 
-        {/* 단계 목록 밖 (단계는 세 개 그대로) */}
-        <DiagnosisHint open={askDiagnosis} />
+          {/* 단계 목록 밖 (단계는 세 개 그대로) */}
+          <DiagnosisHint open={askDiagnosis} className="@min-[680px]:col-span-2" />
 
-        <ol aria-label="연습 순서" className="mt-4 grid grid-cols-3 gap-x-2">
-          {STEPS.map((s, i) => {
-            const state = s.n < current ? "done" : s.n === current ? "now" : "next";
-            return (
-              <li key={s.n} aria-current={state === "now" ? "step" : undefined} className="relative flex flex-col items-center text-center">
-                {i < STEPS.length - 1 && (
-                  // 다음 단계로 잇는 선: 끝낸 단계면 파랗게 채운다 (가운데 원 사이, 칸 간격 8px까지)
-                  <span aria-hidden="true" className="absolute top-3.5 right-[calc(-50%+12px)] left-[calc(50%+20px)] h-0.5 overflow-hidden rounded-full bg-line">
-                    {/* 단계가 실제로 넘어갈 때만 채워지며 움직인다 (처음 알게 된 단계는 그대로 그린다) */}
+          <ol aria-label="연습 순서" className="mt-4 grid grid-cols-3 gap-x-2 @min-[680px]:col-start-1 @min-[680px]:mt-5">
+            {STEPS.map((s, i) => {
+              const state = s.n < current ? "done" : s.n === current ? "now" : "next";
+              return (
+                <li key={s.n} aria-current={state === "now" ? "step" : undefined} className="relative flex flex-col items-center text-center">
+                  {i < STEPS.length - 1 && (
+                    // 다음 단계로 잇는 선: 끝낸 단계면 파랗게 채운다 (가운데 원 사이, 칸 간격 8px까지)
                     <span
-                      className={cn("block h-full origin-left bg-brand", moved && "transition-[scale] duration-base ease-standard")}
-                      style={{ scale: state === "done" ? "1 1" : "0 1" }}
-                    />
-                  </span>
-                )}
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    "relative grid size-7 place-items-center rounded-full text-[14px] font-bold transition-colors duration-base",
-                    state === "done" && "bg-brand-soft text-brand-ink",
-                    state === "now" && "bg-brand text-white ring-4 ring-brand-soft",
-                    state === "next" && "bg-fill text-mute",
+                      aria-hidden="true"
+                      className="absolute top-3.5 right-[calc(-50%+12px)] left-[calc(50%+20px)] h-0.5 overflow-hidden rounded-full bg-line"
+                    >
+                      {/* 단계가 실제로 넘어갈 때만 채워지며 움직인다 (처음 알게 된 단계는 그대로 그린다) */}
+                      <span
+                        className={cn("block h-full origin-left bg-brand", moved && "transition-[scale] duration-base ease-standard")}
+                        style={{ scale: state === "done" ? "1 1" : "0 1" }}
+                      />
+                    </span>
                   )}
-                >
-                  {state === "done" ? <Icon name="check" className={cn("size-4", moved && "animate-pop-in")} /> : s.n}
-                </span>
-                <span className={cn("mt-2 block text-[14px] leading-tight", state === "now" ? "font-bold text-ink" : "font-semibold text-sub")}>
-                  <span className="sr-only">{`${s.n}단계: `}</span>
-                  {s.title}
-                  {/* 지금 단계는 aria-current가 알린다. 끝낸 단계는 체크(장식) 대신 글자로 */}
-                  {state === "done" && <span className="sr-only"> (완료)</span>}
-                </span>
-                {/* 넓은 카드: 세 단계 설명을 다 보인다 */}
-                <span className="mt-1 hidden text-[13px] leading-snug text-sub @min-[480px]:block">{s.body}</span>
-              </li>
-            );
-          })}
-        </ol>
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "relative grid size-7 place-items-center rounded-full text-[14px] font-bold transition-colors duration-base",
+                      state === "done" && "bg-brand-soft text-brand-ink",
+                      state === "now" && "bg-brand text-white ring-4 ring-brand-soft",
+                      state === "next" && "bg-fill text-mute",
+                    )}
+                  >
+                    {state === "done" ? <Icon name="check" className={cn("size-4", moved && "animate-pop-in")} /> : s.n}
+                  </span>
+                  <span className={cn("mt-2 block text-[14px] leading-tight", state === "now" ? "font-bold text-ink" : "font-semibold text-sub")}>
+                    <span className="sr-only">{`${s.n}단계: `}</span>
+                    {s.title}
+                    {/* 지금 단계는 aria-current가 알린다. 끝낸 단계는 체크(장식) 대신 글자로 */}
+                    {state === "done" && <span className="sr-only"> (완료)</span>}
+                  </span>
+                  {/* 넓은 카드: 세 단계 설명을 다 보인다 */}
+                  <span className="mt-1 hidden text-[13px] leading-snug text-sub @min-[480px]:block">{s.body}</span>
+                </li>
+              );
+            })}
+          </ol>
 
-        {/* 지금 할 일(설명 + 버튼): 단계가 바뀐 순간(내 리포트를 받아 '만드는 중'임을 알게 된 때 등)에만 한 번 페이드된다.
+          {/* 지금 할 일(설명 + 버튼): 단계가 바뀐 순간(내 리포트를 받아 '만드는 중'임을 알게 된 때 등)에만 한 번 페이드된다.
             다시 그리는(key) 것은 글자뿐 — 버튼(Link)은 그대로 두어 그 위의 키보드 포커스가 body로 사라지지 않게 */}
-        <div className="mt-4 space-y-4">
-          {g === null ? (
-            // 할 일을 아직 모른다 (내 리포트를 받는 중): 같은 높이의 자리만 — 틀린 버튼을 잠깐이라도 누르게 하지 않는다
-            <div role="group" aria-busy="true" aria-label="불러오는 중" className="space-y-4">
-              <div className="space-y-1.5 rounded-xl bg-fill px-4 py-3 @min-[480px]:hidden">
-                <Skeleton className="h-4 w-11/12" />
-                <Skeleton className="h-4 w-2/3" />
+          <div className="mt-4 space-y-4 @min-[680px]:col-start-2 @min-[680px]:mt-5 @min-[680px]:self-center @min-[680px]:border-l @min-[680px]:border-line @min-[680px]:pl-6">
+            {g === null ? (
+              // 할 일을 아직 모른다 (내 리포트를 받는 중): 같은 높이의 자리만 — 틀린 버튼을 잠깐이라도 누르게 하지 않는다
+              <div role="group" aria-busy="true" aria-label="불러오는 중" className="space-y-4">
+                <div className="space-y-1.5 rounded-xl bg-fill px-4 py-3 @min-[480px]:hidden">
+                  <Skeleton className="h-4 w-11/12" />
+                  <Skeleton className="h-4 w-2/3" />
+                </div>
+                <Skeleton className="hidden h-[43px] rounded-xl @min-[480px]:block" />
+                <Skeleton className="h-12 rounded-xl" />
               </div>
-              <Skeleton className="hidden h-[43px] rounded-xl @min-[480px]:block" />
-              <Skeleton className="h-12 rounded-xl" />
-            </div>
-          ) : (
-            <>
-              {/* 좁은 카드(모바일)는 지금 단계 설명 하나만, 넓은 카드는 상황 한 줄이 있을 때만 (단계 설명은 위 칸에 다 있다) */}
-              <p
-                key={`now-${stepKey}`}
-                className={cn("rounded-xl bg-fill px-4 py-3 text-[14px] leading-snug text-sub @min-[480px]:hidden", swapped && "reveal-fade")}
-              >
-                {extra ?? STEPS[current - 1].body}
-              </p>
-              {extra && (
+            ) : (
+              <>
+                {/* 좁은 카드(모바일)는 지금 단계 설명 하나만, 넓은 카드는 상황 한 줄이 있을 때만 (단계 설명은 위 칸에 다 있다) */}
                 <p
-                  key={`extra-${stepKey}`}
-                  className={cn("hidden rounded-xl bg-fill px-4 py-3 text-[14px] leading-snug text-sub @min-[480px]:block", swapped && "reveal-fade")}
+                  key={`now-${stepKey}`}
+                  className={cn("rounded-xl bg-fill px-4 py-3 text-[14px] leading-snug text-sub @min-[480px]:hidden", swapped && "reveal-fade")}
                 >
-                  {extra}
+                  {extra ?? STEPS[current - 1].body}
                 </p>
-              )}
-              {g.cta && (
-                <Link
-                  ref={ctaRef}
-                  to={g.cta.to}
-                  // 받기 전 자리에서 처음 나타날 때만 버튼째 페이드 (그 뒤 단계가 바뀌면 버튼은 그대로, 안의 글자만)
-                  className={cn(
-                    "press flex h-12 items-center justify-center rounded-xl bg-brand text-[15px] font-semibold text-white hover:bg-brand-dark",
-                    swapped && "reveal-fade",
-                  )}
-                >
-                  <span key={stepKey} className={cn("flex items-center gap-1.5", swapped && "reveal-fade")}>
-                    <Icon name={g.cta.to === "/search" ? "search" : "doc"} className="size-5" />
-                    {g.cta.label}
-                  </span>
-                </Link>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* 무엇을 고를지 몰라 빈 검색 화면에서 막히지 않게 — 두 번 눌러 'AI 리포트 만들기'까지 간다 (추천이 아니라 예시).
-            아직 만든 적이 없을 때만 — 리포트를 받아 보니 있으면 접혀 사라진다 (간격도 접히는 안쪽에) */}
-        <Collapse open={g?.examples ?? false}>
-          <div className="pt-4">
-            <p className="text-[13px] text-mute">예시로 눌러 보기</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {GUIDE_EXAMPLES.map((e) => (
-                <Link
-                  key={e.symbol}
-                  to={`/stocks/${e.symbol}`}
-                  className="press relative inline-flex h-9 items-center rounded-full bg-fill px-3.5 text-[14px] font-semibold text-sub before:absolute before:-inset-1 hover:bg-line"
-                >
-                  {e.name}
-                </Link>
-              ))}
-            </div>
+                {extra && (
+                  <p
+                    key={`extra-${stepKey}`}
+                    className={cn("hidden rounded-xl bg-fill px-4 py-3 text-[14px] leading-snug text-sub @min-[480px]:block", swapped && "reveal-fade")}
+                  >
+                    {extra}
+                  </p>
+                )}
+                {g.cta && (
+                  <Link
+                    ref={ctaRef}
+                    to={g.cta.to}
+                    // 받기 전 자리에서 처음 나타날 때만 버튼째 페이드 (그 뒤 단계가 바뀌면 버튼은 그대로, 안의 글자만)
+                    className={cn(
+                      "press flex h-12 items-center justify-center rounded-xl bg-brand text-[15px] font-semibold text-white hover:bg-brand-dark",
+                      swapped && "reveal-fade",
+                    )}
+                  >
+                    <span key={stepKey} className={cn("flex items-center gap-1.5", swapped && "reveal-fade")}>
+                      <Icon name={g.cta.to === "/search" ? "search" : "doc"} className="size-5" />
+                      {g.cta.label}
+                    </span>
+                  </Link>
+                )}
+              </>
+            )}
           </div>
-        </Collapse>
+
+          {/* 무엇을 고를지 몰라 빈 검색 화면에서 막히지 않게 — 두 번 눌러 'AI 리포트 만들기'까지 간다 (추천이 아니라 예시).
+            아직 만든 적이 없을 때만 — 리포트를 받아 보니 있으면 접혀 사라진다 (간격도 접히는 안쪽에) */}
+          <Collapse open={g?.examples ?? false} className="@min-[680px]:col-start-1">
+            <div className="pt-4">
+              <p className="text-[13px] text-mute">예시로 눌러 보기</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {GUIDE_EXAMPLES.map((e) => (
+                  <Link
+                    key={e.symbol}
+                    to={`/stocks/${e.symbol}`}
+                    className="press relative inline-flex h-9 items-center rounded-full bg-fill px-3.5 text-[14px] font-semibold text-sub before:absolute before:-inset-1 hover:bg-line"
+                  >
+                    {e.name}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          </Collapse>
+        </div>
       </Card>
     </div>
   );

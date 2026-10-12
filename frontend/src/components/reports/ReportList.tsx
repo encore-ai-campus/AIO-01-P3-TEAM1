@@ -273,7 +273,7 @@ export function ReportList({ expert }: { expert: boolean }) {
   return (
     <Card aria-labelledby="list-title" className="px-0 pb-2">
       <div className="px-5">
-        <h2 id="list-title" className="scroll-mt-20 text-[17px] font-bold lg:scroll-mt-8">
+        <h2 id="list-title" className="scroll-mt-20 text-[17px] font-bold lg:scroll-mt-(--rail-top)">
           {GROUPS.find((g) => g.value === group)?.label}
         </h2>
         <p className="mt-0.5 text-[13px] text-mute">{sub}</p>

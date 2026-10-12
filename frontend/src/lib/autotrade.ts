@@ -589,7 +589,7 @@ export function ladderDistances(
 
 /**
  * PC 오른쪽 고정(sticky) 열이 화면보다 길면 위에 붙지 않고, 열의 아래 끝(시작·멈추기 버튼)이 화면 바닥 2rem 위에 왔을 때 붙게 한다 (trade-v02).
- * 짧으면 지금처럼 위 2rem에 붙는다. 열 높이를 CSS 변수 --col-h로 넘기고 top을 min()으로 고른다 (ResizeObserver가 없으면 위에 붙는다).
+ * 짧으면 PC 위 바 아래(--rail-top, index.css)에 붙는다. 열 높이를 CSS 변수 --col-h로 넘기고 top을 min()으로 고른다 (ResizeObserver가 없으면 위에 붙는다).
  * 콜백 ref로 쓴다 — 열이 늦게(불러온 뒤) 나타나도 붙고, 사라지면 관찰을 멈춘다: <div ref={stickyFit} className="lg:sticky" style={{ top: STICKY_FIT_TOP }}>
  */
 export function stickyFit(el: HTMLElement | null) {
@@ -598,7 +598,7 @@ export function stickyFit(el: HTMLElement | null) {
   ro.observe(el);
   return () => ro.disconnect();
 }
-export const STICKY_FIT_TOP = "min(2rem, calc(100dvh - var(--col-h, 0px) - 2rem))";
+export const STICKY_FIT_TOP = "min(var(--rail-top), calc(100dvh - var(--col-h, 0px) - 2rem))";
 
 // ---------------------------------------------------------------- 시각·입력
 

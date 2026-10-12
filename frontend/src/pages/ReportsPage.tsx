@@ -316,7 +316,7 @@ export function ReportsPage() {
                 scroll-pb: 붙은 묶음 높이(잰 값, 재기 전에는 9.5rem) + 8px — 포커스가 묶음 밑에 숨지 않게 */}
             <div
               ref={boxRef}
-              className="lg:sticky lg:top-8 lg:-m-1 lg:max-h-[calc(100dvh-4rem)] lg:scroll-pb-[calc(var(--dock-h,9.5rem)_+_0.5rem)] lg:overflow-y-auto lg:overscroll-contain lg:rounded-[1.25rem] lg:p-1"
+              className="lg:sticky lg:top-(--rail-top) lg:-m-1 lg:max-h-[calc(100dvh-var(--rail-top)-2rem)] lg:scroll-pb-[calc(var(--dock-h,9.5rem)_+_0.5rem)] lg:overflow-y-auto lg:overscroll-contain lg:rounded-[1.25rem] lg:p-1"
             >
               <CreateReportCard plan={plan} expert={expert} dockRef={dockRef} />
             </div>

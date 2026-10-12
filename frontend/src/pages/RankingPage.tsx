@@ -1,6 +1,10 @@
 // 랭킹: 내 정보 공개를 켠 팀원의 수익률 순위. 수익률은 직전 장마감 종가로 평가한다 (Ranking.pricesAsOf — 오늘 산 보유는 체결가, docs/API.md "장마감 기준").
 // 하단 탭에서 빠져서 홈·마이의 랭킹 카드로 들어온다. 순서: 나(내 순위 또는 공개 스위치) → 전체 순위 → 계산식.
 // 비공개로 온 사람의 목적은 '나도 나오게'라서 그 자리에 공개 스위치를 둔다 (마이까지 가지 않고 한 번에). 켜면 내 줄이 목록에 새로 붙는다.
+// PC(xl 이상, 두 칸): 왼쪽 넓은 칸 = 수익률 순위(상위 3명 시상대 + 표 모양 전체 목록), 오른쪽 360px = 내 순위(또는 공개 스위치) → 계산식.
+// DOM 순서는 모바일과 같고(나 → 전체 순위 → 계산식) 격자 자리만 바꾼다. 시상대는 아래 목록과 같은 내용이라 화면 읽기에는 숨긴다(목록이 읽힌다).
+// 시상대는 6명 이상일 때만: 5명 이하면 목록이 한눈에 들어와 시상대가 같은 사람을 한 번 더 보일 뿐이다.
+// PC 계산식은 제목 있는 카드(쉬운 문장 → 작은 수식 줄). 모바일은 그대로 목록 아래 작은 한 줄.
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { errorMessage } from "../api/client";
@@ -12,6 +16,7 @@ import { Icon } from "../components/Icon";
 import { useToast } from "../components/toast";
 import { Card, EmptyState, ErrorState, Flash, Medal, PageHeader, RateText, SkeletonCard, Switch } from "../components/ui";
 import { markShown, useChanged, useNewKeys, useRevealAfterLoading } from "../hooks/useMotionState";
+import { useIsPc } from "../hooks/useIsPc";
 import { cn } from "../lib/cn";
 import { formatDateTime } from "../lib/format";
 
@@ -23,7 +28,7 @@ function Entry({ e, fresh }: { e: RankingEntry; fresh: boolean }) {
   return (
     <li
       aria-current={e.isMe ? "true" : undefined}
-      className={cn("flex items-center gap-3 px-5 py-3", e.isMe && "bg-brand-soft", fresh && "is-new")}
+      className={cn("flex items-center gap-3 px-5 py-3 lg:min-h-16 lg:gap-4 lg:px-6", e.isMe && "bg-brand-soft", fresh && "is-new")}
       onAnimationEnd={fresh ? markShown : undefined}
     >
       <Medal key={e.rank} rank={e.rank} className={moved ? "animate-pop-in" : undefined} />
@@ -36,6 +41,60 @@ function Entry({ e, fresh }: { e: RankingEntry; fresh: boolean }) {
       </Flash>
     </li>
   );
+}
+
+/** PC 시상대: 2위 · 1위 · 3위 (가운데가 가장 높다). 아래 목록과 같은 내용이라 aria-hidden — 순위 글자('N위')도 쓰지 않는다. */
+/** 시상대를 두는 최소 인원 (그보다 적으면 목록만). */
+const PODIUM_MIN = 6;
+
+function Podium({ top }: { top: RankingEntry[] }) {
+  if (top.length < 2) return null;
+  const col = ["col-start-2", "col-start-1", "col-start-3"];
+  return (
+    <div aria-hidden="true" className="hidden grid-cols-3 items-end gap-3 px-6 pt-3 pb-5 lg:grid">
+      {top.map((e, i) => (
+        <div
+          key={e.nickname}
+          className={cn(
+            "row-start-1 flex min-w-0 flex-col items-center rounded-2xl px-3 text-center",
+            col[i],
+            i === 0 ? "pt-6 pb-5" : "pt-4 pb-4",
+            e.isMe ? "bg-brand-soft" : "bg-fill",
+          )}
+        >
+          <Medal rank={e.rank} />
+          <p className={cn("mt-2 flex max-w-full items-center gap-1.5 font-bold", i === 0 ? "text-[18px]" : "text-[16px]")}>
+            <span className="truncate">{e.nickname}</span>
+            {e.isMe && <span className="shrink-0 rounded-md bg-brand px-1.5 py-0.5 text-[11px] font-bold text-white">나</span>}
+          </p>
+          <RateText rate={e.profitRate} className={cn("mt-0.5 font-bold", i === 0 ? "text-[24px]" : "text-[19px]")} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** 바로 위 팀원과의 수익률 차이 문장 (diff: %p). 반올림해 0.00이면 '같아요' — '0.00%p 차이'는 고장처럼 읽힌다. */
+function gapText(nickname: string, diff: number): string {
+  if (Math.abs(diff) < 0.005) return `바로 위 ${nickname}님과 수익률이 같아요.`;
+  return `바로 위 ${nickname}님보다 수익률이 ${Math.abs(diff).toFixed(2)}%p 낮아요.`;
+}
+
+/** PC 내 순위 칸 아래 한 줄: 바로 위 순위와의 수익률 차이 (1위면 지키는 중). */
+function GapLine({ ranking }: { ranking: Ranking }) {
+  const i = ranking.results.findIndex((e) => e.isMe);
+  if (i < 0 || ranking.me.profitRate == null) return null;
+  const above = ranking.results[i - 1];
+  const text =
+    i === 0
+      ? ranking.results.length > 1
+        ? "가장 높은 수익률이에요. 이대로 지켜 봐요."
+        : "아직 공개한 팀원이 나뿐이에요."
+      : above?.profitRate != null
+        ? gapText(above.nickname, (above.profitRate - ranking.me.profitRate) * 100)
+        : null;
+  if (!text) return null;
+  return <p className="mt-3 hidden rounded-xl bg-fill px-3.5 py-3 text-[14px] leading-snug text-sub lg:block">{text}</p>;
 }
 
 /**
@@ -112,6 +171,7 @@ function MyRank({ ranking, focusOnMount }: { ranking: Ranking; focusOnMount: boo
           </dd>
         </div>
       </dl>
+      <GapLine ranking={ranking} />
       <Link
         to="/my#public"
         className="press-row -mx-2 mt-2 flex min-h-11 items-center gap-0.5 rounded-xl px-2 text-[14px] font-semibold text-mute hover:bg-fill/60"
@@ -138,9 +198,9 @@ export function RankingPage() {
   }
   // 공개를 켜거나 다른 팀원이 새로 공개해 목록에 붙은 줄만 움직인다 (처음 그림·폴링 갱신은 그대로)
   const fresh = useNewKeys(data?.results.map((e) => e.nickname) ?? [], !isPending);
+  const pc = useIsPc();
   return (
-    // PC: 목록 화면 폭 규칙(알림과 같은 760px, 제목과 같은 왼쪽 선). 머리도 같은 폭이라 오른쪽 끝이 본문과 맞는다
-    <div className="lg:max-w-[760px]">
+    <>
       <PageHeader title="랭킹" back />
       {isPending ? (
         <div className="space-y-3">
@@ -152,20 +212,26 @@ export function RankingPage() {
           <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} retrying={isFetching} />
         </Card>
       ) : (
-        <div className={cn("space-y-3", reveal && "reveal-fade")}>
-          <Card aria-label="내 순위">
+        // PC(xl): [순위 | 오른쪽 360px: 내 순위 → 계산식]. 1024~1279px은 한 열(오른쪽 열이 좁아 숫자가 끼인다)
+        <div
+          className={cn(
+            "space-y-3 xl:grid xl:grid-cols-[minmax(0,1fr)_360px] xl:grid-rows-[auto_1fr] xl:items-start xl:gap-x-6 xl:gap-y-3 xl:space-y-0",
+            reveal && "reveal-fade",
+          )}
+        >
+          <Card aria-label="내 순위" className="xl:col-start-2 xl:row-start-1">
             <div key={isPublic ? "public" : "private"} className={published ? "reveal-fade" : undefined}>
               {isPublic ? <MyRank ranking={data} focusOnMount={published} /> : <GoPublic ranking={data} onPublished={setPublished} />}
             </div>
           </Card>
 
-          <section aria-labelledby="rank-title" className="overflow-hidden rounded-2xl bg-card">
-            <div className="px-5 pt-5 pb-2">
+          <section aria-labelledby="rank-title" className="overflow-hidden rounded-2xl bg-card xl:col-start-1 xl:row-span-2 xl:row-start-1">
+            <div className="px-5 pt-5 pb-2 lg:px-6">
               <div className="flex items-baseline justify-between gap-3">
-                <h2 id="rank-title" className="text-[17px] font-bold">
+                <h2 id="rank-title" className="text-[17px] font-bold lg:text-[19px]">
                   수익률 순위
                 </h2>
-                <span className="text-[12px] text-mute tabular-nums">{formatDateTime(data.asOf)} 계산</span>
+                <span className="text-[12px] text-mute tabular-nums lg:text-[13px]">{formatDateTime(data.asOf)} 계산</span>
               </div>
               <PricesAsOfLine pricesAsOf={data.pricesAsOf} className="mt-0.5" />
             </div>
@@ -174,19 +240,44 @@ export function RankingPage() {
                 내 정보 공개를 켠 팀원만 나와요.
               </EmptyState>
             ) : (
-              <ol className="pb-2" aria-label="랭킹 목록">
-                {data.results.map((e) => (
-                  <Entry key={e.nickname} e={e} fresh={fresh.has(e.nickname)} />
-                ))}
-              </ol>
+              <>
+                {data.results.length >= PODIUM_MIN && <Podium top={data.results.slice(0, 3)} />}
+                {/* PC 표 머리 (눈으로만 — 각 줄이 순위·닉네임·수익률을 그대로 읽힌다) */}
+                <div
+                  aria-hidden="true"
+                  className="hidden items-center gap-4 border-y border-line bg-fill/50 px-6 py-2 text-[13px] font-semibold text-mute lg:flex"
+                >
+                  <span className="w-9 text-center">순위</span>
+                  <span className="flex-1">닉네임</span>
+                  <span>수익률</span>
+                </div>
+                <ol className="pb-2 lg:divide-y lg:divide-line lg:pb-0" aria-label="랭킹 목록">
+                  {data.results.map((e) => (
+                    <Entry key={e.nickname} e={e} fresh={fresh.has(e.nickname)} />
+                  ))}
+                </ol>
+              </>
             )}
           </section>
-          <p className="px-1 text-[13px] leading-relaxed text-mute">
-            수익률 = 총자산 ÷ 초기 자금 − 1 (보유 종목은 직전 장마감 종가로 평가 — 오늘 산 종목은 장 마감 뒤까지 산 가격으로). 내 정보 공개를 켠 팀원만
-            나와요.
-          </p>
+          {pc ? (
+            <Card aria-labelledby="rank-calc-title" className="xl:col-start-2 xl:row-start-2">
+              <h2 id="rank-calc-title" className="text-[16px] font-bold">
+                수익률은 이렇게 계산해요
+              </h2>
+              <p className="mt-1.5 text-[14px] leading-relaxed text-sub">
+                처음 받은 모의투자 자금에서 지금 총자산(현금 + 보유 종목)이 얼마나 늘었는지예요. 보유 종목은 직전 장마감 종가로 셈하고, 오늘 산 종목은 장
+                마감 뒤까지 산 가격으로 셈해요. 내 정보 공개를 켠 팀원만 나와요.
+              </p>
+              <p className="mt-2 text-[13px] text-mute">수익률 = 총자산 ÷ 처음 자금 − 1</p>
+            </Card>
+          ) : (
+            <p className="px-1 text-[13px] leading-relaxed text-mute">
+              수익률 = 총자산 ÷ 초기 자금 − 1 (보유 종목은 직전 장마감 종가로 평가 — 오늘 산 종목은 장 마감 뒤까지 산 가격으로). 내 정보 공개를 켠 팀원만
+              나와요.
+            </p>
+          )}
         </div>
       )}
-    </div>
+    </>
   );
 }

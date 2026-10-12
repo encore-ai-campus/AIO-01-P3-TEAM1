@@ -4,6 +4,7 @@ import { errorMessage } from "../../api/client";
 import { useUpdateProfile } from "../../api/profile";
 import type { Me } from "../../api/types";
 import { cn } from "../../lib/cn";
+import { Icon } from "../Icon";
 import { useToast } from "../toast";
 import { Card, Spinner } from "../ui";
 
@@ -94,10 +95,12 @@ function NicknameForm({ me }: { me: Me }) {
 export function AccountCard({ me }: { me: Me }) {
   return (
     <Card aria-label="계정">
-      <h2 className="flex flex-wrap items-baseline gap-x-2">
-        <span className="text-[19px] font-bold">{me.nickname}</span> <span className="text-[14px] font-medium text-mute">@{me.username}</span>
+      {/* PC 오른쪽 설정 열의 다른 카드(알림 설정·화면 모드)와 같은 머리 모양: 아이콘 + 17px 제목 (모바일은 이름을 조금 크게) */}
+      <h2 className="flex flex-wrap items-baseline gap-x-2 lg:items-center lg:gap-x-1.5">
+        <Icon name="user" className="hidden size-5 shrink-0 self-center text-mute-weak lg:block" />
+        <span className="text-[19px] font-bold lg:text-[17px]">{me.nickname}</span> <span className="text-[14px] font-medium text-mute">@{me.username}</span>
       </h2>
-      <div className="mt-4 border-t border-line pt-4">
+      <div className="mt-4 border-t border-line pt-4 lg:mt-3">
         {/* key로 다시 그리지 않는다: 바꾼 뒤에도 입력 칸의 포커스가 남게 (칸의 값이 곧 새 닉네임이다) */}
         <NicknameForm me={me} />
       </div>

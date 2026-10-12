@@ -1,21 +1,27 @@
 // 홈. 주린이모드(쉬운 보기)와 전문가 보기가 다르다 (docs/plans/컨셉변경계획.md 4-2, docs/plans/컨셉변경계획.md 부록 A2-3).
 // 배치 원칙: 위에서 아래로 '지금 할 일 → 내가 시킨 일의 상태 → 참고 → 사회적 요소'. 늦게 오는 섹션이 위쪽에 끼어들지 않게
 // 늘 같은 자리를 두고(비면 한 줄), 생겼다 없어지는 섹션은 높이가 펼쳐지고 접힌다.
-// - 쉬운 보기: [3단계 안내 → 만드는 중인 리포트 → 진행 중인 모의 자동매매 → 최근 AI 리포트 → 오늘의 내 종목 뉴스] | [자산 → 최근 알림 → 랭킹]
-// - 전문가 보기: [자산 → (PC) 검색 → 장 상태] | [만드는 중 → 진행 중 자동매매 → 새 계획 제안 → 최근 리포트 → 오늘의 내 종목 뉴스(요약형) → 교차검증 분석 → 랭킹]
-// - 2단은 xl(1280px)부터: 그보다 좁으면 본문이 옆 열(360px)보다 좁아져 위계가 뒤집히고 가격 숫자가 쪼개진다 → 한 열(680px, 가운데).
+// DOM 순서 = 모바일 순서 (docs/design/DESIGN.md 부록 B0-7). PC 자리는 CSS grid 자리 지정으로만 바꾼다 (order·복제 없음).
+// - 쉬운 보기: [3단계 안내 → 만드는 중인 리포트 → 진행 중인 모의 자동매매 → 최근 AI 리포트 → 오늘의 내 종목 뉴스] → 자산 → [최근 알림 → 랭킹]
+// - 전문가 보기: [자산 → 장 상태(모바일)] → [만드는 중 → 진행 중 자동매매 → 새 계획 제안] → [최근 리포트 → 오늘의 내 종목 뉴스(요약형) → 교차검증 분석 → 랭킹]
+// PC(lg+): 두 보기 모두 내 자산이 맨 위 가로 요약(AssetCard — '얼마 있고, 몇 개가 돌고 있는지'를 먼저). xl(1280px+)부터 2단:
+//   왼쪽(넓게) = 읽고 지켜보는 것, 오른쪽 열(360px, 2xl 400px, 붙어 따라옴) = 지금 상태·할 일. 보기를 바꿔도 자산·열의 자리가 같다.
+//   쉬운 보기 오른쪽 = 최근 알림·랭킹, 전문가 보기 오른쪽 = 만드는 중·진행 중 자동매매·새 계획 제안.
+// - 1024~1279px는 한 열(680px, 가운데): 본문이 옆 열보다 좁아져 위계가 뒤집히고 가격 숫자가 쪼개진다.
+// - 왼쪽 열이 900px 이상(1920px 등)이면 최근 리포트·오늘의 내 종목 뉴스를 나란히. 교차검증 분석은 4장이라 2×2 그대로 (3열이면 1장이 남는다).
+// 장 상태는 PC 위 바(xl+)에 늘 보이므로 홈의 칩 줄은 그보다 좁을 때만 (목록은 DOM에 남는다). 발표·검수 도구(VITE_MOCK)는 맨 아래.
 // "이 화면만 자세히 보기"(?view=)는 맨 아래 — 이 화면에만 쓰고 저장하지 않는다 (hooks/useBeginnerMode.ts). 바꾼 뒤 맨 위로 가는 것은 ScrollManager.
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigationType } from "react-router";
 import { useAnalyses, useMarket, useMe, useQuotes, useReports } from "../api/queries";
-import type { MarketStatus } from "../api/types";
 import { AnalysisCard, AnalysisCardSkeleton } from "../components/analysis/AnalysisCard";
 import { AssetCard } from "../components/AssetCard";
+import { MarketStatus } from "../components/MarketStatus";
 import { HomePlans, HomeRecommendations } from "../components/autotrade/HomeSummaries";
 import { GuideCard } from "../components/home/GuideCard";
 import { DemoPreviewCard } from "../components/home/DemoPreviewCard";
-import { DAILY_MOVE_ANCHOR, kstDay, readGuideClosed, writeGuideClosed } from "../components/home/homeData";
+import { DAILY_MOVE_ANCHOR, readGuideClosed, writeGuideClosed } from "../components/home/homeData";
 import { useFailedCount } from "../components/home/homeHooks";
 import { EmptyRow, SectionError } from "../components/home/HomeStates";
 import { LivePlans } from "../components/home/LivePlans";
@@ -27,50 +33,32 @@ import { Icon } from "../components/Icon";
 import { DailyMoveCard } from "../components/longterm/DailyMoveCard";
 import { Collapse } from "../components/motion/Collapse";
 import { ViewToggle } from "../components/reports/ViewToggle";
-import { LiveDot, PageHeader, Segmented, Skeleton } from "../components/ui";
+import { PageHeader, Segmented } from "../components/ui";
 import { type ViewModeState, useViewMode } from "../hooks/useBeginnerMode";
 import { revealList, useChanged, useRevealAfterLoading } from "../hooks/useMotionState";
 import { cn } from "../lib/cn";
+import { STICKY_FIT_TOP, stickyFit } from "../lib/autotrade";
 import { DASHBOARD_SHOWN, dashboardOrder } from "../lib/dashboard";
-import { formatDateTime } from "../lib/format";
 import { scrollToTop } from "../lib/motion";
 
 type Filter = "ALL" | "BUY";
 
-/** 장이 열리는 때: 오늘이면 시각만, 아니면 날짜까지 ('미국 닫힘 · 22:30 시작'처럼 짧게 — 두 칩이 한 줄에 들어가게). */
-function opensText(iso: string) {
-  const at = formatDateTime(iso);
-  return kstDay(iso) === kstDay() ? at.split(" ")[1] : at;
-}
+/** 홈 바깥 격자: 모바일은 한 줄로 쌓고, xl부터 왼쪽(넓게) + 오른쪽 열. 자산 요약은 PC에서 맨 위 두 칸을 다 쓴다. */
+const HOME_GRID = "grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start 2xl:grid-cols-[minmax(0,1fr)_400px]";
+/** 왼쪽 넓은 열 (900px 이상이면 안의 짝 섹션을 나란히 — 이름 있는 container) */
+const HOME_MAIN = "min-w-0 space-y-6 @container/main xl:col-start-1 xl:row-start-2";
+/** 오른쪽 열: PC에서 붙어 따라온다 (화면보다 길면 아래 끝이 닿을 때 — stickyFit) */
+const HOME_RAIL = "min-w-0 space-y-6 xl:sticky xl:col-start-2 xl:row-start-2";
 
-/** 지금 장이 열렸나 (평가 기준 시각과는 다른 정보라 자산 카드의 기준 시각 줄에 섞지 않는다). 받기 전에도 자리를 둔다. */
-function MarketChips({ market }: { market: MarketStatus | undefined }) {
-  if (!market) {
-    return (
-      <div aria-hidden="true" className="flex gap-2">
-        {/* 알약 모양: 모서리를 주면 Skeleton이 기본 rounded-lg를 뺀다 */}
-        <Skeleton className="h-8 w-36 rounded-full" />
-        <Skeleton className="h-8 w-40 rounded-full" />
-      </div>
-    );
-  }
+/**
+ * 최근 AI 리포트 + 오늘의 내 종목 뉴스: 왼쪽 열이 900px 이상이면 나란히 (뉴스 카드가 있을 때만 — 보유가 없으면 감싸개만 남아 비어 있다).
+ * 좁으면 지금처럼 위아래 (간격은 space-y와 DailyMoveCard의 -mt-6/pt-6 짝 — 나란히일 때는 DailyMoveCard가 그 짝을 끈다).
+ */
+function ReadPair({ children }: { children: ReactNode }) {
   return (
-    <ul className="flex flex-wrap gap-2" aria-label="정규장 상태">
-      {market.markets.map((m) => (
-        <li
-          key={m.market}
-          className={cn("inline-flex h-8 items-center gap-1.5 rounded-full bg-card px-3 text-[13px] font-medium", m.isOpen ? "text-ink" : "text-sub")}
-        >
-          {/* 열린 장은 몇 시간 이어지는 '진행 중'이라 퍼지는 점(LiveDot), 닫힌 장은 회색 점 */}
-          {m.isOpen ? <LiveDot /> : <span aria-hidden="true" className="size-2 rounded-full bg-mute-weak" />}
-          {m.market === "KR" ? "국내" : "미국"} {m.isOpen ? "열림" : "닫힘"}
-          <span className="text-mute">
-            {m.isOpen ? (m.closesAt ? `· ${formatDateTime(m.closesAt).split(" ")[1]} 마감` : "") : m.opensAt ? `· ${opensText(m.opensAt)} 시작` : ""}
-          </span>
-        </li>
-      ))}
-      {market.halted && <li className="inline-flex h-8 items-center rounded-full bg-warn-soft px-3 text-[13px] font-semibold text-warn-ink">새 매수 중단</li>}
-    </ul>
+    <div className="space-y-6 @min-[900px]/main:grid @min-[900px]/main:items-start @min-[900px]/main:gap-x-6 @min-[900px]/main:space-y-0 @min-[900px]/main:has-[>:nth-child(2):not(:empty)]:grid-cols-2">
+      {children}
+    </div>
   );
 }
 
@@ -238,8 +226,9 @@ function EasyHome({ userId, view, focusKey }: { userId: number; view: ViewModeSt
 
   return (
     <>
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start">
-        <div className="min-w-0 space-y-6">
+      <div className={HOME_GRID}>
+        {/* 모바일 순서: 할 일·상태 → 자산 → 알림·랭킹. PC는 자산이 맨 위(lg:row-start-1), 한 열(lg)이면 알림·랭킹은 셋째 줄 */}
+        <div className={cn(HOME_MAIN, "lg:row-start-2")}>
           {/* 간격(pb-6)을 접히는 안쪽에 둔다 — 닫을 때 아래 내용이 간격까지 부드럽게 올라온다 */}
           <div ref={guideSlot} className="mb-0">
             <Collapse open={show}>
@@ -250,11 +239,15 @@ function EasyHome({ userId, view, focusKey }: { userId: number; view: ViewModeSt
           </div>
           <ReportsInProgress mine={myReports} view="easy" />
           <LivePlans />
-          <RecentReports view="easy" />
-          <DailyMoveCard view="easy" limit={3} emptyMode="compact" id={DAILY_MOVE_ANCHOR} focusKey={focusKey} />
+          <ReadPair>
+            <RecentReports view="easy" />
+            <DailyMoveCard view="easy" limit={3} emptyMode="compact" id={DAILY_MOVE_ANCHOR} focusKey={focusKey} />
+          </ReadPair>
         </div>
-        <div className="min-w-0 space-y-6">
+        <div className="min-w-0 lg:row-start-1 xl:col-span-2">
           <AssetCard easy />
+        </div>
+        <div ref={stickyFit} style={{ top: STICKY_FIT_TOP }} className={cn(HOME_RAIL, "lg:row-start-3")}>
           <RecentNotifications />
           <RankingCard />
         </div>
@@ -269,27 +262,24 @@ function ExpertHome({ view, focusKey }: { view: ViewModeState; focusKey: string 
   const mine = useReports({ mine: true });
   return (
     <>
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)] xl:items-start">
-        {/* 왼쪽(PC sticky): 스크롤 내내 봐야 하는 것만 — 돈·검색·장 상태. 화면 높이 680px에도 들어간다 */}
-        <div className="min-w-0 space-y-3 xl:sticky xl:top-8">
+      <div className={HOME_GRID}>
+        {/* 맨 위: 돈 (PC는 가로 요약). 검색 입구는 PC 위 바·모바일 머리 돋보기 — 장 상태 칩은 PC 위 바(xl+)에도 있어 그보다 좁을 때만 */}
+        <div className="min-w-0 space-y-3 xl:col-span-2">
           <AssetCard />
-          {/* 모바일·중간 폭은 머리 돋보기·'종목' 탭이 검색 입구 (같은 입구를 한 화면에 셋 두지 않는다) */}
-          <Link
-            to="/search"
-            className="press-row hidden h-12 items-center gap-2 rounded-2xl bg-card px-4 text-[15px] text-mute hover:bg-fill/50 hover:text-sub xl:flex"
-          >
-            <Icon name="search" className="size-5" />
-            종목명이나 종목코드로 검색
-          </Link>
-          <MarketChips market={market} />
+          <MarketStatus market={market} className="xl:hidden" />
         </div>
-        {/* 오른쪽: 진행 중인 일 → 할 수 있는 일 → 참고 → 사회적 요소 */}
-        <div className="min-w-0 space-y-6">
+        {/* 오른쪽 열(PC): 진행 중인 일 → 할 수 있는 일. 모바일은 자산 바로 아래 */}
+        <div ref={stickyFit} style={{ top: STICKY_FIT_TOP }} className={HOME_RAIL}>
           <ReportsInProgress mine={mine.data?.results} view="expert" />
           <HomePlans />
           <HomeRecommendations />
-          <RecentReports view="expert" />
-          <DailyMoveCard view="expert" limit={3} density="summary" emptyMode="compact" id={DAILY_MOVE_ANCHOR} focusKey={focusKey} />
+        </div>
+        {/* 왼쪽 넓은 열(PC): 참고 → 사회적 요소 */}
+        <div className={HOME_MAIN}>
+          <ReadPair>
+            <RecentReports view="expert" />
+            <DailyMoveCard view="expert" limit={3} density="summary" emptyMode="compact" id={DAILY_MOVE_ANCHOR} focusKey={focusKey} />
+          </ReadPair>
           <Dashboard />
           <RankingCard />
         </div>
@@ -324,8 +314,9 @@ export function HomePage() {
         }
       />
       <FailedNotice />
-      <DemoPreviewCard />
       {view.easy && me ? <EasyHome userId={me.id} view={view} focusKey={focusKey} /> : <ExpertHome view={view} focusKey={focusKey} />}
+      {/* 발표·검수 도구 (VITE_MOCK 전용)는 사용자 화면의 첫 자리를 차지하지 않게 맨 아래 */}
+      <DemoPreviewCard />
     </div>
   );
 }

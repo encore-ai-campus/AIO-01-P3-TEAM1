@@ -22,7 +22,7 @@ export function LazyEduDoc() {
  * 교육용 문서 접이식 영역.
  * stickyTop: 펼친 동안 머리가 붙을 위치 (모바일 화면 머리 아래 기본 top-14 — 화면에 고정 탭 줄이 더 있으면 그 아래로 준다).
  */
-export function EduDocSection({ defaultOpen = false, stickyTop = "top-14 lg:top-4" }: { defaultOpen?: boolean; stickyTop?: string }) {
+export function EduDocSection({ defaultOpen = false, stickyTop = "top-14 lg:top-[calc(var(--pc-header-h)+1rem)]" }: { defaultOpen?: boolean; stickyTop?: string }) {
   const [open, setOpen] = useState(defaultOpen);
   const [opened, setOpened] = useState(false); // 사용자가 연 경우만 페이드 (처음부터 열려 있으면 움직이지 않는다)
   const docId = useId();
@@ -54,7 +54,7 @@ export function EduDocSection({ defaultOpen = false, stickyTop = "top-14 lg:top-
         aria-controls={open ? docId : undefined}
         onClick={toggle}
         className={cn(
-          "-m-2 flex w-[calc(100%+1rem)] scroll-mt-20 items-center justify-between gap-3 rounded-xl bg-card p-2 text-left hover:bg-fill/60",
+          "-m-2 flex w-[calc(100%+1rem)] scroll-mt-20 lg:scroll-mt-(--rail-top) items-center justify-between gap-3 rounded-xl bg-card p-2 text-left hover:bg-fill/60",
           // 펼친 동안 머리를 붙여 둔다 (어디서든 접을 수 있게)
           open && cn("sticky z-10", stickyTop),
         )}

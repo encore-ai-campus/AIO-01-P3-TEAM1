@@ -2,8 +2,11 @@
 // "주요 사건"(기본)은 실패·재시도·전환·완료·포기·검토 반복·막힘·시작과 끝만, "전체"는 모든 사건과 원본 action·details.
 // 새 사건: 이 화면을 보는 동안 붙은 사건만 올라오며 나타난다 (.is-new). 처음부터 있던 사건과 보기를 바꿔 새로 보이는 사건은 움직이지 않는다.
 // 끝이 화면 밖에 있으면 아래에 '새 사건 n건 ↓' 알약을 띄워 바로 내려갈 수 있게 한다 (IntersectionObserver가 없으면 알약도 없다).
+// PC(lg)는 알약을 떠 있게 두지 않고 보기 전환 줄 오른쪽에 둔다 — 떠 있는 알약이 마지막 사건 줄을 가렸다 (리뷰 4). 넓은 화면(xl)에서 카드가 안에서 스크롤되면
+// 그 줄이 카드 위에 붙어 알약이 늘 보인다.
 import { type RefObject, useEffect, useRef, useState } from "react";
 import type { ExecutionPlan, TraceEvent } from "../../api/types";
+import { useIsPc } from "../../hooks/useIsPc";
 import { cn } from "../../lib/cn";
 import { formatLatency, formatTime } from "../../lib/format";
 import { prefersReducedMotion } from "../../lib/motion";
@@ -80,6 +83,7 @@ export function TraceTimeline({ trace, plan }: { trace: TraceEvent[]; plan: Exec
   if (endVisible !== false && seenAt !== latest) setSeenAt(latest);
   const shown = mode === "key" ? trace.filter(isKeyEvent) : trace;
   const unseen = endVisible === false ? shown.filter((e) => e.step > seenAt).length : 0;
+  const isPc = useIsPc();
 
   if (trace.length === 0) {
     return <p className="py-8 text-center text-[15px] text-mute">아직 실행 사건이 없습니다.</p>;
@@ -90,7 +94,7 @@ export function TraceTimeline({ trace, plan }: { trace: TraceEvent[]; plan: Exec
   };
   return (
     <div>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 xl:sticky xl:-top-5 xl:z-(--z-header) xl:-mx-5 xl:-mt-1 xl:bg-card xl:px-5 xl:py-1">
         <Segmented
           label="타임라인 보기"
           value={mode}
@@ -100,7 +104,17 @@ export function TraceTimeline({ trace, plan }: { trace: TraceEvent[]; plan: Exec
             { value: "all", label: "전체" },
           ]}
         />
-        <span className="text-[12px] text-mute tabular-nums">
+        <span className="flex items-center gap-2 text-[12px] text-mute tabular-nums">
+          {isPc && unseen > 0 && (
+            <button
+              type="button"
+              onClick={goEnd}
+              className="press flex h-8 animate-rise-in items-center gap-1 rounded-full bg-ink px-3 text-[13px] font-semibold text-on-ink"
+            >
+              새 사건 {unseen}건
+              <Icon name="chevron-down" className="size-4" />
+            </button>
+          )}
           {shown.length} / {trace.length}건
         </span>
       </div>
@@ -158,7 +172,7 @@ export function TraceTimeline({ trace, plan }: { trace: TraceEvent[]; plan: Exec
       </ol>
       {/* 목록 끝 표시 (보이는지 지켜본다) */}
       <div ref={end} aria-hidden="true" className="h-px" />
-      {unseen > 0 && (
+      {!isPc && unseen > 0 && (
         // 끝이 화면 밖일 때 새로 붙은 사건 수. 하단 탭 위에 붙고(카드 안에서만 따라온다), 누르면 끝으로 내려간다
         <div className="pointer-events-none sticky bottom-[calc(80px+env(safe-area-inset-bottom))] z-10 flex justify-center pt-2 lg:bottom-6">
           <button

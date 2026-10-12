@@ -10,12 +10,19 @@
 //   보유 중 평가는 수수료·세금 빼기 전이라고 밝힌다 (UX-10).
 // 숫자 카드에 "넣은 돈"이 있다 (TradePlan.budgetMode — 2026-10-11부터: 내 자금의 %와 그때 바꾼 금액, 또는 금액. 그 전 계획은 "예산"만).
 // 시연용 수동 시작 계획(TradePlan.manualStart, DECISIONS 31장)은 출처 배지 옆 "시연용 수동 시작" 배지와 머리 카드 안 경고 한 줄 (쉬운·전문가 둘 다).
-import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
+// PC (2026-10-12 PC 재설계): 머리 카드는 화면 제목 아래 부제 줄로 합친다 (이름은 제목 h1에만 — 카드 안의 큰 이름은 PC에서 숨긴다).
+//   왼쪽 열에 가격 차트(종목 일봉 + 사는 가격/산 가격·목표·손절·판 가격 선, PC에서만 그린다 — useIsPc), 오른쪽 숫자 칸은 22px로 크게.
+//   사용자 화면의 원시 번호(계획 #·주문 #·추천 #·사건 #)는 빼고 무엇으로 가는지로 이름을 붙인다.
+//   머리 줄은 두 열 위에 걸친다(상태 칩은 코드·시장 바로 옆). 핵심 숫자 칸은 상태마다 뜻이 있는 것만 — 사기 전: 수량·넣은 돈·진입가·진입가까지,
+//   산 뒤: 수량·체결가·현재 손익·목표까지, 판 뒤: 수량·체결가·실현 손익·청산가 ('-' 칸을 그리지 않는다).
+//   끝난 계획의 오른쪽 열: 기본 버튼은 다음 순환(새 계획 제안 보기 / 새 AI 추천 고르기), 보조 링크는 출처(이 계획을 만든 제안 다시 보기 / 원래 AI 추천 보기).
+import { type ReactNode, type RefObject, Suspense, lazy, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigationType, useParams } from "react-router";
 import { useCancelPlan, useExitWatch, useOrderExpireDate } from "../api/autotrade";
 import { ApiError, errorMessage } from "../api/client";
-import { isPlanLive, useMarket, usePlan, useQuotes } from "../api/queries";
+import { isPlanLive, useMarket, usePlan, useQuotes, useStock } from "../api/queries";
 import type { MarketSession, PlanEvent, TradePlanDetail } from "../api/types";
+import type { ChartLine } from "../components/charts/CandleChart";
 import { ManualStartBadge, PlanStatusChip, SourceBadge } from "../components/autotrade/Badges";
 import { EasySteps, OutcomeNote, Pnl, PlanTimeline, WorkflowGraph } from "../components/autotrade/PlanWorkflow";
 import { PriceLadder } from "../components/autotrade/PriceLadder";
@@ -24,6 +31,7 @@ import { Sheet } from "../components/motion/Sheet";
 import { useToast } from "../components/toast";
 import { AsOf, Card, ErrorState, Flash, LiveDot, Notice, PageHeader, Row, Skeleton, SkeletonCard, Spinner } from "../components/ui";
 import { useViewMode } from "../hooks/useBeginnerMode";
+import { useIsPc } from "../hooks/useIsPc";
 import { useChanged, useRevealAfterLoading } from "../hooks/useMotionState";
 import {
   STICKY_FIT_TOP,
@@ -50,6 +58,62 @@ import {
 } from "../lib/format";
 import { holdingValue } from "../lib/holding";
 import { MANUAL_START_TEXT, PLAN_STATUS_TEXT, planEventSentence, planExitText, quotePriceName } from "../lib/plainText";
+
+// 차트 라이브러리는 PC 계획 화면에서만 쓰므로 따로 불러온다 (종목 상세와 같은 방식)
+const CandleChart = lazy(() => import("../components/charts/CandleChart").then((m) => ({ default: m.CandleChart })));
+
+/** 차트 높이 (PC 왼쪽 열의 보조 차트 — 종목 상세의 큰 차트보다 낮게). */
+const PLAN_CHART_H = "h-[300px] xl:h-[340px] 2xl:h-[380px]";
+
+/**
+ * 차트 위 가격 선: 사기 전 = 사는 가격·목표·손절, 산 뒤 = 산 가격·목표·손절, 판 뒤 = 산 가격·판 가격 (+ 판 가격과 겹치지 않는 목표·손절).
+ * 판 가격 선은 산 가격보다 높으면 목표 색, 낮으면 손절 색. 사는 가격까지 가지 못하고 끝난 계획은 사기 전과 같다.
+ */
+function planChartLines(p: TradePlanDetail, easy: boolean): ChartLine[] {
+  const name = easy
+    ? { entry: "사는 가격", fill: "산 가격", target: "목표 가격", stop: "손절 가격", exit: "판 가격" }
+    : { entry: "진입가", fill: "체결가", target: "목표가", stop: "손절가", exit: "청산가" };
+  const lines: ChartLine[] = [];
+  if (p.fillPrice != null) lines.push({ price: p.fillPrice, title: name.fill, tone: "entry" });
+  else lines.push({ price: p.entryPrice, title: name.entry, tone: "entry" });
+  const exit = p.exitPrice;
+  const apart = (x: number) => exit == null || Math.abs(x - exit) / exit > 0.003;
+  if (apart(p.targetPrice)) lines.push({ price: p.targetPrice, title: name.target, tone: "target" });
+  if (apart(p.stopPrice)) lines.push({ price: p.stopPrice, title: name.stop, tone: "stop" });
+  if (exit != null) lines.push({ price: exit, title: name.exit, tone: exit >= (p.fillPrice ?? p.entryPrice) ? "target" : "stop" });
+  return lines;
+}
+
+/** PC 왼쪽 열의 가격 차트 (종목 일봉 + 계획의 가격 선). 선 이름표·차트 이름(role=img)은 CandleChart가 붙인다. */
+function PlanChart({ p, easy }: { p: TradePlanDetail; easy: boolean }) {
+  const { data: stock, isPending, isError } = useStock(p.symbol);
+  const lines = planChartLines(p, easy);
+  const skeleton = <Skeleton className={cn("mt-3 w-full rounded-xl", PLAN_CHART_H)} />;
+  return (
+    <Card aria-labelledby="plan-chart-title">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <h2 id="plan-chart-title" className="text-[17px] font-bold">
+          {easy ? "가격 흐름과 내 계획" : "가격 차트"}
+        </h2>
+        <Link to={`/stocks/${encodeURIComponent(p.symbol)}`} className="flex h-8 items-center gap-0.5 text-[13px] font-semibold text-brand-ink">
+          {easy ? "종목 화면 보기" : "종목 상세"}
+          <Icon name="chevron" className="size-3.5" />
+        </Link>
+      </div>
+      {isPending ? (
+        skeleton
+      ) : isError || !stock || stock.candles.length === 0 ? (
+        <p className="mt-3 rounded-xl bg-fill px-4 py-6 text-center text-[14px] text-mute">
+          {easy ? "가격 기록을 불러오지 못했어요. 잠시 뒤에 다시 열어 주세요." : "일봉을 불러오지 못했습니다."}
+        </p>
+      ) : (
+        <Suspense fallback={skeleton}>
+          <CandleChart candles={stock.candles} currency={p.currency} variant={easy ? "line" : "candle"} lines={lines} className={PLAN_CHART_H} />
+        </Suspense>
+      )}
+    </Card>
+  );
+}
 
 /**
  * 멈추기(계획 중단) 확인 시트. 문구·버튼은 연 순간의 상태로 고정한다 — 열린 채 5초 폴링으로 상태가 바뀌어도
@@ -278,12 +342,30 @@ function useHoldingSpan(p: TradePlanDetail): string {
   return beforeFill(p) ? `산 뒤 최대 ${p.holdingDays}거래일` : `최대 ${p.holdingDays}거래일`;
 }
 
-/** 숫자 칸 하나. 값은 줄을 바꾸지 않고(자릿수 중간에서 갈라지지 않게), 보조 줄은 넘치면 줄임표 + 전체는 title (trade-03). */
-function Cell({ label, children, sub, subClass }: { label: string; children: ReactNode; sub?: string; subClass?: string }) {
+/**
+ * 숫자 칸 하나. 값은 줄을 바꾸지 않고(자릿수 중간에서 갈라지지 않게), 보조 줄은 넘치면 줄임표 + 전체는 title (trade-03).
+ * PC는 22px로 크게 — 오른쪽 열 2칸(한 칸 약 130px)에서 넘치지 않게 11자 넘는 값(예: +1,234,567원)은 19px (text: 보이는 값).
+ */
+function Cell({
+  label,
+  children,
+  text,
+  sub,
+  subClass,
+  className,
+}: {
+  label: string;
+  children: ReactNode;
+  text?: string;
+  sub?: string;
+  subClass?: string;
+  className?: string;
+}) {
+  const long = (text?.length ?? 0) > 10;
   return (
-    <div className="min-w-0 rounded-xl bg-fill p-3">
-      <dt className="text-[12px] text-mute">{label}</dt>
-      <dd className="text-[17px] font-bold whitespace-nowrap tabular-nums">{children}</dd>
+    <div className={cn("min-w-0 rounded-xl bg-fill p-3 lg:px-3.5", className)}>
+      <dt className="text-[12px] text-mute lg:text-[13px]">{label}</dt>
+      <dd className={cn("text-[17px] font-bold whitespace-nowrap tabular-nums lg:mt-0.5 lg:leading-tight", long ? "lg:text-[19px]" : "lg:text-[22px]")}>{children}</dd>
       {sub && (
         <dd className={cn("truncate text-[11px] tabular-nums", subClass ?? "text-mute")} title={sub}>
           {sub}
@@ -293,38 +375,113 @@ function Cell({ label, children, sub, subClass }: { label: string; children: Rea
   );
 }
 
+/** 숫자 칸 수 → 넓은 카드(@lg)의 열 수 (칸 수만큼 한 줄로 — 빈 칸을 남기지 않는다). */
+const TILE_COLS = { 1: "@lg:grid-cols-1", 2: "@lg:grid-cols-2", 3: "@lg:grid-cols-3", 4: "@lg:grid-cols-4" } as const;
+
 function Numbers({ p, className }: { p: TradePlanDetail; className?: string }) {
   const { holding, last, asOf, basis, unrealized, rate } = useHoldingValue(p);
+  // 사기 전 '진입가까지'는 시세의 가격으로 (가격 사다리의 거리 한 줄과 같은 셈 — ladderDistances)
+  const quote = useLastPrice(p);
   const span = useHoldingSpan(p);
   const budget = budgetText(p, false);
   // 산 뒤에는 목표·손절 %를 체결가 기준으로 (UX-3)
   const base = p.fillPrice ?? p.entryPrice;
+  const before = beforeFill(p) || p.fillPrice == null;
+  // 넣은 돈은 사기 전에만 큰 칸으로 (그때 가장 궁금한 숫자). 칸으로 보이면 아래 줄에서는 뺀다
+  const budgetTile = before && p.budgetMode != null && p.budgetKrw != null;
+  const [toEntry] = ladderDistances(p.status, p, quote.last);
+  const [toTarget, toStop] = ladderDistances(p.status, p, last);
+  const won = (v: number | null) => formatPrice(v, p.currency);
+  // 상태마다 뜻이 있는 칸만 (값이 없는 '-' 칸을 그리지 않는다 — 막 시작한 계획의 오른쪽 열이 비어 보이지 않게).
+  // 사기 전: 수량 · 넣은 돈 · 진입가 · 진입가까지 / 산 뒤: 수량 · 체결가 · 현재 손익 · 목표까지 / 판 뒤: 수량 · 체결가 · 실현 손익 · 청산가
+  const tiles: { key: string; label: string; text?: string; sub?: string; subClass?: string; value: ReactNode }[] = [
+    { key: "qty", label: "수량", value: formatQty(p.quantity) },
+  ];
+  if (before) {
+    if (budgetTile) {
+      tiles.push({
+        key: "budget",
+        label: "넣은 돈",
+        text: formatKrw(p.budgetKrw),
+        sub: p.budgetMode === "percent" && p.budgetPercent != null ? `매수 가능 금액의 ${p.budgetPercent}%` : undefined,
+        value: formatKrw(p.budgetKrw),
+      });
+    }
+    tiles.push({ key: "entry", label: "진입가", text: won(p.entryPrice), sub: "지정가", value: won(p.entryPrice) });
+    if (toEntry) {
+      const reached = toEntry.rate >= 0;
+      tiles.push({
+        key: "to-entry",
+        label: "진입가까지",
+        text: reached ? "도달" : formatRate(toEntry.rate, 1),
+        sub: `${quotePriceName(quote.basis)} ${won(quote.last)}`,
+        value: reached ? "도달" : formatRate(toEntry.rate, 1),
+      });
+    }
+  } else {
+    tiles.push({ key: "fill", label: "체결가", text: won(p.fillPrice), value: won(p.fillPrice) });
+    if (holding) {
+      tiles.push({
+        key: "pnl",
+        label: "현재 손익",
+        text: formatSignedPrice(unrealized, p.currency),
+        sub: `${formatRate(rate)} · ${quotePriceName(basis)} ${won(last)}`,
+        subClass: trendClass(rate),
+        value: (
+          <span className={trendClass(unrealized)}>
+            <Flash value={unrealized}>{formatSignedPrice(unrealized, p.currency)}</Flash>
+          </span>
+        ),
+      });
+      if (toTarget) {
+        tiles.push({
+          key: "to-target",
+          label: "목표까지",
+          text: formatRate(toTarget.rate, 1),
+          sub: toStop ? `손절까지 ${formatRate(toStop.rate, 1)}` : undefined,
+          value: formatRate(toTarget.rate, 1),
+        });
+      }
+    } else {
+      if (p.pnlKrw != null) {
+        tiles.push({
+          key: "pnl",
+          label: "실현 손익",
+          text: formatSignedKrw(p.pnlKrw),
+          value: <span className={trendClass(p.pnlKrw)}>{formatSignedKrw(p.pnlKrw)}</span>,
+        });
+      }
+      if (p.exitPrice != null) {
+        tiles.push({ key: "exit", label: "청산가", text: won(p.exitPrice), sub: p.exitReason ? exitReasonLabel(p.exitReason) : undefined, value: won(p.exitPrice) });
+      }
+    }
+  }
+  const n = Math.min(tiles.length, 4) as keyof typeof TILE_COLS;
   return (
-    // 칸 수는 화면이 아니라 카드 폭으로 정한다 (PC 오른쪽 열 360px에서는 2칸, 넓은 한 열에서는 4칸)
+    // 칸 수는 화면이 아니라 카드 폭으로 정한다 (PC 오른쪽 열 360px에서는 2칸, 넓은 한 열에서는 칸 수만큼 한 줄)
     <Card aria-labelledby="numbers-title" className={cn("@container", className)}>
       <h2 id="numbers-title" className="mb-2 text-[17px] font-bold">
         핵심 숫자
       </h2>
-      <dl className="grid grid-cols-2 gap-2 @lg:grid-cols-4">
-        <Cell label="수량">{formatQty(p.quantity)}</Cell>
-        <Cell label="체결가">{formatPrice(p.fillPrice, p.currency)}</Cell>
-        <Cell
-          label={holding ? "현재 손익" : "실현 손익"}
-          sub={holding ? `${formatRate(rate)} · ${quotePriceName(basis)} ${formatPrice(last, p.currency)}` : undefined}
-          subClass={trendClass(rate)}
-        >
-          <span className={trendClass(holding ? unrealized : p.pnlKrw)}>
-            {holding ? <Flash value={unrealized}>{formatSignedPrice(unrealized, p.currency)}</Flash> : formatSignedKrw(p.pnlKrw)}
-          </span>
-        </Cell>
-        <Cell label="청산가" sub={p.exitReason ? exitReasonLabel(p.exitReason) : undefined}>
-          {formatPrice(p.exitPrice, p.currency)}
-        </Cell>
+      <dl className={cn("grid grid-cols-2 gap-2", TILE_COLS[n])}>
+        {tiles.map((t, i) => (
+          // 두 칸 줄에서 칸 수가 홀수면 마지막 칸이 줄을 채운다 (빈 자리 없이)
+          <Cell
+            key={t.key}
+            label={t.label}
+            text={t.text}
+            sub={t.sub}
+            subClass={t.subClass}
+            className={tiles.length % 2 === 1 && i === tiles.length - 1 ? "col-span-2 @lg:col-span-1" : undefined}
+          >
+            {t.value}
+          </Cell>
+        ))}
       </dl>
       {holding && <AsOf at={asOf} market={p.market} basis={basis} className="mt-1 block text-right" />}
       <dl className="mt-3">
-        {budget && <Row label="넣은 돈">{budget}</Row>}
-        <Row label="진입가 (지정가)">{formatPrice(p.entryPrice, p.currency)}</Row>
+        {budget && !budgetTile && <Row label="넣은 돈">{budget}</Row>}
+        {!before && <Row label="진입가 (지정가)">{formatPrice(p.entryPrice, p.currency)}</Row>}
         <Row label={p.fillPrice != null ? "목표가 (체결가 기준)" : "목표가"}>
           <span className="text-up">
             {formatPrice(p.targetPrice, p.currency)} ({formatRate(p.targetPrice / base - 1, 1)})
@@ -356,9 +513,9 @@ function EasyNumbers({ p, className }: { p: TradePlanDetail; className?: string 
       </h2>
       {holding && (
         <div className="mb-2 rounded-xl bg-fill p-3">
-          <p className="text-[12px] text-mute">{basis === "live" ? "지금 가격으로 본 평가 (수수료·세금 빼기 전)" : "직전 종가로 본 평가 (수수료·세금 빼기 전)"}</p>
+          <p className="text-[12px] text-mute lg:text-[13px]">{basis === "live" ? "지금 가격으로 본 평가 (수수료·세금 빼기 전)" : "직전 종가로 본 평가 (수수료·세금 빼기 전)"}</p>
           {/* 시세로 바뀌는 금액이라 전문가 보기와 같은 Flash로 알린다 (trade-31) */}
-          <p className={cn("text-[19px] font-bold tabular-nums", trendClass(unrealized))}>
+          <p className={cn("text-[19px] font-bold tabular-nums lg:text-[24px] lg:leading-tight", trendClass(unrealized))}>
             <Flash value={unrealized}>{formatSignedPrice(unrealized, p.currency)}</Flash> <span className="text-[13px]">({formatRate(rate)})</span>
           </p>
           <p className="text-[12px] text-sub tabular-nums">
@@ -371,8 +528,8 @@ function EasyNumbers({ p, className }: { p: TradePlanDetail; className?: string 
       )}
       {p.status === "closed" && (
         <div className="mb-2 rounded-xl bg-fill p-3">
-          <p className="text-[12px] text-mute">손익 (수수료·세금 포함)</p>
-          <p className={cn("text-[19px] font-bold tabular-nums", trendClass(p.pnlKrw))}>{formatSignedKrw(p.pnlKrw)}</p>
+          <p className="text-[12px] text-mute lg:text-[13px]">손익 (수수료·세금 포함)</p>
+          <p className={cn("text-[19px] font-bold tabular-nums lg:text-[24px] lg:leading-tight", trendClass(p.pnlKrw))}>{formatSignedKrw(p.pnlKrw)}</p>
           {p.exitReason && <p className="text-[13px] text-sub">{planExitText(p.exitReason, true)}</p>}
         </div>
       )}
@@ -518,6 +675,7 @@ export function PlanPage() {
   const { data: p, isPending, isError, error, refetch, isFetching, dataUpdatedAt: planAt } = usePlan(Number(id));
   const reveal = useRevealAfterLoading(isPending);
   const { data: market } = useMarket();
+  const pc = useIsPc();
   const [confirming, setConfirming] = useState(false);
   const stopRef = useRef<HTMLButtonElement>(null);
   const stepsTitle = useRef<HTMLHeadingElement>(null);
@@ -609,7 +767,7 @@ export function PlanPage() {
         className="press flex h-12 items-center justify-center gap-1.5 rounded-xl bg-brand text-[16px] font-bold text-white hover:bg-brand-dark"
       >
         <Icon name="sparkle" className="size-4" />
-        {easy ? "새 계획 제안 보기" : "AI 추천 보기"}
+        {easy ? "새 계획 제안 보기" : "새 AI 추천 고르기"}
       </Link>
     );
 
@@ -617,11 +775,12 @@ export function PlanPage() {
     <Card className="order-5 space-y-2 lg:order-none">
       {next}
       <Link to={orderLink} className={linkCls}>
-        {easy ? "연결된 모의 주문 보기" : `연결된 모의 주문 보기${p.orderId != null ? ` (#${p.orderId})` : ""}`}
+        연결된 모의 주문 보기
         <Icon name="chevron" className="size-4" />
       </Link>
       <Link to={`/recommendations/${p.recommendationId}`} className={linkCls}>
-        {easy ? "계획 제안 보기" : `추천 #${p.recommendationId} 보기`}
+        {/* 위 기본 버튼(다음 순환 — 제안 목록)과 헷갈리지 않게 '이 계획이 나온 곳'이라고 이름 붙인다 */}
+        {easy ? "이 계획을 만든 제안 다시 보기" : "원래 AI 추천 보기"}
         <Icon name="chevron" className="size-4" />
       </Link>
       {stopArea}
@@ -631,45 +790,50 @@ export function PlanPage() {
   const sheet = (
     <StopSheet plan={p} easy={easy} open={confirming} onClose={() => setConfirming(false)} onStopped={onStopped} returnFocus={stopRef} />
   );
+  // 머리 카드: PC는 카드 바탕 없이 화면 제목 바로 아래 부제 줄 (제목과 한 덩어리로 읽히게)
+  // 두 열 위에 걸쳐 (머리 아래에서 왼쪽 본문과 오른쪽 열이 같은 높이에서 시작한다)
+  const HEAD_PC = "lg:col-span-2 lg:-mt-2 lg:bg-transparent lg:px-1 lg:pt-0 lg:pb-0";
   // 두 열 래퍼는 모바일에서 contents(카드만 남아 order로 섞인다), PC에서 블록(왼쪽 본문 · 오른쪽 고정 열)
-  const grid = cn("grid gap-3 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-6", reveal && "reveal-fade");
+  const grid = cn("grid gap-3 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-x-6 lg:gap-y-4", reveal && "reveal-fade");
 
   if (easy) {
     return (
       <>
         <PageHeader title={`${p.name} 모의 자동매매`} back />
         <div className={grid}>
-          <div className="contents lg:block lg:min-w-0 lg:space-y-3">
-            <Card className="order-1 lg:order-none">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-[14px] text-mute">
-                    {p.symbol} · {p.market === "KR" ? "국내" : "미국"} · 모의 계좌
-                  </p>
-                  <p className="mt-0.5 text-[22px] font-bold tracking-tight">{p.name}</p>
-                </div>
-                <PlanStatusChip status={p.status} easy className="h-7 px-2 text-[13px]" />
+          {/* 머리: PC는 두 열 위에 걸친 한 줄 (두 열이 같은 높이에서 시작하고, 상태 칩은 코드·시장 바로 옆에 붙는다) */}
+          <Card className={cn("order-1 lg:order-none", HEAD_PC)}>
+            <div className="flex items-start justify-between gap-3 lg:items-center lg:justify-start">
+              <div className="min-w-0">
+                <p className="text-[14px] text-mute">
+                  {p.symbol} · {p.market === "KR" ? "국내" : "미국"} · 모의 계좌
+                </p>
+                {/* PC는 화면 제목(h1)이 이름을 말한다 */}
+                <p className="mt-0.5 text-[22px] font-bold tracking-tight lg:hidden">{p.name}</p>
               </div>
-              {/* 상태가 바뀌면(체결·청산) 화면 읽기 프로그램이 이 줄을 읽는다 (role 없이 — 토스트의 status와 겹치지 않게) */}
-              <p aria-live="polite" className="mt-2 text-[15px] leading-relaxed">
-                {PLAN_STATUS_TEXT[p.status]?.line ?? p.status}
-              </p>
-              <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[13px] text-sub">
-                <SourceBadge source={p.source} />
-                {p.manualStart && <ManualStartBadge />}
-                <span>
-                  {p.via === "discord" ? "Discord 링크로 시작" : "웹에서 시작"} · {formatDateTime(p.activatedAt)}
-                </span>
-              </div>
-              {p.manualStart && (
-                <Notice tone="warn" className="mt-3">
-                  {MANUAL_START_TEXT.planNote.easy}
-                </Notice>
-              )}
-              {waitingNotice && <Notice className="mt-3">{waitingNotice}</Notice>}
-              {live && <LiveLine easy />}
-            </Card>
+              <PlanStatusChip status={p.status} easy className="h-7 px-2 text-[13px]" />
+            </div>
+            {/* 상태가 바뀌면(체결·청산) 화면 읽기 프로그램이 이 줄을 읽는다 (role 없이 — 토스트의 status와 겹치지 않게) */}
+            <p aria-live="polite" className="mt-2 text-[15px] leading-relaxed">
+              {PLAN_STATUS_TEXT[p.status]?.line ?? p.status}
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[13px] text-sub">
+              <SourceBadge source={p.source} />
+              {p.manualStart && <ManualStartBadge />}
+              <span>
+                {p.via === "discord" ? "Discord 링크로 시작" : "웹에서 시작"} · {formatDateTime(p.activatedAt)}
+              </span>
+            </div>
+            {p.manualStart && (
+              <Notice tone="warn" className="mt-3">
+                {MANUAL_START_TEXT.planNote.easy}
+              </Notice>
+            )}
+            {waitingNotice && <Notice className="mt-3">{waitingNotice}</Notice>}
+            {live && <LiveLine easy />}
+          </Card>
 
+          <div className="contents lg:block lg:min-w-0 lg:space-y-3">
             <Card aria-labelledby="steps-title" className="order-2 lg:order-none">
               <h2 id="steps-title" ref={stepsTitle} tabIndex={-1} className="mb-4 text-[17px] font-bold outline-none">
                 지금 어디쯤인가요
@@ -684,6 +848,8 @@ export function PlanPage() {
                 </details>
               )}
             </Card>
+
+            {pc && <PlanChart p={p} easy />}
 
             <Card aria-labelledby="events-title" className="order-4 lg:order-none">
               <h2 id="events-title" className="mb-3 text-[17px] font-bold">
@@ -708,37 +874,39 @@ export function PlanPage() {
     <>
       <PageHeader title={`${p.name} 자동매매`} back />
       <div className={grid}>
-        <div className="contents lg:block lg:min-w-0 lg:space-y-3">
-          <Card className="order-1 lg:order-none">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-[14px] text-mute">
-                  {p.symbol} · {p.market === "KR" ? "국내" : "미국"} · 계획 #{p.id}
-                </p>
-                <p className="mt-0.5 text-[22px] font-bold tracking-tight">{p.name}</p>
-              </div>
-              <span aria-live="polite" className="shrink-0">
-                <PlanStatusChip status={p.status} className="h-7 px-2 text-[13px]" />
-              </span>
+        {/* 머리: PC는 두 열 위에 걸친 한 줄 (두 열이 같은 높이에서 시작하고, 상태 칩은 코드·시장 바로 옆에 붙는다) */}
+        <Card className={cn("order-1 lg:order-none", HEAD_PC)}>
+          <div className="flex items-start justify-between gap-3 lg:items-center lg:justify-start">
+            <div className="min-w-0">
+              <p className="text-[14px] text-mute">
+                {p.symbol} · {p.market === "KR" ? "국내" : "미국"} · 모의 계좌
+              </p>
+              {/* PC는 화면 제목(h1)이 이름을 말한다 */}
+              <p className="mt-0.5 text-[22px] font-bold tracking-tight lg:hidden">{p.name}</p>
             </div>
-            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[13px] text-sub">
-              <SourceBadge source={p.source} />
-              {p.manualStart && <ManualStartBadge />}
-              <span className="inline-flex h-6 items-center gap-1 rounded-md bg-fill px-1.5 font-semibold">
-                <Icon name={p.via === "discord" ? "bell" : "home"} className="size-3.5" />
-                {p.via === "discord" ? "Discord 링크로 활성화" : "웹에서 활성화"}
-              </span>
-              <span>{formatDateTime(p.activatedAt)}</span>
-            </div>
-            {p.manualStart && (
-              <Notice tone="warn" className="mt-3">
-                {MANUAL_START_TEXT.planNote.expert}
-              </Notice>
-            )}
-            {waitingNotice && <Notice className="mt-3">{waitingNotice}</Notice>}
-            {live && <LiveLine easy={false} />}
-          </Card>
+            <span aria-live="polite" className="shrink-0">
+              <PlanStatusChip status={p.status} className="h-7 px-2 text-[13px]" />
+            </span>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[13px] text-sub">
+            <SourceBadge source={p.source} />
+            {p.manualStart && <ManualStartBadge />}
+            <span className="inline-flex h-6 items-center gap-1 rounded-md bg-fill px-1.5 font-semibold">
+              <Icon name={p.via === "discord" ? "bell" : "home"} className="size-3.5" />
+              {p.via === "discord" ? "Discord 링크로 활성화" : "웹에서 활성화"}
+            </span>
+            <span>{formatDateTime(p.activatedAt)}</span>
+          </div>
+          {p.manualStart && (
+            <Notice tone="warn" className="mt-3">
+              {MANUAL_START_TEXT.planNote.expert}
+            </Notice>
+          )}
+          {waitingNotice && <Notice className="mt-3">{waitingNotice}</Notice>}
+          {live && <LiveLine easy={false} />}
+        </Card>
 
+        <div className="contents lg:block lg:min-w-0 lg:space-y-3">
           <Card aria-labelledby="wf-title" className="order-2 lg:order-none">
             <h2 id="wf-title" ref={stepsTitle} tabIndex={-1} className="mb-4 text-[17px] font-bold outline-none">
               자동매매 워크플로우
@@ -746,6 +914,8 @@ export function PlanPage() {
             <WorkflowGraph wf={wf} celebrate={celebrate} />
             {live && <LadderNow p={p} easy={false} />}
           </Card>
+
+          {pc && <PlanChart p={p} easy={false} />}
 
           <Card aria-labelledby="events-title" className="order-4 lg:order-none">
             <h2 id="events-title" className="mb-3 text-[17px] font-bold">

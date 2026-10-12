@@ -3,7 +3,6 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { ApiError, api, errorMessage } from "../../api/client";
 import { keys, useJob, useMe, useQuota } from "../../api/queries";
-import { formatUsd } from "../../lib/format";
 import { Icon } from "../Icon";
 import { Collapse } from "../motion/Collapse";
 import { useToast } from "../toast";
@@ -80,7 +79,7 @@ function formatElapsed(ms: number): string {
  * 남은 횟수 → 요청 → 작업 상태 5초 폴링 → 끝나면 분석 상세(여러 AI가 서로 검증한 과정)로.
  * 끝났을 때 사용자가 입력 중이거나 시트가 열려 있으면 옮기지 않고 '분석이 끝났어요 · 결과 보기'를 보이고 토스트로도 알린다
  * (카드 안 글은 화면 읽기에 알려지지 않고, 시트가 열려 있으면 배경이 inert다 — 토스트 영역은 role=status·data-inert-exempt). 실패도 토스트로 알린다.
- * easy면 쉬운 설명 (비용 표시 없이 남은 횟수만).
+ * easy면 쉬운 설명. 두 보기 모두 남은 횟수만 보인다 — 예상 비용은 개발·평가 정보라 종목 화면 맨 아래 '시연용 도구'에 (PC 재설계 2026-10-12).
  */
 export function AnalysisRequest({ symbol, name, easy = false, titleId }: { symbol: string; name: string; easy?: boolean; titleId?: string }) {
   const qc = useQueryClient();
@@ -185,9 +184,7 @@ export function AnalysisRequest({ symbol, name, easy = false, titleId }: { symbo
                 ? "AI 키가 없어 분석을 요청할 수 없어요."
                 : quota.remaining <= 0
                   ? `오늘 분석 한도(${quota.limitPerUser}회)를 다 썼어요. 내일 다시 요청할 수 있어요.`
-                  : easy
-                    ? `오늘 ${quota.remaining}번 더 분석할 수 있어요`
-                    : `오늘 ${quota.remaining}번 더 분석할 수 있어요 · 예상 비용 약 ${formatUsd(quota.estimatedCostUsd)}`
+                  : `오늘 ${quota.remaining}번 더 분석할 수 있어요`
               : "남은 횟수를 확인하는 중…"}
           </p>
         </div>

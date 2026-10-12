@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import * as db from "../mocks/db";
 import { server } from "../mocks/server";
 import { renderApp } from "./render";
@@ -272,6 +272,21 @@ describe("랭킹", () => {
     expect(box.parentElement!.className).toContain("reveal-fade");
   });
 
+  it("PC 내 순위 아래 차이 문장: '바로 위 ○○님보다 수익률이 n%p 낮아요', 같으면 '같아요' (0.00%p 차이라고 하지 않는다)", async () => {
+    const base = db.ranking(1);
+    const i = base.results.findIndex((e) => e.isMe);
+    const above = base.results[i - 1];
+    const { unmount } = renderApp("/ranking");
+    const diff = ((above.profitRate! - base.me.profitRate!) * 100).toFixed(2);
+    expect(await screen.findByText(`바로 위 ${above.nickname}님보다 수익률이 ${diff}%p 낮아요.`)).toBeTruthy();
+    unmount();
+    const results = base.results.map((e, j) => (j === i ? { ...e, profitRate: above.profitRate } : e));
+    server.use(http.get("*/api/ranking", () => HttpResponse.json({ ...base, results, me: { ...base.me, profitRate: above.profitRate } })));
+    renderApp("/ranking");
+    expect(await screen.findByText(`바로 위 ${above.nickname}님과 수익률이 같아요.`)).toBeTruthy();
+    expect(screen.queryByText(/0\.00%p/)).toBeNull();
+  });
+
   it("보는 동안 다른 곳(마이·다른 기기)에서 공개를 켜 다시 받기로 바뀌면 포커스를 옮기지 않는다", async () => {
     const { client } = renderApp("/ranking", "carol");
     await screen.findByText("아직 랭킹에 내가 없어요");
@@ -344,6 +359,81 @@ describe("알림 화면", () => {
     fireEvent.click(row);
     await waitFor(() => expect(screen.getByRole("button", { name: "점검 안내" })).toBe(row));
     expect(document.activeElement).toBe(row);
+  });
+});
+
+describe("알림 화면 · PC 두 칸", () => {
+  /** PC 폭(lg, 64rem 이상)인 척: matchMedia가 min-width 쿼리에만 맞다고 답한다. */
+  const pcWidth = () =>
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      media: query,
+      matches: query.includes("min-width: 64rem"),
+      addEventListener() {},
+      removeEventListener() {},
+    }));
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("PC: 날짜 묶음(오늘·어제…)과 종류 칩, 오른쪽 열에 알림 설정 카드 — 머리의 톱니는 없다", async () => {
+    pcWidth();
+    const now = Date.now();
+    const at = (h: number) => new Date(now - h * 3_600_000).toISOString();
+    const item = (id: number, kind: string, title: string, createdAt: string) => ({ id, kind, title, body: "본문", link: "/portfolio", createdAt, readAt: null });
+    const results = [
+      item(1, "report_completed", "삼성전자 리포트가 완성됐어요", at(0)),
+      item(2, "filled", "카카오 모의 체결", at(0)),
+      item(3, "daily_move", "오늘 내 종목 2개의 소식", at(24 * 9)),
+    ];
+    server.use(http.get("*/api/notifications", () => HttpResponse.json({ count: results.length, results, unreadCount: 3 })));
+    renderApp("/notifications");
+    const today = await screen.findByRole("list", { name: "오늘 알림" });
+    expect(within(today).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(screen.getByRole("list", { name: "이전 알림" })).getAllByRole("listitem")).toHaveLength(1);
+    expect(screen.queryByRole("list", { name: "알림 목록" })).toBeNull();
+    expect(await screen.findByRole("region", { name: "알림 설정" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "알림 설정" })).toBeNull();
+
+    const kinds = screen.getByRole("group", { name: "알림 종류" });
+    expect(within(kinds).getAllByRole("button").map((b) => b.textContent)).toEqual(["전체3", "계획·주문1", "리포트1", "내 종목 소식1"]);
+    fireEvent.click(within(kinds).getByRole("button", { name: /^리포트/ }));
+    expect(within(kinds).getByRole("button", { name: /^리포트/ }).getAttribute("aria-pressed")).toBe("true");
+    expect(within(screen.getByRole("list", { name: "오늘 알림" })).getAllByRole("listitem")).toHaveLength(1);
+    expect(screen.queryByRole("list", { name: "이전 알림" })).toBeNull();
+  });
+
+  it("PC: '모두 읽음'이 사라지면 포커스는 오른쪽 알림 설정으로 (body로 떨어지지 않는다)", async () => {
+    pcWidth();
+    renderApp("/notifications");
+    const button = await screen.findByRole("button", { name: "모두 읽음" });
+    const settings = await screen.findByRole("region", { name: "알림 설정" });
+    button.focus();
+    fireEvent.click(button);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "모두 읽음" })).toBeNull());
+    // 이름 없는 감싼 칸이 아니라 알림 설정 카드의 제목(이름 있는 h2)으로
+    expect(document.activeElement).toBe(within(settings).getByRole("heading", { name: "알림 설정" }));
+  });
+
+  it("PC: '모두 읽음'은 목록 카드 머리에 있고(페이지 머리가 아니다), 종류가 하나뿐이면 칩 줄을 두지 않는다", async () => {
+    pcWidth();
+    const at = new Date().toISOString();
+    const item = (id: number, title: string) => ({ id, kind: "filled", title, body: "본문", link: "/portfolio", createdAt: at, readAt: null });
+    const results = [item(1, "카카오 모의 체결"), item(2, "삼성전자 모의 체결")];
+    server.use(http.get("*/api/notifications", () => HttpResponse.json({ count: results.length, results, unreadCount: 2 })));
+    renderApp("/notifications");
+    const today = await screen.findByRole("list", { name: "오늘 알림" });
+    const button = screen.getByRole("button", { name: "모두 읽음" });
+    expect(button.closest("header")).toBeNull();
+    expect(button.compareDocumentPosition(today) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByRole("group", { name: "알림 종류" })).toBeNull();
+  });
+
+  it("PC 빈 화면: Discord를 쓸 수 없으면(Webhook 없음) Discord를 켜라고 하지 않고, 리포트 만들기는 보조 버튼", async () => {
+    pcWidth();
+    server.use(http.get("*/api/notifications", () => HttpResponse.json({ count: 0, results: [], unreadCount: 0 })));
+    renderApp("/notifications");
+    expect(await screen.findByText("아직 알림이 없어요")).toBeTruthy();
+    await screen.findByRole("region", { name: "알림 설정" });
+    expect(screen.queryByText(/Discord로도 받으려면/)).toBeNull();
+    expect(screen.getByRole("link", { name: "AI 리포트 만들기" }).getAttribute("href")).toBe("/reports");
   });
 });
 

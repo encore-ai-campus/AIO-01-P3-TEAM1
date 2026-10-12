@@ -152,7 +152,7 @@ export function PlanCard({ report, variant = "full", view = "easy", id, classNam
 
   return (
     // tabIndex -1: 계획 미니의 '자세히'가 이 카드로 포커스를 옮긴다 (키보드로 왔을 때만 테두리가 보인다)
-    <section id={id} aria-label="매매 계획" data-state={state} className={cn("scroll-mt-20 rounded-2xl bg-card p-5", fade, className)} tabIndex={-1}>
+    <section id={id} aria-label="매매 계획" data-state={state} className={cn("scroll-mt-20 lg:scroll-mt-(--rail-top) rounded-2xl bg-card p-5", fade, className)} tabIndex={-1}>
       <h2 className="flex items-center gap-1.5 text-[17px] font-bold">
         <Icon name="flow" className="size-5 text-brand" />
         매매 계획

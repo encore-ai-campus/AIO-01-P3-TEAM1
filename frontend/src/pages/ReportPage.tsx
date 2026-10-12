@@ -9,7 +9,7 @@
 // '진행 기록'은 구조(그래프) → 사건(타임라인), '자세히'는 빈도 순(예시 재생 → State → 정책 → 개념 문서).
 // 매매 종목 선정 실행(team stock_selection, 오늘의 선별에서 'AI 선정 과정 보기')은 주린이모드여도 늘 이 전문가 화면이다 —
 // 종목 리포트가 아니라 쉬운 보기·AI 의견·PDF·이 리포트의 AI 추천·다시 신청·예시 재생(종목 리포트 예시)이 없다. 첫 탭 이름은 '선정 결과'.
-import { Suspense, lazy, useEffect, useRef, useState } from "react";
+import { type CSSProperties, Suspense, lazy, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { ApiError, errorMessage } from "../api/client";
 import { useRecommendations } from "../api/queries";
@@ -30,11 +30,13 @@ import { RunSummary } from "../components/reports/RunSummary";
 import { SharedStatePanel } from "../components/reports/SharedStatePanel";
 import { AutoBadge, DeliveryBadge, ExampleTag, InjectedBadge, ReportStatusBadge } from "../components/reports/StatusChip";
 import { TraceTimeline } from "../components/reports/TraceTimeline";
+import { useHeight } from "../components/reports/useHeight";
 import { useToast } from "../components/toast";
 import { ViewToggle } from "../components/reports/ViewToggle";
 import { EasyReport } from "../components/reports/easy/EasyReport";
 import { Card, EmptyState, Notice, PageHeader, PillTabs, Skeleton, SkeletonCard, Spinner } from "../components/ui";
 import { type ViewModeState, useViewMode } from "../hooks/useBeginnerMode";
+import { useIsPc } from "../hooks/useIsPc";
 import { useChanged, useRevealAfterLoading } from "../hooks/useMotionState";
 import { cn } from "../lib/cn";
 import { formatDateTime } from "../lib/format";
@@ -227,7 +229,12 @@ export function ReportPage() {
         <div className={reveal ? "reveal-fade" : undefined}>
           <EasyReport r={r} view={view} />
         </div>
-        {r.canDelete && <DeleteReport key={r.id} r={r} />}
+        {/* PC: 지우기는 왼쪽(읽기) 열 아래 가운데 — 오른쪽 열(340px·2xl 380px + 간격)만큼 비운다 */}
+        {r.canDelete && (
+          <div className="lg:pr-[calc(340px+1rem)] 2xl:pr-[calc(380px+1rem)]">
+            <DeleteReport key={r.id} r={r} />
+          </div>
+        )}
       </>
     );
   }
@@ -354,10 +361,14 @@ function ExpertReport({ r, delivery, view }: { r: ReportDetail; delivery: Delive
     if (!el) return;
     handledJump.current = jump;
     if (typeof el.scrollIntoView !== "function") return;
-    // 모바일은 화면 머리와 탭 줄(약 120px)이 위를 덮는다. 이미 그 아래 위쪽 절반에 있으면 옮기지 않는다 (읽던 자리를 코드가 바꾸지 않게)
-    const covered = typeof window.matchMedia === "function" && window.matchMedia("(min-width: 64rem)").matches ? 0 : COVERED;
+    // 모바일은 화면 머리와 탭 줄(약 120px)이 위를 덮는다. 이미 그 아래 위쪽 절반에 있으면 옮기지 않는다 (읽던 자리를 코드가 바꾸지 않게).
+    // PC는 위 바(64px) 아래 간격까지가 덮인 높이(패널의 scroll-margin-top = --rail-top)이고, 늘 패널 머리(재생 띠)를 그 아래로 올린다 —
+    // 발표 화면(1440×900)에서 머리 띠 대신 그래프가 보이게 (사람이 예시를 고른 직후에만)
+    const style = typeof window.getComputedStyle === "function" ? window.getComputedStyle(el) : null;
+    const pc = typeof window.matchMedia === "function" && window.matchMedia("(min-width: 64rem)").matches;
     const top = el.getBoundingClientRect().top;
-    if (top < covered || top > window.innerHeight * 0.5) el.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+    const move = pc ? Math.abs(top - (parseFloat(style?.scrollMarginTop ?? "") || 0)) > 8 : top < COVERED || top > window.innerHeight * 0.5;
+    if (move) el.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
   }, [jump, tab]);
   // 재생 띠가 화면 밖이면(또는 다른 탭이면) 탭 줄 안에 재생 미니 줄을 붙인다.
   // 미니 줄이 붙으면 위에 붙은 탭 줄이 그만큼 길어지므로 보는 선도 같이 내린다 — 그대로 두면 스크롤 앵커링이 없는 브라우저(Safari)에서
@@ -369,52 +380,63 @@ function ExpertReport({ r, delivery, view }: { r: ReportDetail; delivery: Delive
   // 붙은 탭 줄(미니 줄 포함) 높이만큼 포커스 스크롤 여백 (모바일)
   const [tabRow, setTabRow] = useState<HTMLDivElement | null>(null);
   useStickyTabsPadding(tabRow);
+  // PC: 재생 중이면 재생 띠가 위 바 아래에 붙는다 — 그 높이를 패널에 --replay-h로 넘겨 오른쪽 Trace 카드·따라가는 단계가 띠 밑에 숨지 않게
+  const isPc = useIsPc();
+  const replayH = useHeight(ex && isPc ? barEl : null);
+  // 띠 높이 + 간격 12px (재생 중이 아니면 0 — Trace 카드는 전처럼 위 바 아래에 붙는다)
+  const runVars = { "--replay-h": `${ex && isPc && replayH > 0 ? replayH + 12 : 0}px` } as CSSProperties;
 
   return (
     <>
       <PageHeader title={selection ? r.name : `${r.name} AI 리포트`} back />
       <div className="space-y-3 lg:space-y-4">
-        {/* 머리 카드: 보기 전환은 쉬운 보기와 같은 자리(오른쪽 위) — 되돌아가는 버튼을 찾지 않게 */}
-        <Card aria-label="리포트 머리" className="py-4">
-          <div className="flex items-start justify-between gap-2">
-            <p className="min-w-0 pt-1.5 text-[13px] text-mute">
-              {selection ? `${r.market === "KR" ? "국내" : "미국"} · AI 종목 선정 #${r.id}` : `${r.symbol} · ${r.market === "KR" ? "국내" : "미국"} · 리포트 #${r.id}`}
+        {/* 머리 카드 + 실행 요약: PC는 한 띠로 붙인다 (lg는 위아래로 이어 붙이고, xl은 [머리 | 실행 요약] 두 칸). 이름은 '리포트 머리'·'실행 요약' 그대로 */}
+        <div className="space-y-3 lg:space-y-0 xl:grid xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] xl:rounded-2xl xl:bg-card">
+          {/* 머리 카드: 보기 전환은 쉬운 보기와 같은 자리(오른쪽 위) — 되돌아가는 버튼을 찾지 않게 */}
+          <Card aria-label="리포트 머리" className="py-4 lg:rounded-b-none xl:rounded-none xl:bg-transparent xl:pr-6">
+            <div className="flex items-start justify-between gap-2">
+              {/* 종목 리포트 번호(#id)는 개발용 표시라 머리 줄에 두지 않고 마우스를 올리면 보인다 (실서비스 기준 — 선정 실행은 이름이 없어 번호가 이름 구실을 한다) */}
+              <p className="min-w-0 pt-1.5 text-[13px] text-mute" title={selection ? undefined : `리포트 #${r.id}`}>
+                {selection ? `${r.market === "KR" ? "국내" : "미국"} · AI 종목 선정 #${r.id}` : `${r.symbol} · ${r.market === "KR" ? "국내" : "미국"}`}
+              </p>
+              {/* 선정 실행은 이 화면 하나라 보기를 바꿀 곳이 없다 */}
+              {!selection && <ViewToggle view={view} />}
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+              <p className="mr-0.5 text-[22px] font-bold tracking-tight">{r.name}</p>
+              <ReportStatusBadge status={r.status} />
+              {r.source === "auto" && <AutoBadge />}
+              {r.chaosEnabled && <InjectedBadge />}
+            </div>
+            <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-sub">
+              <span>
+                {r.requestedBy} 신청 · {formatDateTime(r.createdAt)}
+                {r.startedAt && ` · 시작 ${formatDateTime(r.startedAt)}`}
+                {r.finishedAt && ` · 종료 ${formatDateTime(r.finishedAt)}`}
+              </span>
+              <DeliveryBadge delivery={delivery} />
             </p>
-            {/* 선정 실행은 이 화면 하나라 보기를 바꿀 곳이 없다 */}
-            {!selection && <ViewToggle view={view} />}
-          </div>
-          <div className="mt-1 flex flex-wrap items-center gap-1.5">
-            <p className="mr-0.5 text-[22px] font-bold tracking-tight">{r.name}</p>
-            <ReportStatusBadge status={r.status} />
-            {r.source === "auto" && <AutoBadge />}
-            {r.chaosEnabled && <InjectedBadge />}
-          </div>
-          <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-sub">
-            <span>
-              {r.requestedBy} 신청 · {formatDateTime(r.createdAt)}
-              {r.startedAt && ` · 시작 ${formatDateTime(r.startedAt)}`}
-              {r.finishedAt && ` · 종료 ${formatDateTime(r.finishedAt)}`}
-            </span>
-            <DeliveryBadge delivery={delivery} />
-          </p>
-          {/* 미구현 안내는 끝나지 않은 리포트에만 (완성된 리포트에는 소용없는 말) */}
-          {!finished && !r.plan.implemented && (
-            <Notice tone="warn" className="mt-3">
-              {NOT_IMPLEMENTED}
-              {!selection && <> &ldquo;예시 Trace 재생&rdquo;으로 흐름을 확인할 수 있습니다.</>}
-            </Notice>
-          )}
-        </Card>
+            {/* 미구현 안내는 끝나지 않은 리포트에만 (완성된 리포트에는 소용없는 말) */}
+            {!finished && !r.plan.implemented && (
+              // PC는 머리 띠 안의 조용한 안내(파랑·13px), 모바일은 전과 같은 경고 (리뷰 49)
+              <Notice tone={isPc ? "info" : "warn"} className="mt-3 lg:py-2.5 lg:text-[13px]">
+                {NOT_IMPLEMENTED}
+                {!selection && <> &ldquo;예시 Trace 재생&rdquo;으로 흐름을 확인할 수 있습니다.</>}
+              </Notice>
+            )}
+          </Card>
 
-        <RunSummary
-          plan={r.plan}
-          trace={trace}
-          state={state}
-          costUsd={r.costUsd}
-          example={ex}
-          onShowReport={!ex && r.status === "completed" && tab !== "report" ? () => setTab("report") : undefined}
-          showLabel={selection ? "선정 완료 · 보기" : undefined}
-        />
+          <RunSummary
+            plan={r.plan}
+            trace={trace}
+            state={state}
+            costUsd={r.costUsd}
+            example={ex}
+            onShowReport={!ex && r.status === "completed" && tab !== "report" ? () => setTab("report") : undefined}
+            showLabel={selection ? "선정 완료 · 보기" : undefined}
+            className="lg:rounded-t-none lg:border-t lg:border-line xl:rounded-none xl:border-t-0 xl:border-l xl:bg-transparent xl:pl-6"
+          />
+        </div>
 
         {/* 탭 줄: 모바일은 화면 머리(56px) 아래에 붙는다. 바탕은 불투명(뒤 글자가 비치지 않게), PC는 제자리.
             붙어 있는 동안 포커스가 그 밑에 숨지 않게 키보드 포커스 위 여백을 이 높이만큼 늘린다(useStickyTabsPadding) */}
@@ -443,7 +465,7 @@ function ExpertReport({ r, delivery, view }: { r: ReportDetail; delivery: Delive
             )}
             {hasRecs && (
               <div
-                className={cn("lg:sticky lg:top-8 lg:col-start-2", r.status === "failed" ? "lg:row-start-2" : "lg:row-start-1", recsReveal && "reveal-fade")}
+                className={cn("lg:sticky lg:top-(--rail-top) lg:col-start-2", r.status === "failed" ? "lg:row-start-2" : "lg:row-start-1", recsReveal && "reveal-fade")}
               >
                 {recsPending ? <RecsSkeleton /> : <SourceRecommendations source="report" sourceId={r.id} />}
               </div>
@@ -491,26 +513,40 @@ function ExpertReport({ r, delivery, view }: { r: ReportDetail; delivery: Delive
             role="tabpanel"
             id="panel-run"
             aria-labelledby="tab-run"
-            // 모바일은 위에 붙은 화면 머리(56px)와 탭 줄(60px) 아래로 옮긴다 (128px)
-            className={cn("scroll-mt-32 space-y-3 lg:scroll-mt-8 lg:space-y-4", tabChanged && "reveal-fade")}
+            // 모바일은 위에 붙은 화면 머리(56px)와 탭 줄(60px) 아래로 옮긴다 (128px).
+            // PC 넓은 화면(xl): 두 칸 — 왼쪽 작업 계획(가로 띠 그래프), 오른쪽 Trace 타임라인(따라오며 안에서 스크롤). 재생 띠·Feedback Loop는 위 전체 폭
+            style={runVars}
+            className={cn(
+              "scroll-mt-32 space-y-3 lg:scroll-mt-(--rail-top) lg:space-y-4",
+              "xl:grid xl:grid-cols-[minmax(0,1fr)_400px] xl:items-start xl:gap-4 xl:space-y-0 2xl:grid-cols-[minmax(0,1fr)_440px]",
+              tabChanged && "reveal-fade",
+            )}
           >
             {ex ? (
-              <ReplayBar replay={replay} ref={setBarEl} />
+              // PC: 재생하는 동안 위 바 아래에 붙는다 — 그래프를 따라 내려가도 멈춤·다음 사건이 늘 보인다 (발표 화면)
+              <div className="lg:sticky lg:top-(--rail-top) lg:z-(--z-header) xl:col-span-2">
+                <ReplayBar replay={replay} ref={setBarEl} />
+              </div>
             ) : (
               // 예시 재생은 종목 리포트 예시라 선정 실행에는 두지 않는다
               !selection &&
               r.trace.length === 0 && (
-                <Card aria-label="예시 Trace 재생">
+                <Card aria-label="예시 Trace 재생" className="xl:col-span-2">
                   <ScenarioPicker replay={replay} onStart={startExample} />
                 </Card>
               )
             )}
-            <FeedbackLoopPanel trace={trace} plan={r.plan} example={Boolean(ex)} />
-            <Card aria-labelledby="plan-title">
+            <FeedbackLoopPanel trace={trace} plan={r.plan} example={Boolean(ex)} className="xl:col-span-2" />
+            <Card aria-labelledby="plan-title" className="xl:col-start-1">
               <CardTitle id="plan-title" title="작업 계획(Planner)" sub={`${r.plan.title} · 실패 정책 ${policyName(r.plan.failurePolicy)} · 노드를 누르면 자세히`} example={ex} />
-              <PlanGraph plan={r.plan} trace={trace} currentStep={state.currentStep} />
+              {/* 예시 재생을 PC에서 볼 때는 현재 단계를 따라 화면이 옮겨 간다 (실제 실행은 읽던 자리를 바꾸지 않는다) */}
+              <PlanGraph plan={r.plan} trace={trace} currentStep={state.currentStep} lanes follow={ex && isPc} />
             </Card>
-            <Card aria-labelledby="trace-title">
+            <Card
+              aria-labelledby="trace-title"
+              // 붙은 재생 띠(--replay-h, 재생 중이 아니면 0) 아래에 붙는다
+              className="xl:sticky xl:top-[calc(var(--rail-top)+var(--replay-h))] xl:col-start-2 xl:max-h-[calc(100dvh-var(--rail-top)-var(--replay-h)-2rem)] xl:overflow-y-auto xl:overscroll-contain"
+            >
               <CardTitle id="trace-title" title="Trace 타임라인" sub="새 사건은 아래에 붙습니다." example={ex} />
               <TraceTimeline trace={trace} plan={r.plan} />
             </Card>
@@ -539,7 +575,7 @@ function ExpertReport({ r, delivery, view }: { r: ReportDetail; delivery: Delive
               <PolicyGuide plan={r.plan} />
             </Card>
             {/* 탭 줄(재생 중이면 미니 줄까지)이 모바일에서 붙어 있으므로 펼친 문서의 머리는 그 아래에 붙인다 */}
-            <EduDocSection stickyTop={showMini ? "top-[10.25rem] lg:top-4" : "top-[7.25rem] lg:top-4"} />
+            <EduDocSection stickyTop={showMini ? "top-[10.25rem] lg:top-[calc(var(--pc-header-h)+1rem)]" : "top-[7.25rem] lg:top-[calc(var(--pc-header-h)+1rem)]"} />
           </div>
         )}
         {/* 면책 문장은 꼭 읽어야 하는 문장이라 보조 글자색 */}

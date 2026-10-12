@@ -11,13 +11,15 @@ import { HOME, MY, REPORTS, STOCKS, TABS, TRADE, type Tab, tabOf } from "../lib/
 import { useOrderBarShown } from "../lib/orderBar";
 import { sourceLine } from "../lib/plainText";
 import { ADMIN_PATH, useSecretTaps } from "../lib/secretTaps";
-import { NotificationMenuItem } from "./autotrade/NotificationBell";
+import { NotificationBell, NotificationMenuItem } from "./autotrade/NotificationBell";
 import { BrandLockup } from "./brand/BrandMark";
 import { inProgressReports } from "./home/homeData";
 import { Icon } from "./Icon";
+import { MarketStatus } from "./MarketStatus";
 import { NicknamePrompt } from "./my/NicknamePrompt";
 import { RouteErrorBoundary } from "./motion/RouteErrorBoundary";
 import { RouteTransition } from "./motion/RouteTransition";
+import { PcSearch } from "./search/SearchPalette";
 import { Switch } from "./ui";
 
 /** 만드는 중인 내 리포트가 있을 때 "리포트" 탭에 붙는 표시의 설명 (docs/plans/컨셉변경계획.md 4-6). */
@@ -124,7 +126,8 @@ function ConnectionBanner() {
 }
 
 /**
- * 모바일: 한 열 + 하단 탭. PC(lg 이상): 왼쪽 메뉴(하단 탭과 같은 순서) + 넓은 본문. 본문 아래에 출처 줄.
+ * 모바일: 한 열 + 하단 탭. PC(lg 이상): 왼쪽 메뉴(하단 탭과 같은 순서) + 위 바(검색·장 상태·알림·리포트 만들기) + 넓은 본문. 본문 아래에 출처 줄.
+ * - PC 틀의 치수(왼쪽 메뉴 폭·위 바 높이·본문 최대 폭)는 index.css의 --side-w·--pc-header-h·--content-max 하나로 쓴다 (부팅 뼈대 RequireAuth도 같이 — docs/DECISIONS.md 33장).
  * - 본문(Outlet)은 화면 오류 경계 + 화면 전환 페이드(opacity만 — 이 감싸개 안에 fixed 구매 바·시트가 있다)로 감싼다. 출처 줄은 바깥.
  * - 스크롤은 App의 ScrollManager가 맡는다. 지금 탭을 다시 누르면 맨 위로 부드럽게 올라간다.
  * - html[data-shell]: 하단 바 종류 (하단 탭 / 종목 상세 구매 바). 토스트·연결 띠가 그 위에 쌓인다 (index.css .toast-region·.connection-region).
@@ -209,8 +212,9 @@ export function Layout() {
       <span id={MAKING_ID} hidden>
         {MAKING_TEXT}
       </span>
-      <aside className="fixed inset-y-0 left-0 z-(--z-nav) hidden w-60 flex-col border-r border-line bg-card px-4 py-6 lg:flex">
-        {/* 브랜드·프로필도 홈·마이 탭과 같다: 그 화면에서 다시 누르면 맨 위로 부드럽게. 로고 32px + 이름 19px (부팅 뼈대 RequireAuth와 같은 자리) */}
+      <aside className="fixed inset-y-0 left-0 z-(--z-nav) hidden w-(--side-w) flex-col border-r border-line bg-card px-4 pt-4 pb-6 lg:flex">
+        {/* 브랜드·프로필도 홈·마이 탭과 같다: 그 화면에서 다시 누르면 맨 위로 부드럽게. 로고 32px + 이름 19px (부팅 뼈대 RequireAuth와 같은 자리).
+            위 여백(pt-4)은 로고 가운데를 위 바(64px) 가운데에 맞춘 값 */}
         <NavLink to="/" state={TOP} onClick={onTabClick(HOME)} className="mb-8 rounded-xl px-3">
           <BrandLockup size={32} className="text-[19px] text-ink" />
         </NavLink>
@@ -248,10 +252,35 @@ export function Layout() {
         id="main"
         ref={main}
         tabIndex={-1}
-        className={cn("flex min-h-dvh min-w-0 flex-col outline-none lg:pl-60", hideTabs ? "pb-28 lg:pb-10" : "pb-24 lg:pb-10")}
+        className={cn("flex min-h-dvh min-w-0 flex-col outline-none lg:pl-(--side-w)", hideTabs ? "pb-28 lg:pb-10" : "pb-24 lg:pb-10")}
       >
+        {/* PC 위 바: 어느 화면에서든 종목 검색('/'·Ctrl+K) · 지금 장 상태 · 알림 · 리포트 만들기. 본문 열과 같은 폭에 맞춘다.
+            브랜드·프로필·화면 모드는 왼쪽 메뉴에 그대로 둔다 (같은 이름의 링크·스위치가 한 화면에 둘 생기지 않게).
+            리포트·종목 화면(만들기 카드·이 종목 리포트 버튼이 있는 곳)에서는 '리포트 만들기'를, 검색 화면(큰 검색칸이 있는 곳)에서는 검색 입구를 빼고, 장 상태는 자리가 넉넉한 xl부터 */}
+        <div className="pc-topbar sticky top-0 z-(--z-header) hidden h-(--pc-header-h) bg-bg/85 backdrop-blur-md lg:block">
+          <div className="mx-auto flex h-full w-full max-w-(--content-max) items-center gap-3 px-8">
+            {pathname !== STOCKS.to && <PcSearch className="w-full max-w-[400px]" />}
+            <div className="ml-auto flex shrink-0 items-center gap-2">
+              <div className="hidden xl:block">
+                <MarketStatus market={market} label="지금 장 상태" nowrap />
+              </div>
+              <NotificationBell />
+              {/* 종목 화면은 오른쪽 열에 '이 종목' 리포트 버튼이 있다 — 위 바에서 리포트 화면으로 가면 고른 종목을 잃는다 */}
+              {!REPORTS.match(pathname) && !pathname.startsWith("/stocks/") && (
+                <Link
+                  to={REPORTS.to}
+                  state={TOP}
+                  className="press ml-1 inline-flex h-11 shrink-0 items-center gap-1.5 rounded-xl bg-brand px-4 text-[15px] font-semibold text-on-brand hover:bg-brand-dark"
+                >
+                  <Icon name="sparkle" className="size-4" />
+                  리포트 만들기
+                </Link>
+              )}
+            </div>
+          </div>
+        </div>
         <ConnectionBanner />
-        <div className="mx-auto flex w-full max-w-[1120px] flex-1 flex-col px-4 lg:px-8 lg:pt-8">
+        <div className="mx-auto flex w-full max-w-(--content-max) flex-1 flex-col px-4 lg:px-8 lg:pt-6">
           <div className="mb-10 min-w-0">
             {/* 닉네임이 아직 아이디 그대로면 홈에서만 한 번 묻는다 (다른 화면을 밀지 않는다. 저장하거나 '나중에'면 사라진다 — UX-13) */}
             {me && pathname === HOME.to && <NicknamePrompt me={me} />}

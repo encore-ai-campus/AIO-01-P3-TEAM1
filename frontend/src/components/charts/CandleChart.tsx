@@ -1,4 +1,5 @@
 import {
+  type AutoscaleInfo,
   CandlestickSeries,
   HistogramSeries,
   LineSeries,
@@ -79,8 +80,23 @@ const axisPrice = (usd: boolean) => (p: number) => (usd ? `$${p.toFixed(2)}` : M
 /**
  * 범례 한 줄 (캔버스 밖, 높이 고정): 평소에는 마지막 봉, 십자선이 움직이면 그 봉. 화면 읽기에는 차트 이름(role=img)이 요약을 준다.
  * 쉬운 보기는 날짜·종가·전날 대비, 전문가 보기는 시가·고가·저가·종가와 이동평균 색 표시.
+ * 가격 선(lines)이 있으면 PC에서 그 이름과 점선 색을 같이 보인다 (모바일은 한 줄을 지키려고 빼고, 선 이름은 차트 축 이름표가 말한다).
  */
-function Legend({ candles, index, variant, currency, colors }: { candles: Candle[]; index: number | null; variant: ChartVariant; currency: Currency; colors: ChartColors }) {
+function Legend({
+  candles,
+  index,
+  variant,
+  currency,
+  colors,
+  lines,
+}: {
+  candles: Candle[];
+  index: number | null;
+  variant: ChartVariant;
+  currency: Currency;
+  colors: ChartColors;
+  lines: ChartLine[];
+}) {
   const i = index ?? candles.length - 1;
   const k = candles[i];
   if (!k) return <p aria-hidden="true" className="h-5" />;
@@ -104,14 +120,21 @@ function Legend({ candles, index, variant, currency, colors }: { candles: Candle
           · 종 {fmt(k.close)} {rate !== null && <span className={trendClass(rate)}>{formatRate(rate)}</span>}
         </p>
       )}
-      {variant === "candle" && (
-        <p className="flex shrink-0 gap-2 text-mute">
-          {MA_DAYS.map((d, n) => (
-            <span key={d} className="flex items-center gap-1">
-              <span className="h-0.5 w-3 rounded-full" style={{ backgroundColor: maColorOf(colors, n) }} />
-              {d}일
+      {(variant === "candle" || lines.length > 0) && (
+        <p className="flex shrink-0 flex-wrap gap-x-2 text-mute">
+          {lines.map((l) => (
+            <span key={`${l.tone}:${l.title}`} className="flex items-center gap-1 max-lg:hidden">
+              <span className="w-3 border-t border-dashed" style={{ borderColor: lineColorOf(colors, l.tone) }} />
+              {l.title}
             </span>
           ))}
+          {variant === "candle" &&
+            MA_DAYS.map((d, n) => (
+              <span key={d} className="flex items-center gap-1">
+                <span className="h-0.5 w-3 rounded-full" style={{ backgroundColor: maColorOf(colors, n) }} />
+                {d}일
+              </span>
+            ))}
         </p>
       )}
     </div>
@@ -255,10 +278,12 @@ export function CandleChart({
     const series = h?.candle ?? h?.line;
     if (!h || !series) return;
     for (const l of h.lines) series.removePriceLine(l.line);
+    const prices: number[] = [];
     h.lines = linesKey
       ? linesKey.split("|").map((part) => {
           const [tone, price, ...title] = part.split(":");
           const t = tone as ChartLine["tone"];
+          prices.push(Number(price));
           const line = series.createPriceLine({
             price: Number(price),
             color: lineColorOf(h.colors, t),
@@ -270,6 +295,20 @@ export function CandleChart({
           return { line, tone: t };
         })
       : [];
+    // 세로축이 가격 선까지 담게 한다 — 목표·손절이 최근 봉 범위 밖이면 선이 화면 밖에 그려져 보이지 않는다
+    series.applyOptions({
+      autoscaleInfoProvider: (original: () => AutoscaleInfo | null) => {
+        const res = original();
+        if (!res?.priceRange || prices.length === 0) return res;
+        return {
+          ...res,
+          priceRange: {
+            minValue: Math.min(res.priceRange.minValue, ...prices),
+            maxValue: Math.max(res.priceRange.maxValue, ...prices),
+          },
+        };
+      },
+    });
   }, [linesKey, currency, variant]);
 
   // 테마가 바뀌면 색만 다시 넣는다 (차트를 다시 만들지 않아 확대·이동 상태가 남는다)
@@ -289,7 +328,7 @@ export function CandleChart({
   const index = hover !== null && hover >= 0 && hover < candles.length ? hover : null;
   return (
     <div>
-      <Legend candles={candles} index={index} variant={variant} currency={currency} colors={colors} />
+      <Legend candles={candles} index={index} variant={variant} currency={currency} colors={colors} lines={lines} />
       <div
         ref={box}
         className={cn("mt-1 w-full", className ?? "h-[280px] lg:h-[380px]")}

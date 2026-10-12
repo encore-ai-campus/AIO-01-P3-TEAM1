@@ -199,7 +199,7 @@ describe("오늘 산 종목 평가 (priceBasis today_fill)", () => {
     expect(within(celltrion).queryByText(/종가/)).toBeNull();
     expect(within(celltrion).queryByText(/%\)$/)).toBeNull();
     const samsung = within(holdings).getByText("삼성전자").closest("li")!;
-    expect(within(samsung).getByText(/종가 /)).toBeTruthy(); // 다른 보유는 그대로 종가
+    expect(samsung.textContent).toMatch(/· 종가 [\d,]+원/); // 다른 보유는 그대로 종가 (칸 이름과 숫자는 PC 표의 칸이라 다른 요소)
     expect(within(screen.getByLabelText("평가 기준")).getByText("평가는 지난 장 마감 가격으로 해요 (오늘 산 종목은 장 마감 뒤에)")).toBeTruthy();
   });
 

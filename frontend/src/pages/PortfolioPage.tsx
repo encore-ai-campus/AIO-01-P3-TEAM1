@@ -5,15 +5,19 @@
 //   처음 쓰는 사람이 빈 카드를 여러 장 지나지 않게 빈 상태는 한 줄로 줄이고, 비어 있는 진행 중 칸에 '새 계획 제안 보기' 버튼을 둔다 (trade-11).
 // - PC 2단: 왼쪽 = 감시(진행 중 + 계좌 탭, 자주 봄), 오른쪽 340px = 기록·다음 행동(끝난 계획 → 제안 압축 3개).
 //   같은 탭의 계획 상세·실행 확인과 같은 [본문 | 오른쪽 열] 문법. DOM 순서가 모바일 순서와 같아 기기를 바꿔도 자리가 같다 (trade-12).
+// - PC (2026-10-12 PC 재설계): 맨 위 계좌 요약 줄(총자산·평가손익·보유 평가액·현금·매수 가능액·진행 중 계획 — 보유 탭의 '보유 평가액' 카드를
+//   이 줄로 옮겼다, 탭과 상관없이 보인다) → [진행 중 + 계좌 탭(보유는 열을 맞춘 표) | 오른쪽 열]. 오른쪽 열은 진행 중 계획이 없으면
+//   새 계획 제안을 먼저(격자 자리만 바꾼다), 있으면 끝난 계획 → 제안. 표가 짜부라지지 않게 두 열은 85rem(1360px)부터,
+//   그보다 좁은 PC는 한 열에 오른쪽 열 둘을 나란히 아래에 둔다 (B0-10). 요약 줄·표 머리는 PC에서만 그린다 (useIsPc — 모바일 DOM 그대로).
 import { useMutation } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { api, errorMessage } from "../api/client";
 import { isPlanLive, useAccount, useFills, useOrders, usePlans, useRecommendations, useReservations } from "../api/queries";
 import { useRefreshTrading } from "../api/trading";
-import type { Market, Order, Reservation, TradePlan } from "../api/types";
+import type { AccountSummary, Market, Order, Reservation, TradePlan } from "../api/types";
 import { AutoTradeBadge, StyleBadge } from "../components/autotrade/Badges";
-import { PlanRow } from "../components/autotrade/PlanRow";
+import { PlanRow, PlanTableHead } from "../components/autotrade/PlanRow";
 import { RecommendationRow } from "../components/autotrade/RecommendationCard";
 import { Icon } from "../components/Icon";
 import { Collapse } from "../components/motion/Collapse";
@@ -21,8 +25,9 @@ import { Sheet } from "../components/motion/Sheet";
 import { useToast } from "../components/toast";
 import { AsOf, Card, ErrorState, Flash, PageHeader, PillTabs, SkeletonCard, Spinner } from "../components/ui";
 import { useViewMode } from "../hooks/useBeginnerMode";
+import { useIsPc } from "../hooks/useIsPc";
 import { revealList, useChanged, useNewKeys, useRevealAfterLoading } from "../hooks/useMotionState";
-import { exitReasonLabel, otherKinds, plansByOrder, splitProposals } from "../lib/autotrade";
+import { arrangeProposals, exitReasonLabel, otherKinds, plansByOrder } from "../lib/autotrade";
 import { cn } from "../lib/cn";
 import { formatDate, formatDateTime, formatKrw, formatPrice, formatQty, formatRate, formatSignedKrw, trendClass } from "../lib/format";
 import { prefersReducedMotion } from "../lib/motion";
@@ -75,7 +80,7 @@ function SectionTitle({ id, title, to, linkLabel, focusable = false }: { id: str
   return (
     <div className="mb-2 flex items-center justify-between gap-3 px-1">
       {/* focusable: 같은 화면의 버튼이 이 섹션으로 데려올 때 포커스를 받는다. scroll-mt: 모바일 고정 머리에 가리지 않게 */}
-      <h2 id={id} tabIndex={focusable ? -1 : undefined} className="scroll-mt-20 text-[17px] font-bold outline-none">
+      <h2 id={id} tabIndex={focusable ? -1 : undefined} className="scroll-mt-20 lg:scroll-mt-(--rail-top) text-[17px] font-bold outline-none">
         {title}
       </h2>
       {to && (
@@ -93,7 +98,7 @@ function SectionTitle({ id, title, to, linkLabel, focusable = false }: { id: str
 }
 
 /** 진행 중 모의 자동매매 (행마다 4칸 단계 막대 — PlanRow). 비면 다음 행동으로 바로 가는 버튼. */
-function LivePlans({ easy, onShowProposals }: { easy: boolean; onShowProposals: () => void }) {
+function LivePlans({ easy, pc, onShowProposals }: { easy: boolean; pc: boolean; onShowProposals: () => void }) {
   const { data, isPending, isError, error, refetch, isFetching } = usePlans("active");
   const reveal = useRevealAfterLoading(isPending);
   const list = data?.results ?? [];
@@ -107,8 +112,21 @@ function LivePlans({ easy, onShowProposals }: { easy: boolean; onShowProposals: 
           <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} retrying={isFetching} compact />
         </Card>
       ) : list.length === 0 ? (
-        <div className="flex items-center justify-between gap-3 rounded-2xl bg-card py-3 pr-3 pl-5">
-          <p className="text-[14px] leading-snug text-mute">{easy ? "진행 중인 모의 자동매매가 없어요." : "진행 중인 자동매매가 없습니다."}</p>
+        <div className="flex items-center justify-between gap-3 rounded-2xl bg-card py-3 pr-3 pl-5 lg:py-4 lg:pr-4">
+          {/* PC는 아이콘과 다음 행동 한 줄을 더한다 (얇은 띠가 아니라 한 칸짜리 안내로) */}
+          <div className="flex min-w-0 items-center gap-3">
+            <span aria-hidden="true" className="hidden size-10 shrink-0 place-items-center rounded-full bg-fill text-mute-weak lg:grid">
+              <Icon name="flow" className="size-5" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[14px] leading-snug text-mute lg:text-[15px] lg:font-semibold lg:text-ink">
+                {easy ? "진행 중인 모의 자동매매가 없어요." : "진행 중인 자동매매가 없습니다."}
+              </p>
+              <p className="hidden text-[13px] text-mute lg:block">
+                {easy ? "새 계획 제안에서 마음에 드는 계획을 골라 시작할 수 있어요." : "AI 추천을 활성화하면 진입부터 청산까지 여기서 지켜볼 수 있습니다."}
+              </p>
+            </div>
+          </div>
           <button
             type="button"
             onClick={onShowProposals}
@@ -118,20 +136,23 @@ function LivePlans({ easy, onShowProposals }: { easy: boolean; onShowProposals: 
           </button>
         </div>
       ) : (
-        <ul {...revealList(reveal)} aria-label="진행 중 계획" className="divide-y divide-line overflow-hidden rounded-2xl bg-card">
-          {list.map((p) => (
-            <li key={p.id}>
-              <PlanRow p={p} easy={easy} />
-            </li>
-          ))}
-        </ul>
+        <div className="overflow-hidden rounded-2xl bg-card">
+          {pc && <PlanTableHead easy={easy} />}
+          <ul {...revealList(reveal)} aria-label="진행 중 계획" className="divide-y divide-line">
+            {list.map((p) => (
+              <li key={p.id}>
+                <PlanRow p={p} easy={easy} table />
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </section>
   );
 }
 
 /** 끝난 계획 (최근 3개와 결과 손익). 불러오는 동안 자리를 미리 잡아 아래 섹션을 밀지 않는다 (motion-05·trade-17). */
-function EndedPlans({ easy }: { easy: boolean }) {
+function EndedPlans({ easy, pc }: { easy: boolean; pc: boolean }) {
   const { data, isPending, isError, error, refetch, isFetching } = usePlans("all");
   const reveal = useRevealAfterLoading(isPending);
   const ended = (data?.results ?? []).filter((p) => !isPlanLive(p.status)).slice(0, 3);
@@ -145,7 +166,15 @@ function EndedPlans({ easy }: { easy: boolean }) {
           <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} retrying={isFetching} compact />
         </Card>
       ) : ended.length === 0 ? (
-        <p className="px-1 text-[13px] text-mute">{easy ? "아직 끝난 계획이 없어요." : "끝난 계획이 없습니다."}</p>
+        // PC는 같은 화면의 다른 빈 칸처럼 작은 안내 칸(아이콘 + 한 줄), 모바일은 글 한 줄 (trade-11)
+        <p className={pc ? "flex items-center gap-3 rounded-2xl bg-card px-5 py-4 text-[14px] text-mute" : "px-1 text-[13px] text-mute"}>
+          {pc && (
+            <span aria-hidden="true" className="grid size-9 shrink-0 place-items-center rounded-full bg-fill text-mute-weak">
+              <Icon name="check" className="size-4" />
+            </span>
+          )}
+          {easy ? "아직 끝난 계획이 없어요." : "끝난 계획이 없습니다."}
+        </p>
       ) : (
         <ul {...revealList(reveal)} aria-label="끝난 계획" className="divide-y divide-line overflow-hidden rounded-2xl bg-card">
           {ended.map((p) => (
@@ -159,14 +188,21 @@ function EndedPlans({ easy }: { easy: boolean }) {
   );
 }
 
-/** 새 계획 제안 (전문가 보기: AI 추천). 탭은 요약이라 압축 행 최대 3개, 카드형 전체 목록은 /recommendations (trade-29). */
+/**
+ * 새 계획 제안 (전문가 보기: AI 추천). 탭은 요약이라 압축 행 최대 3개, 카드형 전체 목록은 /recommendations (trade-29).
+ * 목록 화면과 같은 묶음 규칙(arrangeProposals — 같은 종목은 하나, 쉬운 보기는 리포트에서 나온 것만 앞에)으로 고르고 센다:
+ * 시작할 수 있는 것 → 지금 시작할 수 없는 것(작은 표시) 순서. 여기서 본 행은 목록 화면에서 카드 또는 '지금은 시작할 수 없는 제안' 접힘으로
+ * 그대로 있고, 'n개 모두 보기'의 n은 그 둘을 더한 수다 (같은 종목의 이전 제안·다른 출처는 목록 화면에서도 접혀 있어 세지 않는다).
+ */
 function Proposals({ easy }: { easy: boolean }) {
   const { data, isPending, isError, error, refetch, isFetching } = useRecommendations({ status: "open" });
   const reveal = useRevealAfterLoading(isPending);
   const [showOthers, setShowOthers] = useState(false);
-  const { main, others } = splitProposals(data?.results ?? [], easy);
+  const arranged = arrangeProposals(data?.results ?? [], easy);
+  const main = [...arranged.ready, ...arranged.blocked].map((g) => g.rec);
+  const others = arranged.others.map((g) => g.rec);
   const shown = main.slice(0, 3);
-  const total = data?.count ?? 0;
+  const total = main.length;
   return (
     <section aria-labelledby="proposals-title">
       <SectionTitle
@@ -226,7 +262,54 @@ function Proposals({ easy }: { easy: boolean }) {
   );
 }
 
-function Holdings({ easy, byOrder, plansReady }: { easy: boolean; byOrder: Map<number, TradePlan>; plansReady: boolean }) {
+/** 평가 기준 문구 (보유 카드·PC 계좌 요약 줄이 같이 쓴다). 오늘 산 보유는 체결가로 평가했다 (손익 0, 장 마감 뒤에 종가로). */
+function basisText(acc: AccountSummary, easy: boolean) {
+  const boughtToday = acc.positions.some(isTodayFill);
+  return easy
+    ? `평가는 지난 장 마감 가격으로 해요${boughtToday ? " (오늘 산 종목은 장 마감 뒤에)" : ""}`
+    : `평가: 직전 장마감 종가${boughtToday ? " (당일 매수는 장 마감 뒤에)" : ""}`;
+}
+
+/** 평가 기준 줄: 문구 + 시장별 장마감 기준 시각. 보유가 없으면(기준 시각이 없으면) 그리지 않는다. */
+function BasisLine({ acc, easy, className }: { acc: AccountSummary; easy: boolean; className?: string }) {
+  const markets = (Object.keys(acc.pricesAsOf) as Market[]).filter((m) => acc.pricesAsOf[m]).sort();
+  if (markets.length === 0) return null;
+  return (
+    <p aria-label="평가 기준" className={cn("flex flex-wrap gap-x-3 text-[12px] text-mute", className)}>
+      <span>{basisText(acc, easy)}</span>
+      {/* 시장 이름을 붙인다 (날짜 두 개가 무엇인지 모른 채 이어지지 않게) */}
+      {markets.map((m) => (
+        <span key={m} className="whitespace-nowrap">
+          {m === "KR" ? "국내" : "미국"} <AsOf at={acc.pricesAsOf[m]} market={m} />
+        </span>
+      ))}
+    </p>
+  );
+}
+
+/**
+ * PC 보유 표의 열: 종목(이름·방식 배지 / 수량) · 평균가 · 종가 · 평가금액 · 손익 · 목표·손절·기한. 행과 머리가 같은 값을 쓴다.
+ * 열 이름은 머리 줄(PC에서만, 화면 읽기에는 숨김)이 말하고, 칸 안의 이름('· 평균' 등)은 PC에서 화면 읽기용으로만 남긴다.
+ */
+const HOLD_COLS =
+  "lg:grid-cols-[minmax(0,1fr)_5.5rem_5.5rem_6.5rem_6.5rem_8.75rem] 2xl:grid-cols-[minmax(0,1fr)_7rem_7rem_8.5rem_8.5rem_10.5rem]";
+/** 두 줄 높이 숫자 칸 (가운데, 오른쪽 정렬). */
+const HOLD_NUM = "lg:row-span-2 lg:row-start-1 lg:self-center lg:text-right";
+
+function HoldingsHead({ easy }: { easy: boolean }) {
+  return (
+    <div aria-hidden="true" className={cn("grid gap-x-3 border-b border-line px-5 py-2.5 text-[12px] font-medium text-mute 2xl:gap-x-4", HOLD_COLS)}>
+      <span>종목</span>
+      <span className="text-right">{easy ? "산 가격" : "평균가"}</span>
+      <span className="text-right">{easy ? "지난 종가" : "종가"}</span>
+      <span className="text-right">평가금액</span>
+      <span className="text-right">손익</span>
+      <span className="lg:pl-3">{easy ? "목표 · 손절 가격" : "목표 · 손절 · 기한"}</span>
+    </div>
+  );
+}
+
+function Holdings({ easy, pc, byOrder, plansReady }: { easy: boolean; pc: boolean; byOrder: Map<number, TradePlan>; plansReady: boolean }) {
   const { data: acc, isPending, isError, error, refetch, isFetching } = useAccount();
   const reveal = useRevealAfterLoading(isPending || !plansReady);
   // 계획 연결 줄이 늦게 끼어들어 행이 밀리지 않게 진행 중 계획까지 받은 뒤에 그린다
@@ -238,113 +321,263 @@ function Holdings({ easy, byOrder, plansReady }: { easy: boolean; byOrder: Map<n
     </p>
   ));
   if (acc.positions.length === 0) {
-    // 보유가 없으면 평가액 '0원 (-)' 카드와 빈 목록 카드를 한 줄로 합친다 (trade-11)
+    // 보유가 없으면 평가액 '0원 (-)' 카드와 빈 목록 카드를 한 줄로 합친다 (trade-11).
+    // PC는 위 계좌 요약 줄이 현금을 보이므로, 무엇을·어떻게 시작하는지와 다음 행동 하나만 둔 안내 칸
     return (
       <div className="space-y-3">
-        <p className="rounded-2xl bg-card px-5 py-4 text-[15px] leading-snug text-sub">
-          {easy ? "아직 산 종목이 없어요" : "보유 중인 종목이 없습니다"} · 현금 <b className="font-semibold text-ink tabular-nums">{formatKrw(acc.cashKrw)}</b>
-        </p>
+        {pc ? (
+          <div className="flex items-center gap-4 rounded-2xl bg-card px-5 py-5">
+            <span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-full bg-fill text-mute-weak">
+              <Icon name="chart" className="size-5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[15px] font-semibold">{easy ? "아직 산 종목이 없어요" : "보유 중인 종목이 없습니다"}</p>
+              <p className="text-[13px] text-mute">
+                {easy ? "종목 화면에서 직접 사거나, 새 계획 제안으로 모의 자동매매를 시작해 보세요." : "종목 화면에서 직접 매수하거나 AI 추천을 활성화하세요."}
+              </p>
+            </div>
+            <Link
+              to="/search"
+              className="press flex h-11 shrink-0 items-center rounded-xl bg-brand-soft px-4 text-[14px] font-semibold text-brand-ink hover:bg-brand-soft/70"
+            >
+              종목 찾아보기
+            </Link>
+          </div>
+        ) : (
+          <p className="rounded-2xl bg-card px-5 py-4 text-[15px] leading-snug text-sub">
+            {easy ? "아직 산 종목이 없어요" : "보유 중인 종목이 없습니다"} · 현금 <b className="font-semibold text-ink tabular-nums">{formatKrw(acc.cashKrw)}</b>
+          </p>
+        )}
         {notes}
       </div>
     );
   }
   const profit = acc.positions.reduce((n, p) => n + p.profitKrw, 0);
-  const markets = (Object.keys(acc.pricesAsOf) as Market[]).sort();
-  // 오늘 산 보유는 체결가로 평가했다 (손익 0, 장 마감 뒤에 종가로) — 평가 기준 문구에 덧붙인다
-  const boughtToday = acc.positions.some(isTodayFill);
-  const basisText = easy
-    ? `평가는 지난 장 마감 가격으로 해요${boughtToday ? " (오늘 산 종목은 장 마감 뒤에)" : ""}`
-    : `평가: 직전 장마감 종가${boughtToday ? " (당일 매수는 장 마감 뒤에)" : ""}`;
   return (
     <div className="space-y-3">
-      <Card>
-        <p className="text-[14px] text-sub">보유 평가액</p>
-        <p className="text-[26px] font-bold tracking-tight tabular-nums">
-          <Flash value={acc.holdingsValueKrw}>{formatKrw(acc.holdingsValueKrw)}</Flash>
-        </p>
-        <p className={cn("text-[15px] font-semibold tabular-nums", trendClass(profit))}>
-          {formatSignedKrw(profit)} ({formatRate(acc.investedKrw ? profit / acc.investedKrw : null)})
-        </p>
-        <p className="mt-2 text-[13px] text-mute">
-          투자금액 {formatKrw(acc.investedKrw)} · 현금 {formatKrw(acc.cashKrw)}
-        </p>
-        {markets.length > 0 && (
-          <p aria-label="평가 기준" className="mt-1 flex flex-wrap gap-x-3 text-[12px] text-mute">
-            <span>{basisText}</span>
-            {markets.map((m) => (
-              <AsOf key={m} at={acc.pricesAsOf[m]} market={m} />
-            ))}
+      {/* 보유 평가액 카드: PC는 맨 위 계좌 요약 줄로 옮겼다 (같은 숫자를 두 번 보이지 않게) */}
+      {!pc && (
+        <Card>
+          <p className="text-[14px] text-sub">보유 평가액</p>
+          <p className="text-[26px] font-bold tracking-tight tabular-nums">
+            <Flash value={acc.holdingsValueKrw}>{formatKrw(acc.holdingsValueKrw)}</Flash>
           </p>
-        )}
-      </Card>
-      <ul {...revealList(reveal)} className="divide-y divide-line overflow-hidden rounded-2xl bg-card" aria-label="보유 종목">
-        {acc.positions.map((p) => {
-          const plan = byOrder.get(p.orderId);
-          const today = isTodayFill(p);
-          return (
-            <li key={p.orderId}>
-              <Link to={`/stocks/${encodeURIComponent(p.symbol)}`} className={cn("press-row block px-5 py-4 hover:bg-fill/50", HOLDING_FOCUS)}>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="flex min-w-0 items-center gap-1.5 text-[16px] font-semibold">
-                      <span className="truncate">{p.name}</span>
-                      <StyleBadge style={p.style} />
-                    </p>
-                    <p className="text-[13px] text-mute tabular-nums">
-                      {formatQty(p.quantity)} · {easy ? "산 가격" : "평균"} {formatPrice(p.avgPrice, p.currency)}
-                      {!today && ` · 종가 ${formatPrice(p.lastPrice, p.currency)}`}
-                    </p>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <p className="text-[16px] font-semibold tabular-nums">
-                      <Flash value={p.valueKrw}>{formatKrw(p.valueKrw)}</Flash>
-                    </p>
-                    {!today && (
-                      <p className={cn("text-[13px] font-medium tabular-nums", trendClass(p.profitKrw))}>
-                        {formatSignedKrw(p.profitKrw)} ({formatRate(p.profitRate)})
-                      </p>
-                    )}
-                  </div>
-                </div>
-                {today && <p className="mt-1 text-[12px] font-medium text-sub">{todayFillText(p.market, easy)}</p>}
-                {p.style === "long" ? (
-                  <p className="mt-2 text-[12px] text-mute">{easy ? "장기 보유 · 자동으로 팔지 않아요" : "장기 보유 · 자동 매도 없음"}</p>
-                ) : (
-                  (p.targetPrice != null || p.expireDate) && (
-                    <p className="mt-2 text-[12px] text-mute tabular-nums">
-                      {p.targetPrice != null && (
-                        <span className="whitespace-nowrap">
-                          {easy ? "목표 가격" : "목표"} <span className="text-up">{formatPrice(p.targetPrice, p.currency)}</span> · {easy ? "손절 가격" : "손절"}{" "}
-                          <span className="text-down">{formatPrice(p.stopPrice, p.currency)}</span>
-                        </span>
-                      )}
-                      {p.expireDate && ` · ${formatDate(p.expireDate)}까지`}
-                    </p>
-                  )
-                )}
-              </Link>
-              {/* 계획이 산 보유: 종목 화면에서 직접 팔면 계획이 끝나므로, 계획이 팔아 준다는 것과 계획으로 가는 길을 함께 보인다 (trade-05) */}
-              {plan && (
+          <p className={cn("text-[15px] font-semibold tabular-nums", trendClass(profit))}>
+            {formatSignedKrw(profit)} ({formatRate(acc.investedKrw ? profit / acc.investedKrw : null)})
+          </p>
+          <p className="mt-2 text-[13px] text-mute">
+            투자금액 {formatKrw(acc.investedKrw)} · 현금 {formatKrw(acc.cashKrw)}
+          </p>
+          <BasisLine acc={acc} easy={easy} className="mt-1" />
+        </Card>
+      )}
+      <div className="overflow-hidden rounded-2xl bg-card">
+        {pc && <HoldingsHead easy={easy} />}
+        <ul {...revealList(reveal)} className="divide-y divide-line" aria-label="보유 종목">
+          {acc.positions.map((p) => {
+            const plan = byOrder.get(p.orderId);
+            const today = isTodayFill(p);
+            return (
+              <li key={p.orderId}>
+                {/* PC(lg)는 열을 맞춘 표 한 줄: 래퍼를 lg:contents로 풀어 칸마다 격자 자리를 준다 (DOM·모바일 모습은 그대로) */}
                 <Link
-                  to={`/plans/${plan.id}`}
+                  to={`/stocks/${encodeURIComponent(p.symbol)}`}
                   className={cn(
-                    "press-row flex items-center gap-2 border-t border-dashed border-line px-5 py-2.5 text-[13px] font-semibold text-brand-ink hover:bg-fill/50",
+                    "press-row block px-5 py-4 hover:bg-fill/50 lg:grid lg:min-h-16 lg:items-center lg:gap-x-3 lg:gap-y-0.5 lg:py-3 2xl:gap-x-4",
+                    HOLD_COLS,
                     HOLDING_FOCUS,
                   )}
                 >
-                  <Icon name="flow" className="size-4 shrink-0" />
-                  {/* 시연용 수동 시작 계획이면 앞에 '시연용' (체결 전 주문 행의 자동매매 배지 ' · 시연용'과 같이 — DECISIONS 31장) */}
-                  {plan.manualStart && "시연용 "}
-                  {easy ? "모의 자동매매가 목표·손절에 자동으로 팔아요 · 계획 보기" : `자동매매 #${plan.id}가 청산을 관리합니다 · 계획 보기`}
-                  <Icon name="chevron" className="ml-auto size-4 shrink-0" />
+                  <div className="flex items-start justify-between gap-3 lg:contents">
+                    <div className="min-w-0 lg:contents">
+                      <p className="flex min-w-0 items-center gap-1.5 text-[16px] font-semibold lg:col-start-1 lg:row-start-1 lg:self-end">
+                        <span className="truncate">{p.name}</span>
+                        <StyleBadge style={p.style} />
+                      </p>
+                      <p className="text-[13px] text-mute tabular-nums lg:contents">
+                        <span className="lg:col-start-1 lg:row-start-2 lg:self-start">{formatQty(p.quantity)}</span>
+                        <span className={cn("lg:col-start-2 lg:text-[14px] lg:text-ink", HOLD_NUM)}>
+                          <span className="lg:sr-only">{` · ${easy ? "산 가격" : "평균"} `}</span>
+                          {formatPrice(p.avgPrice, p.currency)}
+                        </span>
+                        {!today && (
+                          <span className={cn("lg:col-start-3 lg:text-[14px] lg:text-ink", HOLD_NUM)}>
+                            <span className="lg:sr-only"> · 종가 </span>
+                            {formatPrice(p.lastPrice, p.currency)}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-right lg:contents">
+                      <p className={cn("text-[16px] font-semibold tabular-nums lg:col-start-4 lg:text-[15px]", HOLD_NUM)}>
+                        <Flash value={p.valueKrw}>{formatKrw(p.valueKrw)}</Flash>
+                      </p>
+                      {!today && (
+                        <p className={cn("text-[13px] font-medium tabular-nums lg:col-start-5 lg:text-[14px] lg:font-semibold", HOLD_NUM, trendClass(p.profitKrw))}>
+                          {formatSignedKrw(p.profitKrw)} <span className="lg:block lg:text-[13px] lg:font-medium">({formatRate(p.profitRate)})</span>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  {today && (
+                    <p className={cn("mt-1 text-[12px] leading-snug font-medium text-sub lg:col-start-5 lg:mt-0", HOLD_NUM)}>
+                      {todayFillText(p.market, easy)}
+                    </p>
+                  )}
+                  {p.style === "long" ? (
+                    <p className="mt-2 text-[12px] text-mute lg:col-start-6 lg:row-span-2 lg:row-start-1 lg:mt-0 lg:self-center lg:pl-3">
+                      {easy ? "장기 보유 · 자동으로 팔지 않아요" : "장기 보유 · 자동 매도 없음"}
+                    </p>
+                  ) : (
+                    (p.targetPrice != null || p.expireDate) && (
+                      <p className="mt-2 text-[12px] text-mute tabular-nums lg:col-start-6 lg:row-span-2 lg:row-start-1 lg:mt-0 lg:self-center lg:pl-3 lg:leading-snug">
+                        {p.targetPrice != null && (
+                          <span className="whitespace-nowrap">
+                            <span className="lg:block">
+                              {easy ? "목표 가격" : "목표"} <span className="text-up">{formatPrice(p.targetPrice, p.currency)}</span>
+                            </span>
+                            <span className="lg:hidden"> · </span>
+                            <span className="lg:block">
+                              {easy ? "손절 가격" : "손절"} <span className="text-down">{formatPrice(p.stopPrice, p.currency)}</span>
+                            </span>
+                          </span>
+                        )}
+                        {p.expireDate && (
+                          <>
+                            <span className="lg:hidden"> · </span>
+                            <span className="lg:block">{formatDate(p.expireDate)}까지</span>
+                          </>
+                        )}
+                      </p>
+                    )
+                  )}
                 </Link>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+                {/* 계획이 산 보유: 종목 화면에서 직접 팔면 계획이 끝나므로, 계획이 팔아 준다는 것과 계획으로 가는 길을 함께 보인다 (trade-05) */}
+                {plan && (
+                  <Link
+                    to={`/plans/${plan.id}`}
+                    className={cn(
+                      "press-row flex items-center gap-2 border-t border-dashed border-line px-5 py-2.5 text-[13px] font-semibold text-brand-ink hover:bg-fill/50",
+                      HOLDING_FOCUS,
+                    )}
+                  >
+                    <Icon name="flow" className="size-4 shrink-0" />
+                    {/* 시연용 수동 시작 계획이면 앞에 '시연용' (체결 전 주문 행의 자동매매 배지 ' · 시연용'과 같이 — DECISIONS 31장) */}
+                    {plan.manualStart && "시연용 "}
+                    {easy ? "모의 자동매매가 목표·손절에 자동으로 팔아요 · 계획 보기" : `자동매매 #${plan.id}가 청산을 관리합니다 · 계획 보기`}
+                    <Icon name="chevron" className="ml-auto size-4 shrink-0" />
+                  </Link>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </div>
       {notes}
     </div>
+  );
+}
+
+/** PC 계좌 요약 줄의 한 칸 (ui.tsx Stat과 같은 글자 크기 — 칸 수가 폭에 따라 3열 ↔ 한 줄로 바뀌어 StatGrid 대신 격자로 늘어놓는다). */
+function Kpi({
+  label,
+  value,
+  sub,
+  note,
+  big = false,
+  valueClass,
+  className,
+}: {
+  label: string;
+  value: ReactNode;
+  sub?: ReactNode;
+  /** 보조 줄 아래 짧은 설명 (예: 총자산에 판 주식 손익이 들어 있다는 말) */
+  note?: string;
+  big?: boolean;
+  valueClass?: string;
+  className?: string;
+}) {
+  return (
+    <div className={cn("min-w-0 min-[85rem]:border-l min-[85rem]:border-line min-[85rem]:pl-5 min-[85rem]:first:border-l-0 min-[85rem]:first:pl-0", className)}>
+      <dt className="text-[13px] font-medium text-mute">{label}</dt>
+      <dd className={cn("mt-1 truncate leading-tight font-bold tabular-nums", big ? "text-[28px] tracking-tight" : "text-[22px] min-[85rem]:text-[20px] 2xl:text-[22px]", valueClass)}>{value}</dd>
+      {sub && <dd className="mt-1 truncate text-[13px] text-sub tabular-nums">{sub}</dd>}
+      {note && <dd className="mt-0.5 truncate text-[12px] text-mute">{note}</dd>}
+    </div>
+  );
+}
+
+/**
+ * PC 맨 위 계좌 요약 (탭과 상관없이). 보유 탭의 '보유 평가액' 카드 숫자를 여기로 옮겼다 — PC에서는 그 카드를 그리지 않는다.
+ * 평가손익은 보유 종목의 손익 합계(매수 원금 대비), 총자산 아래 줄은 처음 자금 대비 (홈 자산 카드와 같은 숫자).
+ */
+function AccountStrip({ easy, live }: { easy: boolean; live: TradePlan[] | undefined }) {
+  const { data: acc, isPending } = useAccount();
+  if (isPending) return <SkeletonCard lines={2} className="mb-5" />;
+  if (!acc) return null; // 받지 못하면 보유 탭이 오류와 다시 받기를 보인다
+  const profit = acc.positions.reduce((n, p) => n + p.profitKrw, 0);
+  const has = acc.positions.length > 0;
+  const holding = live?.filter((p) => p.status === "holding").length ?? 0;
+  const waiting = (live?.length ?? 0) - holding;
+  const showPower = !easy && acc.buyingPowerKrw !== null;
+  return (
+    <Card aria-label={easy ? "내 모의 계좌 요약" : "계좌 요약"} className="mb-5">
+      {/* 넓은 PC는 한 줄 (총자산 칸만 넓게), 좁은 PC는 3열 두 줄 */}
+      <dl
+        className={cn(
+          "grid grid-cols-3 gap-x-6 gap-y-5 min-[85rem]:gap-x-4",
+          showPower ? "min-[85rem]:grid-cols-[1.25fr_repeat(5,minmax(0,1fr))]" : "min-[85rem]:grid-cols-[1.25fr_repeat(4,minmax(0,1fr))]",
+        )}
+      >
+        <Kpi
+          big
+          // 칸이 다섯이면 좁은 PC(3열 두 줄)에서 총자산이 두 칸을 차지한다 (빈 칸 없이)
+          className={showPower ? undefined : "col-span-2 min-[85rem]:col-span-1"}
+          label={easy ? "모의 계좌 총자산" : "총자산"}
+          value={<Flash value={acc.equityKrw}>{formatKrw(acc.equityKrw)}</Flash>}
+          sub={
+            <span className={trendClass(acc.profitKrw)}>
+              {easy ? "처음 자금보다 " : "누적 "}
+              {formatSignedKrw(acc.profitKrw)} ({formatRate(acc.profitRate)})
+            </span>
+          }
+          // 옆 칸 '산 주식의 손익'은 지금 가진 종목만이다 — 둘이 왜 다른지 (이미 판 주식의 손익은 총자산에만 들어 있다)
+          note={easy ? "이미 판 주식의 손익까지 포함" : "실현 손익·비용 포함"}
+        />
+        <Kpi
+          label={easy ? "지금 가진 주식의 손익" : "평가손익"}
+          value={has ? formatSignedKrw(profit) : "0원"}
+          valueClass={has ? trendClass(profit) : "text-mute"}
+          sub={
+            has ? (
+              <>
+                <span className={trendClass(profit)}>{formatRate(acc.investedKrw ? profit / acc.investedKrw : null)}</span> ·{" "}
+                {easy ? "산 금액 대비" : "투자금액 대비"}
+              </>
+            ) : easy ? (
+              "아직 산 종목이 없어요"
+            ) : (
+              "보유 없음"
+            )
+          }
+        />
+        <Kpi
+          label={easy ? "주식 평가액" : "보유 평가액"}
+          value={<Flash value={acc.holdingsValueKrw}>{formatKrw(acc.holdingsValueKrw)}</Flash>}
+          sub={has ? `${acc.positions.length}종목` : undefined}
+        />
+        <Kpi label="현금" value={formatKrw(acc.cashKrw)} sub={easy ? "모의 계좌의 남은 돈" : undefined} />
+        {showPower && (
+          <Kpi label="매수 가능액" value={formatKrw(acc.buyingPowerKrw)} sub={acc.pendingKrw ? `대기 매수 ${formatKrw(acc.pendingKrw)}` : "현금 − 대기 매수"} />
+        )}
+        <Kpi
+          label={easy ? "진행 중 모의 자동매매" : "진행 중 자동매매"}
+          value={live ? `${live.length}건` : "—"}
+          sub={live && live.length > 0 ? (easy ? `산 뒤 ${holding} · 사기 전 ${waiting}` : `보유 ${holding} · 체결 대기 ${waiting}`) : undefined}
+        />
+      </dl>
+      <BasisLine acc={acc} easy={easy} className="mt-4 border-t border-line pt-3" />
+    </Card>
   );
 }
 
@@ -805,19 +1038,24 @@ export function PortfolioPage() {
     h.scrollIntoView?.({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
     h.focus({ preventScroll: true });
   };
+  const pc = useIsPc();
+  const live = livePlans.data?.results;
+  // 진행 중 계획이 없으면 PC 오른쪽 열은 새 계획 제안을 먼저 (지금 할 다음 행동 — 격자 자리만 바꾼다, DOM·모바일 순서는 그대로)
+  const proposalsFirst = live !== undefined && live.length === 0;
   return (
     <>
       <PageHeader title="모의투자" />
       {/* 안전 문구는 제목 아래 캡션으로 (예전 안내 띠가 첫 화면의 진행 중 칸을 밀어내지 않게 — trade-11) */}
-      {easy && <p className="-mt-1 mb-3 px-1 text-[13px] text-sub lg:-mt-2">모든 매매는 모의 계좌에서만 이뤄져요 (실제 돈이 아니에요).</p>}
-      <div className="space-y-5 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start lg:gap-6 lg:space-y-0">
+      {easy && <p className="-mt-1 mb-3 px-1 text-[13px] text-sub lg:-mt-2 lg:mb-4">모든 매매는 모의 계좌에서만 이뤄져요 (실제 돈이 아니에요).</p>}
+      {pc && <AccountStrip easy={easy} live={live} />}
+      <div className="space-y-5 min-[85rem]:grid min-[85rem]:grid-cols-[minmax(0,1fr)_340px] min-[85rem]:items-start min-[85rem]:gap-6 min-[85rem]:space-y-0 2xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="min-w-0 space-y-5">
-          <LivePlans easy={easy} onShowProposals={showProposals} />
+          <LivePlans easy={easy} pc={pc} onShowProposals={showProposals} />
 
           <section aria-label="내 모의 계좌">
             <PillTabs label="내 주식" value={tab} options={TABS} onChange={setTab} className="mb-3" />
             <div key={tab} role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} className={tabChanged ? "reveal-fade" : undefined}>
-              {tab === "holdings" && <Holdings easy={easy} byOrder={byOrder} plansReady={plansReady} />}
+              {tab === "holdings" && <Holdings easy={easy} pc={pc} byOrder={byOrder} plansReady={plansReady} />}
               {tab === "orders" && (
                 <OrdersTab
                   easy={easy}
@@ -831,9 +1069,14 @@ export function PortfolioPage() {
           </section>
         </div>
 
-        <div className="space-y-5">
-          <EndedPlans easy={easy} />
-          <Proposals easy={easy} />
+        {/* 좁은 PC(85rem 미만)는 한 열 아래에 둘을 나란히, 넓은 PC는 오른쪽 열에 위아래로 */}
+        <div className="space-y-5 lg:grid lg:grid-cols-2 lg:items-start lg:gap-5 lg:space-y-0 min-[85rem]:grid-cols-1">
+          <div className={cn("min-w-0", proposalsFirst && "lg:col-start-2 lg:row-start-1 min-[85rem]:col-start-1 min-[85rem]:row-start-2")}>
+            <EndedPlans easy={easy} pc={pc} />
+          </div>
+          <div className={cn("min-w-0", proposalsFirst && "lg:col-start-1 lg:row-start-1")}>
+            <Proposals easy={easy} />
+          </div>
         </div>
       </div>
     </>

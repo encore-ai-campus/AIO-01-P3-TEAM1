@@ -96,7 +96,12 @@ describe.each(VIEWPORTS)("UX-2 계획 제안 목록 · %s", (_name, width) => {
     expect(rows).toHaveLength(3);
     expect(rows[0].getAttribute("aria-label")).toBe("SK하이닉스 계획 제안 보기");
     expect(within(rows[0]).queryByText("시작할 수 없음")).toBeNull();
-    expect(within(rows[2]).getByText("시작할 수 없음")).toBeTruthy(); // 위 둘은 시작할 수 있는 SK하이닉스, 셋째부터 시작할 수 없는 것
+    // 같은 종목은 목록 화면처럼 하나(SK하이닉스 91 — 이전 제안은 목록 화면의 그 카드 안), 그다음부터 시작할 수 없는 것
+    expect(within(rows[1]).getByText("시작할 수 없음")).toBeTruthy();
+    expect(within(rows[2]).getByText("시작할 수 없음")).toBeTruthy();
+    // 목록 화면의 카드 1 + 시작할 수 없는 제안 2 = 셋이 모두 보이므로 숫자 없이 '모두 보기' (같은 종목의 이전 제안·다른 출처는 세지 않는다)
+    const section = screen.getByRole("region", { name: "새 계획 제안" });
+    expect(within(section).getByRole("link", { name: "모두 보기" }).getAttribute("href")).toBe("/recommendations");
   });
 
   it("전문가 홈의 '새 계획 제안' 위 셋: 최신 셋이 모두 활성화 불가여도 활성화할 수 있는 것을 먼저 고른다", async () => {
@@ -260,7 +265,8 @@ describe("UX-10 · UX-11 계획 화면의 평가·기한", () => {
     });
     const page = renderApp(`/recommendations/${id}`, "bob");
     expect(await screen.findByText(/^181,000원 이하가 될 때까지 10월 9일\(금\) 장 마감까지만 기다려요/)).toBeTruthy();
-    expect(screen.getByText(/· 10월 9일\(금\) 장 마감까지$/)).toBeTruthy();
+    // 머리의 기한은 만든 사람·시각과 따로 한 덩어리 (PC 넓은 화면은 두 줄 — 2026-10-12)
+    expect(screen.getByText("10월 9일(금) 장 마감까지")).toBeTruthy();
     expect(screen.queryByText(/10월 10일\(토\)/)).toBeNull();
     page.unmount();
 

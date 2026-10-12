@@ -89,7 +89,7 @@ export function CreateReportCard({ plan, expert, dockRef }: { plan: ExecutionPla
             setInput(e.target.value);
             setListOpen(true);
           }}
-          placeholder="종목명이나 종목코드 (예: 삼성전자, 005930)"
+          placeholder="종목명 또는 코드 (예: 삼성전자)"
           className="h-full min-w-0 flex-1 bg-transparent text-[16px] outline-none placeholder:text-mute-weak"
         />
       </label>

@@ -322,7 +322,7 @@ function MoveCard({
       id={id}
       aria-labelledby={titleId}
       className={cn(
-        "scroll-mt-20 rounded-2xl bg-card p-5 transition-shadow duration-slow ease-standard lg:scroll-mt-8",
+        "scroll-mt-20 rounded-2xl bg-card p-5 transition-shadow duration-slow ease-standard lg:scroll-mt-(--rail-top)",
         lit && "ring-2 ring-brand",
         className,
       )}
@@ -378,7 +378,7 @@ function MoveCard({
                 ref={expanded && i === limit ? firstNew : undefined}
                 tabIndex={fresh.has(m.symbol) ? -1 : undefined}
                 aria-label={`${m.name} 오늘의 뉴스`}
-                className="scroll-mt-20 rounded-lg"
+                className="scroll-mt-20 rounded-lg lg:scroll-mt-(--rail-top)"
               >
                 {summary ? (
                   <SummaryMove m={m} open={opened.has(m.symbol)} onToggle={() => toggle(m.symbol)} showAsOf={!sharedAsOf} />
@@ -440,11 +440,12 @@ function HomeDailyMove(props: DailyMoveCardProps) {
   // 보유가 없으면 접는다. 단, 알림에서 왔으면(focusKey) 펼쳐 둔다 — 그날 기록이나 '가진 국내 종목이 없어요'라도 보여야 눌러도 아무 일이 없어 보이지 않는다.
   // 접힌 뒤 사라지는 순간 아래가 한 번 더 튀지 않게: 카드 위 간격은 접히는 안쪽(pt-6)에 두고, 늘 남는 감싸개의 -mt-6이 앞 섹션의 여백
   // (홈 열의 space-y-6 = 24px)을 상쇄한다. 감싸개가 늘 있으니 앞 섹션이 마지막 자식이 되어 여백을 잃는 일(쉬운 보기)이 없고,
-  // flow-root라 비어도 위아래 여백이 서로 겹쳐 사라지지 않는다(전문가 보기 — 아래 섹션과의 24px 유지). 홈 열 간격과 같은 값이다
+  // flow-root라 비어도 위아래 여백이 서로 겹쳐 사라지지 않는다(전문가 보기 — 아래 섹션과의 24px 유지). 홈 열 간격과 같은 값이다.
+  // 홈 왼쪽 열이 900px 이상이면(PC 1920px 등) 최근 AI 리포트 옆 칸에 놓인다 (HomePage ReadPair) — 그때는 위 간격 짝이 필요 없다
   return (
-    <div className="-mt-6 flow-root">
+    <div className="-mt-6 flow-root @min-[900px]/main:mt-0">
       <Collapse open={holdings !== "none" || Boolean(props.focusKey)}>
-        <div className="pt-6">
+        <div className="pt-6 @min-[900px]/main:pt-0">
           <MoveCard {...props} holdings={holdings} />
         </div>
       </Collapse>

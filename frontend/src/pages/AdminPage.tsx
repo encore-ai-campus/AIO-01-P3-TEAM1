@@ -5,7 +5,7 @@ import { useMe } from "../api/queries";
 import { RecoveryStatsPanel } from "../components/admin/RecoveryStatsPanel";
 import { Icon } from "../components/Icon";
 import { EduDocSection } from "../components/reports/EduDocSection";
-import { Card, EmptyState, Notice, PageHeader } from "../components/ui";
+import { Card, EmptyState, PageHeader } from "../components/ui";
 
 export function AdminPage() {
   const { data: me } = useMe();
@@ -28,7 +28,11 @@ export function AdminPage() {
     <>
       <PageHeader title="관리자" back />
       <div className="space-y-3 lg:space-y-4">
-        <Notice>운영·발표용 화면입니다. 사용자 메뉴에는 보이지 않고, &ldquo;리포트&rdquo; 메뉴를 8번 연속 누르면 열립니다.</Notice>
+        {/* 들어오는 법은 도움말 한 줄 (발표 화면의 첫 줄을 차지하지 않게) */}
+        <p className="flex items-start gap-1.5 px-1 text-[13px] leading-snug text-mute">
+          <Icon name="info" className="mt-px size-4 shrink-0 text-mute-weak" />
+          운영·발표용 화면입니다. 사용자 메뉴에는 보이지 않고, &ldquo;리포트&rdquo; 메뉴를 8번 연속 누르면 열립니다.
+        </p>
         <RecoveryStatsPanel />
         <EduDocSection />
         <Card aria-labelledby="admin-links-title">

@@ -1,6 +1,6 @@
 // 관리자 화면(/ops)의 복구 지표 (GET /api/reports/recovery-stats의 RecoveryStats를 그대로 그린다. 셈법은 docs/tasks/00-공통.md 9절).
 // 예전 /reports/health 화면을 옮겼다: 복구 지표는 운영·발표용이라 사용자 메뉴가 아니라 관리자 화면에서 본다.
-import { useId, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { Link } from "react-router";
 import { errorMessage } from "../../api/client";
 import { useReportPlan } from "../../api/queries";
@@ -20,9 +20,9 @@ type Days = (typeof DAYS)[number];
 
 const formatRate = (rate: number | null) => (rate === null ? "-" : `${rate.toFixed(1)}%`);
 
-function Big({ label, value, sub, tone }: { label: string; value: string; sub: string; tone?: "ok" }) {
+function Big({ label, value, sub, tone, className }: { label: string; value: string; sub: ReactNode; tone?: "ok"; className?: string }) {
   return (
-    <Card className="py-4">
+    <Card className={cn("py-4", className)}>
       <p className="text-[13px] text-mute">{label}</p>
       <p className={cn("mt-0.5 text-[32px] leading-tight font-bold tracking-tight tabular-nums", tone === "ok" && "text-ok-ink")}>{value}</p>
       <p className="mt-1 text-[13px] text-sub">{sub}</p>
@@ -195,9 +195,37 @@ export function RecoveryStatsPanel() {
             aria-busy={stale || undefined}
             className={cn("space-y-3 transition-opacity duration-fast lg:space-y-4", stale && "opacity-60", revealed && "reveal-fade")}
           >
-            <div className="grid grid-cols-2 gap-3 lg:gap-4">
-              <Big label="자동 복구율" value={formatRate(s.autoRecoveryRate)} sub={`장애 ${s.failures}건 중 ${s.recovered}건 복구 · 미복구 ${s.unrecovered}`} tone="ok" />
-              <Big label="평균 복구시간" value={formatLatency(s.meanRecoveryMs)} sub={`리포트 ${s.reports}건 중 ${s.reportsWithFailures}건에 장애 · 주입 ${s.injected}건`} />
+            {/* 모바일·좁은 PC는 두 칸(복구율·복구시간 — 보조 줄에 건수), 넓은 PC(xl)는 장애 건수·장애 난 리포트를 더해 네 칸.
+                네 칸일 때 앞 두 칸의 보조 줄은 건수 대신 뜻풀이 — 같은 건수가 한 줄에 두 번 나오지 않게 */}
+            <div className="grid grid-cols-2 gap-3 lg:gap-4 xl:grid-cols-4">
+              <Big
+                label="자동 복구율"
+                value={formatRate(s.autoRecoveryRate)}
+                sub={
+                  <>
+                    <span className="xl:hidden">{`장애 ${s.failures}건 중 ${s.recovered}건 복구 · 미복구 ${s.unrecovered}`}</span>
+                    <span className="hidden xl:inline">사람 손 없이 재시도·대체 모델로 복구한 비율</span>
+                  </>
+                }
+                tone="ok"
+              />
+              <Big
+                label="평균 복구시간"
+                value={formatLatency(s.meanRecoveryMs)}
+                sub={
+                  <>
+                    <span className="xl:hidden">{`리포트 ${s.reports}건 중 ${s.reportsWithFailures}건에 장애 · 주입 ${s.injected}건`}</span>
+                    <span className="hidden xl:inline">장애가 난 뒤 복구될 때까지 걸린 시간</span>
+                  </>
+                }
+              />
+              <Big className="hidden xl:block" label="장애 건수" value={`${s.failures}건`} sub={`복구 ${s.recovered}건 · 미복구 ${s.unrecovered}건`} />
+              <Big
+                className="hidden xl:block"
+                label="장애가 난 리포트"
+                value={`${s.reportsWithFailures}건`}
+                sub={`전체 ${s.reports}건 중 · 장애 주입 ${s.injected}건`}
+              />
             </div>
             <div className="grid gap-3 lg:grid-cols-2 lg:gap-4">
               <Bars title="장애 유형별" rows={s.byErrorType.map((x) => ({ label: ERROR_LABEL[x.errorType], failures: x.failures, recovered: x.recovered }))} />

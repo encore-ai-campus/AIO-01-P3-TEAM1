@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { keys } from "../api/queries";
 import type { Market, QuoteBasis, ReportDetail, ReportSummary, RiskPreview, TraceEvent } from "../api/types";
 import { ResearchCards } from "../components/reports/easy/ResearchCards";
+import { teamHeadline } from "../components/reports/easy/teamStatus";
 import { AI_REVIEW_NOTE, DISCLAIMER, OPINION_TEXT, REPORT_FAILURE_TEXT, REPORT_KEEPS_RUNNING } from "../lib/plainText";
 import { SCENARIOS } from "../lib/reportExamples";
 import * as lib from "../lib/reports";
@@ -1154,5 +1155,25 @@ describe("조사 자료 요약 — 시세 기준 시각", () => {
     expect(box.textContent).not.toContain("71,300");
     expect(box.textContent).not.toContain("장마감 기준");
     expect(within(box).getByText("시세 기준 시각: 자료 없음")).toBeTruthy();
+  });
+});
+
+describe("쉬운 보기 — PC 오른쪽 '지금 상황' 한 문장 (teamHeadline)", () => {
+  const step = (actor: string, state: lib.ProgressState): lib.ProgressStep => ({ actor, label: actor, state, recovered: false, rewriting: false });
+  const five = (...states: lib.ProgressState[]) =>
+    ["market_agent", "fundamental_agent", "news_agent", "report_agent", "review_agent"].map((a, i) => step(a, states[i]));
+
+  it("선택 조사(뉴스)를 못 했어도 작성·검토가 끝났으면 끝난 문장 — 왼쪽 '완성됐어요'와 반대로 말하지 않는다 (리뷰 5)", () => {
+    const steps = five("done", "done", "failed", "done", "done");
+    expect(teamHeadline(steps, "completed", -1, false)).toBe("뉴스 없이 끝냈어요");
+    // 예시 결과를 아직 받지 않았어도(running) 작성·검토가 끝났으면 끝난 문장 ('다음 담당에게 넘기는 중'이 아니다)
+    expect(teamHeadline(steps, "running", -1, false)).toBe("뉴스 없이 끝냈어요");
+    expect(teamHeadline(five("done", "done", "done", "done", "done"), "completed", -1, false)).toBe("모두 끝났어요");
+  });
+
+  it("진행 중·대기·멈춤 문장", () => {
+    expect(teamHeadline(five("active", "active", "done", "waiting", "waiting"), "running", -1, false)).toBe("2명이 동시에 조사하고 있어요");
+    expect(teamHeadline(five("waiting", "waiting", "waiting", "waiting", "waiting"), "running", -1, true)).toBe("차례가 오면 세 담당이 동시에 조사를 시작해요");
+    expect(teamHeadline(five("done", "done", "done", "done", "failed"), "failed", 4, false)).toBe("검토 담당에서 멈췄어요");
   });
 });

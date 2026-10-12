@@ -8,13 +8,18 @@
 //   시세 가격을 받지 못하면 장마감 기준 계좌 값 (홈·마이·랭킹은 늘 장마감 기준).
 // 차트: 쉬운 보기는 종가 선(낮게 — 360×740에서 큰 버튼이 첫 화면에 들어오게), 전문가 보기는 캔들·이동평균·거래량.
 // 전문가 보기 모바일은 하단 고정 버튼 → 주문 바텀시트 (.order-dock: PC 패널과 한 벌 DOM, 열린 동안만 모달 — hooks/useModal).
+// PC(2026-10-12 PC 재설계): 시세 카드 머리에 종목 정체(코드·시장·큰 가격·등락·기준 시각·전문가 보기의 보유 칩)와 주요 숫자 줄(시가·고가·저가·거래량·
+//   기간 최고·최저 — 받은 일봉에서), 차트는 xl에서 약 420px이고 보유·대기 주문의 가격 선(평균 체결가·목표가·손절가·지정가)을 긋는다.
+//   전문가 보기 왼쪽은 [AI 리포트 | 교차검증]을 왼쪽 열이 넓으면(1440px 화면부터) 나란히 (grid 자리만 — DOM은 모바일 순서).
+//   개발·평가용 도구(장애 주입·Agent 워크플로우·Trace 안내·예상 비용)는 전문가 보기 맨 아래 접힌 '시연용 도구'에 (docs/plans 실서비스 기준).
 import { Suspense, lazy, type MouseEvent, type ReactNode, type RefObject, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { ApiError, errorMessage } from "../api/client";
-import { useAnalyses, useAnalysis, useMe, useReportPlan, useReports, useStock } from "../api/queries";
+import { useAnalyses, useAnalysis, useMe, useQuota, useReportPlan, useReports, useStock } from "../api/queries";
 import { useReportQuota, useRequestReport } from "../api/reports";
 import { addRecentStock, useSymbolTrading } from "../api/trading";
 import type { AnalysisSummary, ChaosRequest, StockDetail } from "../api/types";
+import type { ChartLine } from "../components/charts/CandleChart";
 import { AnalysisRequest } from "../components/analysis/AnalysisRequest";
 import { isCountLimit } from "../components/errors/errorTypes";
 import { Icon } from "../components/Icon";
@@ -22,13 +27,26 @@ import { FundamentalsPanel } from "../components/longterm/FundamentalsPanel";
 import { Collapse } from "../components/motion/Collapse";
 import { ACTED_MS, OrderPanel, type Prefill } from "../components/stock/OrderPanel";
 import { ChaosForm } from "../components/reports/ChaosForm";
-import { AsOf, EmptyState, ErrorState, Flash, Notice, PageHeader, PriceChange, Skeleton, Spinner, VerdictBadge } from "../components/ui";
+import { VerdictText } from "../components/reports/VerdictText";
+import { AsOf, EmptyState, ErrorState, Flash, Notice, PageHeader, PriceChange, Skeleton, Spinner } from "../components/ui";
 import { useViewMode } from "../hooks/useBeginnerMode";
+import { useIsPc } from "../hooks/useIsPc";
 import { useModal } from "../hooks/useModal";
 import { useRevealAfterLoading } from "../hooks/useMotionState";
 import { formatOpensAt } from "../lib/autotrade";
 import { cn } from "../lib/cn";
-import { formatDateTime, formatDayLabel, formatKrw, formatPercent, formatPrice, formatQty, formatRate, formatRequester, trendClass } from "../lib/format";
+import {
+  formatDateTime,
+  formatDayLabel,
+  formatKrw,
+  formatPercent,
+  formatPrice,
+  formatQty,
+  formatRate,
+  formatRequester,
+  formatUsd,
+  trendClass,
+} from "../lib/format";
 import { prefersReducedMotion } from "../lib/motion";
 import { useOrderBarPresence } from "../lib/orderBar";
 import { quoteHolding } from "../lib/holding";
@@ -46,14 +64,30 @@ const CandleChart = lazy(() =>
   }),
 );
 
-// 2단 배치: 왼쪽(보기)은 1열에 차례로, 오른쪽(하기)은 2열 1~3행을 걸치는 sticky 하나 (블록마다 좌우를 정하면 같은 행 높이가 묶여 빈틈이 생긴다)
-const GRID = "grid gap-3 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-x-6";
+// 2단 배치: 왼쪽(보기)은 1열에 차례로, 오른쪽(하기)은 2열 1행부터 왼쪽 행을 모두 걸치는 sticky 하나
+// (블록마다 좌우를 정하면 같은 행 높이가 묶여 빈틈이 생긴다). 오른쪽 열 340px(lg) → 380px(xl) → 400px(2xl, 본문 1440px).
+const GRID =
+  "grid gap-3 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start lg:gap-x-6 xl:grid-cols-[minmax(0,1fr)_380px] 2xl:grid-cols-[minmax(0,1fr)_400px]";
 const LEFT = "min-w-0 lg:col-start-1";
-const RIGHT = "lg:sticky lg:top-8 lg:col-start-2 lg:row-span-3 lg:row-start-1";
-/** 차트 높이: 쉬운 보기는 낮은 선 차트, 전문가 보기 PC는 화면 높이에 맞춰(800px 화면에서 300px) 큰 버튼이 첫 화면에 들어오게. */
+/** 오른쪽 열: 왼쪽 행이 전문가 보기 3개(시세 · AI·펀더멘털 · 시연용 도구), 쉬운 보기 2개(시세 · 펀더멘털·주문)라 그만큼 걸친다 (sticky가 끝까지 붙게). */
+const RIGHT = {
+  expert: "lg:sticky lg:top-(--rail-top) lg:col-start-2 lg:row-span-3 lg:row-start-1",
+  easy: "lg:sticky lg:top-(--rail-top) lg:col-start-2 lg:row-span-2 lg:row-start-1",
+} as const;
+/**
+ * 왼쪽 가운데 묶음 (전문가: AI 묶음 · 펀더멘털, 쉬운 보기: 펀더멘털 · 직접 주문). 바깥 grid와 같은 12px 간격.
+ * 열은 minmax(0,1fr) — auto 열이면 펀더멘털 표(가로 스크롤 상자)의 폭이 열을 밀어 모바일에서 화면 밖으로 넘친다.
+ * (2xl에서 펀더멘털을 옆 칸에 두면 표가 좁아 가로로 밀어야 해서 한 열로 둔다.)
+ */
+const PAIR = "grid grid-cols-[minmax(0,1fr)] gap-3";
+/**
+ * 차트 높이: 쉬운 보기는 낮은 선 차트, 전문가 보기 PC는 화면 높이에 맞춰(800px 화면에서 300px) 큰 버튼이 첫 화면에 들어오게.
+ * xl(1280px+)은 두 보기 모두 화면 높이에 맞춰 최대 420px (900px 화면에서 420px, 800px 화면에서 320px).
+ */
+const CHART_XL = "xl:h-[clamp(320px,calc(100dvh-480px),420px)]";
 const CHART_H = {
-  easy: "h-[208px] lg:h-[320px]",
-  expert: "h-[280px] lg:h-[clamp(280px,calc(100dvh-500px),380px)]",
+  easy: `h-[208px] lg:h-[320px] ${CHART_XL}`,
+  expert: `h-[280px] lg:h-[clamp(280px,calc(100dvh-560px),380px)] ${CHART_XL}`,
 } as const;
 
 /** 마지막으로 있던 값 (닫히는 접힘 안에 내용을 남겨 두려고 — 닫히는 동안 빈 상자가 접히지 않게). */
@@ -70,7 +104,8 @@ function LatestAnalysis({ a, easy }: { a: AnalysisSummary; easy: boolean }) {
         <p className="text-[14px] text-sub">
           최근 교차검증 분석 · {formatDateTime(a.analyzedAt)} · {formatRequester(a.requestedBy)}
         </p>
-        {!easy && <VerdictBadge verdict={a.verdict} />}
+        {/* 판정은 전문가 보기도 한국어로 (BUY 매수 · PASS 지켜보기 — 홈·리포트의 교차검증 카드와 같은 말) */}
+        {!easy && <VerdictText verdict={a.verdict} className="shrink-0" />}
       </div>
       {a.best ? (
         <p className="mt-2 text-[14px] tabular-nums">
@@ -103,21 +138,87 @@ function ChaosPanel({ value, onChange }: { value: ChaosRequest | null; onChange:
 }
 
 /**
+ * 전문가 보기 맨 아래의 접힌 '시연용 도구' (발표·평가용 — 실서비스 화면의 주 카드에 두지 않는다, PC 재설계 2026-10-12).
+ * 장애 주입(켜면 위 AI 리포트 카드의 만들기 버튼에 "· 장애 주입"이 붙고 요청에 실린다), Agent 워크플로우·진행 기록(Trace) 안내, 교차검증 1회 예상 비용.
+ * 접혀 있어도 장애 주입이 켜져 있으면 머리에 '켬'을 보인다.
+ */
+function DemoTools({ chaos, onChaos, className }: { chaos: ChaosRequest | null; onChaos: (v: ChaosRequest | null) => void; className?: string }) {
+  const [open, setOpen] = useState(false);
+  const bodyId = useId();
+  const { data: quota } = useQuota();
+  return (
+    <section aria-label="시연용 도구" className={cn("rounded-2xl bg-card px-5 py-2", className)}>
+      <h2>
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={open ? bodyId : undefined}
+          onClick={() => setOpen(!open)}
+          className="-mx-2 flex min-h-14 w-[calc(100%+1rem)] items-center justify-between gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-fill active:bg-line/60"
+        >
+          <span className="min-w-0">
+            <span className="flex flex-wrap items-center gap-1.5 text-[15px] font-bold text-sub">
+              <Icon name="bolt" className="size-4 text-warn" />
+              시연용 도구
+              {chaos !== null && <span className="rounded-full bg-warn-soft px-2 py-0.5 text-[12px] font-bold text-warn-ink">장애 주입 켬</span>}
+            </span>
+            <span className="mt-0.5 block text-[13px] font-normal text-mute">장애 주입 · Agent 워크플로우 안내 · 예상 비용 (발표·평가용)</span>
+          </span>
+          <Icon name="chevron-down" className={cn("size-5 shrink-0 text-mute-weak transition-transform duration-fast", open && "rotate-180")} />
+        </button>
+      </h2>
+      <Collapse open={open} id={bodyId}>
+        <div className="space-y-3 pt-1 pb-3">
+          <p className="text-[13px] leading-relaxed text-sub">
+            AI 리포트는 Agent 워크플로우(Orchestrator·Worker)가 써요. 리포트 화면의 진행 기록(Trace)에서 단계별 실행과 복구를 따라갈 수 있어요.
+          </p>
+          <ChaosPanel value={chaos} onChange={onChaos} />
+          <p className="text-[12px] text-mute">장애 주입을 켠 채 위의 AI 리포트 카드에서 만들면 그 실행에만 장애를 넣어요.</p>
+          {quota && (
+            <p className="text-[13px] text-sub tabular-nums">교차검증 분석 1회 예상 비용 약 {formatUsd(quota.estimatedCostUsd)} (팀 AI 비용 예산에 포함)</p>
+          )}
+        </div>
+      </Collapse>
+    </section>
+  );
+}
+
+/** 처음 쓰는 사람의 다음 단계 (쉬운 보기 PC 오른쪽 열, 리포트·교차검증 아래). AI는 제안만 하고 실행은 내가 정한다는 것을 같이 말한다. */
+function NextSteps() {
+  const titleId = useId();
+  const steps = ["AI 리포트로 이 종목의 근거와 위험을 읽어요", "리포트 끝에서 AI가 제안한 매매 계획을 확인해요", "실행할지는 내가 정해요. 가상 현금으로만 사고팔아요"];
+  return (
+    <section aria-labelledby={titleId} className="rounded-2xl bg-card p-5 max-lg:hidden">
+      <h2 id={titleId} className="text-[15px] font-bold">
+        처음이라면 이렇게 해 보세요
+      </h2>
+      <ol className="mt-3 space-y-2.5">
+        {steps.map((text, i) => (
+          <li key={text} className="flex gap-2.5 text-[14px] leading-snug text-sub">
+            <span aria-hidden="true" className="grid size-5 shrink-0 place-items-center rounded-full bg-brand-soft text-[12px] font-bold text-brand-ink tabular-nums">
+              {i + 1}
+            </span>
+            {text}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+/**
  * 큰 버튼 "AI 리포트 만들기" + 오늘 남은 횟수. 오늘 이 종목 리포트가 이미 있으면 "오늘 리포트 보기"가 먼저 (docs/plans/컨셉변경계획.md 4-2 —
  * 고르는 규칙은 리포트 탭의 만들기 카드와 같은 lib/reports todayReport).
  * 리포트 목록과 한도를 둘 다 받을 때까지 버튼 자리에 뼈대를 둔다 — 틀린 버튼(누를 수 있는 '만들기')이 먼저 보였다가 바뀌지 않게.
- * 전문가 보기에는 접힌 '장애 주입(시연)'이 있다 (docs/tasks/00-공통.md 부록 A5 T5-22 — 끔 모드에서만).
+ * 장애 주입(docs/tasks/00-공통.md 부록 A5 T5-22 — 끔 모드에서만)은 전문가 보기 맨 아래 '시연용 도구'에서 켠다. 켜져 있으면(chaos) 버튼에 "· 장애 주입".
  */
-function ReportCta({ stock, easy }: { stock: StockDetail; easy: boolean }) {
+function ReportCta({ stock, easy, chaos }: { stock: StockDetail; easy: boolean; chaos: ChaosRequest | null }) {
   const navigate = useNavigate();
   const { data: me } = useMe();
   const quotaQ = useReportQuota();
   const reportsQ = useReports({ symbol: stock.symbol, limit: 20 });
   const request = useRequestReport();
-  const [chaos, setChaos] = useState<ChaosRequest | null>(null);
-  const [chaosOpen, setChaosOpen] = useState(false);
   const titleId = useId();
-  const chaosId = useId();
   const settled = !reportsQ.isPending && !quotaQ.isPending;
   const reveal = useRevealAfterLoading(!settled);
   const quota = quotaQ.data;
@@ -143,7 +244,7 @@ function ReportCta({ stock, easy }: { stock: StockDetail; easy: boolean }) {
             <span className="max-lg:hidden"> 검토 AI가 근거와 대조한 뒤 완성돼요.</span>
           </>
         ) : (
-          "Agent 워크플로우가 쓰는 종목 리포트예요. 진행 기록(Trace)을 따라갈 수 있어요."
+          "시세·재무·뉴스를 나눠 분석하고 검토 AI가 근거와 대조한 종목 리포트예요."
         )}
       </p>
 
@@ -213,30 +314,6 @@ function ReportCta({ stock, easy }: { stock: StockDetail; easy: boolean }) {
           <Notice tone="error">{shownError}</Notice>
         </div>
       </Collapse>
-
-      {!easy && (
-        <div className="mt-3 border-t border-line pt-1">
-          <button
-            type="button"
-            aria-expanded={chaosOpen}
-            aria-controls={chaosOpen ? chaosId : undefined}
-            onClick={() => setChaosOpen(!chaosOpen)}
-            className="-mx-2 flex h-11 w-[calc(100%+1rem)] items-center justify-between rounded-lg px-2 text-[14px] font-semibold text-sub transition-colors hover:bg-fill active:bg-line/60"
-          >
-            <span className="flex items-center gap-1.5">
-              <Icon name="bolt" className="size-4 text-warn" />
-              장애 주입 (시연)
-              {chaosOn && <span className="rounded-full bg-warn-soft px-2 py-0.5 text-[12px] font-bold text-warn-ink">켬</span>}
-            </span>
-            <Icon name="chevron-down" className={cn("size-5 text-mute-weak transition-transform duration-fast", chaosOpen && "rotate-180")} />
-          </button>
-          <Collapse open={chaosOpen} id={chaosId}>
-            <div className="pt-2">
-              <ChaosPanel value={chaos} onChange={setChaos} />
-            </div>
-          </Collapse>
-        </div>
-      )}
     </section>
   );
 }
@@ -322,6 +399,123 @@ function summaryKey(t: Trading, stock: StockDetail): string | null {
   if (t.state === "pending") return `p:${t.order?.quantity}:${t.order?.limitPrice}`;
   if (t.state === "reserved") return `r:${t.buyReservation?.quantity}:${t.buyReservation?.runAt}`;
   return null;
+}
+
+/**
+ * 차트 위 가격 선: 보유 중이면 평균 체결가(쉬운 보기 '산 가격')·목표가·손절가(스윙만 — 장기 보유는 없다), 체결 대기 지정가 주문이면 그 가격.
+ * 값은 주문·계좌가 정한 것 그대로 (AI 값이 아니다).
+ */
+function chartLines(t: Trading, easy: boolean): ChartLine[] {
+  if (t.state === "holding" && t.order) {
+    const avg = t.position?.avgPrice ?? t.order.fillPrice;
+    const out: ChartLine[] = [];
+    if (avg != null) out.push({ price: avg, title: easy ? "내가 산 가격" : "평균 체결가", tone: "entry" });
+    if (t.order.targetPrice != null) out.push({ price: t.order.targetPrice, title: easy ? "목표 가격" : "목표가", tone: "target" });
+    if (t.order.stopPrice != null) out.push({ price: t.order.stopPrice, title: easy ? "손절 가격" : "손절가", tone: "stop" });
+    return out;
+  }
+  if (t.state === "pending" && t.order?.limitPrice != null) return [{ price: t.order.limitPrice, title: easy ? "사려는 가격" : "지정가", tone: "entry" }];
+  return [];
+}
+
+const NO_LINES: ChartLine[] = [];
+
+/** 숫자 + 작은 단위. 단위를 따로 그려 큰 현재가 글자("71,200원")와 같은 글자 조각이 되지 않게 한다 (같은 값이어도 시세 카드의 현재가는 하나). */
+function PriceNum({ value, currency }: { value: number; currency: StockDetail["currency"] }) {
+  const unit = "ml-px text-[0.82em] font-medium text-sub";
+  return currency === "USD" ? (
+    <>
+      <span className={unit}>$</span>
+      {value.toFixed(2)}
+    </>
+  ) : (
+    <>
+      {Math.round(value).toLocaleString("ko-KR")}
+      <span className={unit}>원</span>
+    </>
+  );
+}
+
+/** 거래량을 짧게 (1억 주 이상 "1.2억", 1만 주 이상 "1,234만", 그 아래는 그대로) + 단위 '주'. */
+function VolumeNum({ value }: { value: number }) {
+  const unit = "ml-px text-[0.82em] font-medium text-sub";
+  const n = value >= 1e8 ? `${(value / 1e8).toFixed(1)}억` : value >= 1e4 ? `${Math.round(value / 1e4).toLocaleString("ko-KR")}만` : value.toLocaleString("ko-KR");
+  return (
+    <>
+      {n}
+      <span className={unit}>주</span>
+    </>
+  );
+}
+
+/**
+ * PC 시세 카드의 주요 숫자 줄: 마지막 봉의 시가·고가·저가·거래량 + 받은 기간(최근 120일)의 최고·최저. 받은 일봉에서만 계산한다 (새 요청 없음).
+ * 모바일은 그리지 않는다 (CSS — 첫 화면에 큰 버튼이 들어오게, 모바일 배치 그대로). 카드 폭(@container)이 넓으면 한 줄 6칸, 좁으면 3칸 두 줄.
+ */
+function KeyStats({ stock, easy, live }: { stock: StockDetail; easy: boolean; live: boolean }) {
+  const candles = stock.candles;
+  const last = candles.at(-1);
+  if (!last) return null;
+  let hi = -Infinity;
+  let lo = Infinity;
+  for (const k of candles) {
+    if (k.high > hi) hi = k.high;
+    if (k.low < lo) lo = k.low;
+  }
+  const n = candles.length;
+  const day = live ? "오늘" : formatDayLabel(last.date);
+  const items: { label: string; value: ReactNode }[] = [
+    { label: easy ? "시작 가격" : "시가", value: <PriceNum value={last.open} currency={stock.currency} /> },
+    { label: easy ? "가장 높은 가격" : "고가", value: <PriceNum value={last.high} currency={stock.currency} /> },
+    { label: easy ? "가장 낮은 가격" : "저가", value: <PriceNum value={last.low} currency={stock.currency} /> },
+    { label: "거래량", value: <VolumeNum value={last.volume} /> },
+    { label: `${easy ? "최근 " : ""}${n}일 최고`, value: <PriceNum value={hi} currency={stock.currency} /> },
+    { label: `${easy ? "최근 " : ""}${n}일 최저`, value: <PriceNum value={lo} currency={stock.currency} /> },
+  ];
+  return (
+    <div className="mt-4 border-y border-line py-3 max-lg:hidden">
+      <dl aria-label={`주요 숫자 (${day} · 최근 ${n}일)`} className="grid grid-cols-3 gap-x-4 gap-y-3 @2xl:grid-cols-6">
+        {items.map((it, i) => (
+          <div key={it.label} className={cn("min-w-0", i === 4 && "@2xl:border-l @2xl:border-line @2xl:pl-4")}>
+            <dt className="truncate text-[12px] text-mute">
+              {i < 4 ? (
+                <>
+                  <span className="text-mute-weak">{day} </span>
+                  {it.label}
+                </>
+              ) : (
+                it.label
+              )}
+            </dt>
+            <dd className="mt-0.5 truncate text-[15px] font-semibold tabular-nums">{it.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+/** 전문가 보기 PC 시세 머리의 보유 칩 (모바일은 아래 '내 모의 주문' 한 줄이 같은 일을 한다). 누를 곳이 아니다 — 주문 패널이 바로 옆에 있다. */
+function HoldingChip({ t, stock }: { t: Trading; stock: StockDetail }) {
+  let body: ReactNode = null;
+  if (t.state === "holding" && t.order) {
+    const hv = holdingNow(t, stock);
+    const rate = hv ? hv.rate : t.position && !isTodayFill(t.position) ? t.position.profitRate : null;
+    body = (
+      <>
+        보유 {formatQty(t.order.quantity)}
+        {rate !== null && rate !== undefined && <span className={cn("ml-1.5", trendClass(rate))}>{formatRate(rate)}</span>}
+      </>
+    );
+  } else if (t.state === "pending" && t.order) body = <>체결 대기 {formatQty(t.order.quantity)}</>;
+  else if (t.state === "reserved" && t.buyReservation) body = <>매수 예약 {formatQty(t.buyReservation.quantity)}</>;
+  if (!body) return null;
+  return (
+    <p className="mt-0.5 inline-flex h-8 shrink-0 items-center rounded-full bg-fill px-3 text-[13px] font-semibold text-ink tabular-nums max-lg:hidden">
+      <Icon name="pie" className="mr-1.5 size-4 text-mute" />
+      {body}
+    </p>
+  );
 }
 
 /** 시세 카드 안 '내 모의 주문' 한 줄: 보유자가 이 화면에 오는 가장 잦은 이유(내 것 확인)를 맨 위에. 누르면 주문으로. */
@@ -426,7 +620,7 @@ function AdvancedOrder({
   className?: string;
 }) {
   return (
-    <section ref={sectionRef} aria-label="주문" className={cn("scroll-mt-16 rounded-2xl bg-card p-5 lg:scroll-mt-8", className)}>
+    <section ref={sectionRef} aria-label="주문" className={cn("scroll-mt-16 rounded-2xl bg-card p-5 lg:scroll-mt-(--rail-top)", className)}>
       <button
         ref={toggleRef}
         type="button"
@@ -488,6 +682,7 @@ function Detail({ stock, prefill, reveal }: { stock: StockDetail; prefill: Prefi
   const [orderOpen, setOrderOpen] = useState<boolean | null>(null); // 쉬운 보기 '직접 주문(고급)' (null이면 주문이 있을 때 펼침)
   const [priceHidden, setPriceHidden] = useState(false);
   const [chartWasLoaded] = useState(() => chartLoaded);
+  const [chaos, setChaos] = useState<ChaosRequest | null>(null); // 시연용 도구의 장애 주입 (전문가 보기만 — 쉬운 보기에는 도구가 없다)
   const { data: recent } = useAnalyses({ symbol: stock.symbol, limit: 1 });
   const latest = useLast(recent?.results[0] ?? null);
   const q = stock.quote;
@@ -596,10 +791,13 @@ function Detail({ stock, prefill, reveal }: { stock: StockDetail; prefill: Prefi
     });
   };
 
+  // 가격 선은 PC에서만 (모바일 차트는 좁아 축 이름표가 겹치고, 같은 값이 바로 위 '내 모의 주문' 한 줄·주문 시트에 있다 — 모바일 배치 그대로)
+  const isPc = useIsPc();
+  const lines = isPc ? chartLines(t, easy) : NO_LINES;
   const chart = (
     <Suspense fallback={<ChartSkeleton easy={easy} />}>
       <div className={chartWasLoaded ? undefined : "reveal-fade"}>
-        <CandleChart candles={stock.candles} currency={stock.currency} variant={easy ? "line" : "candle"} className={CHART_H[view]} />
+        <CandleChart candles={stock.candles} currency={stock.currency} lines={lines} variant={easy ? "line" : "candle"} className={CHART_H[view]} />
       </div>
     </Suspense>
   );
@@ -615,26 +813,34 @@ function Detail({ stock, prefill, reveal }: { stock: StockDetail; prefill: Prefi
     : `일봉 · 최근 ${stock.candles.length}일`;
 
   const quoteCard = (
-    <section aria-label="시세" className={cn("rounded-2xl bg-card p-5", LEFT)}>
-      <p className="text-[14px] text-mute">
-        {stock.symbol} · {stock.exchange}
-      </p>
-      <p ref={priceRow} className="mt-1 flex items-baseline gap-2">
-        <span className="text-[14px] font-semibold text-sub">{quotePriceName(q.basis, easy)}</span>
-        <span className="text-[30px] leading-tight font-bold tracking-tight tabular-nums">
-          <Flash value={q.price}>{formatPrice(q.price, stock.currency)}</Flash>
-        </span>
-      </p>
-      <p className="mt-0.5 text-[15px] font-semibold">
-        <span className="sr-only">전 거래일 종가 대비 </span>
-        <PriceChange change={q.change} rate={q.changeRate} currency={stock.currency} />
-      </p>
-      {q.asOf ? (
-        <AsOf at={q.asOf} market={stock.market} basis={q.basis} className="mt-1 block" />
-      ) : (
-        // 시세를 못 받았을 때: 가격은 없고 마지막 봉의 장마감 시각만 있다
-        <AsOf at={stock.asOf} market={stock.market} className="mt-1 block" />
-      )}
+    <section aria-label="시세" className={cn("rounded-2xl bg-card p-5 @container lg:p-6", LEFT)}>
+      {/* 종목 정체: PC는 큰 가격 옆에 등락을 한 줄로, 전문가 보기는 오른쪽 위에 보유 칩 */}
+      <div className="lg:flex lg:items-start lg:justify-between lg:gap-4">
+        <div className="min-w-0">
+          <p className="text-[14px] text-mute">
+            {stock.symbol} · {stock.exchange}
+          </p>
+          <div className="lg:mt-1 lg:flex lg:flex-wrap lg:items-baseline lg:gap-x-3">
+            <p ref={priceRow} className="mt-1 flex items-baseline gap-2 lg:mt-0">
+              <span className="text-[14px] font-semibold text-sub lg:text-[15px]">{quotePriceName(q.basis, easy)}</span>
+              <span className="text-[30px] leading-tight font-bold tracking-tight tabular-nums lg:text-[36px]">
+                <Flash value={q.price}>{formatPrice(q.price, stock.currency)}</Flash>
+              </span>
+            </p>
+            <p className="mt-0.5 text-[15px] font-semibold lg:mt-0 lg:text-[17px]">
+              <span className="sr-only">전 거래일 종가 대비 </span>
+              <PriceChange change={q.change} rate={q.changeRate} currency={stock.currency} />
+            </p>
+          </div>
+          {q.asOf ? (
+            <AsOf at={q.asOf} market={stock.market} basis={q.basis} className="mt-1 block" />
+          ) : (
+            // 시세를 못 받았을 때: 가격은 없고 마지막 봉의 장마감 시각만 있다
+            <AsOf at={stock.asOf} market={stock.market} className="mt-1 block" />
+          )}
+        </div>
+        {!easy && isPc && <HoldingChip t={t} stock={stock} />}
+      </div>
       <MySummary t={t} stock={stock} easy={easy} onOpen={openOrder} className={easy ? undefined : "lg:hidden"} />
       {stock.warnings.length > 0 && (
         <div className="mt-3 space-y-2">
@@ -645,6 +851,7 @@ function Detail({ stock, prefill, reveal }: { stock: StockDetail; prefill: Prefi
           ))}
         </div>
       )}
+      {isPc && <KeyStats stock={stock} easy={easy} live={barLive} />}
       <div className="mt-4">{chart}</div>
       <div className="mt-1.5 flex items-start justify-between gap-3 text-[12px] text-mute">
         {/* 차트 라이브러리 고지 (lightweight-charts — 차트 안 로고 대신) */}
@@ -663,15 +870,17 @@ function Detail({ stock, prefill, reveal }: { stock: StockDetail; prefill: Prefi
     </section>
   );
 
+  // 쉬운 보기: 오른쪽 sticky 열(리포트 → 교차검증 → 처음이라면). 전문가 보기: 왼쪽 가운데 — 열이 672px 이상(@2xl, 1440px 화면부터)이면 두 카드를 나란히(같은 높이)
   const actions = (
-    <div className={cn("space-y-3", easy ? RIGHT : LEFT)}>
-      <ReportCta stock={stock} easy={easy} />
+    <div className={easy ? cn("space-y-3", RIGHT.easy) : "grid grid-cols-[minmax(0,1fr)] gap-3 @2xl:grid-cols-2"}>
+      <ReportCta stock={stock} easy={easy} chaos={easy ? null : chaos} />
       <section aria-labelledby={crossTitleId} className="rounded-2xl bg-card p-5">
         <AnalysisRequest symbol={stock.symbol} name={stock.name} easy={easy} titleId={crossTitleId} />
         <Collapse open={recent?.results[0] !== undefined}>
           <div className="pt-4">{latest && <LatestAnalysis a={latest} easy={easy} />}</div>
         </Collapse>
       </section>
+      {easy && isPc && <NextSteps />}
     </div>
   );
 
@@ -680,27 +889,36 @@ function Detail({ stock, prefill, reveal }: { stock: StockDetail; prefill: Prefi
       <PageHeader title={<HeaderTitle stock={stock} show={priceHidden} />} docTitle={stock.name} back />
       <div className={cn(GRID, reveal && "reveal-fade")}>
         {quoteCard}
-        {actions}
-        <FundamentalsPanel symbol={stock.symbol} view={view} className={LEFT} />
-
         {easy ? (
-          <AdvancedOrder
-            stock={stock}
-            prefill={prefill}
-            busy={busy}
-            open={expanded}
-            onToggle={() => setOrderOpen(!expanded)}
-            onDone={() => {
-              orderActedAt.current = Date.now();
-            }}
-            sectionRef={orderSection}
-            toggleRef={orderToggle}
-            className={LEFT}
-          />
+          <>
+            {actions}
+            <div className={cn(PAIR, LEFT)}>
+              <FundamentalsPanel symbol={stock.symbol} view={view} />
+              <AdvancedOrder
+                stock={stock}
+                prefill={prefill}
+                busy={busy}
+                open={expanded}
+                onToggle={() => setOrderOpen(!expanded)}
+                onDone={() => {
+                  orderActedAt.current = Date.now();
+                }}
+                sectionRef={orderSection}
+                toggleRef={orderToggle}
+              />
+            </div>
+          </>
         ) : (
+          <div className={cn(PAIR, "@container", LEFT)}>
+            {actions}
+            <FundamentalsPanel symbol={stock.symbol} view={view} />
+          </div>
+        )}
+
+        {easy ? null : (
           /* 주문 패널: PC는 오른쪽 sticky(화면 높이에 맞춰 안에서 스크롤, 버튼 묶음은 바닥에), 모바일은 하단 버튼 → 바텀시트. 한 벌만 그린다.
              scroll-pt·pb: 붙어 있는 머리(약 72px)·바닥 묶음(약 180px)만큼 — Tab으로 옮긴 칸이 그 밑에 가려지지 않게 (브라우저가 그만큼 비켜 스크롤한다) */
-          <div data-open={sheetOpen || undefined} className={cn("order-dock lg:self-start", RIGHT)}>
+          <div data-open={sheetOpen || undefined} className={cn("order-dock lg:self-start", RIGHT.expert)}>
             <div aria-hidden="true" data-inert-exempt="" className="dock-scrim absolute inset-0 lg:hidden" onClick={() => setSheetOpen(false)} />
             <section
               ref={sheet}
@@ -710,7 +928,7 @@ function Detail({ stock, prefill, reveal }: { stock: StockDetail; prefill: Prefi
               aria-modal={sheetOpen || undefined}
               aria-labelledby={sheetOpen ? dockTitleId : undefined}
               aria-label="주문"
-              className="dock-sheet absolute inset-x-0 bottom-[var(--kb,0px)] max-h-[calc(88dvh-var(--kb,0px))] scroll-pt-20 scroll-pb-52 overflow-y-auto overscroll-contain rounded-t-3xl bg-card px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] outline-none lg:static lg:max-h-[calc(100dvh-7rem)] lg:rounded-2xl lg:pb-5"
+              className="dock-sheet absolute inset-x-0 bottom-[var(--kb,0px)] max-h-[calc(88dvh-var(--kb,0px))] scroll-pt-20 scroll-pb-52 overflow-y-auto overscroll-contain rounded-t-3xl bg-card px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] outline-none lg:static lg:max-h-[calc(100dvh-7rem-var(--pc-header-h))] lg:rounded-2xl lg:pb-5"
             >
               <div className="sticky top-0 z-10 -mx-5 mb-1 flex items-center justify-between gap-2 bg-card px-5 pt-4 pb-3 lg:pt-5">
                 <h2 id={dockTitleId} className="text-[18px] font-bold lg:text-[17px]">
@@ -737,6 +955,7 @@ function Detail({ stock, prefill, reveal }: { stock: StockDetail; prefill: Prefi
             </section>
           </div>
         )}
+        {!easy && <DemoTools chaos={chaos} onChaos={setChaos} className={LEFT} />}
       </div>
 
       {!easy && (
@@ -777,23 +996,24 @@ function DetailSkeleton({ easy }: { easy: boolean }) {
     <>
       <PageHeader title={<Skeleton className="h-6 w-32" />} docTitle="종목" back />
       <div className={GRID} role="group" aria-busy="true" aria-label="불러오는 중">
-        <div className={cn("rounded-2xl bg-card p-5", LEFT)}>
+        <div className={cn("rounded-2xl bg-card p-5 lg:p-6", LEFT)}>
           <Skeleton className="h-4 w-1/3" />
           <Skeleton className="mt-2.5 h-9 w-1/2" />
           <Skeleton className="mt-2 h-4 w-1/4" />
           <Skeleton className="mt-2 h-3 w-2/5" />
+          <Skeleton className="mt-4 h-12 w-full max-lg:hidden" />
           <div className="mt-4">
             <ChartSkeleton easy={easy} />
           </div>
         </div>
-        <div className={cn("rounded-2xl bg-card p-5", easy ? RIGHT : LEFT)}>
+        <div className={cn("rounded-2xl bg-card p-5", easy ? RIGHT.easy : LEFT)}>
           <Skeleton className="h-5 w-24" />
           <Skeleton className="mt-2 h-4 w-3/4" />
           <Skeleton className="mt-3 h-14 w-full rounded-2xl" />
           <Skeleton className="mx-auto mt-3 h-4 w-44" />
         </div>
         {!easy && (
-          <div className={cn("hidden space-y-4 rounded-2xl bg-card p-5 lg:block", RIGHT)}>
+          <div className={cn("hidden space-y-4 rounded-2xl bg-card p-5 lg:block", RIGHT.expert)}>
             <Skeleton className="h-6 w-24" />
             <Skeleton className="h-10 w-full rounded-xl" />
             <Skeleton className="h-10 w-full rounded-xl" />

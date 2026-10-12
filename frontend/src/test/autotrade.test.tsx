@@ -40,6 +40,8 @@ describe("AI 추천 목록", () => {
 
   it("연습용 예시 계획 만들기: 성공하면 상세로, 서버가 꺼 두었으면(403) 설정 이름 없이 한 줄로 접는다", async () => {
     renderApp("/recommendations");
+    // 연습용 예시(AI 아님)는 두 보기 모두 목록 맨 아래에 접혀 있다 ('시연용 도구' — 2026-10-12 PC 재배치)
+    fireEvent.click(await screen.findByRole("button", { name: /연습용 예시 계획 만들기/ }));
     fireEvent.change(await screen.findByLabelText("종목 코드 (선택)"), { target: { value: "005380" } });
     fireEvent.click(screen.getByRole("button", { name: "만들기" }));
     expect(await screen.findByRole("heading", { name: "현대차 추천" })).toBeTruthy();
@@ -47,6 +49,7 @@ describe("AI 추천 목록", () => {
 
     db.options.demoEnabled = false;
     renderApp("/recommendations");
+    fireEvent.click(await screen.findByRole("button", { name: /연습용 예시 계획 만들기/ }));
     fireEvent.click((await screen.findAllByRole("button", { name: "만들기" })).at(-1)!);
     expect(await screen.findByText("연습용 예시 계획은 지금 꺼져 있습니다 (서버 설정).")).toBeTruthy();
     expect(screen.queryByText(/AUTOTRADE_DEMO/)).toBeNull(); // 개발용 설정 이름은 사용자 문장에 넣지 않는다
@@ -59,7 +62,7 @@ describe("AI 추천 목록", () => {
   ])("연습용 예시가 꺼져 있으면(403) 사라진 '만들기' 대신 그 한 줄로 포커스가 옮겨 가 읽힌다 (body로 떨어지지 않게) · %s", async (user, line) => {
     db.options.demoEnabled = false;
     renderApp("/recommendations", user);
-    if (user === "bob") fireEvent.click(await screen.findByRole("button", { name: /연습용 예시 계획 만들기/ })); // 쉬운 보기는 접혀 있다
+    fireEvent.click(await screen.findByRole("button", { name: /연습용 예시 계획 만들기/ })); // 두 보기 모두 접혀 있다
     const make = await screen.findByRole("button", { name: "만들기" });
     make.focus();
     fireEvent.click(make);
@@ -671,13 +674,14 @@ describe("알림 설정 (My Page)", () => {
     expect(screen.queryByRole("switch", { name: /Discord로도 받기/ })).toBeNull();
     expect(screen.queryByLabelText("Discord 사용자 ID")).toBeNull();
     expect(screen.queryByRole("button", { name: "테스트 알림 보내기" })).toBeNull();
-    const more = screen.getByRole("button", { name: /Discord 알림 설정/ });
+    const more = screen.getByRole("button", { name: "Discord 알림 (준비 중)" }); // 개발 상태('서버 설정 전')가 아니라 '준비 중'이라고 말한다
     expect(more.getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(more);
     // 경고 상자 대신 스위치 설명 줄 (설명은 스위치에 이어 읽힌다)
     const sw = await screen.findByRole("switch", { name: /Discord로도 받기/ });
     expect(sw.getAttribute("aria-describedby")).toBe("discord-help");
-    expect(document.getElementById("discord-help")?.textContent).toBe("지금은 서버 설정 전이라 웹으로만 와요.");
+    expect(document.getElementById("discord-help")?.textContent).toBe("Discord 알림은 준비 중이라 지금은 웹으로만 와요.");
+    expect(screen.queryByText(/서버 설정 전/)).toBeNull();
     const input = screen.getByLabelText("Discord 사용자 ID");
     fireEvent.change(input, { target: { value: "12345" } });
     fireEvent.blur(input);

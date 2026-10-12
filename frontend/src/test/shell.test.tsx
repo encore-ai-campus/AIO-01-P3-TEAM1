@@ -921,7 +921,8 @@ describe("로그인 화면", () => {
     expect(
       within(screen.getByRole("list", { name: "이용 순서" }))
         .getAllByRole("listitem")
-        .map((li) => li.textContent),
+        // 단계 이름 칸은 li의 첫 자식 (뒤의 풀이 한 줄·아이콘은 PC 왼쪽 열에서만 보인다)
+        .map((li) => li.firstElementChild?.textContent),
     ).toEqual(["①리포트 만들기", "②검토", "③모의 자동매매"]);
     expect(document.title).toBe("로그인 · 모매매");
     expect(screen.queryByText(/로그인이 끝났어요/)).toBeNull();
@@ -960,12 +961,12 @@ describe("로그인 화면", () => {
 describe("없는 주소", () => {
   it("아이콘·제목·설명·요청 주소, 큰 '홈으로'와 보조 '리포트 보기'", async () => {
     renderApp("/zzz");
-    expect(await screen.findByRole("heading", { name: "페이지 없음" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "화면 없음" })).toBeTruthy(); // '페이지'가 아니라 앱 전체와 같은 말 '화면'
     expect(screen.getByText("찾는 화면이 없어요")).toBeTruthy();
     expect(screen.getByText("/zzz")).toBeTruthy();
     expect(screen.getByRole("link", { name: "홈으로" }).getAttribute("href")).toBe("/");
     expect(screen.getByRole("link", { name: "리포트 보기" }).getAttribute("href")).toBe("/reports");
-    expect(document.title).toBe("페이지 없음 · 모매매");
+    expect(document.title).toBe("화면 없음 · 모매매");
   });
 });
 

@@ -63,7 +63,7 @@ export function RecentReports({ view }: { view: ViewMode }) {
       ) : !data ? (
         <SectionError onRetry={() => void refetch()} retrying={isFetching} />
       ) : list.length === 0 ? (
-        <EmptyRow icon="doc" className={reveal ? "reveal-fade" : undefined}>
+        <EmptyRow icon="doc" action={{ label: "종목 찾아보기", to: "/search" }} className={reveal ? "reveal-fade" : undefined}>
           {easy ? "아직 완성된 리포트가 없어요. 종목 상세에서 AI 리포트를 만들 수 있어요." : "완성된 리포트가 아직 없습니다."}
         </EmptyRow>
       ) : (

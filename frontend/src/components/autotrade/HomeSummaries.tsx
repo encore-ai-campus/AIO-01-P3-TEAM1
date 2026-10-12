@@ -81,7 +81,7 @@ export function HomePlans() {
       ) : !data ? (
         <SectionError onRetry={() => void refetch()} retrying={isFetching} />
       ) : list.length === 0 ? (
-        <EmptyRow icon="flow" className={reveal ? "reveal-fade" : undefined}>
+        <EmptyRow icon="flow" action={{ label: "새 계획 제안 보기", to: "/recommendations" }} className={reveal ? "reveal-fade" : undefined}>
           진행 중인 자동매매가 없습니다. 새 계획 제안에서 시작할 수 있습니다.
         </EmptyRow>
       ) : (

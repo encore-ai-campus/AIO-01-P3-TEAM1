@@ -1,6 +1,8 @@
 // 마이 (위에서 아래로 — PC는 왼쪽 열 | 오른쪽 열):
 // 왼쪽(읽고 조작하는 주 흐름): 주린이모드(스위치·진단) → 내 성적(수익률·자산 추이·랭킹·내 정보 공개)
 // 오른쪽(가끔 바꾸는 설정): 알림 설정 → 화면 모드(이 기기) → 계정(이름·닉네임) → 로그아웃
+// PC에 따로 요약 줄을 두지 않는다: 닉네임·수익률·랭킹·주린이모드가 이미 바로 아래 카드에 있다 (같은 숫자를 두 번 — 스펙 4·DESIGN 부록 B0-7).
+// PC 오른쪽 열은 화면보다 짧으면 위 바 아래에 붙는다(stickyFit — Discord 설정을 펼쳐 길어지면 열 끝이 화면 바닥에 닿을 때 붙는다).
 // 다른 화면이 설정 하나를 가리켜 보낼 때는 해시를 쓴다: /my#diagnosis · #public · #notification-settings · #theme
 // (스크롤은 ScrollManager가 한다. id는 위쪽 카드가 다 그려진 뒤에 붙인다 — 일찍 붙이면 스크롤한 뒤 위 카드가 자라 대상이 밀린다.)
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -17,6 +19,7 @@ import { ThemeCard } from "../components/my/ThemeCard";
 import { useToast } from "../components/toast";
 import { PageHeader, Spinner } from "../components/ui";
 import { useBeginnerMode } from "../hooks/useBeginnerMode";
+import { STICKY_FIT_TOP, stickyFit } from "../lib/autotrade";
 import { cn } from "../lib/cn";
 
 /** 해시로 가리킨 자리를 알려 주는 시간(ms). */
@@ -74,7 +77,7 @@ function Anchor({ id, lit, children }: { id?: string; lit: boolean; children: Re
     <div
       id={id}
       tabIndex={id ? -1 : undefined}
-      className={cn("scroll-mt-16 rounded-2xl outline-none transition-shadow duration-slow", lit && "ring-2 ring-brand")}
+      className={cn("scroll-mt-16 rounded-2xl lg:scroll-mt-(--rail-top) outline-none transition-shadow duration-slow", lit && "ring-2 ring-brand")}
     >
       {children}
     </div>
@@ -103,12 +106,12 @@ export function MyPage() {
   return (
     <>
       <PageHeader title="마이" />
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-6">
-        <div className="min-w-0 space-y-3">
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start lg:gap-x-6 lg:gap-y-5 xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[minmax(0,1fr)_400px]">
+        <div className="min-w-0 space-y-3 lg:space-y-4">
           <BeginnerModeCard diagnosisId={anchor("diagnosis")} diagnosisLit={lit === "diagnosis"} />
           <PerformanceCard me={me} publicId={anchor("public")} publicLit={lit === "public"} />
         </div>
-        <div className="min-w-0 space-y-3">
+        <div ref={stickyFit} style={{ top: STICKY_FIT_TOP }} className="min-w-0 space-y-3 lg:sticky lg:space-y-4">
           <Anchor id={anchor("notification-settings")} lit={lit === "notification-settings"}>
             <NotificationSettingsCard />
           </Anchor>

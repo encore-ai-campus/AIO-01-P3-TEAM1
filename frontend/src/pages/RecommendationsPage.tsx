@@ -1,25 +1,29 @@
 // /recommendations: 새 계획 제안 목록 (전문가 보기: AI 추천, 팀 공용). 모의투자 탭 안의 화면이다 (docs/plans/컨셉변경계획.md 4-1).
 // 쉬운 보기: 리포트에서 나온 계획만 앞에, 분석·연습용 예시는 접힌 "다른 계획 ○개" 안에 (출처는 늘 표시).
-// 필터(기한 안 / 전체), 카드를 누르면 실행 확인. 연습용 예시 계획 만들기(AI 아님)는 보조 도구라 목록 뒤(PC는 오른쪽 열)에 둔다.
+// 필터(기한 안 / 전체), 카드를 누르면 실행 확인. 연습용 예시 계획 만들기(AI 아님)는 보조 도구라 목록 맨 아래에 접어 둔다('시연용 도구').
 // 배치: 이 화면의 목적은 목록에서 고르는 것 — 목록 제목·필터 → 안내 한 줄 → 카드 → 다른 계획(접힘) → 지금은 시작할 수 없는 제안(접힘) → 만들기 (trade-26).
 //   카드는 시작할 수 있는 것만 앞에 두고, 계좌와 무관한 사유(blockedBy)로 시작할 수 없는 것은 아래에 접는다. 같은 종목은 하나만 보이고
 //   나머지는 그 카드 안 '같은 종목의 이전 제안 n개'로 접는다 (UX-2, DECISIONS 23장). '전체' 필터에서는 시작할 수 없는 것(기한 지남 포함)을 펼쳐 둔다.
-//   연습용 예시는 개발·시연용(D-4)이라 쉬운 보기에서는 접어 둔다. PC는 [목록 | 만들기] 2단.
+//   연습용 예시는 개발·시연용(D-4)이라 두 보기 모두 접어 둔다. PC는 [목록 | 내 투자 여력(매수 가능 금액·진행 중 계획·시작 순서·안전 문구)] 2단,
+//   카드는 같은 줄 높이를 맞추고 2xl은 3열 (2026-10-12 PC 재배치). 쉬운 보기이거나 카드가 둘 이하면 넓은 화면(xl)은 한 줄에 하나씩 가로형 카드
+//   ([이름·출처·문장 | 기한·가격 셋]) — 카드 한두 장이 열의 절반만 차지하고 나머지가 비지 않게. '내 투자 여력'은 PC에서만 그린다(useIsPc).
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { useCreateDemo } from "../api/autotrade";
 import { ApiError, errorMessage } from "../api/client";
-import { useRecommendations } from "../api/queries";
+import { isPlanLive, useAccount, usePlans, useRecommendations } from "../api/queries";
 import type { Recommendation } from "../api/types";
 import { RecommendationCard } from "../components/autotrade/RecommendationCard";
 import { Icon } from "../components/Icon";
 import { Collapse } from "../components/motion/Collapse";
 import { useToast } from "../components/toast";
-import { Card, EmptyState, ErrorState, Notice, PageHeader, Segmented, SkeletonCard, Spinner } from "../components/ui";
+import { Card, EmptyState, ErrorState, Notice, PageHeader, Segmented, Skeleton, SkeletonCard, Spinner } from "../components/ui";
 import { useViewMode } from "../hooks/useBeginnerMode";
+import { useIsPc } from "../hooks/useIsPc";
 import { revealList, useRevealAfterLoading } from "../hooks/useMotionState";
 import { type ProposalGroup, arrangeProposals, otherKinds } from "../lib/autotrade";
 import { cn } from "../lib/cn";
+import { formatKrw } from "../lib/format";
 
 type Filter = "open" | "all";
 
@@ -89,9 +93,12 @@ function DemoForm({ easy, onOff }: { easy: boolean; onOff: (moveFocus: boolean) 
   );
 }
 
-/** 연습용 예시 계획 만들기. 쉬운 보기에서는 접어 둔다(보조 도구 — 4-3). 서버가 꺼 두었으면 한 줄로 줄인다. */
+/**
+ * 연습용 예시 계획 만들기 (AI 아님 — 개발·시연용 D-4). 두 보기 모두 목록 맨 아래에 접어 둔다: 사용자가 고를 것은 위의 제안이고,
+ * 이것은 흐름을 보여 주는 보조 도구다 (PC 재배치 2026-10-12 — 오른쪽 열은 '내 투자 여력'). 서버가 꺼 두었으면 한 줄로 줄인다.
+ */
 function DemoCreate({ easy, off, onOff }: { easy: boolean; off: boolean; onOff: () => void }) {
-  const [open, setOpen] = useState(!easy);
+  const [open, setOpen] = useState(false);
   // '만들기'를 누른 뒤 꺼짐으로 바뀌면 그 한 줄로 포커스를 옮긴다 — 누른 버튼이 폼째 사라져 포커스가 body로 떨어지면
   // 다음 Tab이 화면 맨 앞으로 가고 무슨 일이 있었는지도 읽히지 않는다 (계약 0장 7, trade-r6). 줄을 읽어 주는 것도 이 포커스다
   // (role=status는 토스트 영역만 쓴다)
@@ -120,16 +127,6 @@ function DemoCreate({ easy, off, onOff }: { easy: boolean; off: boolean; onOff: 
       </p>
     );
   }
-  if (!easy) {
-    return (
-      <Card aria-labelledby="demo-title">
-        <h2 id="demo-title" className="mb-1 flex items-center gap-1.5 text-[17px] font-bold">
-          {title}
-        </h2>
-        <DemoForm easy={easy} onOff={turnOff} />
-      </Card>
-    );
-  }
   return (
     <section aria-labelledby="demo-title" className="rounded-2xl bg-card px-5">
       <h2 id="demo-title">
@@ -141,7 +138,8 @@ function DemoCreate({ easy, off, onOff }: { easy: boolean; off: boolean; onOff: 
           className="flex min-h-14 w-full items-center gap-1.5 py-3 text-left text-[16px] font-bold"
         >
           {title}
-          <Icon name="chevron-down" className={cn("ml-auto size-5 text-mute-weak transition-transform duration-fast", open && "rotate-180")} />
+          <span className="ml-auto rounded-md bg-fill px-1.5 py-0.5 text-[12px] font-semibold text-mute">시연용 도구</span>
+          <Icon name="chevron-down" className={cn("size-5 text-mute-weak transition-transform duration-fast", open && "rotate-180")} />
         </button>
       </h2>
       <Collapse open={open} id="demo-body">
@@ -153,15 +151,95 @@ function DemoCreate({ easy, off, onOff }: { easy: boolean; off: boolean; onOff: 
   );
 }
 
+/** 시작하는 순서 (오른쪽 열). AI는 제안만 — 넣을 돈은 내가, 수량·한도는 안전장치(리스크 엔진)가 정한다 (AGENTS.md). */
+const STEPS = {
+  easy: [
+    ["제안 고르기", "카드를 눌러 사는·목표·손절 가격과 AI 의견을 봐요."],
+    ["넣을 돈 정하기", "매수 가능 금액의 % 또는 금액(원)으로 내가 정해요."],
+    ["확인하고 시작", "안전장치가 수량과 한도를 점검해요. 사는 가격이 오면 모의 계좌에서 사요."],
+  ],
+  expert: [
+    ["추천 고르기", "진입·목표·손절과 근거를 확인합니다."],
+    ["투자 금액 정하기", "매수 가능 금액의 % 또는 원으로 정합니다."],
+    ["확인 후 활성화", "리스크 엔진이 수량·한도를 점검하고, 모의 체결기가 지정가로 체결합니다."],
+  ],
+} as const;
+
+/**
+ * PC 오른쪽 열 '내 투자 여력' (2026-10-12): 매수 가능 금액 · 진행 중 계획 수 · 시작하는 순서 셋 · 안전 문구.
+ * 모바일은 예전처럼 목록만 (lg 미만에서는 그리지 않는다 — 안전 문구는 목록 위 캡션이 말한다).
+ */
+function InvestPower({ easy }: { easy: boolean }) {
+  const account = useAccount();
+  const plans = usePlans("active");
+  const acc = account.data;
+  const power = acc ? (acc.buyingPowerKrw ?? acc.cashKrw) : null;
+  const live = plans.data ? plans.data.results.filter((p) => isPlanLive(p.status)).length : null;
+  const steps = easy ? STEPS.easy : STEPS.expert;
+  return (
+    <Card aria-labelledby="power-title" className="p-6">
+      <h2 id="power-title" className="flex items-center gap-1.5 text-[17px] font-bold">
+        <Icon name="pie" className="size-5 text-brand" />내 투자 여력
+      </h2>
+      <dl className="mt-4">
+        <dt className="text-[13px] font-medium text-mute">{acc?.buyingPowerKrw == null && acc ? "현금" : "매수 가능 금액"}</dt>
+        <dd className="mt-1 text-[26px] leading-tight font-bold tracking-tight tabular-nums">
+          {power != null ? formatKrw(power) : account.isError ? "-" : <Skeleton className="h-8 w-40" />}
+        </dd>
+        {acc && <dd className="mt-1 text-[13px] text-sub tabular-nums">총자산 {formatKrw(acc.equityKrw)}</dd>}
+      </dl>
+      <Link
+        to="/plans"
+        className="press mt-4 flex min-h-12 items-center justify-between gap-2 rounded-xl bg-fill px-3.5 text-[15px] font-semibold hover:bg-line"
+      >
+        <span>
+          {easy ? "진행 중인 모의 자동매매" : "진행 중 계획"}{" "}
+          <span className="text-brand-ink tabular-nums">{live == null ? "" : `${live}개`}</span>
+        </span>
+        <Icon name="chevron" className="size-4 text-mute-weak" />
+      </Link>
+
+      <h3 className="mt-6 text-[14px] font-semibold text-sub">{easy ? "시작하는 순서" : "활성화 순서"}</h3>
+      <ol className="mt-3 space-y-3.5">
+        {steps.map(([head, body], i) => (
+          <li key={head} className="flex gap-3">
+            <span aria-hidden="true" className="grid size-6 shrink-0 place-items-center rounded-full bg-brand-soft text-[13px] font-bold text-brand-ink tabular-nums">
+              {i + 1}
+            </span>
+            <p className="min-w-0 text-[14px] leading-snug">
+              <span className="sr-only">{i + 1}단계 </span>
+              <b className="font-semibold">{head}</b>
+              <span className="mt-0.5 block text-[13px] text-sub">{body}</span>
+            </p>
+          </li>
+        ))}
+      </ol>
+      <p className="mt-5 flex items-start gap-2 rounded-xl bg-fill p-3.5 text-[13px] leading-snug text-sub">
+        <Icon name="shield" className="mt-px size-4 shrink-0 text-ok" />
+        {easy
+          ? "AI는 제안만 해요. 넣을 돈은 내가 정하고, 시작할 수 있는지는 안전장치가 내 모의 계좌로 확인해요. 실제 돈은 쓰지 않아요."
+          : "AI는 제안만 합니다. 투자 금액은 내가, 수량·한도 점검은 리스크 엔진이, 체결은 모의 체결기가 맡습니다 (실주문 없음)."}
+      </p>
+    </Card>
+  );
+}
+
 function CardList({ list, easy, label, reveal }: { list: ProposalGroup<Recommendation>[]; easy: boolean; label: string; reveal: boolean }) {
   // 카드 5개 이하면 순서대로 살짝 올라오고, 많으면 목록 전체가 한 번에 페이드 (처음 불러왔을 때만).
   // 방식은 처음 개수로 정해 둔다 (필터로 개수가 바뀌어 rise↔fade가 바뀌면 애니메이션이 다시 돈다)
   const [kind] = useState<"rise" | "fade">(() => (list.length <= 5 ? "rise" : "fade"));
+  // 넓은 화면(xl)의 가로형 카드: 쉬운 보기는 늘, 전문가 보기는 카드가 둘 이하일 때 (열을 꽉 채운다 — 모바일·lg는 그대로)
+  const row = easy || list.length <= 2;
   return (
-    <ul {...revealList(reveal, kind)} aria-label={label} className="grid gap-3 sm:grid-cols-2 sm:items-start">
+    // PC는 같은 줄 카드 높이를 맞춘다 (lg:items-stretch + 카드 lg:h-full). 넓은 화면(2xl)은 3열, 가로형이면 한 열
+    <ul
+      {...revealList(reveal, kind)}
+      aria-label={label}
+      className={cn("grid gap-3 sm:grid-cols-2 sm:items-start lg:items-stretch lg:gap-4", row ? "xl:grid-cols-1 xl:gap-3" : "2xl:grid-cols-3")}
+    >
       {list.map((g) => (
-        <li key={g.rec.id}>
-          <RecommendationCard r={g.rec} rest={g.rest} restOlder={g.restOlder} easy={easy} />
+        <li key={g.rec.id} className="min-w-0">
+          <RecommendationCard r={g.rec} rest={g.rest} restOlder={g.restOlder} easy={easy} row={row} />
         </li>
       ))}
     </ul>
@@ -201,6 +279,8 @@ export function RecommendationsPage() {
   const [blockedOpen, setBlockedOpen] = useState<boolean | null>(null);
   const showBlocked = blockedOpen ?? filter === "all";
   const [demoOff, setDemoOff] = useState(false);
+  // '내 투자 여력'(오른쪽 열)은 PC에서만 그린다 — CSS로 숨긴 사본이면 모바일에서도 계좌·진행 중 계획을 받고 안전 문구가 둘이 된다 (B0-7)
+  const pc = useIsPc();
   const { ready, others, blocked } = arrangeProposals(data?.results ?? [], easy);
   const empty = ready.length === 0 && others.length === 0 && blocked.length === 0;
   const setFilter = (v: Filter) =>
@@ -232,12 +312,13 @@ export function RecommendationsPage() {
           </Link>
         }
       />
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start lg:gap-6">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start lg:gap-6 2xl:grid-cols-[minmax(0,1fr)_380px]">
         <section aria-labelledby="rec-list-title" className="min-w-0 space-y-3">
           <div className="flex items-center justify-between gap-3 px-1">
             <h2 id="rec-list-title" className="text-[17px] font-bold">
               {heading}
-              {data && <span className="ml-1.5 text-[15px] font-semibold text-mute tabular-nums">{easy ? ready.length : data.count}</span>}
+              {/* 보이는 카드 수 (같은 종목은 카드 하나로 묶는다 — 묶인 것은 카드 안 '같은 종목의 … n개') */}
+              {data && <span className="ml-1.5 text-[15px] font-semibold text-mute tabular-nums">{ready.length}</span>}
               {isPlaceholderData && <Spinner className="ml-2 size-3.5 align-[-2px] text-mute" />}
             </h2>
             <Segmented
@@ -252,14 +333,16 @@ export function RecommendationsPage() {
             />
           </div>
           {/* 안전 문구는 목록 바로 위 캡션으로 (예전 안내 띠보다 가볍게, 그래도 카드보다 먼저 읽히게) */}
-          <p className="px-1 text-[13px] leading-snug text-sub">
-            {easy
-              ? "AI는 제안만 해요. 넣을 돈은 내가 정하고, 모의 자동매매를 시작할 수 있는지는 안전장치가 내 모의 계좌로 확인해요."
-              : "AI는 제안만 합니다. 투자 금액은 내가 정하고, 활성화 가능 여부는 리스크 엔진이 내 모의 계좌 기준으로 확인합니다."}
-          </p>
+          {!pc && (
+            <p className="px-1 text-[13px] leading-snug text-sub">
+              {easy
+                ? "AI는 제안만 해요. 넣을 돈은 내가 정하고, 모의 자동매매를 시작할 수 있는지는 안전장치가 내 모의 계좌로 확인해요."
+                : "AI는 제안만 합니다. 투자 금액은 내가 정하고, 활성화 가능 여부는 리스크 엔진이 내 모의 계좌 기준으로 확인합니다."}
+            </p>
+          )}
           {isPending || (isPlaceholderData && empty) ? (
             // 처음 불러올 때만 스켈레톤. 앞 필터의 '없어요' 문구는 새 결과가 올 때까지 보이지 않는다
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2 lg:gap-4 2xl:grid-cols-3">
               <SkeletonCard lines={5} />
               <SkeletonCard lines={5} />
             </div>
@@ -322,11 +405,17 @@ export function RecommendationsPage() {
               )}
             </div>
           )}
+          {/* 위 카드와의 간격: 모바일은 형제 카드와 같은 16px(space-y-3 12px + 4px), PC는 보조 도구라 조금 더 띄운다 */}
+          <div className="pt-1 lg:pt-3">
+            <DemoCreate easy={easy} off={demoOff} onOff={() => setDemoOff(true)} />
+          </div>
         </section>
 
-        <aside aria-label={easy ? "연습용 예시 만들기" : "연습용 예시"} className="space-y-3 lg:sticky lg:top-8">
-          <DemoCreate easy={easy} off={demoOff} onOff={() => setDemoOff(true)} />
-        </aside>
+        {pc && (
+          <aside aria-label="내 투자 여력" className="lg:sticky lg:top-(--rail-top)">
+            <InvestPower easy={easy} />
+          </aside>
+        )}
       </div>
     </>
   );

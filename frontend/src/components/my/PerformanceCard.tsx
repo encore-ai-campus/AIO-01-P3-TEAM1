@@ -101,7 +101,7 @@ function RankingSection({ me, publicId, publicLit }: { me: Me; publicId?: string
     !isPending,
   );
   return (
-    <section aria-labelledby="my-rank-title" className="border-t border-line px-5 pt-3 pb-4">
+    <section aria-labelledby="my-rank-title" className="border-t border-line px-5 pt-3 pb-4 @min-[880px]:border-t-0 @min-[880px]:border-l @min-[880px]:pt-5">
       <Link to="/ranking" className="press-row -mx-2 flex min-h-11 items-center justify-between rounded-xl px-2 hover:bg-fill/60">
         <h2 id="my-rank-title" className="flex items-center gap-1.5 text-[17px] font-bold">
           <Icon name="trophy" className="size-5 text-mute-weak" />
@@ -151,7 +151,7 @@ function RankingSection({ me, publicId, publicLit }: { me: Me; publicId?: string
         <div
           id={publicId}
           tabIndex={publicId ? -1 : undefined}
-          className={cn("-mx-2 scroll-mt-16 rounded-xl px-2 py-1.5 outline-none transition-colors duration-slow", publicLit && "bg-brand-soft/60")}
+          className={cn("-mx-2 scroll-mt-16 rounded-xl lg:scroll-mt-(--rail-top) px-2 py-1.5 outline-none transition-colors duration-slow", publicLit && "bg-brand-soft/60")}
         >
           <PublicToggle me={me} />
         </div>
@@ -173,64 +173,67 @@ export function PerformanceCard({ me, publicId, publicLit = false }: { me: Me; p
   const drawChart = useRevealAfterLoading(equity.isPending);
   if (isPending) return <PerformanceSkeleton />;
   return (
-    <div className={cn("rounded-2xl bg-card", reveal && "reveal-fade")}>
-      <section aria-labelledby="my-account-title" className="px-5 pt-5 pb-4">
-        <div className="flex min-h-9 items-center justify-between gap-3">
-          <h2 id="my-account-title" className="text-[15px] font-semibold text-sub">
-            내 수익률
-          </h2>
-          <RankChip />
-        </div>
-        {acc ? (
-          <>
-            <p className={cn("mt-1 text-[32px] leading-tight font-bold tracking-tight", trendClass(acc.profitRate))}>
-              <Flash value={acc.profitRate}>
-                <span className="tabular-nums">{formatRate(acc.profitRate)}</span>
-              </Flash>
-            </p>
-            <p className={cn("text-[15px] font-semibold tabular-nums", trendClass(acc.profitKrw))}>{formatSignedKrw(acc.profitKrw)}</p>
-            <PricesAsOfLine pricesAsOf={acc.pricesAsOf} className="mt-1" />
-            <dl className="mt-4 grid grid-cols-2 gap-3">
-              <div className="rounded-xl bg-fill p-3">
-                <dt className="text-[13px] text-sub">투자금액</dt>
-                <dd className="mt-0.5 text-[17px] font-bold tabular-nums">
-                  <Flash value={acc.investedKrw}>{formatKrw(acc.investedKrw)}</Flash>
-                </dd>
-                {easy && <dd className="mt-0.5 text-[12px] leading-snug text-mute">지금 주식에 들어간 돈</dd>}
-              </div>
-              <div className="rounded-xl bg-fill p-3">
-                <dt className="text-[13px] text-sub">총자산</dt>
-                <dd className="mt-0.5 text-[17px] font-bold tabular-nums">
-                  <Flash value={acc.equityKrw}>{formatKrw(acc.equityKrw)}</Flash>
-                </dd>
-                {easy && <dd className="mt-0.5 text-[12px] leading-snug text-mute">현금과 주식을 합친 돈</dd>}
-              </div>
-            </dl>
-            <Link
-              to="/portfolio"
-              className="press-row -mx-2 mt-1 flex min-h-11 items-center justify-end gap-0.5 rounded-xl px-2 text-[14px] font-semibold text-mute hover:bg-fill/60"
-            >
-              현금·보유 종목 자세히
-              <Icon name="chevron" className="size-4" />
-            </Link>
-          </>
-        ) : (
-          <div className="mt-2 mb-3">
-            <ErrorState compact message={errorMessage(error)} onRetry={() => void refetch()} retrying={isFetching} />
+    // 카드가 넓으면(880px 이상 — 1920 화면 등) [내 수익률·자산 추이 | 랭킹·내 정보 공개] 두 칸 (DOM 순서 그대로)
+    <div className={cn("@container rounded-2xl bg-card", reveal && "reveal-fade")}>
+      <div className="@min-[880px]:grid @min-[880px]:grid-cols-[minmax(0,1fr)_340px]">
+        <section aria-labelledby="my-account-title" className="px-5 pt-5 pb-4">
+          <div className="flex min-h-9 items-center justify-between gap-3">
+            <h2 id="my-account-title" className="text-[15px] font-semibold text-sub">
+              내 수익률
+            </h2>
+            <RankChip />
           </div>
-        )}
-        <div className="mt-1 border-t border-line pt-4">
-          <h3 className="mb-2 text-[15px] font-semibold text-sub">일별 자산 추이 (30일 · 장마감 기준)</h3>
-          {equity.data ? (
-            <LineChart points={equity.data.points.map((p) => ({ day: p.day, value: p.equityKrw }))} label="일별 자산 추이" animate={drawChart} />
-          ) : equity.isError ? (
-            <ErrorState compact message={errorMessage(equity.error)} onRetry={() => void equity.refetch()} retrying={equity.isFetching} />
+          {acc ? (
+            <>
+              <p className={cn("mt-1 text-[32px] leading-tight font-bold tracking-tight", trendClass(acc.profitRate))}>
+                <Flash value={acc.profitRate}>
+                  <span className="tabular-nums">{formatRate(acc.profitRate)}</span>
+                </Flash>
+              </p>
+              <p className={cn("text-[15px] font-semibold tabular-nums", trendClass(acc.profitKrw))}>{formatSignedKrw(acc.profitKrw)}</p>
+              <PricesAsOfLine pricesAsOf={acc.pricesAsOf} className="mt-1" />
+              <dl className="mt-4 grid grid-cols-2 gap-3">
+                <div className="rounded-xl bg-fill p-3">
+                  <dt className="text-[13px] text-sub">투자금액</dt>
+                  <dd className="mt-0.5 text-[17px] font-bold tabular-nums">
+                    <Flash value={acc.investedKrw}>{formatKrw(acc.investedKrw)}</Flash>
+                  </dd>
+                  {easy && <dd className="mt-0.5 text-[12px] leading-snug text-mute">지금 주식에 들어간 돈</dd>}
+                </div>
+                <div className="rounded-xl bg-fill p-3">
+                  <dt className="text-[13px] text-sub">총자산</dt>
+                  <dd className="mt-0.5 text-[17px] font-bold tabular-nums">
+                    <Flash value={acc.equityKrw}>{formatKrw(acc.equityKrw)}</Flash>
+                  </dd>
+                  {easy && <dd className="mt-0.5 text-[12px] leading-snug text-mute">현금과 주식을 합친 돈</dd>}
+                </div>
+              </dl>
+              <Link
+                to="/portfolio"
+                className="press-row -mx-2 mt-1 flex min-h-11 items-center justify-end gap-0.5 rounded-xl px-2 text-[14px] font-semibold text-mute hover:bg-fill/60"
+              >
+                현금·보유 종목 자세히
+                <Icon name="chevron" className="size-4" />
+              </Link>
+            </>
           ) : (
-            <Skeleton className="h-52 w-full" />
+            <div className="mt-2 mb-3">
+              <ErrorState compact message={errorMessage(error)} onRetry={() => void refetch()} retrying={isFetching} />
+            </div>
           )}
-        </div>
-      </section>
-      <RankingSection me={me} publicId={publicId} publicLit={publicLit} />
+          <div className="mt-1 border-t border-line pt-4">
+            <h3 className="mb-2 text-[15px] font-semibold text-sub">일별 자산 추이 (30일 · 장마감 기준)</h3>
+            {equity.data ? (
+              <LineChart points={equity.data.points.map((p) => ({ day: p.day, value: p.equityKrw }))} label="일별 자산 추이" animate={drawChart} />
+            ) : equity.isError ? (
+              <ErrorState compact message={errorMessage(equity.error)} onRetry={() => void equity.refetch()} retrying={equity.isFetching} />
+            ) : (
+              <Skeleton className="h-52 w-full" />
+            )}
+          </div>
+        </section>
+        <RankingSection me={me} publicId={publicId} publicLit={publicLit} />
+      </div>
     </div>
   );
 }

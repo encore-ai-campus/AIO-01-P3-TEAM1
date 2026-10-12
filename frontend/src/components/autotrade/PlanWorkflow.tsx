@@ -151,7 +151,7 @@ export function EasySteps({ steps, celebrate = false }: { steps: EasyStep[]; cel
 
 /**
  * 계획 사건 타임라인 (step 오름차순). 모르는 kind도 메시지를 그대로 보인다.
- * easy면 쉬운 문장(planEventSentence — details가 모자라면 원래 message), 아니면 서버의 원래 message와 사건 번호(#step).
+ * easy면 쉬운 문장(planEventSentence — details가 모자라면 원래 message), 아니면 서버의 원래 message (시각만 — 사건 번호는 보이지 않는다).
  * 화면을 연 뒤 새로 붙은 사건만 아래에서 올라온다 (처음 그린 사건은 움직이지 않는다).
  */
 export function PlanTimeline({ events, easy = false, currency = "KRW" }: { events: PlanEvent[]; easy?: boolean; currency?: Currency }) {
@@ -172,9 +172,8 @@ export function PlanTimeline({ events, easy = false, currency = "KRW" }: { event
                 {!easy && <span className="mr-1.5 text-[12px] font-bold text-sub">{k.label}</span>}
                 {easy ? planEventSentence(e, currency) : e.message}
               </p>
-              <p className="text-[12px] text-mute tabular-nums">
-                {easy ? formatDateTime(e.at) : `#${e.step} · ${formatDateTime(e.at)}`}
-              </p>
+              {/* 사건 번호(#step)는 보이지 않는다 — 순서는 타임라인이 말한다 (원시 번호를 사용자 화면에서 뺀다, 2026-10-12) */}
+              <p className="text-[12px] text-mute tabular-nums">{formatDateTime(e.at)}</p>
             </div>
           </li>
         );

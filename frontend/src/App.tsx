@@ -1,9 +1,10 @@
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { Navigate, Route, Routes, useLocation } from "react-router";
+import { Link, Navigate, Route, Routes, useLocation } from "react-router";
 import { Layout } from "./components/Layout";
 import { ScrollManager } from "./components/motion/ScrollManager";
 import { IntroGate } from "./components/brand/IntroGate";
+import { Icon } from "./components/Icon";
 import { AuthBridge, RequireAuth } from "./components/RequireAuth";
 import { ToastProvider } from "./components/ToastProvider";
 import { Card, EmptyState, PageHeader } from "./components/ui";
@@ -40,13 +41,17 @@ export function Providers({ client, children }: { client: QueryClient; children:
   );
 }
 
-/** 없는 주소. 예전 알림·Discord 링크로 온 사람도 여기로 오므로 다음 행동(홈·리포트)을 엄지 자리에 큰 버튼으로 둔다. */
+/**
+ * 없는 주소. 예전 알림·Discord 링크로 온 사람도 여기로 오므로 다음 행동(홈·리포트)을 엄지 자리에 큰 버튼으로 둔다.
+ * PC는 제목과 카드를 가운데 한 열(640px)로 모으고, 카드 아래에 자주 가는 화면(모의투자·종목 찾기) 바로가기를 한 줄 더 둔다 (모바일은 아래 탭이 그 역할).
+ */
 function NotFound() {
   const { pathname } = useLocation();
+  const quick = "press inline-flex h-11 items-center gap-1 rounded-full bg-fill px-4 text-[14px] font-semibold text-ink hover:bg-line";
   return (
-    <>
-      <PageHeader title="페이지 없음" back />
-      <Card className="lg:max-w-[640px]">
+    <div className="lg:mx-auto lg:w-full lg:max-w-[640px] lg:pt-[6vh]">
+      <PageHeader title="화면 없음" back />
+      <Card>
         <EmptyState
           icon="search"
           title="찾는 화면이 없어요"
@@ -54,10 +59,21 @@ function NotFound() {
           secondary={{ label: "리포트 보기", to: "/reports" }}
         >
           주소가 바뀌었거나 지워진 화면일 수 있어요.
-          <span className="mt-1 block font-mono text-[13px] break-all text-mute">{pathname}</span>
+          <span className="mt-1 block text-[13px] break-all text-mute">{pathname}</span>
         </EmptyState>
+        <nav aria-label="자주 가는 화면" className="hidden flex-wrap items-center justify-center gap-2 border-t border-line pt-5 lg:flex">
+          <span className="mr-1 text-[13px] text-mute">자주 가는 화면</span>
+          <Link to="/portfolio" className={quick}>
+            모의투자 보기
+            <Icon name="chevron" className="size-4 text-mute" />
+          </Link>
+          <Link to="/search" className={quick}>
+            종목 찾기
+            <Icon name="chevron" className="size-4 text-mute" />
+          </Link>
+        </nav>
       </Card>
-    </>
+    </div>
   );
 }
 

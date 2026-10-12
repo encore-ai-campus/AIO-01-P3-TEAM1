@@ -15,6 +15,22 @@ import { Term } from "../../Term";
 import { AsOf, Card } from "../../ui";
 import { AiText } from "./AiText";
 
+/**
+ * 조사 칸을 나란히 세우는 기준: 칸 수(있는 자료 수)와 카드 폭(컨테이너 쿼리)으로 정한다 — 화면 폭이 아니라 카드 폭이라
+ * 1280처럼 왼쪽 열이 좁으면 한 열로 쌓이고(글이 대여섯 줄로 잘게 접히지 않게), 자료가 둘이면 두 칸이라 빈 칸이 남지 않는다 (리뷰 24).
+ */
+const COLS: Record<number, { grid: string; cell: string }> = {
+  1: { grid: "", cell: "" },
+  2: {
+    grid: "@min-[480px]:grid @min-[480px]:grid-cols-2 @min-[480px]:space-y-0 @min-[480px]:divide-x @min-[480px]:divide-line",
+    cell: "@min-[480px]:px-5 @min-[480px]:first:pl-0 @min-[480px]:last:pr-0",
+  },
+  3: {
+    grid: "@min-[720px]:grid @min-[720px]:grid-cols-3 @min-[720px]:space-y-0 @min-[720px]:divide-x @min-[720px]:divide-line",
+    cell: "@min-[720px]:px-5 @min-[720px]:first:pl-0 @min-[720px]:last:pr-0",
+  },
+};
+
 const num = (v: number | null, unit = "", digits = 1) => (v === null ? "-" : `${formatNumber(v, digits)}${unit}`);
 /** MarketResult.asOf가 있고 날짜로 읽히는지 (선택 키라 validate가 null로 채울 수 있다). */
 const validAsOf = (asOf: string | null): asOf is string => asOf !== null && !Number.isNaN(new Date(asOf).getTime());
@@ -42,96 +58,100 @@ export function ResearchCards({
   currency: Currency;
 }) {
   if (!market && !fundamental && !news) return null;
+  const cols = COLS[[market, fundamental, news].filter(Boolean).length];
   return (
-    <Card aria-labelledby="research-title" className="space-y-4">
+    <Card aria-labelledby="research-title" className="@container space-y-4">
       <h2 id="research-title" className="text-[17px] font-bold">
         조사 자료 요약
       </h2>
-      {market && (
-        <section aria-label="시세">
-          <h3 className="text-[14px] font-bold text-sub">시세</h3>
-          {validAsOf(market.asOf) ? (
-            <p className="mt-1 flex flex-wrap items-baseline gap-x-2 tabular-nums">
-              {market.price !== null && market.price > 0 && (
-                <>
-                  {market.basis === "live" ? (
-                    <span className="text-[13px] text-sub">장중 가격</span>
-                  ) : (
-                    <span className="text-[13px] text-sub">
-                      <Term k="종가" />
-                    </span>
-                  )}
-                  <span className="text-[18px] font-bold">{formatPrice(market.price, currency)}</span>
-                </>
-              )}
-              {market.basis === "live" ? (
-                <time dateTime={market.asOf} className="text-[12px] font-medium text-mute tabular-nums">
-                  {formatIntradayAsOf(market.asOf, marketCode)}
-                </time>
-              ) : (
-                <AsOf at={market.asOf} market={marketCode} />
-              )}
-            </p>
-          ) : (
-            // 기준 시각을 모르면 그 가격이 종가인지 장중 가격인지 알 수 없어 가격을 보이지 않는다 (PDF _market_basis와 같다)
-            <p className="mt-1 text-[12px] font-medium text-mute">시세 기준 시각: 자료 없음</p>
-          )}
-          {market.summary && (
-            <p className="mt-1 text-[15px] leading-snug">
-              <AiText text={market.summary} />
-            </p>
-          )}
-        </section>
-      )}
-      {fundamental && (
-        <section aria-label="재무·공시">
-          <h3 className="text-[14px] font-bold text-sub">재무·공시</h3>
-          {fundamental.summary && (
-            <p className="mt-1 text-[15px] leading-snug">
-              <AiText text={fundamental.summary} />
-            </p>
-          )}
-          {fundamental.filings.length > 0 && (
-            <>
-              <p className="mt-2 text-[13px] font-semibold text-sub">
-                최근 <Term k="공시" />
+      {/* 카드(@container)가 넓으면(PC 넓은 화면) 조사 자료를 한 줄에 나란히 (조사 AI 세 곳이 함께 일한 결과) — 모바일 폭에서는 늘 한 열 */}
+      <div className={cn("space-y-4", cols.grid)}>
+        {market && (
+          <section aria-label="시세" className={cols.cell}>
+            <h3 className="text-[14px] font-bold text-sub">시세</h3>
+            {validAsOf(market.asOf) ? (
+              <p className="mt-1 flex flex-wrap items-baseline gap-x-2 tabular-nums">
+                {market.price !== null && market.price > 0 && (
+                  <>
+                    {market.basis === "live" ? (
+                      <span className="text-[13px] text-sub">장중 가격</span>
+                    ) : (
+                      <span className="text-[13px] text-sub">
+                        <Term k="종가" />
+                      </span>
+                    )}
+                    <span className="text-[18px] font-bold">{formatPrice(market.price, currency)}</span>
+                  </>
+                )}
+                {market.basis === "live" ? (
+                  <time dateTime={market.asOf} className="text-[12px] font-medium text-mute tabular-nums">
+                    {formatIntradayAsOf(market.asOf, marketCode)}
+                  </time>
+                ) : (
+                  <AsOf at={market.asOf} market={marketCode} />
+                )}
               </p>
-              <ul aria-label="최근 공시" className="mt-1 space-y-1 text-[14px]">
-                {fundamental.filings.map((f) => (
-                  <li key={`${f.date}-${f.title}`} className="text-sub">
-                    {f.title}
-                    {f.date && <span className="text-mute"> · {f.date}</span>}
+            ) : (
+              // 기준 시각을 모르면 그 가격이 종가인지 장중 가격인지 알 수 없어 가격을 보이지 않는다 (PDF _market_basis와 같다)
+              <p className="mt-1 text-[12px] font-medium text-mute">시세 기준 시각: 자료 없음</p>
+            )}
+            {market.summary && (
+              <p className="mt-1 text-[15px] leading-snug">
+                <AiText text={market.summary} />
+              </p>
+            )}
+          </section>
+        )}
+        {fundamental && (
+          <section aria-label="재무·공시" className={cols.cell}>
+            <h3 className="text-[14px] font-bold text-sub">재무·공시</h3>
+            {fundamental.summary && (
+              <p className="mt-1 text-[15px] leading-snug">
+                <AiText text={fundamental.summary} />
+              </p>
+            )}
+            {fundamental.filings.length > 0 && (
+              <>
+                <p className="mt-2 text-[13px] font-semibold text-sub">
+                  최근 <Term k="공시" />
+                </p>
+                <ul aria-label="최근 공시" className="mt-1 space-y-1 text-[14px]">
+                  {fundamental.filings.map((f) => (
+                    <li key={`${f.date}-${f.title}`} className="text-sub">
+                      {f.title}
+                      {f.date && <span className="text-mute"> · {f.date}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </section>
+        )}
+        {news && (
+          <section aria-label="뉴스" className={cols.cell}>
+            <h3 className="text-[14px] font-bold text-sub">뉴스</h3>
+            {news.summary && (
+              <p className="mt-1 text-[15px] leading-snug">
+                <AiText text={news.summary} />
+              </p>
+            )}
+            {news.headlines.length > 0 && (
+              <ul aria-label="뉴스 제목" className="mt-2 space-y-1 text-[14px]">
+                {news.headlines.map((h) => (
+                  <li key={`${h.date}-${h.title}`}>
+                    {h.title}
+                    <span className="text-mute">
+                      {h.source && ` — ${h.source}`}
+                      {h.date && ` · ${h.date}`}
+                    </span>
                   </li>
                 ))}
               </ul>
-            </>
-          )}
-        </section>
-      )}
-      {news && (
-        <section aria-label="뉴스">
-          <h3 className="text-[14px] font-bold text-sub">뉴스</h3>
-          {news.summary && (
-            <p className="mt-1 text-[15px] leading-snug">
-              <AiText text={news.summary} />
-            </p>
-          )}
-          {news.headlines.length > 0 && (
-            <ul aria-label="뉴스 제목" className="mt-2 space-y-1 text-[14px]">
-              {news.headlines.map((h) => (
-                <li key={`${h.date}-${h.title}`}>
-                  {h.title}
-                  <span className="text-mute">
-                    {h.source && ` — ${h.source}`}
-                    {h.date && ` · ${h.date}`}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-          <p className="mt-1 text-[12px] text-mute">뉴스 제목: Google 뉴스 검색 결과(각 언론사)</p>
-        </section>
-      )}
+            )}
+            <p className="mt-1 text-[12px] text-mute">뉴스 제목: Google 뉴스 검색 결과(각 언론사)</p>
+          </section>
+        )}
+      </div>
       <HardNumbers market={market} fundamental={fundamental} />
     </Card>
   );

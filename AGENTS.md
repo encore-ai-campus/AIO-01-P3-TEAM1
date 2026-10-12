@@ -79,10 +79,10 @@ backend/               Django 앱. 앱 루트에는 Django 자리(models·migrat
   notifications/       웹 알림·Discord Webhook 보낼 편지함 (Discord 발송은 2026-10-08부터 꺼 둠, `docs/DECISIONS.md` 24장)
   longterm/            장기투자: 오늘의 내 종목 뉴스·산 이유와 펀더멘털 점검
 frontend/src/          React + TypeScript + Vite + Tailwind CSS (하단 탭 홈·종목·리포트·모의투자·마이, 주린이모드 쉬운 보기, AI 교차검증 분석, 랭킹,
-                       화면 모드(다크 — 마이·PC 메뉴, 브라우저 저장))
+                       화면 모드(다크 — 마이·PC 메뉴, 브라우저 저장), PC는 왼쪽 메뉴 + 위 바(종목 검색 팔레트 '/'·장 상태·알림) — docs/DECISIONS.md 33장)
   pages/               화면 (라우터와 1:1)
-  components/          루트에는 여러 화면이 같이 쓰는 부품만(ui.tsx·Icon·Layout·Term·toast·ToastProvider·RequireAuth·DeleteAction·AssetCard),
-                       기능 부품은 기능 폴더(reports/·plan/·autotrade/·home/·my/·longterm/·analysis/·stock/·charts/·brand/·admin/·errors/·motion/)
+  components/          루트에는 여러 화면이 같이 쓰는 부품만(ui.tsx·Icon·Layout·Term·toast·ToastProvider·RequireAuth·DeleteAction·AssetCard·MarketStatus),
+                       기능 부품은 기능 폴더(reports/·plan/·autotrade/·home/·my/·longterm/·analysis/·stock/·charts/·brand/·admin/·errors/·motion/·search/)
   api/ hooks/ lib/     API 호출·타입 / React 훅 / 계산·문장. 색은 src/index.css 토큰만 (test/colors.test.ts가 검사)
   test/                화면 단위 테스트·setup.ts·도우미. 한 파일만 보는 단위 테스트는 그 파일 옆 (lib/*.test.ts)
   mocks/               VITE_MOCK=1일 때 브라우저의 가짜 API (MSW)

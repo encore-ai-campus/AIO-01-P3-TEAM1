@@ -138,7 +138,7 @@ function DiagnosisForm({
             ref={(el) => {
               blocks.current[i] = el;
             }}
-            className={cn("-mx-2 scroll-mt-16 rounded-xl px-2 py-1.5 transition-colors duration-slow", flash === i && "bg-brand-soft")}
+            className={cn("-mx-2 scroll-mt-16 rounded-xl lg:scroll-mt-(--rail-top) px-2 py-1.5 transition-colors duration-slow", flash === i && "bg-brand-soft")}
           >
             <fieldset className="space-y-2">
               <legend
@@ -363,7 +363,7 @@ export function InvestorDiagnosis({
       id={anchorId}
       tabIndex={anchorId ? -1 : undefined}
       aria-labelledby="diagnosis-title"
-      className={cn("-mx-2 scroll-mt-16 rounded-xl px-2 py-1 outline-none transition-colors duration-slow", lit && "bg-brand-soft/60")}
+      className={cn("-mx-2 scroll-mt-16 rounded-xl lg:scroll-mt-(--rail-top) px-2 py-1 outline-none transition-colors duration-slow", lit && "bg-brand-soft/60")}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -412,7 +412,7 @@ export function InvestorDiagnosis({
                 type="button"
                 data-focus-after=""
                 onClick={open}
-                className="press h-11 w-full rounded-xl bg-brand text-[15px] font-semibold text-white hover:bg-brand-dark"
+                className="press h-11 w-full rounded-xl bg-brand lg:w-auto lg:min-w-[200px] lg:px-8 text-[15px] font-semibold text-white hover:bg-brand-dark"
               >
                 진단 시작
               </button>

@@ -13,7 +13,7 @@ import type { ReportDetail } from "../../../api/types";
 import { useChanged, useNewKeys } from "../../../hooks/useMotionState";
 import { cn } from "../../../lib/cn";
 import { REPORT_KEEPS_RUNNING } from "../../../lib/plainText";
-import { useReplay, type ScenarioId } from "../../../lib/reportExamples";
+import type { Replay, ScenarioId } from "../../../lib/reportExamples";
 import {
   PROGRESS_STATE_TEXT,
   type ProgressState,
@@ -64,21 +64,26 @@ function Btn({ label, onClick, disabled, primary }: { label: string; onClick: ()
   );
 }
 
-function StepRow({ s, note }: { s: ProgressStep; note: string }) {
+/** parallel: 함께 도는 조사 단계 — PC 넓은 화면(xl)에서는 세 칸이 한 줄에 서므로 상태 글자를 이름 아래로 내린다. */
+function StepRow({ s, note, parallel }: { s: ProgressStep; note: string; parallel: boolean }) {
   // 이 화면에서 상태가 바뀐 뒤에만 새 아이콘이 나타나는 움직임 (첫 렌더·캐시는 그대로)
   const changed = useChanged(s.state);
   const look = LOOK[s.state];
   return (
     <li
       aria-current={s.state === "active" ? "step" : undefined}
-      className={cn("rounded-xl px-3 py-2.5 transition-colors duration-base ease-standard", s.state === "active" ? "bg-brand-soft" : "bg-fill")}
+      className={cn(
+        "rounded-xl px-3 py-2.5 transition-colors duration-base ease-standard",
+        s.state === "active" ? "bg-brand-soft" : "bg-fill",
+        !parallel && "xl:col-span-3",
+      )}
     >
-      <div className="flex items-center gap-3">
+      <div className={cn("flex items-center gap-3", parallel && "xl:flex-wrap xl:gap-y-1")}>
         <span className={cn("grid size-7 shrink-0 place-items-center rounded-full transition-colors duration-base ease-standard", look.dot)}>
           <Icon key={s.state} name={look.icon} className={cn("size-4", changed && "animate-pop-in")} />
         </span>
         <span className="min-w-0 flex-1 text-[15px] font-semibold">{s.label}</span>
-        <span className={cn("flex shrink-0 items-center gap-1.5 text-[13px] font-semibold", look.chip)}>
+        <span className={cn("flex shrink-0 items-center gap-1.5 text-[13px] font-semibold", look.chip, parallel && "xl:basis-full xl:pl-10")}>
           {s.state === "active" && <LiveDot />}
           {PROGRESS_STATE_TEXT[s.state]}
         </span>
@@ -94,8 +99,8 @@ function StepRow({ s, note }: { s: ProgressStep; note: string }) {
   );
 }
 
-export function EasyProgress({ r }: { r: ReportDetail }) {
-  const replay = useReplay(r.state.taskId || `report-${r.id}`);
+/** replay: 예시 재생 (화면이 가진다 — PC 오른쪽 'AI 담당자' 카드도 같은 사건을 보인다). */
+export function EasyProgress({ r, replay }: { r: ReportDetail; replay: Replay }) {
   const team = useReports({});
   const ex = replay.active;
   const now = useNow(!ex);
@@ -154,9 +159,13 @@ export function EasyProgress({ r }: { r: ReportDetail }) {
           {shown}/{total}
         </span>
       </div>
-      <ol aria-label="진행 단계" className="space-y-2">
-        {steps.map((s) => (
-          <StepRow key={s.actor} s={s} note={note} />
+      {/* PC 넓은 화면(xl): 함께 도는 조사 세 단계를 한 줄 세 칸으로, 쓰기·검토는 그 아래 (목록 순서는 그대로) */}
+      <p aria-hidden="true" className="hidden text-[12px] font-semibold text-mute xl:block">
+        조사 세 가지는 함께 진행돼요
+      </p>
+      <ol aria-label="진행 단계" className="space-y-2 xl:-mt-1.5 xl:grid xl:grid-cols-3 xl:gap-2 xl:space-y-0">
+        {steps.map((s, i) => (
+          <StepRow key={s.actor} s={s} note={note} parallel={i < 3} />
         ))}
       </ol>
       {/* 단계가 바뀔 때 화면 읽기 프로그램에 알린다 (보이는 글자와 겹치지 않는 문장) */}

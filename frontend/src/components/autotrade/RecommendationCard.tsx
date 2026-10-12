@@ -15,6 +15,9 @@ import { Collapse } from "../motion/Collapse";
 import { BlockedMark, PlanStatusChip, ProposalReadiness, RecStatusChip, RiskLevelBadge, SourceBadge } from "./Badges";
 import { WrapPrice } from "./PriceLadder";
 
+/** 전문가 카드 지표 줄의 한 항목: 앞 여백(16px)에 구분선 '|'을 그린다 (줄 첫머리의 것은 바깥이 잘라 낸다 — 아래 지표 줄). */
+const METRIC_ITEM = "relative pl-4 whitespace-nowrap before:absolute before:left-1.5 before:text-mute-weak before:content-['|']";
+
 const linkName = (r: Recommendation, easy: boolean) => (easy ? `${r.name} 계획 제안 보기` : `${r.name} 추천 보기`);
 
 // 압축 행의 키보드 포커스 테두리는 행 안쪽에 그린다: 행을 담는 목록 카드(ul)가 overflow-hidden rounded-2xl이라 바깥 테두리는 잘려
@@ -83,6 +86,7 @@ export function RecommendationCard({
   variant = "card",
   rest,
   restOlder = true,
+  row = false,
 }: {
   r: Recommendation;
   compact?: boolean;
@@ -93,10 +97,16 @@ export function RecommendationCard({
   rest?: Recommendation[];
   /** rest가 모두 r보다 먼저 만든 것인지 ('이전' / '다른'). */
   restOlder?: boolean;
+  /**
+   * 넓은 화면(xl) 가로형: [이름·출처·문장·팀 n건 | 기한 칩·가격 셋] 두 칸 (목록에 카드가 적을 때 열을 꽉 채운다 — 2026-10-12).
+   * DOM 순서는 그대로, 격자 칸만 나눈다. 모바일·lg는 세로 카드 그대로.
+   */
+  row?: boolean;
 }) {
   const open = r.status === "open";
   const flush = variant === "flush";
   const folded = !flush && rest != null && rest.length > 0;
+  const wide = row && !flush;
   const descId = useId();
   const link = (
     <Link
@@ -107,22 +117,31 @@ export function RecommendationCard({
         "block",
         flush
           ? "rounded-xl bg-fill p-4 transition-colors hover:bg-line/60 active:bg-line"
-          : folded
-            ? "press-row rounded-t-2xl p-5 hover:bg-fill/50"
-            : "press-row rounded-2xl bg-card p-5 hover:bg-fill/50",
+          : // 목록(PC)에서는 같은 줄 카드의 높이를 맞춘다: 카드가 칸을 채우고 '팀 … n건' 줄이 아래 끝에 붙는다
+            folded
+            ? "press-row rounded-t-2xl p-5 hover:bg-fill/50 lg:flex lg:flex-1 lg:flex-col"
+            : "press-row rounded-2xl bg-card p-5 hover:bg-fill/50 lg:flex lg:h-full lg:flex-col",
+        // 가로형(xl): 왼쪽 칸은 읽을 것, 오른쪽 칸은 기한과 가격 셋. 머리 줄(div)은 xl:contents로 풀어 이름과 칩을 각 칸 첫 줄에
+        wide && "xl:grid xl:grid-cols-[minmax(0,1fr)_minmax(17rem,22rem)] xl:grid-rows-[auto_auto_auto_1fr] xl:gap-x-8 xl:px-6",
       )}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
+      <div className={cn("flex items-start justify-between gap-3", wide && "xl:contents")}>
+        <div className={cn("min-w-0", wide && "xl:col-start-1 xl:row-start-1")}>
           <h3 className={cn("truncate text-[17px] font-bold", !open && "text-sub")}>{r.name}</h3>
           <p className="text-[13px] text-mute">
             {r.symbol} · {r.market === "KR" ? "국내" : "미국"}
             {r.requestedBy && ` · ${r.requestedBy}`}
           </p>
         </div>
-        <RecStatusChip open={open} validUntil={r.validUntil} expiredReason={r.expiredReason} easy={easy} />
+        <RecStatusChip
+          open={open}
+          validUntil={r.validUntil}
+          expiredReason={r.expiredReason}
+          easy={easy}
+          className={cn(wide && "xl:col-start-2 xl:row-start-1 xl:self-start xl:justify-self-end")}
+        />
       </div>
-      <div className="mt-2 flex flex-wrap gap-1.5">
+      <div className={cn("mt-2 flex flex-wrap gap-1.5", wide && "xl:col-start-1 xl:row-start-2")}>
         <SourceBadge source={r.source} />
         {!easy && <RiskLevelBadge level={r.riskLevel} />}
         {r.myPlan && <PlanStatusChip status={r.myPlan.status} easy={easy} />}
@@ -131,7 +150,13 @@ export function RecommendationCard({
       </div>
 
       {/* 가격 셋은 칸마다 줄이고(min-w-0), 길면 글자를 한 단계 줄이고, 그래도 좁으면 '원' 앞에서만 줄을 바꾼다 — 옆 칸과 붙지 않게 (UX-16) */}
-      <dl className={cn("@container mt-3 grid grid-cols-3 gap-2 rounded-xl p-3 text-center", flush ? "bg-card" : "bg-fill")}>
+      <dl
+        className={cn(
+          "@container mt-3 grid grid-cols-3 gap-2 rounded-xl p-3 text-center",
+          flush ? "bg-card" : "bg-fill",
+          wide && "xl:col-start-2 xl:row-span-3 xl:row-start-2 xl:self-start",
+        )}
+      >
         <div className="min-w-0">
           <dt className="text-[12px] text-mute">{easy ? "사는 가격" : "진입"}</dt>
           <dd className={cn("font-semibold tabular-nums", priceSize(r))}>
@@ -156,22 +181,30 @@ export function RecommendationCard({
 
       {!compact &&
         (easy ? (
-          <p className="mt-2 text-[13px] leading-relaxed text-sub">
+          <p className={cn("mt-2 text-[13px] leading-relaxed text-sub", wide && "xl:col-start-1 xl:row-start-3")}>
             산 뒤 최대 {r.holdingDays}거래일 보유해요 · 목표에 팔면 버는 돈이 손절에 팔면 잃는 돈의 {r.rewardRisk.toFixed(1)}배예요
           </p>
         ) : (
-          <p className="mt-2 text-[13px] leading-relaxed text-sub">
-            손익비 <b className="font-semibold text-ink tabular-nums">{r.rewardRisk.toFixed(2)}</b>
-            <span className="mx-1.5 text-mute-weak">|</span>
-            기대수익률 <b className="font-semibold text-ink tabular-nums">{formatRate(r.expectedReturn)}</b>
-            <span className="mx-1.5 text-mute-weak">|</span>
-            확률 <b className="font-semibold text-ink tabular-nums">{formatPercent(r.probability)}</b>
-            {r.probabilityAssumed && <span className="ml-1 text-mute">(가정)</span>}
-            <span className="mx-1.5 text-mute-weak">|</span>
-            보유 {r.holdingDays}거래일
+          // 항목 안에서는 줄을 바꾸지 않는다 ('보유' / '5거래일'처럼 이름과 값이 갈라지지 않게 — 항목 사이에서만 바꾼다).
+          // 구분선 '|'은 각 항목 앞(왼쪽 여백)에 그리고, 안쪽 줄을 왼쪽으로 그만큼 당겨 바깥(overflow-hidden)이 줄 첫머리의 구분선을 잘라 낸다 —
+          // 줄이 바뀌어도 '|'이 줄 끝에 매달리거나 줄 첫머리에 오지 않는다
+          <p className={cn("mt-2 overflow-hidden text-[13px] leading-relaxed text-sub", wide && "xl:col-start-1 xl:row-start-3")}>
+            <span className="-ml-4 flex flex-wrap">
+              <span className={METRIC_ITEM}>
+                손익비 <b className="font-semibold text-ink tabular-nums">{r.rewardRisk.toFixed(2)}</b>
+              </span>
+              <span className={METRIC_ITEM}>
+                기대수익률 <b className="font-semibold text-ink tabular-nums">{formatRate(r.expectedReturn)}</b>
+              </span>
+              <span className={METRIC_ITEM}>
+                확률 <b className="font-semibold text-ink tabular-nums">{formatPercent(r.probability)}</b>
+                {r.probabilityAssumed && <span className="ml-1 text-mute">(가정)</span>}
+              </span>
+              <span className={METRIC_ITEM}>보유 {r.holdingDays}거래일</span>
+            </span>
           </p>
         ))}
-      <p className="mt-2 text-[13px] text-mute">
+      <p className={cn("mt-2 text-[13px] text-mute", !flush && "lg:mt-auto lg:pt-3", wide && "xl:col-start-1 xl:row-start-4 xl:self-end")}>
         {easy ? "팀에서 시작" : "팀 활성화"} {r.planCount}건
       </p>
       <span id={descId} className="sr-only">
@@ -181,7 +214,7 @@ export function RecommendationCard({
   );
   if (!folded) return link;
   return (
-    <div className="rounded-2xl bg-card">
+    <div className="rounded-2xl bg-card lg:flex lg:h-full lg:flex-col">
       {link}
       <RestFold r={r} rest={rest} older={restOlder} easy={easy} />
     </div>

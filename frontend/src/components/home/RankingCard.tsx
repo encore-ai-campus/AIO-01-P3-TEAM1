@@ -48,7 +48,7 @@ export function RankingCard({ className }: { className?: string }) {
   const top = data.results.slice(0, 3);
   const isPublic = data.me.isPublic;
   return (
-    <Card aria-labelledby="ranking-card-title" className={cn(isPublic && STRETCH_CARD, reveal && "reveal-fade", className)}>
+    <Card aria-labelledby="ranking-card-title" className={cn(isPublic && STRETCH_CARD, "@container", reveal && "reveal-fade", className)}>
       <CardHeader id="ranking-card-title" icon="trophy" title="랭킹" to="/ranking" stretch={isPublic} />
       {isPublic ? (
         <p className="mt-2 text-[15px]">
@@ -69,9 +69,16 @@ export function RankingCard({ className }: { className?: string }) {
         </Link>
       )}
       {top.length > 0 && (
-        <ol aria-label="랭킹 상위 3명" className="mt-3 space-y-1.5">
+        // 넓은 카드(PC 홈 왼쪽 열)는 세 사람을 한 줄 세 칸으로 — 좁은 줄 셋이 넓은 카드에 길게 늘어지지 않게
+        <ol aria-label="랭킹 상위 3명" className="mt-3 space-y-1.5 @min-[560px]:grid @min-[560px]:grid-cols-3 @min-[560px]:gap-2 @min-[560px]:space-y-0">
           {top.map((e) => (
-            <li key={`${e.rank}-${e.nickname}`} className={cn("flex items-center gap-2.5 rounded-lg px-1 py-0.5", e.isMe && "bg-brand-soft")}>
+            <li
+              key={`${e.rank}-${e.nickname}`}
+              className={cn(
+                "flex items-center gap-2.5 rounded-lg px-1 py-0.5 @min-[560px]:rounded-xl @min-[560px]:px-3 @min-[560px]:py-2.5",
+                e.isMe ? "bg-brand-soft" : "@min-[560px]:bg-fill",
+              )}
+            >
               <Medal rank={e.rank} size="sm" />
               <span className="min-w-0 flex-1 truncate text-[15px] font-medium">{e.nickname}</span>
               <RateText rate={e.profitRate} className="text-[14px] font-semibold" />

@@ -230,6 +230,15 @@
     --z-popover: 60; /* 용어 풀이 툴팁 (시트 안에서도 열린다) */
     --z-toast: 70; /* 토스트 (늘 맨 위 — 방금 한 동작의 결과) */
     --scrim-strength: 40%; /* --color-scrim의 검정 비율 (스크롤 잠금 때 gutter 색) */
+    /*
+     * PC 틀 (lg 이상, docs/DECISIONS.md 33장): 왼쪽 메뉴 폭 · 위 바 높이 · 본문 최대 폭.
+     * Layout·부팅 뼈대(RequireAuth)·토스트·연결 띠가 같은 값을 쓴다 — 하나만 바꾸면 자리가 어긋난다.
+     * --rail-top: PC에서 위에 붙는 열(오른쪽 열·주문 패널 등)의 top과 앵커 여백 = 위 바 + 간격. 'lg:sticky lg:top-(--rail-top)'처럼 쓴다.
+     */
+    --side-w: 15rem;
+    --pc-header-h: 4rem;
+    --content-max: 1440px;
+    --rail-top: calc(var(--pc-header-h) + 1.5rem);
   }
   /* 다크 (토스 다크 참고: 남색 숯색 바탕, 그림자 대신 표면 명도로 높이를 나타낸다. 밝을수록 위) */
   :root[data-theme="dark"] {
@@ -319,6 +328,8 @@
   }
   @media (width >= 64rem) {
     html[data-shell]:not([data-scroll-lock]) :focus-visible:not(.sticky *) {
+      /* 위에 붙은 PC 위 바(Layout .pc-topbar)에 가리지 않게 */
+      scroll-margin-top: calc(var(--pc-header-h) + 8px);
       scroll-margin-bottom: calc(var(--lift-footer) + var(--lift-offline));
     }
   }
@@ -580,10 +591,17 @@
     transform-origin: bottom left;
   }
 
-  /* ---- 모바일 화면 머리(PageHeader): 스크롤하면 아래 구분선 (스크롤 연동, 지원하지 않으면 없음) ---- */
+  /* ---- 모바일 화면 머리(PageHeader)·PC 위 바(Layout .pc-topbar): 스크롤하면 아래 구분선 (스크롤 연동, 지원하지 않으면 없음) ---- */
   @supports (animation-timeline: scroll()) {
     @media (width < 64rem) {
       .page-header {
+        animation: header-line linear both;
+        animation-timeline: scroll(root);
+        animation-range: 0 24px;
+      }
+    }
+    @media (width >= 64rem) {
+      .pc-topbar {
         animation: header-line linear both;
         animation-timeline: scroll(root);
         animation-range: 0 24px;
@@ -662,12 +680,12 @@ html[data-shell="order"] .connection-region {
 }
 @media (width >= 64rem) {
   html[data-shell] .toast-region {
-    left: 15rem; /* 왼쪽 메뉴 w-60 */
+    left: var(--side-w); /* 왼쪽 메뉴 (Layout) */
     right: 0;
     bottom: calc(32px + var(--lift-footer) + var(--lift-offline));
   }
   html[data-shell] .connection-region {
-    left: 15rem;
+    left: var(--side-w);
     right: 0;
     bottom: calc(32px + var(--lift-footer));
   }
@@ -715,6 +733,11 @@ html[data-scroll-lock] {
 @supports (animation-timeline: scroll()) {
   @media (prefers-reduced-motion: reduce) and (width < 64rem) {
     .page-header {
+      animation-duration: auto !important;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) and (width >= 64rem) {
+    .pc-topbar {
       animation-duration: auto !important;
     }
   }
@@ -915,4 +938,17 @@ html[data-theme-anim] * {
 .brand-loop:hover .brand-hop,
 html[data-intro="playing"] .brand-hop {
   animation-play-state: paused;
+}
+
+/*
+ * 인트로 → 로그인 넘김 (docs/DECISIONS.md 33장): 인트로가 덮고 있는 동안(덮개가 사라지는 0.4초 포함) 로그인 화면은 감춰 두었다가,
+ * 인트로가 끝나 html[data-intro]가 빠지면 살며시 보인다 — 사라지는 덮개 아래로 PC 두 칸 로그인 글자가 비쳐 큰 로고와 겹쳐 보이지 않게.
+ * 인트로 자체(BrandIntro·IntroGate·.intro-*)는 바꾸지 않는다. 동작 줄이기에서는 인트로가 돌지 않아 이 규칙도 쓰이지 않는다.
+ */
+.login-stage {
+  transition: opacity var(--transition-duration-slow) var(--ease-enter);
+}
+html[data-intro="playing"] .login-stage {
+  opacity: 0;
+  transition: none;
 }

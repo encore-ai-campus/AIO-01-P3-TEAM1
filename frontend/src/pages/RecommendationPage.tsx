@@ -7,6 +7,8 @@
 // 전문가 보기: 머리 → 가격 사다리 → 지표 → 결론·근거·리스크 → 활성화 카드(투자 금액 → 리스크 미리 보기 → 같은 체크 셋을 한 줄 요약 확인 → "계획 활성화").
 // Discord 활성화 링크(?t=)로 들어오면 위에 띠를 보이고 활성화 요청에 token으로 넣는다 (via=discord).
 // 배치: 여정 ② 검토 → ③ 실행 순서 그대로 (왼쪽에서 읽고 오른쪽에서 확인). PC 오른쪽 열은 화면보다 길면 아래 끝(시작 버튼)이 보이게 붙는다.
+// PC(2026-10-12): 머리는 xl에서 [종목·상태·배지 | 가격 사다리] 한 줄, 그 아래 가격 차트(사는·목표·손절 점선 — PC만), 지표는 값이 없는 칸 없이 큰 숫자,
+//   실행 확인 카드 위에 세 단계(넣을 돈 → 확인 → 시작). 번호(#id)는 머리에 두지 않고 전문가 보기 오른쪽 열 아래 작은 줄에.
 // 시작할 수 없으면(계좌와 무관한 사유 blockedBy 또는 금액 없는 안전장치 미리 보기 activatable=false) 머리 배지 아래에 이유 한 줄,
 // 실행 확인은 투자 금액·체크리스트·시작 버튼 대신 이유와 '다른 계획 제안 보기'만 (UX-2). 금액 때문에 막힌 것(cash_short·total_limit·budget_too_small)은
 // 금액을 고칠 수 있게 입력을 그대로 둔다.
@@ -14,14 +16,15 @@
 // ?manual=1 (시연용 수동 시작, DECISIONS 31장): 금액 없는 미리 보기가 손익비·기대값으로만 막았으면 그 이유를 보이고, 같은 넣을 돈·확인 넷·
 //   경고색 시작 버튼으로 manualStart: true를 보낸다. 머리 칩·이유 한 줄·카드 제목은 그대로 둔다 (안전장치 판정을 숨기지 않는다).
 //   Discord 링크(?t=)로 같이 왔으면 시연용 띠 대신 Discord 띠가 '시연용'과 실제 시작 버튼 이름을 말한다 (위쪽 이동 버튼은 하나).
-import { type RefObject, useId, useRef, useState } from "react";
+import { type RefObject, Suspense, lazy, useId, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { useActivate, useDeleteRecommendation } from "../api/autotrade";
 import { ApiError, errorMessage } from "../api/client";
-import { isPlanLive, useMarket, useQuotes, useRecommendation, useRiskPreview } from "../api/queries";
+import { isPlanLive, useMarket, useQuotes, useRecommendation, useRiskPreview, useStock } from "../api/queries";
 import type { BudgetMode, Quote, Recommendation, RiskPreview } from "../api/types";
 import { PlanStatusChip, ReadinessChip, RecStatusChip, RiskLevelBadge, SourceBadge } from "../components/autotrade/Badges";
 import { PriceLadder } from "../components/autotrade/PriceLadder";
+import type { ChartLine } from "../components/charts/CandleChart";
 import { DeleteAction } from "../components/DeleteAction";
 import { Icon } from "../components/Icon";
 import { Collapse } from "../components/motion/Collapse";
@@ -55,15 +58,64 @@ import { formatDateTime, formatDayLabel, formatKrw, formatPercent, formatPrice, 
 import { prefersReducedMotion } from "../lib/motion";
 import { MANUAL_START_TEXT, blockedShort, priceExpiredText, reasonSentence, rejectionSentences } from "../lib/plainText";
 import { useDebounced } from "../hooks/useDebounced";
+import { useIsPc } from "../hooks/useIsPc";
 
-/** 지표 칸. 값은 줄을 바꾸지 않고(자릿수 중간에서 갈라지지 않게), 보조 줄은 넘치면 줄임표 + 전체는 title (trade-03). */
-function Metric({ label, value, sub, className }: { label: string; value: string; sub?: string; className?: string }) {
+// 차트 라이브러리는 PC에서 차트를 그릴 때만 따로 불러온다 (종목 상세와 같은 방식 — 모바일 첫 화면 묶음에 넣지 않는다)
+const CandleChart = lazy(() => import("../components/charts/CandleChart").then((m) => ({ default: m.CandleChart })));
+
+/**
+ * PC 가격 차트 (2026-10-12): 최근 일봉 위에 사는(진입)·목표·손절 가격을 점선으로. 쉬운 보기는 종가 선, 전문가 보기는 캔들 (UX-17).
+ * 시세는 종목 상세와 같은 쿼리(useStock)라 그 화면을 다녀왔으면 바로 그린다. 받지 못하면 카드째 숨긴다 (사다리가 같은 가격을 말한다).
+ */
+function PriceChart({ r, easy }: { r: Recommendation; easy: boolean }) {
+  const { data: stock, isPending, isError } = useStock(r.symbol);
+  if (isError || (stock && stock.candles.length === 0)) return null;
+  const lines: ChartLine[] = [
+    { price: r.targetPrice, title: easy ? "목표 가격" : "목표", tone: "target" },
+    { price: r.entryPrice, title: easy ? "사는 가격" : "진입", tone: "entry" },
+    { price: r.stopPrice, title: easy ? "손절 가격" : "손절", tone: "stop" },
+  ];
+  const height = "h-[320px] xl:h-[400px]";
   return (
-    <div className="min-w-0 rounded-xl bg-fill p-3">
-      <dt className="text-[12px] text-mute">{label}</dt>
-      <dd className={cn("mt-0.5 text-[17px] font-bold whitespace-nowrap tabular-nums", className)}>{value}</dd>
+    <Card aria-labelledby="price-chart-title">
+      {/* 선 이름(점선 범례)은 차트의 범례 줄이 말한다 */}
+      <h2 id="price-chart-title" className="text-[17px] font-bold">
+        가격 흐름
+      </h2>
+      <div className="mt-2">
+        {isPending || !stock ? (
+          <Skeleton className={cn("w-full", height)} />
+        ) : (
+          <Suspense fallback={<Skeleton className={cn("w-full", height)} />}>
+            <CandleChart candles={stock.candles} currency={stock.currency} variant={easy ? "line" : "candle"} lines={lines} className={height} />
+          </Suspense>
+        )}
+      </div>
+      <div className="mt-1.5 flex items-start justify-between gap-3 text-[12px] text-mute">
+        {/* 차트 라이브러리 고지 (lightweight-charts — 차트 안 로고 대신, 종목 상세와 같다) */}
+        <a
+          href="https://www.tradingview.com/"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Charting by TradingView"
+          className="shrink-0 rounded-sm text-mute transition-colors hover:text-sub hover:underline"
+        >
+          TradingView
+        </a>
+        <p className="min-w-0 text-right">{stock ? `일봉 · 최근 ${stock.candles.length}일 · 점선은 이 ${easy ? "계획" : "추천"}의 가격` : null}</p>
+      </div>
+    </Card>
+  );
+}
+
+/** 지표 칸. 값은 줄을 바꾸지 않고(자릿수 중간에서 갈라지지 않게), 보조 줄은 넘치면 줄임표 + 전체는 title (trade-03). PC는 값을 크게. */
+function Metric({ label, value, sub, className, wide }: { label: string; value: string; sub?: string; className?: string; wide?: boolean }) {
+  return (
+    <div className={cn("min-w-0 rounded-xl bg-fill p-3 lg:p-4", wide && "col-span-2")}>
+      <dt className="text-[12px] text-mute lg:text-[13px]">{label}</dt>
+      <dd className={cn("mt-0.5 text-[17px] font-bold whitespace-nowrap tabular-nums lg:mt-1 lg:text-[22px] lg:leading-tight", className)}>{value}</dd>
       {sub && (
-        <dd className="truncate text-[11px] text-mute" title={sub}>
+        <dd className="truncate text-[11px] text-mute lg:mt-0.5 lg:text-[12px]" title={sub}>
           {sub}
         </dd>
       )}
@@ -376,6 +428,50 @@ function ManualBanner({ pv, easy }: { pv: RiskPreview; easy: boolean }) {
   );
 }
 
+/**
+ * PC 실행 확인 카드 맨 위의 세 단계 (2026-10-12): 넣을 돈 → 확인 → 시작. 지금 단계를 강조해 첫 화면에서 무엇부터 할지 보인다.
+ * 누르는 탭으로 읽히지 않게 진행 표시 모양으로 (번호 원 + 이름 + 사이 연결선, 바탕·테두리 칸 없음): 지금 단계는 brand 원·글자,
+ * 끝난 단계는 체크. 모바일은 예전처럼 없다 (PC에서만 그린다 — useIsPc). 시작 버튼 이름을 그대로 쓰지 않는다 (Discord 띠·버튼과 같은 말이 겹치지 않게).
+ */
+function StartSteps({ easy, step }: { easy: boolean; step: 0 | 1 | 2 }) {
+  const pc = useIsPc();
+  if (!pc) return null;
+  const labels = easy ? ["넣을 돈", "확인", "시작"] : ["투자 금액", "확인", "활성화"];
+  return (
+    <ol aria-label={easy ? "시작 순서" : "활성화 순서"} className="mt-4 flex items-center gap-2">
+      {labels.map((t, i) => {
+        const done = i < step;
+        const now = i === step;
+        return (
+          <li
+            key={t}
+            aria-current={now ? "step" : undefined}
+            className={cn(
+              "flex min-w-0 items-center gap-2 text-[13px] transition-colors duration-fast",
+              i < labels.length - 1 && "flex-1",
+              now ? "font-semibold text-brand-ink" : done ? "font-semibold text-ok-ink" : "text-mute",
+            )}
+          >
+            <span
+              aria-hidden="true"
+              className={cn(
+                "grid size-6 shrink-0 place-items-center rounded-full text-[12px] font-bold tabular-nums transition-colors duration-fast",
+                now ? "bg-brand text-on-brand" : done ? "bg-ok-soft text-ok-ink" : "bg-fill text-mute",
+              )}
+            >
+              {done ? <Icon name="check" className="size-3.5" /> : `${i + 1}`}
+            </span>
+            <span className="shrink-0 whitespace-nowrap">{t}</span>
+            {done && <span className="sr-only"> (완료)</span>}
+            {/* 다음 단계로 잇는 선 (끝난 구간은 ok 색) */}
+            {i < labels.length - 1 && <span aria-hidden="true" className={cn("h-px min-w-3 flex-1", done ? "bg-ok" : "bg-line")} />}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 function ActivateCard({
   r,
   token,
@@ -462,7 +558,7 @@ function ActivateCard({
 
   return (
     <Card aria-labelledby="activate-title" className={cn(token && "ring-2 ring-brand")}>
-      <h2 id="activate-title" ref={titleRef} tabIndex={-1} className="flex scroll-mt-20 items-center gap-1.5 text-[17px] font-bold outline-none">
+      <h2 id="activate-title" ref={titleRef} tabIndex={-1} className="flex scroll-mt-20 lg:scroll-mt-(--rail-top) items-center gap-1.5 text-[17px] font-bold outline-none">
         <Icon name="bolt" className="size-5 text-brand" />
         {easy ? "실행 확인" : "계획 활성화"}
       </h2>
@@ -499,6 +595,7 @@ function ActivateCard({
         <BlockedBody r={r} pv={head.data} codes={codes} easy={easy} token={token} />
       ) : (
         <>
+          <StartSteps easy={easy} step={!choice ? 0 : acked ? 2 : 1} />
           {manual && head.data && <ManualBanner pv={head.data} easy={easy} />}
           <BudgetPicker
             mode={mode}
@@ -527,9 +624,14 @@ function ActivateCard({
                 // 금액 없는 미리 보기(머리 칩·매수 가능 금액)를 받지 못했으면 여기서 다시 받는다 — 같은 쿼리라 머리 칩도 바뀐다 (trade-r5)
                 <ErrorState compact message={errorMessage(head.error)} onRetry={() => void head.refetch()} retrying={head.isFetching} />
               ) : (
-                <p className="text-[14px] text-mute">
-                  {easy ? "금액을 정하면 몇 주를 사는지 보여 드려요." : "투자 금액을 정하면 수량·매수 금액·손절 시 손실을 계산합니다."}
-                </p>
+                <div className="flex items-center gap-3">
+                  <span aria-hidden="true" className="hidden size-9 shrink-0 place-items-center rounded-full bg-card text-brand lg:grid">
+                    <Icon name="pie" className="size-5" />
+                  </span>
+                  <p className="text-[14px] text-mute">
+                    {easy ? "금액을 정하면 몇 주를 사는지 보여 드려요." : "투자 금액을 정하면 수량·매수 금액·손절 시 손실을 계산합니다."}
+                  </p>
+                </div>
               )
             ) : preview.isError ? (
               // 미리 보기는 저절로 다시 받지 않는다 (금액을 바꾸거나 창으로 돌아올 때만) — 여기서 다시 받게 한다 (증권사 조회 장애 503 등).
@@ -814,7 +916,7 @@ function ExpertPreview({ r, pv, manual }: { r: Recommendation; pv: RiskPreview; 
   );
 }
 
-/** 쉬운 보기의 근거 목록: 접어 두고 개수만 (모바일에서 실행 확인까지의 길이를 줄인다). 위험은 펼친 채 둔다. */
+/** 쉬운 보기의 근거 목록(모바일): 접어 두고 개수만 (모바일에서 실행 확인까지의 길이를 줄인다). 위험은 펼친 채 둔다. PC는 펼친 목록. */
 function ReasonsFold({ reasons }: { reasons: string[] }) {
   const [open, setOpen] = useState(false);
   const id = useId();
@@ -872,6 +974,7 @@ export function RecommendationPage() {
   // 머리 칩은 안전장치 결과로 말한다. 실행 확인 카드의 금액 없는 미리 보기와 같은 쿼리라 요청이 늘지 않는다 (trade-04)
   const head = useRiskPreview(r?.id ?? Number.NaN, null, Boolean(r && open));
   const titleRef = useRef<HTMLHeadingElement>(null);
+  const pc = useIsPc();
 
   if (isPending) {
     return (
@@ -897,6 +1000,7 @@ export function RecommendationPage() {
   }
 
   const src = sourceLink(r, easy);
+  const metricCount = 6 + (r.confidence != null ? 1 : 0) + (r.priceAtCreation != null ? 1 : 0);
   const live = r.myPlan != null && isPlanLive(r.myPlan.status);
   const manualReady = manualRequested && open && canStartManually(head.data);
   const why = blockedLine(r, head.data, easy);
@@ -963,46 +1067,56 @@ export function RecommendationPage() {
       )}
       <div className={cn("grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start lg:gap-6", reveal && "reveal-fade")}>
         <div className="min-w-0 space-y-3">
-          <Card>
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-[14px] text-mute">
-                  {r.symbol} · {r.market === "KR" ? "국내" : "미국"} · {easy ? "계획" : "추천"} #{r.id}
-                </p>
-                <p className="mt-0.5 text-[22px] font-bold tracking-tight">{r.name}</p>
+          {/* 머리: PC 넓은 화면(xl)은 [종목·상태·배지 | 가격 사다리] 한 줄 (DOM 순서는 모바일과 같다 — 격자 열만 나눈다) */}
+          <Card className="xl:grid xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] xl:items-center xl:gap-8 xl:p-6">
+            <div className="min-w-0">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  {/* 번호(추천 #91)는 머리에 두지 않는다 — 전문가 보기는 오른쪽 열 아래 작은 줄에 */}
+                  <p className="text-[14px] text-mute">
+                    {r.symbol} · {r.market === "KR" ? "국내" : "미국"}
+                  </p>
+                  <p className="mt-0.5 text-[22px] font-bold tracking-tight">{r.name}</p>
+                </div>
+                {chip}
               </div>
-              {chip}
-            </div>
-            {/* 시작할 수 없는 이유 한 줄: 배지 바로 아래 (맨 아래 실행 확인까지 내려가야 알던 것 — UX-2) */}
-            {why && (
-              <p className="mt-2 flex items-start gap-1.5 text-[14px] leading-snug font-semibold text-sub">
-                <Icon name="ban" className="mt-0.5 size-4 shrink-0 text-mute" />
-                {why}
+              {/* 시작할 수 없는 이유 한 줄: 배지 바로 아래 (맨 아래 실행 확인까지 내려가야 알던 것 — UX-2) */}
+              {why && (
+                <p className="mt-2 flex items-start gap-1.5 text-[14px] leading-snug font-semibold text-sub">
+                  <Icon name="ban" className="mt-0.5 size-4 shrink-0 text-mute" />
+                  {why}
+                </p>
+              )}
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <SourceBadge source={r.source} />
+                {!easy && <RiskLevelBadge level={r.riskLevel} />}
+              </div>
+              {/* 만든 사람·시각과 기한은 각각 한 덩어리로 (좁은 칸에서 '(10.14' / '11:26까지)'처럼 갈라지지 않게) */}
+              <p className="mt-2 text-[14px] text-sub">
+                <span className="whitespace-nowrap xl:block">
+                  {r.requestedBy ? `${r.requestedBy} ${easy ? "님이 만듦" : "신청"}` : "자동"} · {formatDateTime(r.createdAt)}
+                </span>
+                {/* 가격 때문에 끝난 제안은 머리 칩과 이름 아래 문장이 이미 말하므로 기한 칸을 비운다 (같은 말 세 번 — DECISIONS 25장).
+                    PC 넓은 화면(xl)은 두 줄이라 사이 점을 감춘다 */}
+                {!open && priceExpiredText(r.expiredReason, easy) ? null : <span className="xl:hidden"> · </span>}
+                <span className="whitespace-nowrap xl:block">
+                  {!open
+                    ? priceExpiredText(r.expiredReason, easy)
+                      ? null
+                      : `${formatDateTime(r.validUntil)}에 ${easy ? "기한 지남" : "만료"}`
+                    : weekend
+                      ? // 기한이 주말·장 시작 전이면 실제로 살 수 있는 마지막(앞 거래일 장 마감)으로 (UX-11, 리뷰 R-5)
+                        `${entryDeadlineLabel(r.validUntil, r.market)}까지`
+                      : `${timeLeft(r.validUntil)} (${formatDateTime(r.validUntil)}까지)`}
+                </span>
               </p>
-            )}
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              <SourceBadge source={r.source} />
-              {!easy && <RiskLevelBadge level={r.riskLevel} />}
+              {r.source === "demo" && (
+                <Notice tone="warn" className="mt-3">
+                  {easy ? "연습용 예시 계획(AI 아님)이에요." : "연습용 예시 계획입니다 (AI 아님)."} {SOURCE.demo.hint}.
+                </Notice>
+              )}
             </div>
-            <p className="mt-2 text-[14px] text-sub">
-              {r.requestedBy ? `${r.requestedBy} ${easy ? "님이 만듦" : "신청"}` : "자동"} · {formatDateTime(r.createdAt)}
-              {/* 가격 때문에 끝난 제안은 머리 칩과 이름 아래 문장이 이미 말하므로 기한 칸을 비운다 (같은 말 세 번 — DECISIONS 25장) */}
-              {!open && priceExpiredText(r.expiredReason, easy) ? null : " · "}
-              {!open
-                ? priceExpiredText(r.expiredReason, easy)
-                  ? null
-                  : `${formatDateTime(r.validUntil)}에 ${easy ? "기한 지남" : "만료"}`
-                : weekend
-                  ? // 기한이 주말·장 시작 전이면 실제로 살 수 있는 마지막(앞 거래일 장 마감)으로 (UX-11, 리뷰 R-5)
-                    `${entryDeadlineLabel(r.validUntil, r.market)}까지`
-                  : `${timeLeft(r.validUntil)} (${formatDateTime(r.validUntil)}까지)`}
-            </p>
-            {r.source === "demo" && (
-              <Notice tone="warn" className="mt-3">
-                {easy ? "연습용 예시 계획(AI 아님)이에요." : "연습용 예시 계획입니다 (AI 아님)."} {SOURCE.demo.hint}.
-              </Notice>
-            )}
-            <div className="mt-5">
+            <div className="mt-5 min-w-0 xl:mt-0">
               <PriceLadder
                 stop={r.stopPrice}
                 entry={r.entryPrice}
@@ -1016,6 +1130,9 @@ export function RecommendationPage() {
               <AsOf at={quote?.asOf} market={r.market} basis={quote?.basis} className="mt-1 block text-right" />
             </div>
           </Card>
+
+          {/* 가격 차트는 PC에만 있다(모바일 DOM에 없음). 쉬운 보기는 '계획 요약'(쉬운 말 근거)이 첫 화면에 보이게 요약 뒤에 둔다 */}
+          {pc && !easy && <PriceChart r={r} easy={easy} />}
 
           {easy ? (
             <Card aria-labelledby="plan-summary-title">
@@ -1040,47 +1157,59 @@ export function RecommendationPage() {
               <h2 id="metrics-title" className="mb-3 text-[17px] font-bold">
                 지표
               </h2>
-              <dl className="grid grid-cols-2 gap-2 @lg:grid-cols-4">
+              {/* 값이 없는 칸은 빼므로 6~8칸: 넓으면 6칸은 3열, 7·8칸은 4열. 7칸이면 마지막 칸이 두 칸 (모바일 2열에서도 — 마지막 줄이 비지 않게) */}
+              <dl className={cn("grid grid-cols-2 gap-2", metricCount === 6 ? "@lg:grid-cols-3" : "@lg:grid-cols-4")}>
                 <Metric label="목표 수익률" value={formatRate(r.targetReturn)} className="text-up" sub="비용 전" />
                 <Metric label="손절률" value={formatRate(r.stopLossRate)} className="text-down" sub="비용 전" />
                 <Metric label="손익비" value={r.rewardRisk.toFixed(2)} sub="비용 반영" />
                 <Metric label="목표 도달 확률" value={formatPercent(r.probability)} sub={r.probabilityAssumed ? "가정 (AI가 주지 않음)" : undefined} />
                 <Metric label="기대수익률" value={formatRate(r.expectedReturn)} className={r.expectedReturn >= 0 ? "text-up" : "text-down"} sub="비용 반영" />
                 <Metric label="보유 기간" value={`${r.holdingDays}거래일`} />
-                <Metric label="신뢰도" value={r.confidence == null ? "-" : `${Math.round(r.confidence)}점`} sub={r.confidence == null ? "없음" : "0~100"} />
-                <Metric label="추천 때 종가" value={formatPrice(r.priceAtCreation, r.currency)} sub="만들 때의 직전 종가" />
+                {/* 값이 없는 칸('-')은 두지 않는다 (신뢰도는 연습용 예시 등에서 없다) */}
+                {r.confidence != null && (
+                  <Metric label="신뢰도" value={`${Math.round(r.confidence)}점`} sub="0~100" wide={metricCount === 7 && r.priceAtCreation == null} />
+                )}
+                {r.priceAtCreation != null && (
+                  <Metric label="추천 때 종가" value={formatPrice(r.priceAtCreation, r.currency)} sub="만들 때의 직전 종가" wide={metricCount === 7} />
+                )}
               </dl>
             </Card>
           )}
+
+          {pc && easy && <PriceChart r={r} easy={easy} />}
 
           <Card aria-labelledby="summary-title">
             <h2 id="summary-title" className="text-[17px] font-bold">
               {easy ? "AI 의견 요약" : "결론"}
             </h2>
             <p className="mt-1 text-[15px] leading-relaxed">{r.summary}</p>
-            {r.reasons.length > 0 &&
-              (easy ? (
-                <ReasonsFold reasons={r.reasons} />
-              ) : (
+            {/* 근거·위험: 넓은 화면(xl)은 나란히. 쉬운 보기의 근거 접힘은 모바일만 (실행 확인까지 길이를 줄이려는 것) —
+                PC는 근거도 위험과 같은 모양으로 펼쳐 두 칸의 무게를 맞춘다 */}
+            <div className="xl:grid xl:grid-cols-2 xl:gap-8">
+              {r.reasons.length > 0 &&
+                (easy && !pc ? (
+                  <ReasonsFold reasons={r.reasons} />
+                ) : (
+                  <div className="mt-3">
+                    <h3 className="text-[14px] font-semibold text-sub">근거</h3>
+                    <ul className="mt-1 list-disc space-y-1 pl-5 text-[14px] leading-relaxed">
+                      {r.reasons.map((x, i) => (
+                        <li key={i}>{x}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              {r.risks.length > 0 && (
                 <div className="mt-3">
-                  <h3 className="text-[14px] font-semibold text-sub">근거</h3>
+                  <h3 className="text-[14px] font-semibold text-sub">{easy ? "위험" : "리스크"}</h3>
                   <ul className="mt-1 list-disc space-y-1 pl-5 text-[14px] leading-relaxed">
-                    {r.reasons.map((x, i) => (
+                    {r.risks.map((x, i) => (
                       <li key={i}>{x}</li>
                     ))}
                   </ul>
                 </div>
-              ))}
-            {r.risks.length > 0 && (
-              <div className="mt-3">
-                <h3 className="text-[14px] font-semibold text-sub">{easy ? "위험" : "리스크"}</h3>
-                <ul className="mt-1 list-disc space-y-1 pl-5 text-[14px] leading-relaxed">
-                  {r.risks.map((x, i) => (
-                    <li key={i}>{x}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
+              )}
+            </div>
             {src && (
               <Link to={src.to} className="press mt-4 flex h-11 items-center justify-between rounded-xl bg-fill px-3.5 text-[15px] font-semibold hover:bg-line">
                 {src.label}
@@ -1093,7 +1222,7 @@ export function RecommendationPage() {
         <div ref={stickyFit} className="space-y-3 lg:sticky" style={{ top: STICKY_FIT_TOP }}>
           <ActivateCard key={r.id} r={r} token={token} titleRef={titleRef} quote={quote} manualRequested={manualRequested} />
           <p className="px-1 text-[13px] text-mute">
-            {easy ? `팀에서 이 계획으로 시작한 모의 자동매매 ${r.planCount}건` : `팀에서 이 추천으로 활성화한 계획 ${r.planCount}건`}
+            {easy ? `팀에서 이 계획으로 시작한 모의 자동매매 ${r.planCount}건` : `팀에서 이 추천으로 활성화한 계획 ${r.planCount}건 · 추천 번호 ${r.id}`}
           </p>
         </div>
       </div>

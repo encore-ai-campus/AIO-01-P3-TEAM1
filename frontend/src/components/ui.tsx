@@ -350,7 +350,8 @@ export function ErrorState({
  *   진짜 제목이 오면 h1을 새로 그린다 — 같은 h1의 글자만 바뀌면 포커스 이벤트가 없어 새 제목이 알려지지 않는다.
  *   포커스가 그 h1에 있었으면(옛 h1이 빠져 갈 곳을 잃음) 새 h1로 다시 준다.
  * - brand: 모바일에서 제목 대신 [로고 28px + 서비스 이름 18px]을 보인다 (홈 — 아래 탭이 이미 '홈'이라). h1은 화면 읽기용으로 남는다.
- * - 모바일은 오른쪽에 알림 종 (PC는 왼쪽 메뉴). bell={false}면 숨긴다.
+ * - 모바일은 오른쪽에 알림 종 (PC는 위 바·왼쪽 메뉴). bell={false}면 숨긴다.
+ * - pcBack={false}: PC에서는 뒤로 가기를 숨긴다 — 왼쪽 메뉴에 있는 화면(알림 등)은 PC에서 '맨 위 화면'이라 돌아갈 곳이 없다.
  */
 export function PageHeader({
   title,
@@ -359,6 +360,7 @@ export function PageHeader({
   brand = false,
   docTitle,
   bell = true,
+  pcBack = true,
 }: {
   title: ReactNode;
   back?: boolean | string;
@@ -366,6 +368,7 @@ export function PageHeader({
   brand?: boolean;
   docTitle?: string;
   bell?: boolean;
+  pcBack?: boolean;
 }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -403,7 +406,10 @@ export function PageHeader({
           type="button"
           aria-label="뒤로 가기"
           onClick={goBack}
-          className="grid size-11 shrink-0 place-items-center rounded-full text-ink transition-colors hover:bg-line/60 active:bg-line/60"
+          className={cn(
+            "grid size-11 shrink-0 place-items-center rounded-full text-ink transition-colors hover:bg-line/60 active:bg-line/60",
+            !pcBack && "lg:hidden",
+          )}
         >
           <Icon name="back" />
         </button>
@@ -426,6 +432,29 @@ export function PageHeader({
       {right}
       {bell && <NotificationBell className="lg:hidden" />}
     </header>
+  );
+}
+
+/**
+ * 요약 숫자 줄 (KPI): 이름 · 큰 숫자 · 보조 줄. 화면 맨 위 요약(모의투자·종목·계획·마이 등)에 같은 모양으로 쓴다 (docs/DECISIONS.md 33장).
+ * dl 하나에 칸(Stat)마다 dt·dd. 모바일은 2열 격자, PC(lg)는 한 줄로 늘어서고 칸 사이에 세로 구분선.
+ */
+export function StatGrid({ children, label, className }: { children: ReactNode; label?: string; className?: string }) {
+  return (
+    <dl aria-label={label} className={cn("grid grid-cols-2 gap-x-4 gap-y-4 lg:flex lg:gap-0 lg:divide-x lg:divide-line", className)}>
+      {children}
+    </dl>
+  );
+}
+
+/** StatGrid의 한 칸. value는 tabular-nums로 그린다 (값이 바뀌어도 자리가 흔들리지 않게). */
+export function Stat({ label, value, sub, className }: { label: ReactNode; value: ReactNode; sub?: ReactNode; className?: string }) {
+  return (
+    <div className={cn("min-w-0 lg:flex-1 lg:px-5 lg:first:pl-0 lg:last:pr-0", className)}>
+      <dt className="text-[13px] font-medium text-mute">{label}</dt>
+      <dd className="mt-1 truncate text-[21px] leading-tight font-bold tabular-nums lg:text-[24px]">{value}</dd>
+      {sub && <dd className="mt-1 text-[13px] text-sub tabular-nums">{sub}</dd>}
+    </div>
   );
 }
 
