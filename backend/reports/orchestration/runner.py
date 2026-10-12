@@ -1,4 +1,4 @@
-"""AI 리포트 실행기 (docs/tasks/00-공통.md 8절, 03-orchestrator.md T3-4·T3-12). run_engine 루프가 매 바퀴 tick()을 부른다.
+"""AI 리포트 실행기 (docs/tasks/00-공통.md 8절, 부록 A3 T3-4·T3-12). run_engine 루프가 매 바퀴 tick()을 부른다.
 
 requested 리포트를 오래된 것부터 하나 잡아 백그라운드 스레드에서 orchestrator.run_report로 끝까지 돌린다.
 동시에 하나만 돈다 (MAX_CONCURRENT — LLM 비용 상한). 끝난 리포트마다 reports.autoreport.auto.after_finish(report)를 부른다

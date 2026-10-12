@@ -4,7 +4,7 @@
 // 내 리포트·계획을 받기 전에는 지난번에 본 진행(homeData readGuideHint)으로 그린다 — 처음 쓰는 사람 화면을 먼저 그렸다가 바꾸면
 // 틀린 버튼·예시가 잠깐 보이고, 다 해 본 사람은 큰 카드가 한 줄로 줄며 아래 내용이 수백 px 올라온다.
 // 보일지·닫았는지는 HomePage가 정한다 (닫으면 접히며 사라지고, 맨 아래 '3단계 안내 다시 보기'로 되살린다).
-// 진단 전이면 단계 목록 위에 '먼저 1분 진단' 한 줄을 둔다 (docs/plans/투자서비스확장계획.md 2-1 '처음 로그인하면 진단을 권한다 — 건너뛸 수 있음').
+// 진단 전이면 단계 목록 위에 '먼저 1분 진단' 한 줄을 둔다 (docs/plans/컨셉변경계획.md 부록 A2-1 '처음 로그인하면 진단을 권한다 — 건너뛸 수 있음').
 // 안내 위에 카드를 하나 더 쌓지 않는다 — '보기를 고르고 → 3단계'가 한 덩어리로 읽히게. 마이는 /my#diagnosis로 오면 진단 폼을 펼친다.
 import { type FocusEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link } from "react-router";

@@ -1,4 +1,4 @@
-"""장애·복구 요약과 복구 지표 (docs/tasks/04-autohealing.md T4-7, docs/API.md `RecoverySummary`·`RecoveryStats`).
+"""장애·복구 요약과 복구 지표 (docs/tasks/00-공통.md 부록 A4 T4-7, docs/API.md `RecoverySummary`·`RecoveryStats`).
 
 셈법은 docs/tasks/00-공통.md 9절 (화면 frontend/src/lib/recovery.ts와 같은 규칙 — 바꾸면 둘 다 고친다):
 - Worker의 실행(run) = 그 actor의 agent_started부터 다음 agent_completed 또는 포기(agent_failed, final이 false가 아님)까지.

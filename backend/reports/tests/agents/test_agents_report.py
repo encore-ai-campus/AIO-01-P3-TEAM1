@@ -1,4 +1,4 @@
-"""종목 리포트 팀 Worker 6개 (docs/tasks/02-worker.md T2-4~T2-8, 00-공통.md 6·10절).
+"""종목 리포트 팀 Worker 6개 (docs/tasks/00-공통.md 부록 A2 T2-4~T2-8, 00-공통.md 6·10절).
 
 실제 LLM·증권사·DART·뉴스는 부르지 않는다: ctx.llm은 계약 검증까지 하는 가짜 호출기(FakeCaller) 또는 healing 호출기 + FakeLlm,
 trading.market·longterm.sources·뉴스 검색은 monkeypatch로 바꾼다.

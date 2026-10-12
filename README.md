@@ -361,9 +361,9 @@ sequenceDiagram
 | 평가 항목 | 배점 | 보여 줄 것 | 근거 |
 |---|---|---|---|
 | 프로젝트 기획 및 목표 달성도 | 25 | 핵심 수행내용 네 가지를 모두 구현해 운영 서버에서 돈다. "AI는 제안, 코드는 검증, 사람이 결정" 원칙으로 초보자의 문제를 푼다 | 위 표, 산출물 1 |
-| 서비스 완성도 및 활용 가능성 | 35 | 운영 주소에서 로그인 → AI 리포트(약 2분) → 계획 활성화 → 모의 자동매매 → 알림까지 실제로 돈다. 매일 08:00 자동 리포트, 주린이모드(쉬운 보기), 모바일 화면, 관리 서버 | [운영 E2E 점검](docs/records/운영E2E점검_UX리뷰_2026-10-08.md) |
-| 프로젝트 수행 과정 및 개선 노력 | 20 | 결정 기록 27장, 브랜치 리뷰 문서, 실패 사례와 개선 이력 — 검사 실패가 실제로 배포를 막은 기록, 리뷰에서 찾아 고친 결함 | [DECISIONS](docs/DECISIONS.md), [docs/works/](docs/works/), 산출물 2의 6장, 산출물 3의 4·8장 |
-| 발표 구성 및 전달력 | 20 | 큰 그림 → 서버 → Agent → 복구 순서로 설명, 시연(정상 → 장애 주입 → 복구 → 배포 차단) | 발표 자료, [docs/plans/TEAM_DEV_PLAN.md](docs/plans/TEAM_DEV_PLAN.md) 9장 시연 순서 |
+| 서비스 완성도 및 활용 가능성 | 35 | 운영 주소에서 로그인 → AI 리포트(약 2분) → 계획 활성화 → 모의 자동매매 → 알림까지 실제로 돈다. 매일 08:00 자동 리포트, 주린이모드(쉬운 보기), 모바일 화면, 관리 서버 | [운영 E2E 점검](docs/records/기록.md) |
+| 프로젝트 수행 과정 및 개선 노력 | 20 | 결정 기록 32장, 브랜치 리뷰 기록, 실패 사례와 개선 이력 — 검사 실패가 실제로 배포를 막은 기록, 리뷰에서 찾아 고친 결함 | [DECISIONS](docs/DECISIONS.md), [docs/records/기록.md](docs/records/기록.md), 산출물 2의 6장, 산출물 3의 4·8장 |
+| 발표 구성 및 전달력 | 20 | 큰 그림 → 서버 → Agent → 복구 순서로 설명, 시연(정상 → 장애 주입 → 복구 → 배포 차단) | 발표 자료, [docs/plans/TEAM_PAPER_TRADING_PLAN.md 부록 A](docs/plans/TEAM_PAPER_TRADING_PLAN.md) 9장 시연 순서 |
 
 ### 실행 정보
 
@@ -475,7 +475,7 @@ sequenceDiagram
 | 엔진 CLI·백테스트 | 동작 (웹 계좌와 별개) |
 | ~~단타 연습~~ | 2026-10-06 폐기 |
 
-자세한 상태·근거는 [docs/plans/TEAM_PAPER_TRADING_PLAN.md](docs/plans/TEAM_PAPER_TRADING_PLAN.md), 남은 결정·확인은 [docs/결정필요사항.md](docs/결정필요사항.md).
+자세한 상태·근거는 [docs/plans/TEAM_PAPER_TRADING_PLAN.md](docs/plans/TEAM_PAPER_TRADING_PLAN.md), 남은 결정·확인은 [docs/plans/TEAM_PAPER_TRADING_PLAN.md 4장](docs/plans/TEAM_PAPER_TRADING_PLAN.md).
 
 ## 설치
 
@@ -483,7 +483,7 @@ sequenceDiagram
 클론부터 서버 실행까지 진행한다. 이미 클론했으면 "`docs/guides/SETUP_PROMPT.md`를 읽고 그대로 진행해 줘" ([docs/guides/SETUP_PROMPT.md](docs/guides/SETUP_PROMPT.md)).
 `.env`·`.env.team`에는 비밀 값이 들어가므로 커밋하지 않는다.
 
-**Windows**: 먼저 [docs/guides/WSL2_SETUP.md](docs/guides/WSL2_SETUP.md)로 WSL2 Ubuntu와 VS Code 연결을 준비한다 (WSL이 아닌 Windows에서는 돌지 않는다).
+**Windows**: 먼저 [docs/guides/SETUP_PROMPT.md 0장](docs/guides/SETUP_PROMPT.md)로 WSL2 Ubuntu와 VS Code 연결을 준비한다 (WSL이 아닌 Windows에서는 돌지 않는다).
 
 직접 하려면 (macOS·Linux·WSL2):
 
@@ -503,7 +503,7 @@ scripts/dev.sh stop       # 전부 내린다          · status · logs [backend
 - 프론트엔드는 `0.0.0.0`에 떠서 같은 네트워크의 휴대폰·다른 PC에서 `http://<이 PC의 IP>:5173`으로 볼 수 있다. Django는 이 PC에서만 접근한다.
 - 8000·5173 포트가 사용 중이면 다음 빈 포트를 알아서 쓴다.
 - DB는 `.env`의 `POSTGRES_HOST`로 고른다: 비어 있으면 SQLite(`backend/db.sqlite3`), `127.0.0.1`이면 이 PC에 PostgreSQL 컨테이너를 띄우고,
-  호스트 PC의 IP면 팀이 같이 보는 개발 DB를 쓴다. 접속 방법은 [docs/plans/TEAM_DEV_PLAN.md](docs/plans/TEAM_DEV_PLAN.md) 12장.
+  호스트 PC의 IP면 팀이 같이 보는 개발 DB를 쓴다. 접속 방법은 [docs/plans/TEAM_PAPER_TRADING_PLAN.md 부록 A](docs/plans/TEAM_PAPER_TRADING_PLAN.md) 12장.
 - 로그인 아이디·비밀번호는 `team_accounts.txt`에 있다. 팀원마다 모의 계좌(초기 자금 `PAPER_CAPITAL_KRW`)가 하나씩 생긴다.
 
 하나씩 직접 띄우려면:
@@ -545,27 +545,30 @@ frontend/src/          React + TypeScript + Vite + Tailwind CSS: pages/ · compo
 admin/                 관리 서버 (EC2 ②): server(FastAPI·MCP) · web(관리자 화면) · deploy(compose·SSH 터널)
 backtest/              백테스트 (AI 없음, DB 없이 단독 실행)
 deploy/                Docker Compose (개발용 Redis·PostgreSQL, 운영 nginx·web·engine·db·redis), 배포 스크립트
-docs/                  기준 문서(API·DECISIONS·DEPLOY·KIWOOM) · guides(설치) · plans(계획서) · design(설계) · records(시험 기록)
-                       · evaluation(평가 기준·기여) · deliverables(산출물 3종) · tasks(담당별 작업) · works(리뷰) — 지도는 docs/README.md
+docs/                  기준 문서(API·DECISIONS·DEPLOY·교육용문서) · plans(계획서) · design(설계) · tasks(약속·담당별 작업) · records(기록)
+                       · research(조사) · guides(설치) · evaluation(평가 기준·기여) · deliverables(산출물 3종) — 지도는 아래 "문서" 절
 ```
 
 엔진 자체 계좌(웹 계좌와 별개)는 CLI로 조작한다: `uv run python -m paper_engine --help` (명령은 [AGENTS.md](AGENTS.md) "실행").
 
 ## 문서
 
+`docs/` 아래 문서는 17개다 (2026-10-12 합칠 수 있는 문서를 합침 — `docs/DECISIONS.md` 32장). 새 문서를 만들기보다 있는 문서에 장으로 더한다 ([AGENTS.md](AGENTS.md) "작업 방식").
+
 | 문서 | 내용 |
 |---|---|
 | [docs/deliverables/](docs/deliverables/) | **산출물 3종**: ① 멀티 에이전트 아키텍처 설계서 · ② 배포 및 장애 복구 보고서 · ③ 파이프라인 구현 결과 보고서 |
-| [AGENTS.md](AGENTS.md) | 안전 규칙·명령·작업 방식 (AI 에이전트와 팀원 공통) |
-| [docs/README.md](docs/README.md) | 문서 지도 — 무엇을 어디서 보나, 새 문서는 어느 폴더에 두나 |
-| [docs/guides/SETUP_PROMPT.md](docs/guides/SETUP_PROMPT.md) · [docs/guides/WSL2_SETUP.md](docs/guides/WSL2_SETUP.md) | 클론 직후 설치·실행 (AI 에이전트용) · Windows의 WSL2·VS Code 준비 |
-| [docs/plans/TEAM_PAPER_TRADING_PLAN.md](docs/plans/TEAM_PAPER_TRADING_PLAN.md) · [docs/결정필요사항.md](docs/결정필요사항.md) | 지금 상태·남은 작업 · 남은 결정과 다음 시작점 |
-| [docs/plans/TEAM_DEV_PLAN.md](docs/plans/TEAM_DEV_PLAN.md) · [docs/tasks/](docs/tasks/) | 팀원이 이어서 할 일과 개발 환경 · 담당별 세부 작업과 담당 간 약속 |
-| [docs/API.md](docs/API.md) · [docs/DECISIONS.md](docs/DECISIONS.md) | 웹 API 계약 · 공통 결정 |
-| [docs/교육용문서.md](docs/교육용문서.md) · [docs/design/AI_AGENT_WORKFLOW.md](docs/design/AI_AGENT_WORKFLOW.md) | Agent 개념 · 종목 선정 Agent 워크플로우 설계 예시 (오류 복구 포함) |
-| [docs/design/DESIGN.md](docs/design/DESIGN.md) · [docs/KIWOOM.md](docs/KIWOOM.md) | 엔진 설계 · 키움 API |
-| [docs/design/화면배치.md](docs/design/화면배치.md) | 화면별 배치와 근거 |
-| [docs/DEPLOY.md](docs/DEPLOY.md) · [admin/README.md](admin/README.md) | 배포와 CI/CD 설정 · 관리 서버 |
+| [AGENTS.md](AGENTS.md) | 안전 규칙·명령·작업 방식 (AI 에이전트와 팀원 공통). 새 문서를 둘 곳도 여기 |
+| [docs/plans/TEAM_PAPER_TRADING_PLAN.md](docs/plans/TEAM_PAPER_TRADING_PLAN.md) | 지금 상태(1장)·기술 스택·남은 작업 · 남은 결정과 다음 시작점(4장) · 팀원 개발 계획·개발 환경·시연 순서(부록 A) |
+| [docs/plans/컨셉변경계획.md](docs/plans/컨셉변경계획.md) | 서비스 컨셉(초보자도 리포트를 만들고·검토하고·실행) · 투자 방식 확장과 주린이모드(부록 A) |
+| [docs/tasks/00-공통.md](docs/tasks/00-공통.md) | 담당 간 약속(파일 소유·함수 서명·Trace·출력 계약) · 담당별 세부 작업(부록 A1~A6) |
+| [docs/API.md](docs/API.md) · [docs/DECISIONS.md](docs/DECISIONS.md) | 웹 API 계약 · 공통 결정 (장 번호로 가리킨다) |
+| [docs/교육용문서.md](docs/교육용문서.md) · [docs/design/AI_AGENT_WORKFLOW.md](docs/design/AI_AGENT_WORKFLOW.md) | Agent 개념 (앱이 빌드에 넣는다) · 종목 선정 Agent 워크플로우 설계 예시 (오류 복구 포함) |
+| [docs/design/DESIGN.md](docs/design/DESIGN.md) | 엔진 설계 · 키움 API 확인 결과(부록 A) · 화면별 배치와 근거(부록 B) |
+| [docs/DEPLOY.md](docs/DEPLOY.md) · [admin/README.md](admin/README.md) | 배포와 CI/CD · 관리 서버 계획(부록 A)·채택 안 한 서버 3대 분리 안(부록 B) · 관리 서버 사용법 |
+| [docs/records/기록.md](docs/records/기록.md) | 날짜가 붙은 시험·점검·리뷰·완료 보고 (날짜순 장) |
+| [docs/research/조사.md](docs/research/조사.md) | 구현 전 조사: 약관·이용 조건, 장기투자, 단타·선물(폐기) |
+| [docs/guides/SETUP_PROMPT.md](docs/guides/SETUP_PROMPT.md) | 클론 직후 설치·실행 (AI 에이전트용) · Windows의 WSL2·VS Code 준비(0장) |
 | [docs/evaluation/팀원별_업무분장_기여.md](docs/evaluation/팀원별_업무분장_기여.md) | 담당별 업무와 기여 (커밋·PR) |
 | [docs/evaluation/프로젝트평가기준.md](docs/evaluation/프로젝트평가기준.md) | 과제 평가 기준 |
 

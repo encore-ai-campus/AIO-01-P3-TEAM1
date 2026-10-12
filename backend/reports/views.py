@@ -168,7 +168,7 @@ class PdfView(APIView):
 class ScreeningView(APIView):
     @extend_schema(responses=OpenApiTypes.OBJECT)
     def get(self, request):
-        """ScreeningResult: 그날(기본 오늘, KST)의 선별 결과 (reports/autoreport/auto.py가 남긴 파일). 없으면 404 (docs/tasks/01 T1-7)."""
+        """ScreeningResult: 그날(기본 오늘, KST)의 선별 결과 (reports/autoreport/auto.py가 남긴 파일). 없으면 404 (docs/tasks/00-공통.md 부록 A1 T1-7)."""
         from .autoreport import auto  # 선별 파일 읽기 (선별 자체는 엔진 루프·관리 명령이 한다)
 
         market_ = (request.query_params.get("market") or "KR").strip().upper()

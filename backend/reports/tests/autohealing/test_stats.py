@@ -1,4 +1,4 @@
-"""장애·복구 요약과 복구 지표 (docs/tasks/04-autohealing.md T4-7, docs/tasks/00-공통.md 9절 셈법):
+"""장애·복구 요약과 복구 지표 (docs/tasks/00-공통.md 부록 A4 T4-7, docs/tasks/00-공통.md 9절 셈법):
 stats.report_recovery(RecoverySummary), stats.recovery_stats(RecoveryStats), GET /api/reports/recovery-stats, 상세의 recovery."""
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo

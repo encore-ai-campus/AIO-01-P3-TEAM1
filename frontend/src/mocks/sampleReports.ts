@@ -135,7 +135,7 @@ export function finishSample(r: ReportDetail, stock: MockStock, kind: SampleKind
         : ["실적이 줄어드는 흐름이 보였어요.", "업황에 대한 걱정이 아직 남아 있어요.", "가격이 더 내려갈 위험이 있다고 봤어요."];
   const reasons = ["반기 매출·영업이익이 전년보다 늘었다", "20일 이동평균선 위에서 거래대금이 늘었다", "외국인 순매수가 이어졌다"];
   // 마지막 위험은 프롬프트가 요구하는 "이 의견이 틀리는 경우" 한 줄 ("○○원 아래로 내려가거나 ○○이 나오면 의견을 다시 봐야 해요",
-  // docs/tasks/02-worker.md T2-7). 긍정적은 손절 가격, 지켜보기는 지지선, 부정적은 저항선(오르면 틀린다) — 손절 가격은 긍정적에만 있다
+  // docs/tasks/00-공통.md 부록 A2 T2-7). 긍정적은 손절 가격, 지켜보기는 지지선, 부정적은 저항선(오르면 틀린다) — 손절 가격은 긍정적에만 있다
   const won = (p: number) => (stock.currency === "USD" ? `$${p.toFixed(2)}` : `${p.toLocaleString("ko-KR")}원`);
   const whenWrong =
     kind === "buy" && t

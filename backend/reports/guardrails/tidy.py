@@ -1,4 +1,4 @@
-"""리포트 결과의 결정론적 후처리와 쉬운 글 전문 용어 표 (docs/records/운영E2E점검_UX리뷰_2026-10-08.md UX-4·UX-5). Claude 파일.
+"""리포트 결과의 결정론적 후처리와 쉬운 글 전문 용어 표 (docs/records/기록.md F장 UX-4·UX-5). Claude 파일.
 
 Orchestrator가 Worker 결과를 출력 계약으로 검증한 뒤 State에 저장하기 전(state.add_result)에 `tidy_result`를 한 번 부른다.
 - 쉼표 없는 원 금액: "201000원" → "201,000원" (4자리 이상 정수 + "원").

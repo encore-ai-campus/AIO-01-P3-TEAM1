@@ -1,4 +1,4 @@
-"""키움 REST API 읽기 전용 실측 확인. 키를 받으면 한 번 돌려 docs/KIWOOM.md의 "실측 미확인" 항목을 채운다.
+"""키움 REST API 읽기 전용 실측 확인. 키를 받으면 한 번 돌려 docs/design/DESIGN.md 부록 A의 "실측 미확인" 항목을 채운다.
 
     uv run python scripts/kiwoom_check.py                 # 국내 확인
     uv run python scripts/kiwoom_check.py --us --fx       # 미국 시세·환율까지

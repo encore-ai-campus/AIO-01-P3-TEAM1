@@ -1,4 +1,4 @@
-// 운영 E2E 점검 뒤 고친 리포트 화면 (docs/records/운영E2E점검_UX리뷰_2026-10-08.md UX-4·UX-5·UX-15·UX-17).
+// 운영 E2E 점검 뒤 고친 리포트 화면 (docs/records/기록.md F장 UX-4·UX-5·UX-15·UX-17).
 // UX-7(진행 화면)·UX-8(지켜보기)은 report-easy.test.tsx의 진행·완성 테스트가 함께 본다.
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createChart } from "lightweight-charts";

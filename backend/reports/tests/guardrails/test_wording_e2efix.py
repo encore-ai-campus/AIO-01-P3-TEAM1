@@ -1,4 +1,4 @@
-"""운영 E2E 점검 UX-4·UX-5 (docs/records/운영E2E점검_UX리뷰_2026-10-08.md): 쉬운 글 전문 용어 Guard, 리포트 결과 후처리, 뉴스 출처.
+"""운영 E2E 점검 UX-4·UX-5 (docs/records/기록.md F장): 쉬운 글 전문 용어 Guard, 리포트 결과 후처리, 뉴스 출처.
 
 - 쉬운 글(plainSummary·oneLiner·reasons·risks)에 전문 용어 → 검토가 RETRY(사유에 걸린 용어). 한도를 다 쓴 마지막 검토는 통과하고,
   State에는 괄호 풀이를 붙인 글이 남는다.

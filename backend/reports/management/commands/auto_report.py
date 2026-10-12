@@ -1,4 +1,4 @@
-"""오늘의 자동 리포트를 지금 한 번 시작한다 (엔진 루프의 "자동 리포트" 단계와 같은 일. reports/autoreport/auto.py, docs/tasks/01-인프라.md T1-6).
+"""오늘의 자동 리포트를 지금 한 번 시작한다 (엔진 루프의 "자동 리포트" 단계와 같은 일. reports/autoreport/auto.py, docs/tasks/00-공통.md 부록 A1 T1-6).
 
     python manage.py auto_report [--market KR] [--top 3] [--force] [--wait]
 

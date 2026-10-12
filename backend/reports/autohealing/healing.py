@@ -1,4 +1,4 @@
-"""리포트 Worker의 LLM 호출기 (docs/tasks/00-공통.md 7절, 04-autohealing.md T4-3~T4-6).
+"""리포트 Worker의 LLM 호출기 (docs/tasks/00-공통.md 7절, 부록 A4 T4-3~T4-6).
 
 Orchestrator가 Worker마다 `make_caller`로 호출기를 만들어 `ctx.llm`에 넣고, Worker는 `ctx.llm(system, user, contract=...)`로 부른다.
 Trace는 `state.record`로만 남긴다 (`add_result`·`add_error`·`finish`는 Orchestrator 몫).

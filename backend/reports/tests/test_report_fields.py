@@ -1,4 +1,4 @@
-"""리포트 새 열과 응답 필드 (docs/tasks/04-autohealing.md T4-1, docs/tasks/00-공통.md 3절):
+"""리포트 새 열과 응답 필드 (docs/tasks/00-공통.md 부록 A4 T4-1, docs/tasks/00-공통.md 3절):
 user null 허용(자동 리포트)·source·team·chaos·cost_usd·pdf_path → ReportSummary의 source·team·requestedBy·chaosEnabled·
 costUsd·hasPdf, ReportDetail의 chaos·recovery."""
 import json

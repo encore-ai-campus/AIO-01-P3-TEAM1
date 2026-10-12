@@ -1,4 +1,4 @@
-"""매일 자동 추천 — 시연용 (docs/tasks/06-추천·자동매매.md T6-6): 국내 거래일 AUTO_RECOMMEND_AT(KST) 이후 하루 한 번
+"""매일 자동 추천 — 시연용 (docs/tasks/00-공통.md 부록 A6 T6-6): 국내 거래일 AUTO_RECOMMEND_AT(KST) 이후 하루 한 번
 선별(reports.autoreport.auto.select) 상위 종목마다 시연 규칙 추천(AI 아님, demo.recommend)을 만들어 팀 전체에 알린다.
 
 AUTO_RECOMMEND=demo일 때만 돈다 (기본 off — 선별이 증권사 조회를 100번 넘게 한다). 엔진 루프의 "자동 추천" 단계가 tick을 부른다.

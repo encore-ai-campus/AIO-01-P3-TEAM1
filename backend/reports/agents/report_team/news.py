@@ -1,4 +1,4 @@
-"""뉴스·심리 Worker `news_agent` (docs/tasks/02-worker.md T2-6).
+"""뉴스·심리 Worker `news_agent` (docs/tasks/00-공통.md 부록 A2 T2-6).
 
 자료: Google 뉴스 RSS 제목(`paper_engine.data.news.fetch_news`, 최근 7일)과 증권사 목표주가 헤드라인
 (`broker_reports.stock_reports`, 최근 30일). 키가 필요 없고, 받지 못하면 "자료 없음"으로 LLM을 그대로 부른다 (선택 Worker).

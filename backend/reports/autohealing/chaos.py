@@ -1,4 +1,4 @@
-"""장애 주입 (docs/tasks/00-공통.md 5절, 04-autohealing.md T4-6, docs/API.md `ChaosConfig`).
+"""장애 주입 (docs/tasks/00-공통.md 5절, 부록 A4 T4-6, docs/API.md `ChaosConfig`).
 
 리포트를 신청할 때 `chaos`를 켜면 Worker의 LLM 호출 일부를 일부러 실패시킨다. 주입은 `healing`의 실제 호출 직전 한 곳에서만 하고,
 그 뒤는 진짜 장애와 같은 복구 경로(재시도 → 대체 모델 → Circuit Breaker)를 탄다. 주입 여부는 Trace의 `injected`에만 남는다.

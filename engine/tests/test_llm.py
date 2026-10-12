@@ -1,4 +1,4 @@
-"""LLM 게이트웨이 클라이언트: 재시도 없는 호출 complete_json_once (docs/tasks/04-autohealing.md T4-2)와 기존 complete_json.
+"""LLM 게이트웨이 클라이언트: 재시도 없는 호출 complete_json_once (docs/tasks/00-공통.md 부록 A4 T4-2)와 기존 complete_json.
 HTTP는 가짜 (게이트웨이를 부르지 않는다)."""
 import io
 import json

@@ -1,4 +1,4 @@
-// /stocks/:symbol 종목 상세 (docs/plans/컨셉변경계획.md 4-2, docs/DECISIONS.md 13-1 D-1, docs/plans/투자서비스확장계획.md 2-3).
+// /stocks/:symbol 종목 상세 (docs/plans/컨셉변경계획.md 4-2, docs/DECISIONS.md 13-1 D-1, docs/plans/컨셉변경계획.md 부록 A2-3).
 // 모바일 한 열(= DOM·읽는 순서): 시세(+ 내 모의 주문 한 줄)·차트 → 큰 버튼 "AI 리포트 만들기"(여정 ① 만들기) + 보조 "AI 교차검증 분석"
 //   → 펀더멘털 → 주문.
 // PC 2단: 왼쪽은 '보기'(시세·차트·펀더멘털), 오른쪽 sticky는 '하기' — 전문가 보기는 주문 패널, 쉬운 보기는 AI 리포트 묶음(그 사람의 주 행동).
@@ -106,7 +106,7 @@ function ChaosPanel({ value, onChange }: { value: ChaosRequest | null; onChange:
  * 큰 버튼 "AI 리포트 만들기" + 오늘 남은 횟수. 오늘 이 종목 리포트가 이미 있으면 "오늘 리포트 보기"가 먼저 (docs/plans/컨셉변경계획.md 4-2 —
  * 고르는 규칙은 리포트 탭의 만들기 카드와 같은 lib/reports todayReport).
  * 리포트 목록과 한도를 둘 다 받을 때까지 버튼 자리에 뼈대를 둔다 — 틀린 버튼(누를 수 있는 '만들기')이 먼저 보였다가 바뀌지 않게.
- * 전문가 보기에는 접힌 '장애 주입(시연)'이 있다 (docs/tasks/05-프론트.md T5-22 — 끔 모드에서만).
+ * 전문가 보기에는 접힌 '장애 주입(시연)'이 있다 (docs/tasks/00-공통.md 부록 A5 T5-22 — 끔 모드에서만).
  */
 function ReportCta({ stock, easy }: { stock: StockDetail; easy: boolean }) {
   const navigate = useNavigate();

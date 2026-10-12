@@ -1,4 +1,4 @@
-"""검토 Worker `review_agent` (docs/tasks/02-worker.md T2-7, 2026-10-04 합의 — plainSummary 대조).
+"""검토 Worker `review_agent` (docs/tasks/00-공통.md 부록 A2 T2-7, 2026-10-04 합의 — plainSummary 대조).
 
 입력: 조사 결과 + 초안(`ctx.inputs["report_agent"]`). LLM이 초안의 주장을 조사 결과와 대조해 PASS·RETRY·FAIL을 낸다.
 결정론적 안전장치 두 가지 (LLM이 빠뜨려도 코드가 채운다):

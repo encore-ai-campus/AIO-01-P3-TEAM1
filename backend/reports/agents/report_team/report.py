@@ -1,4 +1,4 @@
-"""리포트 작성 Worker `report_agent` (docs/tasks/02-worker.md T2-7, 2026-10-04 합의 — 쉬운 요약·추천으로 이어지는 targets).
+"""리포트 작성 Worker `report_agent` (docs/tasks/00-공통.md 부록 A2 T2-7, 2026-10-04 합의 — 쉬운 요약·추천으로 이어지는 targets).
 
 입력은 Join Guard가 넘긴 조사 결과(`ctx.inputs`의 market_agent·fundamental_agent·news_agent)뿐이다.
 검토가 RETRY면 Orchestrator가 `ctx.instructions`(수정 지시)와 이전 초안(`ctx.inputs["report_agent"]`)을 같이 넣어 다시 부른다.

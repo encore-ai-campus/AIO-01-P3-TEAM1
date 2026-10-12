@@ -1,4 +1,4 @@
-"""재무·공시 Worker `fundamental_agent` (docs/tasks/02-worker.md T2-5).
+"""재무·공시 Worker `fundamental_agent` (docs/tasks/00-공통.md 부록 A2 T2-5).
 
 자료: OpenDART 재무(`longterm.sources.fundamentals` — 하루 캐시)와 최근 30일 공시 목록(`DartClient.disclosures`).
 국내 종목만 있다. DART 키가 없거나 조회가 실패·지연되면 "자료 없음"으로 LLM에 넘기고 metrics는 null이다 (Worker는 실패하지 않는다).

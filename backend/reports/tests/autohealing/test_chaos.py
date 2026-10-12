@@ -1,4 +1,4 @@
-"""장애 주입 (docs/tasks/04-autohealing.md T4-6, docs/tasks/00-공통.md 5절): 설정 검사(chaos.parse), 재현 가능한 판정(should_fail),
+"""장애 주입 (docs/tasks/00-공통.md 부록 A4 T4-6, docs/tasks/00-공통.md 5절): 설정 검사(chaos.parse), 재현 가능한 판정(should_fail),
 호출기의 실제 호출 직전 주입(주입 뒤는 진짜 복구 경로), 리포트 전용 Circuit Breaker, 리포트 신청의 chaos,
 장애 주입을 켠 리포트가 끝까지 나오는지, 다른 리포트를 막지 않는지."""
 import pytest

@@ -13,7 +13,7 @@ backend/            paper-backend: Django 프로젝트 (config/, accounts/, trad
 frontend/           Vite + React + TypeScript
 backtest/           백테스트 (DB 없이 단독 실행, engine을 import)
 deploy/             compose.dev.yml (로컬 Redis. `--profile postgres`로 PostgreSQL도)
-docs/               기준 문서(API·DECISIONS(이 파일)·DEPLOY·KIWOOM)와 종류별 폴더(guides·plans·design·records·evaluation 등) — 문서 지도는 docs/README.md (29장)
+docs/               기준 문서(API·DECISIONS(이 파일)·DEPLOY·교육용문서)와 종류별 폴더(plans·design·tasks·records·research·guides·evaluation·deliverables) — 문서 지도는 루트 README.md "문서" 절 (29·32장)
 ```
 
 - 엔진 실행: `uv run python -m paper_engine <명령>` (루트에서). 테스트: `uv run pytest`, `uv run pytest backtest`.
@@ -41,12 +41,12 @@ docs/               기준 문서(API·DECISIONS(이 파일)·DEPLOY·KIWOOM)와
 | `PAPER_CAPITAL_KRW` | `10000000` | 엔진 | 모의 계좌 초기 자금 (계좌를 처음 만들 때만 쓴다) |
 | `PAPER_COMMISSION_KR`, `PAPER_COMMISSION_US` | `0.00015` | 엔진 | 모의 체결 수수료율 (매수·매도 각각). 국내 매도는 거래세 `SELL_TAX_RATE["KR"]`를 더한다 |
 | `MAX_TOTAL_INVEST_KRW` | 없음(off) | 엔진 | 자동 관리 포지션 총 금액 한도. 모의 계좌는 현금이 상한이라 기본으로 두지 않는다 |
-| `DEVPASS_APIKEY`, `ANALYSTS`, `RESEARCHERS`, `APPROVER`, `REQUIRED_MODELS` | | 엔진 | AI (원본과 같음) |
+| `DEVPASS_APIKEY`, `ANALYSTS`, `RESEARCHERS`, `APPROVER`, `REQUIRED_MODELS` | | 엔진 | AI |
 | `DART_API_KEY`, `DATA_GOKR_API`, `SEC_CONTACT_EMAIL` | | 엔진 | 재무·공시·공휴일(`DATA_GOKR_API`는 특일정보 활용신청도 필요) |
 | `OPENCLAW_TARGET` | 없음 | 엔진 | 팀 채널 알림 대상 `channel:<ID>`. 없으면 콘솔 |
 | `OPENCLAW_BIN` | `openclaw` | 엔진 | openclaw 실행 파일 |
-| `REDIS_URL` | `redis://127.0.0.1:6379/0` | 엔진·백엔드 | 예약·전략·선별 결과·잠금·생존 신호. 키 접두사는 `paper:` (원본의 `toss:`를 쓰지 않는다) |
-| `CHROME_BIN`, `BACKUP_DIR` | | 엔진 | 원본과 같음 |
+| `REDIS_URL` | `redis://127.0.0.1:6379/0` | 엔진·백엔드 | 예약·전략·선별 결과·잠금·생존 신호. 키 접두사는 `paper:` |
+| `CHROME_BIN`, `BACKUP_DIR` | | 엔진 | PDF용 Chrome 경로, 백업 폴더 |
 | `PAPER_ROOT` | 저장소 루트 | 엔진 | 실행 데이터 위치 (컨테이너에서는 볼륨 경로) |
 | `AI_DAILY_BUDGET_USD` | `10` | 백엔드(4C) | 하루 전체 AI 비용 한도 |
 | `AI_DAILY_ANALYSES_PER_USER` | `5` | 백엔드(4C) | 팀원별 하루 분석 요청 종목 수 |
@@ -59,7 +59,7 @@ docs/               기준 문서(API·DECISIONS(이 파일)·DEPLOY·KIWOOM)와
 
 ## 3. 증권사 조회 클라이언트 인터페이스
 
-`engine/paper_engine/data/kiwoom.py`의 `KiwoomClient`. 공개 메서드는 원본 `TossClient`의 조회 메서드와 이름·반환 형식이 같다
+`engine/paper_engine/data/kiwoom.py`의 `KiwoomClient`. 공개 메서드는 `TossClient`(3-1)의 조회 메서드와 이름·반환 형식이 같다
 (각 메서드 docstring이 형식 명세). 엔진의 다른 파일은 이 메서드만 쓰고 HTTP 경로를 직접 부르지 않는다.
 
 ```
@@ -79,11 +79,11 @@ data.calendar.drop_incomplete(candles, calendar, now)
   `KiwoomClient(cfg.kiwoom_appkey, cfg.kiwoom_secretkey, cfg.token_cache, MarketCalendar(cfg.data_gokr_api_key, ROOT/".cache"), cfg.kiwoom_base_url)`.
 - 미국 시세를 키움이 지원하지 않으면 해당 메서드는 `KiwoomApiError`를 낸다. `MARKETS=KR`이면 엔진은 미국을 부르지 않는다.
 - 계좌·주문 관련(`accounts`, `holdings`, `buying_power`, `sellable_quantity`, `commissions`)과 주문 TR은 만들지 않는다.
-- **`minute_candles`는 없다** (2026-10-05에 단타 연습 분봉용으로 두 클라이언트에 같은 이름·인자·반환으로 더했다가 **2026-10-06 단타 폐기로 둘 다 지웠다** — 16장). 키움 `ka10080` 조사는 `docs/KIWOOM.md` 4장에 남아 있으나 쓰지 않는다.
+- **`minute_candles`는 없다** (2026-10-05에 단타 연습 분봉용으로 두 클라이언트에 같은 이름·인자·반환으로 더했다가 **2026-10-06 단타 폐기로 둘 다 지웠다** — 16장). 키움 `ka10080` 조사는 `docs/design/DESIGN.md` 부록 A4에 남아 있으나 쓰지 않는다.
 
 ### 3-1. 로컬 개발 전용: 토스 조회 클라이언트 (2026-10-02 추가)
 
-키움 앱키가 없어도 로컬에서 엔진을 돌려 볼 수 있게, 원본의 토스증권 Open API **조회** 클라이언트를 되살렸다.
+키움 앱키가 없어도 로컬에서 엔진을 돌려 볼 수 있게, 토스증권 Open API **조회** 클라이언트를 두었다.
 운영(EC2)은 키움만 쓴다. 키움 코드(`data/kiwoom.py`, `data/calendar.py`)는 그대로다.
 
 ```
@@ -104,12 +104,11 @@ config.py       Config.broker · toss_client_id · toss_client_secret · toss_to
 - 토스 응답이 곧 엔진 내부 형식이라 변환하지 않는다. 모의 체결 가격(`confirmed_prices`)은 키움 쪽 구현을 그대로 쓴다 (4-2 규칙은 증권사와 무관).
 - 키움과 다른 점: 장 달력을 토스 API에서 받는다 (`data/calendar.py`·특일정보를 쓰지 않는다), 순위 집계 시각(`rankedAt`)이 있다,
   순위 기간이 1d 말고도 된다 (엔진·백테스트는 키움에 맞춰 1d만 쓴다), 미국 시세가 된다.
-- **토큰 주의:** 토스 토큰은 client당 1개만 유효하다. 운영 중인 원본 `toss_trading`과 같은 `CLIENT_ID`로 여기서 토큰을 받으면
-  원본의 토큰이 무효가 되고(원본이 다시 받으면 이쪽이 무효), 서로 재발급을 되풀이한다. 원본에 영향을 주지 않으려면 개발용 client를
-  따로 발급해 쓴다. 이 머신 안에서는 `.cache/toss_token.json`으로 프로세스끼리 토큰을 같이 쓴다.
+- **토큰 주의:** 토스 토큰은 client당 1개만 유효해 같은 `CLIENT_ID`를 쓰는 다른 곳(로컬 `scripts/dev.sh`·운영 서버)과 서로 무효가 된다.
+  한쪽이 받으면 다른 쪽이 무효가 되어 서로 재발급을 되풀이하므로 개발용 client를 따로 발급해 쓴다. 이 머신 안에서는 `.cache/toss_token.json`으로 프로세스끼리 토큰을 같이 쓴다.
 - 테스트는 실제 증권사에 조회를 보내지 않는다. 루트 `conftest.py`가 모든 테스트에서 `BROKER`와 증권사 키(토스·키움)를 비워,
   개발자 `.env`에 실제 키가 있어도 CLI 테스트가 그 키로 조회하지 않는다. 키가 필요한 테스트는 가짜 값을 직접 넣는다.
-- 토스로 돌린 결과는 키움 변환 코드를 검증하지 못한다. 키움 실측(`scripts/kiwoom_check.py`, `docs/KIWOOM.md` 8장)은 키움 키로 따로 한다.
+- 토스로 돌린 결과는 키움 변환 코드를 검증하지 못한다. 키움 실측(`scripts/kiwoom_check.py`, `docs/design/DESIGN.md` 부록 A8)은 키움 키로 따로 한다.
 
 ## 4. 모의 계좌 (계획서 3-2)
 
@@ -118,7 +117,7 @@ config.py       Config.broker · toss_client_id · toss_client_secret · toss_to
 
 ### 4-1. 표 (이번 단계는 엔진 SQLite, 4C에서 같은 이름·열로 Django 모델을 만든다 — 로컬 SQLite, EC2 PostgreSQL)
 
-원본의 `live_orders`, `manual_orders`는 없앤다. `trades`, `predictions`, `market_days`, `rankings`는 그대로 둔다.
+`trades`, `predictions`, `market_days`, `rankings`는 그대로 둔다.
 
 `paper_account` — 팀 공용 계좌 1개 (id=1)
 | 열 | 형식 | 설명 |
@@ -180,21 +179,21 @@ config.py       Config.broker · toss_client_id · toss_client_secret · toss_to
 
 - 시장가 매수: 정규장이면 현재 확인 가격에 즉시 체결. 정규장 밖이면 다음 정규장 시작 때 실행하는 **예약**으로 넣는다.
 - 지정가 매수: 확인 가격 ≤ 지정가면 그 확인 가격으로 체결. 그날 정규장이 끝날 때까지 안 되면 CANCELED.
-- 목표가·손절가·기한: 원본 `executor._check_local_exit` 방식 그대로 — 조건이 **2회 연속** 확인되면 확인 가격으로 매도.
+- 목표가·손절가·기한: `executor._check_local_exit` 방식 — 조건이 **2회 연속** 확인되면 확인 가격으로 매도.
   기한은 `expire_date`가 지난 뒤 첫 정규장에서 매도.
 - 사용자 매도: 보유 중(EXIT_WATCHING) 포지션을 전량 시장가 매도 (정규장 밖이면 예약). 대기(ENTRY_PENDING) 주문은 취소.
 - 비용: 수수료 = 금액 × `PAPER_COMMISSION_KR|US` (매수·매도 각각), 국내 매도는 거래세 `SELL_TAX_RATE["KR"]` 추가.
 - 현금: 매수 체결 시 −(금액 + 수수료) × 환율, 매도 체결 시 +(금액 − 수수료 − 세금) × 환율. 환율은 체결 시점 `exchange_rate`.
 - 매수 가능액 = 현금 − 대기 매수 금액(ENTRY_PENDING의 수량 × 지정가(시장가는 진입가) × 환율 × (1 + 수수료율)).
   계좌 평가액 = 현금 + 보유 평가액(보유 수량 × 확인 가격 × 현재 환율). (`backtest/sim.py`와 같은 방식)
-- 같은 종목에 진행 중(ENTRY_PENDING·EXIT_WATCHING) 주문이 있으면 새 매수를 막는다 (원본 실행 직전 점검 유지).
+- 같은 종목에 진행 중(ENTRY_PENDING·EXIT_WATCHING) 주문이 있으면 새 매수를 막는다 (실행 직전 점검).
 - 주문 변경(접수·매도·취소·수정·체결 확인)은 **주문 잠금** 안에서 한 번에 하나씩 한다: 지금은 `data/paper.lock` 파일 잠금 +
   스레드 RLock (`agents/executor.OrderLock`, serve 스레드와 CLI 프로세스를 묶는다). 4C에서는 주문 변경을 엔진 작업 큐 한 곳에서
   처리하고, DB 트랜잭션(`select_for_update`)과 부분 유일 인덱스(`UniqueConstraint(fields=["symbol"], condition=status IN ACTIVE)`,
   SQLite·PostgreSQL 모두 지원)로 같은 종목 중복을 막는다.
 - 확인 가격은 현재가·최우선 매수·매도호가의 중간값이다. 상한가·하한가처럼 한쪽 호가만 있으면 현재가가 그 호가와 3% 안일 때만 현재가를 쓴다.
 - 중단 스위치(`data/HALT`)는 **새 모의 매수**만 막는다. 청산은 계속한다.
-- AI 시나리오 주문: 원본 실행 직전 점검(`pre_trade_checks`: 분석 후 30분, 현재가 2% 이내, 1억 원 상한, 중복 금지)을 통과하면
+- AI 시나리오 주문: 실행 직전 점검(`pre_trade_checks`: 분석 후 30분, 현재가 2% 이내, 1억 원 상한, 중복 금지)을 통과하면
   사용자 컨펌 없이 모의 주문을 낸다 (진입가 지정가, 목표·손절·기한은 `make_plan`).
 - 리스크 엔진 입력(`AccountContext`)은 모의 계좌에서 만든다: 총자산=평가액, 매수 가능액, 수수료율=모의 수수료율,
   기존 보유 평가액, 오늘 확정 손실·주문 수, 자동 관리 금액.
@@ -229,8 +228,8 @@ JSON 열은 읽고 쓰기만 한다 (PostgreSQL 전용 조회를 쓰지 않는�
 
 | 키 | 형식 | 설명 |
 |---|---|---|
-| `paper:reservation:seq`, `paper:reservation:<id>`, `paper:reservations` | 원본과 같음 | 예약 주문 (4C에서 DB `reservations`로 옮긴다) |
-| `paper:strategy:*`, `paper:strategies` | 원본과 같음 | 전략 (4C에서 DB `strategies`로) |
+| `paper:reservation:seq`, `paper:reservation:<id>`, `paper:reservations` | 번호 INCR · JSON · 목록 | 예약 주문 (4C에서 DB `reservations`로 옮긴다) |
+| `paper:strategy:*`, `paper:strategies` | JSON · 목록 | 전략 (4C에서 DB `strategies`로) |
 | `paper:scan:s<id>:<날짜>` | NX, 3일 | 전략 하루 한 번 실행 표시 |
 | `paper:scanresult:s<id>:latest\|<날짜>` | JSON | 선별 결과 (4C에서 DB `scan_results`로) |
 | `paper:engine:heartbeat` | ISO 시각, EX 120 | 엔진 생존 신호 (serve 루프마다) |
@@ -401,7 +400,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 - 개발 중에 팀원이 같은 네트워크에서 DB를 직접 볼 수 있게, 호스트 PC 한 대에 PostgreSQL 16 컨테이너를 띄운다
   (`deploy/compose.dev.yml`의 `db`, 프로젝트 이름 `paper-dev`, 데이터는 볼륨 `paper-dev_pgdata`).
   호스트 PC의 `.env`: `POSTGRES_HOST=127.0.0.1`, `POSTGRES_PORT`(그 PC의 빈 포트), `POSTGRES_BIND=0.0.0.0`, 긴 임의 `POSTGRES_PASSWORD`,
-  `DJANGO_SECRET_KEY`. `scripts/dev.sh`가 컨테이너를 띄우고 마이그레이션을 적용한다. 접속 방법은 `scripts/dev.sh status`와 `docs/plans/TEAM_DEV_PLAN.md` 12장.
+  `DJANGO_SECRET_KEY`. `scripts/dev.sh`가 컨테이너를 띄우고 마이그레이션을 적용한다. 접속 방법은 `scripts/dev.sh status`와 `docs/plans/TEAM_PAPER_TRADING_PLAN.md` 부록 A12.
 - **개발할 때만 연다.** 운영(EC2)에서는 DB 포트를 밖으로 열지 않는다. 비밀번호는 저장소·문서에 적지 않고 따로 전한다.
 - 혼자 개발할 때의 기본값은 여전히 SQLite다 (`POSTGRES_HOST`를 비워 둔다). SQLite에 쌓인 데이터는 `scripts/dev.sh import-sqlite`
   (`scripts/sqlite_to_postgres.py`)로 한 번 옮긴다: 계정(비밀번호 해시)·프로필·계좌·주문·체결·분석·리포트를 옮기고 세션·관리자 기록은 옮기지 않는다.
@@ -439,11 +438,11 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 
 서비스의 최종 목표: **AI Agent가 추천 종목과 진입가·목표가·손절가·기대수익을 알려 주면, 사용자가 Discord나 웹에서 "계획 활성화"를 누르고,
 그 뒤로는 계획대로 모의 자동매매가 진행되며 단계마다 사용자에게 알림이 간다.** API 계약은 `docs/API.md` "AI 추천 · 매매 계획 · 자동매매 · 알림",
-담당과 남은 일은 `docs/tasks/06-추천·자동매매.md`.
+담당과 남은 일은 `docs/tasks/00-공통.md` 부록 A6.
 
 ### 12-1. 범위: 핵심 Agent 워크플로우는 팀원 몫, 나머지는 시연 가능한 버전
 
-- **핵심 Agentic 워크플로우**(AI 리포트의 Worker·Orchestrator·AutoHealing — `docs/tasks/02~04`)는 담당 2·3·4가 구현한다. 이 기능은 그 코드를 고치지 않고
+- **핵심 Agentic 워크플로우**(AI 리포트의 Worker·Orchestrator·AutoHealing — `docs/tasks/00-공통.md` 부록 A2~A4)는 담당 2·3·4가 구현한다. 이 기능은 그 코드를 고치지 않고
   **결과(`Report.results["report_agent"]`)를 읽기만** 한다. 리포트가 끝나면 엔진 루프가 알아서 추천을 만든다 (담당 3이 따로 부를 함수가 없다).
 - 그 전에도 끝까지 시연할 수 있게 추천 출처를 셋으로 둔다: `report`(리포트 Agent 워크플로우), `analysis`(지금 있는 AI 교차검증 분석의 BUY),
   `demo`(**시연용 규칙 추천, AI 아님**). 화면·Discord에 출처를 늘 표시한다 (평가 가이드: 문서와 화면에 실제 구현한 것만).
@@ -477,7 +476,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
   (웹 요청이 Discord 응답을 기다리지 않게. 엔진이 잠깐 멈춰도 메시지가 사라지지 않게).
 - Discord는 서버 `.env`의 `DISCORD_WEBHOOK_URL` 채널 하나로 보낸다 (팀 채널. 배포 파이프라인 알림과 같은 채널을 써도 된다). 받는 사람이
   My Page에 Discord 사용자 ID를 넣어 두면 `<@ID>`로 멘션한다. Webhook 주소는 **비밀 값**이다 (`.env`에만, 로그·문서·화면에 넣지 않는다).
-- 전송 실패: 1회 재시도 → 첨부가 있으면 첨부 없이 글만 → 그래도 안 되면 실패로 기록하고 콘솔에 남긴다 (`docs/plans/TEAM_DEV_PLAN.md` 5-1의 "알림 실패", DR-NOTI-01).
+- 전송 실패: 1회 재시도 → 첨부가 있으면 첨부 없이 글만 → 그래도 안 되면 실패로 기록하고 콘솔에 남긴다 (`docs/plans/TEAM_PAPER_TRADING_PLAN.md` 부록 A5-1의 "알림 실패", DR-NOTI-01).
   웹 알림은 Discord와 무관하게 남는다.
 - **Discord에서 활성화**: Webhook은 보내기만 되므로(버튼을 눌러 서버로 돌아오는 상호작용은 봇이 있어야 한다) 추천 메시지에 **서명된 활성화 링크**를 넣는다.
   링크를 누르면 웹의 추천 화면이 열리고, 로그인한 사용자가 확인을 누르면 활성화된다 (`via: "discord"`). 봇(버튼·명령) 방식은 하지 않는다 —
@@ -511,8 +510,8 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 
 ## 13. 서비스 컨셉과 투자 방식 확장 결정 (2026-10-04)
 
-팀 회의를 열지 않고 **팀장(사용자) 권한으로** 정했다. `docs/plans/컨셉변경계획.md` 13장(D-1~D-7)과 8장 계약 변경(B1~B10), `docs/plans/투자서비스확장계획.md` 6장(E-1~E-7)의
-제안은 아래 표에서 따로 적은 것 말고는 **그대로 받아들였다**. 결정 목록·진행 상태는 `docs/결정필요사항.md`.
+팀 회의를 열지 않고 **팀장(사용자) 권한으로** 정했다. `docs/plans/컨셉변경계획.md` 13장(D-1~D-7)과 8장 계약 변경(B1~B10), `docs/plans/컨셉변경계획.md` 부록 A6(E-1~E-7)의
+제안은 아래 표에서 따로 적은 것 말고는 **그대로 받아들였다**. 결정 목록·진행 상태는 `docs/plans/TEAM_PAPER_TRADING_PLAN.md` 4장.
 
 ### 13-1. 컨셉 (D-1~D-7)과 계약 변경
 
@@ -532,23 +531,23 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 | # | 결정 | 제안과 다른 점 |
 |---|---|---|
 | E-1 | 주린이모드 기본값은 진단 전 **켬**, 계정에 저장 | – |
-| E-2 | 진단 7문항·점수표는 `docs/plans/투자서비스확장계획.md` 2-1의 제안값으로 구현하고 사용성 시험 뒤 조정 | – |
+| E-2 | 진단 7문항·점수표는 `docs/plans/컨셉변경계획.md` 부록 A2-1의 제안값으로 구현하고 사용성 시험 뒤 조정 | – |
 | E-3 | 뉴스 출처: **네이버 폐기**, 발표까지 Google 뉴스 RSS 유지 + 출처 표시 (13-3) | 제안은 "네이버로 바꾸는 것을 검토" |
 | E-4 | 장기 보유의 종목당 비중 한도 **100%** (`RiskLimits.max_position = 1.0` — 한 종목에 계좌 전부까지 살 수 있다. 실제 한도는 현금) | 제안은 "팀 결정(값 미정)" |
 | E-5 | 펀더멘털 점검 기준값과 LLM 생략 기준은 제안값으로 시작하고, 과거 공시 몇 종목으로 검산 뒤 확정 | – |
 | E-6 | **폐기 (2026-10-06, 단타 폐기 — 16장).** 이력: 단타 `DAY` 한도는 아래 값으로 시작하고 2단계 시작 때 백테스트로 다시 본다: 건당 위험 0.5% · 하루 최대 손실 2% · 하루 최대 거래 10건 · 최소 손익비 2.0(스윙과 같음) · 강제 청산 15:15 KST(장 마감 단일가 15:20 전) | 제안은 "팀 결정(값 없음)"이라 값을 정해 넣었다 |
-| E-7 | **선물 모의거래는 하지 않는다 (폐기).** `docs/research/선물모의거래_조사.md`는 참고용으로만 남긴다. KIS 키·`paper:fut:*`·`margin_call`·`expiry_warning`·선물 메뉴를 만들지 않는다 | 제안은 "발표 뒤 조건 확인 후 결정" |
+| E-7 | **선물 모의거래는 하지 않는다 (폐기).** `docs/research/조사.md` D장는 참고용으로만 남긴다. KIS 키·`paper:fut:*`·`margin_call`·`expiry_warning`·선물 메뉴를 만들지 않는다 | 제안은 "발표 뒤 조건 확인 후 결정" |
 
-### 13-3. 운영·데이터 (결정필요사항 1장)
+### 13-3. 운영·데이터 (결정필요사항 1장 — 지금 `docs/plans/TEAM_PAPER_TRADING_PLAN.md` 4-1)
 
 | 항목 | 결정 |
 |---|---|
 | 증권사 조회 | 키움 키를 받을 때까지 **로컬 개발은 토스 조회(`BROKER=toss`)를 그대로 쓴다** (3-1 규칙 그대로: 운영 EC2는 키움만). 키움 첫 실측(`scripts/kiwoom_check.py`)은 키를 받은 뒤 |
-| 토스 토큰 | 엔진 로그의 "token-revoked"는 **원본 개인 프로젝트가 같은 client를 함께 쓰기 때문**이다 (사용자 확인). 같은 client를 쓰는 동안 어느 쪽이든 새로 발급하면 다른 쪽 토큰이 무효가 된다 → 실시간 확인 호출은 최소로 한다 |
+| 토스 토큰 | 엔진 로그의 "token-revoked"는 **같은 client를 쓰는 다른 프로세스가 있기 때문**이다 (사용자 확인). 같은 client를 쓰는 동안 어느 쪽이든 새로 발급하면 다른 쪽 토큰이 무효가 된다 → 실시간 확인 호출은 최소로 한다 |
 | Discord | **실제 채널 시험을 미룬다.** 구현된 코드(보낼 편지함·Webhook)는 그대로 두고 `DISCORD_WEBHOOK_URL`은 비워 둔다 (콘솔에만 남는다) |
 | 관리자 계정 | 이 PC의 개발 DB에 superuser 하나를 만들고 아이디·비밀번호를 저장소 루트 `admin_account.txt`(권한 0600, git 제외)에 적었다. 랭킹에 나오지 않게 "내 정보 공개"는 끈다. 운영 DB에는 EC2에서 따로 만든다 (`docker compose exec web python manage.py createsuperuser`) |
 | 휴장일 | 2026-10-05(월)는 개천절 대체공휴일로 휴장이다. 토스 장 달력은 이를 반영한다. **키움(운영)은 장 달력을 코드로 만들어 `DATA_GOKR_API`(특일정보)가 없으면 대체공휴일을 모른다** → 운영 `.env`에 이 키를 넣는다 (2장) |
-| 뉴스 출처 (U5·E-3) | **네이버 검색 API는 폐기한다** (2026-10-04 사용자 결정, 약관 검토 뒤). NAVER API 이용약관(2026-09-07 개정) 검색 API 특약 2.3이 "데이터를 AI에 입력하거나 학습, 개선, 평가 및 노출 등에 활용하는 행위"를, 2.2가 가공을 금지하고, 부칙 제2조로 개발자센터 신규 신청이 2026-07-30에 끝났다 (원문 확인). **발표까지 Google 뉴스 RSS를 유지**하되 출처 표시·노출 최소화를 하고, 발표 뒤 LLM 근거를 OpenDART 공시·재무·시세 수치 중심으로 옮긴다. 근거: `docs/research/약관_이용조건_조사.md` 3장·9장 |
+| 뉴스 출처 (U5·E-3) | **네이버 검색 API는 폐기한다** (2026-10-04 사용자 결정, 약관 검토 뒤). NAVER API 이용약관(2026-09-07 개정) 검색 API 특약 2.3이 "데이터를 AI에 입력하거나 학습, 개선, 평가 및 노출 등에 활용하는 행위"를, 2.2가 가공을 금지하고, 부칙 제2조로 개발자센터 신규 신청이 2026-07-30에 끝났다 (원문 확인). **발표까지 Google 뉴스 RSS를 유지**하되 출처 표시·노출 최소화를 하고, 발표 뒤 LLM 근거를 OpenDART 공시·재무·시세 수치 중심으로 옮긴다. 근거: `docs/research/조사.md` A3·9장 |
 | 약관 ("교육용이라 상관없나") | **상관있다.** 약관(계약)은 비상업·교육 목적이어도 그대로 적용된다. 저작권 위험이 낮은 것은 교육용이어서가 아니라 제목·사실만 쓰기 때문이다. 원문: Google 뉴스 RSS "personal feed reader … personal, non-commercial use" 밖, **키움 「오픈 API 서비스 이용약관」 제5조 ③** "시세 정보를 … 개인의 업무에 한하여 이용해야 하며, 제3자에게 제공해서는 아니 된다", **토스 Open API FAQ** "비상업적인 용도라 하더라도 제 3자에게 배포하는 행위는 엄격히 금지". OpenDART·공공데이터포털(재무·특일)은 허용. 현실적 위험은 소송보다 **키 정지·차단**이다 |
 | 약관 대응 (발표 전) | 배포 URL은 계정 있는 사람만(가입 경로 없음 유지, 시험 계정은 시험 기간만), 검색엔진 색인 막기, ~~공개 시연 영상의 시세·뉴스 화면은 가짜 데이터(`VITE_MOCK=1`)로~~ → **2026-10-05 사용자 결정: 가능한 부분은 실제 데이터를 쓰고, 실시간 시세는 장마감 기준으로 쓰며 그렇게 표시한다**(14-1), 화면 하단 출처 문구, 키움에 교육용 다중 표시 문의. 토스 조회는 원래 "혼자 로컬"까지만 회색이라 **`scripts/dev.sh`(0.0.0.0)로 팀원에게 보이는 지금 방식은 토스 FAQ 범위 밖**이다 — 키움 키를 받으면 바로 바꾼다 (사용자가 그때까지 토스 유지를 정함). 할 일 목록: 조사 보고서 9-2 |
 
@@ -561,7 +560,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 | 사용자 결정 | 뜻 |
 |---|---|
 | **표시·계산만 장마감 기준, 체결은 엔진 내부 장중** | 화면의 가격·평가·랭킹·미리 보기·추천 가격은 직전 정규장 종가로 계산하고 보인다. 모의 체결·청산 판단(체결 확인·예약 실행·재주문·활성화의 장중 확인·시장가 체결)만 지금처럼 장중 확인 가격을 쓴다 (14-1) |
-| **확장 1·2단계까지 구현** | `docs/plans/투자서비스확장계획.md` 5장 로드맵의 1단계(장기투자)와 2단계 (a)(단타 연습)를 이번에 만든다. 2단계의 AI 팀(`day_plan`·`day_review`)은 추천 워크플로우라 팀 몫이고, 3단계(WebSocket 틱)는 하지 않는다. **→ 2단계 (a) 단타 연습은 2026-10-06 폐기 (16장)** |
+| **확장 1·2단계까지 구현** | `docs/plans/컨셉변경계획.md` 부록 A5 로드맵의 1단계(장기투자)와 2단계 (a)(단타 연습)를 이번에 만든다. 2단계의 AI 팀(`day_plan`·`day_review`)은 추천 워크플로우라 팀 몫이고, 3단계(WebSocket 틱)는 하지 않는다. **→ 2단계 (a) 단타 연습은 2026-10-06 폐기 (16장)** |
 
 ### 14-1. 장마감 기준
 
@@ -612,7 +611,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
     먼저 합쳐진 쪽 위에 다음 쪽이 자기 한 줄을 이 자리 순서대로 더한다.
   - 프론트: Claude가 컨셉 P0·P1 화면을 먼저 만든다 (5의 기존 파일 포함 — `Layout.tsx`·`LoginPage.tsx`·`index.html`·`ReportsPage`·`ReportPage`·`components/reports/*` 등).
     5는 Claude가 "합쳤다"고 알린 뒤 그 위에서 다듬는다. 그 전에는 같은 파일을 고치지 않는다.
-- **팀 문서의 바뀐 작업 줄** (아래가 `docs/tasks/01~06`보다 우선한다. 2026-10-05에 Claude가 맡게 된 줄(일부만이면 그 부분)에 "→ Claude가 구현 (2026-10-05)"을 붙였다 — 줄은 지우지 않았다.
+- **팀 문서의 바뀐 작업 줄** (아래가 `docs/tasks/00-공통.md` 부록 A1~A6보다 우선한다. 2026-10-05에 Claude가 맡게 된 줄(일부만이면 그 부분)에 "→ Claude가 구현 (2026-10-05)"을 붙였다 — 줄은 지우지 않았다.
   팀이 그대로 하되 내용이 바뀐 줄(02 T2-4, 03의 B7 줄·T3-4·T3-12)은 표시 없이 이 목록으로 읽는다 — 문서 머리의 2026-10-05 안내가 이 표를 가리킨다):
 
   | 문서·작업 | 바뀐 것 |
@@ -638,7 +637,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 
 - **보유 방식 `style`** (`PaperOrder.style`, 엔진 SQLite `paper_orders.style`): `swing` · `long` (`day`는 2026-10-06 단타 폐기로 지웠다 — 16장), 기본 `swing`. 웹 주문에 `style`이 없으면 목표·손절·기한이 모두 없을 때 `long`.
   기존 주문(과 기존 매수 예약)은 마이그레이션에서 같은 규칙으로 채운다 — 목표·손절이 다 갖춰지지 않은 기존 `swing`(기한만·목표만·손절만)은 그대로 두는 **예외**다:
-  있는 값대로만 자동 매도(기한만이면 기한 매도만), 배지는 "스윙", `PATCH`는 준 값만 바꾸고 둘 다를 요구하지 않는다. 새 주문·예약에는 허용하지 않는다 (아래 "보유 방식 규칙 더하기", 2026-10-05). 장기 보유가 웹 직접 매수라 `TradePlan`이 없으므로 주문 단위로 나눈다 (`docs/plans/투자서비스확장계획.md` 3-1).
+  있는 값대로만 자동 매도(기한만이면 기한 매도만), 배지는 "스윙", `PATCH`는 준 값만 바꾸고 둘 다를 요구하지 않는다. 새 주문·예약에는 허용하지 않는다 (아래 "보유 방식 규칙 더하기", 2026-10-05). 장기 보유가 웹 직접 매수라 `TradePlan`이 없으므로 주문 단위로 나눈다 (`docs/plans/컨셉변경계획.md` 부록 A3-1).
   `long`은 자동 매도가 없다 (엔진이 `long`이면 보유 기한을 쓰지 않는다).
 - **보유 방식 규칙 더하기** (2026-10-05 확정, `docs/API.md` "보유 방식"):
   - **`swing`은 목표가·손절가가 둘 다 있어야 한다** (없으면 `400`). `style` 없이 `days`만 주면 추론이 `swing`이라 역시 `400`이다 — 스윙의 자동 매도 기준은 목표·손절이고,
@@ -662,7 +661,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
   - 자료: 일봉·수급은 증권사 조회(지금 토스, 개발), 공시는 OpenDART, 뉴스는 Google 뉴스 RSS. 로컬 `.env`의 빈 `DART_API_KEY` 줄(U11)을 지워야 공시·재무가 실제로 나온다. 자료가 없으면 그 칸을 비우고 이유를 적는다.
 - **펀더멘털 점검** (`thesis_check`):
   - 산 이유 `InvestmentThesis`(사용자·종목당 하나: 이유 1~3, 점검 축, 기준선, 기준선 보고서)를 장기 보유를 고를 때 "왜 샀나요?"로 받는다. 기준선은 처음 저장할 때 DART `fundamentals`로 잡고, 자료가 없으면 다음 점검에서 채운다.
-  - 규칙은 `docs/plans/투자서비스확장계획.md` 3-2 표의 제안값 그대로(E-5) 순수 함수 `engine/paper_engine/judge/fundamentals_check.py`에 둔다. 표에 숫자가 없던 "이익의 질"은 영업외 손익이 세전이익의 절반 이상이면 △로 정했다 (제안값).
+  - 규칙은 `docs/plans/컨셉변경계획.md` 부록 A3-2 표의 제안값 그대로(E-5) 순수 함수 `engine/paper_engine/judge/fundamentals_check.py`에 둔다. 표에 숫자가 없던 "이익의 질"은 영업외 손익이 세전이익의 절반 이상이면 △로 정했다 (제안값).
     영업현금흐름은 이미 받는 DART 전체 재무제표의 현금흐름표(`ifrs-full_CashFlowsFromUsedInOperatingActivities`)에서 파싱만 더한다. 이자보상배율은 금융비용으로 나눈 **근사**다 (이자비용 계정이 없다 — 조사 보고서).
     **기간을 맞춘다**: ROE는 DART 공시 지표(`reported.roe` — 분기 보고서면 누적·연환산 아님)를 쓰지 않고 순이익(TTM) ÷ 기말 자본총계로 계산한다 (보고서 종류가 바뀌어도 기준선과 비교되게).
     이자보상배율은 최신 보고서의 **같은 누적 기간**의 영업이익 ÷ 금융비용이다 (TTM 영업이익 ÷ 누적 금융비용은 1분기 보고서에서 약 4배로 부푼다).
@@ -789,7 +788,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 사용자 요청: "UI/UX 개선점을 모두 조사하고 개선·테스트까지 — 자연스럽고 세련된 애니메이션, 사용자 경험 전반 향상, 컴포넌트 위치의 당위성, 다크모드 전환".
 범위는 `frontend/`뿐이다(백엔드·`docs/API.md` 계약 변경 없음, 외부 의존성 추가 없음). 9개 영역(앱 뼈대·홈·종목·리포트·모의투자·단타·마이 + 모션·다크 — 단타 화면은 2026-10-06 삭제, 16장)을 감사해
 305건을 찾고 검증자가 반박해 6건을 버리고 40건을 더했다. 공용 기반 → 화면 영역별 구현 → 통합 → 독립 검증 순으로 반영했다.
-**화면별 배치 순서와 그 이유는 `docs/design/화면배치.md`**에 적었다.
+**화면별 배치 순서와 그 이유는 `docs/design/DESIGN.md` 부록 B**에 적었다.
 
 ### 15-1. 모션 원칙
 
@@ -856,7 +855,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 ### 15-6. 파일 소유와 다음 작업 규칙
 
 - 이번 변경은 담당 5의 원래 파일(`Layout.tsx`·`LoginPage.tsx`·`index.html`·`ReportsPage`·`ReportPage`·`components/reports/*` 등)을 포함한다. 14-2대로 Claude가 "합쳤다"고 알린 뒤 5가 그 위에서 다듬는다.
-- 화면을 고칠 때: 색은 토큰만, **라이트·다크 두 테마 × 모바일 390·PC 1280**을 함께 확인한다. 공용 부품·훅을 쓰고 비슷한 것을 새로 만들지 않는다. 배치를 바꾸면 `docs/design/화면배치.md`를 함께 고친다.
+- 화면을 고칠 때: 색은 토큰만, **라이트·다크 두 테마 × 모바일 390·PC 1280**을 함께 확인한다. 공용 부품·훅을 쓰고 비슷한 것을 새로 만들지 않는다. 배치를 바꾸면 `docs/design/DESIGN.md` 부록 B를 함께 고친다.
 
 ### 15-7. 이름과 로고: 종이배 (2026-10-05, 사용자 요청)
 
@@ -878,7 +877,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 ## 16. 단타 폐기 (2026-10-06, 사용자 결정)
 
 사용자(팀장)가 2026-10-06에 2026-10-05에 구현한 "단타 연습"을 **전부 없애기로** 했다 (선물 폐기 E-7과 같은 방식). 투자 방식은 **스윙·장기 두 개**만 남는다.
-13-2 E-6, 14-4와 그 앞뒤의 단타 결정은 이력으로 남기고 "폐기(2026-10-06)"로 표시했다. 이 장이 우선한다. 계약은 `docs/API.md`, 조사는 `docs/research/단타_실시간시세_조사.md`(폐기 기록).
+13-2 E-6, 14-4와 그 앞뒤의 단타 결정은 이력으로 남기고 "폐기(2026-10-06)"로 표시했다. 이 장이 우선한다. 계약은 `docs/API.md`, 조사는 `docs/research/조사.md` C장(폐기 기록).
 
 ### 16-1. 없앤 것
 
@@ -911,7 +910,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
 - **투자 성향 진단**의 문항·보기(q6의 `intraday` 포함)는 그대로다 — 저장된 `answers`와 호환된다. 결과 문구에 있던 "단타 연습장" 안내만 뺐다.
 - 일봉·시세·장마감 기준 가격, `EquityDaily.day`(날짜 열), `--days` 옵션처럼 **'날짜(day)'**라는 단어는 단타와 무관하다. 지우지 않았다.
 - 하루 주문 수·손실 한도(`paper_today`)는 스윙 계획에 계속 쓴다 (`style` 인자는 `swing`·`long`만).
-- `docs/research/단타_실시간시세_조사.md`는 지우지 않고 "폐기된 기능의 조사 기록"으로 표시했다. 키움 `ka10080`(분봉) 조사 내용은 `docs/KIWOOM.md`에 남기되 쓰지 않는다.
+- `docs/research/조사.md` C장는 지우지 않고 "폐기된 기능의 조사 기록"으로 표시했다. 키움 `ka10080`(분봉) 조사 내용은 `docs/design/DESIGN.md` 부록 A에 남기되 쓰지 않는다.
 - 위 이력(13-2 E-6, 14-4, 14-7 등)은 지우지 않았다. 지금 코드·계약은 이 장과 `docs/API.md`가 기준이다.
 
 ## 17. 시세 실시간 표시 (2026-10-06, 사용자 결정)
@@ -939,7 +938,7 @@ API 계약은 `docs/API.md` "AI 리포트" 절. 개념과 용어는 `docs/교육
   - Discord 머리말 `[모매매 · 모의투자]` (`backend/notifications/service.py` `HEADER`).
   - A4 PDF 머리 (`backend/reports/output/pdf.py` `SERVICE_NAME`). 양식 판 `TEMPLATE_VERSION` 3 → 4 — 예전 판 PDF는 다음 요청 때 새 이름으로 다시 만든다.
 - **그대로 둔 것**: 로고(종이배 모양 — `BrandMark.tsx`·`favicon.svg`·`apple-touch-icon.png`)와 15-7의 로고 규칙·"쓰지 않는 것",
-  부제 "종이 위에서 연습하는 AI 리포트 모의투자"와 풀이 한 줄(`SERVICE_TAGLINE`·`SERVICE_INTRO`). 새 이름에 로고·부제를 맞출지는 `docs/결정필요사항.md` U24.
+  부제 "종이 위에서 연습하는 AI 리포트 모의투자"와 풀이 한 줄(`SERVICE_TAGLINE`·`SERVICE_INTRO`). 새 이름에 로고·부제를 맞출지는 `docs/plans/TEAM_PAPER_TRADING_PLAN.md` 4장 U24.
   → 2026-10-08 로고·부제·풀이 한 줄도 새 이름에 맞춰 바꿨다 (27장, U24 결정).
 - **문서**: 지금 상태를 말하는 곳(`AGENTS.md`, `README.md`, 계획서들, `docs/API.md`, 이 문서의 현재 규칙 줄, 화면 배치)은 새 이름으로 고쳤다.
   지난 결정의 기록(15-7 본문, 작업 문서의 날짜 붙은 줄)은 지우지 않고 바뀐 사실만 덧붙였다.
@@ -958,7 +957,7 @@ Claude가 끝까지 만들었다. 팀원이 이미 만든 것(3의 T3-1 레지�
   묵은 신청이 실제 비용으로 한꺼번에 돌지 않게. 계획서 Q5). 화면·알림 문장 표에 같이 넣었다. 필수 Worker가 단계 제한 시간을 넘기면 `timeout`(Q3).
 - **2026-10-08 바뀜 — LLM timeout 규칙(Q1, 사용자 결정)**: 주 모델 timeout은 같은 모델을 다시 기다리지 않고 바로 대체 모델, 대체 모델 timeout은 같은 모델로 한 번 더 (넘어갈 대체 모델이 없을 때만 주 모델로 한 번 더, `healing.py`).
   왜: 주 모델이 계속 멈출 때 60초를 또 기다리지 않아 복구가 125초 → 65초, 대체 모델이 첫 호출에서만 멈추는 경우도 180초 안에 복구된다.
-  `yubeen` 브랜치의 "timeout은 어느 모델이든 바로 다음 모델" 안과 지금 규칙을 가짜 시계로 비교해 고른 절충안이다 (`docs/works/todo/yubeen_리뷰_Orchestrator별도구현_2026-10-08.md` 3장).
+  `yubeen` 브랜치의 "timeout은 어느 모델이든 바로 다음 모델" 안과 지금 규칙을 가짜 시계로 비교해 고른 절충안이다 (`docs/records/기록.md` H3).
   호출 한 번에 주 모델 실패가 2번에서 1번으로 줄어, 장애 주입 시연에서 Circuit Breaker(연속 3번)는 세 번째 호출에서 열린다.
 - **실행기** (`reports/orchestration/runner.py`): 엔진 루프 "리포트 실행" 단계가 `requested`를 오래된 순으로 하나씩(동시에 하나). 엔진이 다시 뜨면 남은 `running`을 `engine_restarted`로 끝낸다.
 - **Worker 11개**: 종목 리포트 6개(시세 — 장마감 기준 값을 코드가 덮어씀, 재무·공시, 뉴스, 작성, 검토 — 투자유의면 코드가 Handoff를 붙임, 리스크 — 투자유의 단계의 하한을 코드가 정함),
@@ -970,7 +969,7 @@ Claude가 끝까지 만들었다. 팀원이 이미 만든 것(3의 T3-1 레지�
 - **독립 리뷰(2026-10-07, 구현하지 않은 작업자 7명 + 결과마다 반박 3명)**에서 확인된 19건을 고쳤다: Worker 결과 쓰기와 단계 시간 초과의 경합,
   엔진 종료를 붙잡는 Worker 스레드(데몬으로), 신청자 없는 리포트의 팀 전체 알림 반복, 테스트가 실제 `runs/`를 건드림(`AUTO_REPORT` 고정),
   조회 하나가 LLM 시간을 먹는 문제, 공시 바닥의 해제 공시·오래된 공시·우선주, 뉴스 날짜(KST), 자정을 넘긴 선정·명령으로 시작한 선정·US 선정이 이어지지 않음,
-  증권사 키 없이 매일 건너뜀 알림, 쉬운 실패 화면의 멈춘 단계, 문장 중복 등. 기록은 `docs/works/done/Hwanseok_리뷰_추천워크플로우_2026-10-07.md`.
+  증권사 키 없이 매일 건너뜀 알림, 쉬운 실패 화면의 멈춘 단계, 문장 중복 등. 기록은 `docs/records/기록.md` C장.
 - **사람이 최종 결정**: 바뀌지 않았다. AI 추천은 사용자가 리포트를 읽고 "계획 활성화"를 눌러야 모의 자동매매가 시작된다 (12장).
 - **남은 것(팀원 몫)**: 4의 장애 주입(`chaos.py`, T4-6)과 복구 지표(`stats.py`·`recovery-stats` API, T4-7) — 지금 `recovery`는 고정값, 2의 비용 예산(`budget.py`),
   실제 모델로 프롬프트 다듬기(T2-10), 설계서·장애 복구 보고서. 주린이모드 "AI 의견 대립" 제안(`docs/design/AI_AGENT_WORKFLOW.md` 6장)은 만들지 않았다.
@@ -1036,7 +1035,7 @@ AI는 목표를 가깝게(+6~9%), 손절을 멀게(−5~−19%) 잡았다. 그�
 
 ## 23. 운영 E2E 점검 뒤 고칠 것: 오늘 산 종목 평가 · 시작할 수 없는 추천 표시 · 알림 합치기 · 토스 허용 분리 (2026-10-08, 사용자 결정)
 
-근거: `docs/records/운영E2E점검_UX리뷰_2026-10-08.md` (운영 서버에서 초보 투자자 관점으로 끝까지 돌려 본 결과). 사용자가 권장안을 모두 골랐다.
+근거: `docs/records/기록.md` F장 (운영 서버에서 초보 투자자 관점으로 끝까지 돌려 본 결과). 사용자가 권장안을 모두 골랐다.
 
 - **오늘 산 종목은 체결가로 평가한다 (UX-1).** 계좌·보유·랭킹의 장마감 기준 평가(14-1)는 그대로 두되, 평가할 종가의 기준 시각 **뒤에 체결된 보유**는
   그 종가 대신 체결가로 평가한다(손익 0, `Position.priceBasis: "today_fill"`). 기준일이 오늘로 바뀌면(KR 15:40) 그날 종가로 평가된다.
@@ -1177,7 +1176,7 @@ ju 브랜치 `f2d42db`("인트로 로고 수정")가 15-7의 종이배 로고를
 - **문서**: 기준 문서(`API.md`·`DECISIONS.md`·`DEPLOY.md`·`KIWOOM.md`·`결정필요사항.md`·`교육용문서.md`)만 `docs/` 바로 아래에 두고,
   나머지는 `guides/`(설치)·`plans/`(계획서)·`design/`(설계)·`records/`(시험 기록)·`evaluation/`(평가 기준·기여)로 나눴다.
   저장소 루트의 계획·안내 5개(`SETUP_PROMPT.md`·`WSL2_SETUP.md`·`TEAM_DEV_PLAN.md`·`OPS_ADMIN_PLAN.md`·`DEPLOY_SPLIT_PLAN.md`)도 옮겨
-  루트에는 `README.md`·`AGENTS.md`만 남는다. 문서 지도는 `docs/README.md`. `교육용문서.md`는 앱 빌드가 그 자리를 가정해서
+  루트에는 `README.md`·`AGENTS.md`만 남는다. 문서 지도는 `docs/README.md`(2026-10-12 루트 `README.md` "문서" 절로 옮김 — 32장). `교육용문서.md`는 앱 빌드가 그 자리를 가정해서
   (`?raw` import, nginx 이미지의 NFC 이름 정리, `.dockerignore`의 `!docs/*.md`) 옮기지 않는다.
 - **`backend/reports`**: 앱 루트에는 Django가 정한 자리(`models.py`·`migrations/`·`admin.py`·`apps.py`·`urls.py`·`views.py`·`sse.py`·`payloads.py`·`management/`)만 남기고
   기능 코드를 폴더 6개로 나눴다 — `orchestration/`(orchestrator·runner·registry·state와 YAML 두 개. registry가 YAML을 자기 폴더에서 찾는다),
@@ -1258,7 +1257,43 @@ ju 브랜치 `f2d42db`("인트로 로고 수정")가 15-7의 종이배 로고를
   `MANUAL_SKIP_CODES`)이 사유를 `reasons`에서 `skippedReasons`로 옮길 뿐이고, `approved`는 엔진의 원래 판정(false)을 그대로 남긴다.
 - **기록**: `TradePlan.manual_start`(`db_default` False, 활성화 때 한 번 쓰고 바꾸지 않는다), `activated`·`risk_checked` 사건 details·message, 이 계획의 모든 알림 제목 앞
   `[시연용 수동 시작]`, 계획·목록·홈의 배지 "시연용 수동 시작", Django 관리 화면의 필터.
-- **설정 키를 두지 않았다**: 운영 `.env.docker`가 2026-10-08부터 `AUTOTRADE_DEMO=off`라 그것으로 막으면 시연에서 `403`이 난다. 발표 뒤 끌지·지울지는 `docs/결정필요사항.md` U27.
-- **이름**: 원본의 실주문 리스크 우회 플래그와 헷갈리지 않게 "bypass" 대신 `manual_start`·`skipped`를 쓴다.
+- **설정 키를 두지 않았다**: 운영 `.env.docker`가 2026-10-08부터 `AUTOTRADE_DEMO=off`라 그것으로 막으면 시연에서 `403`이 난다. 발표 뒤 끌지·지울지는 `docs/plans/TEAM_PAPER_TRADING_PLAN.md` 4장 U27.
+- **이름**: 실주문 금지어 `--bypass`와 헷갈리지 않게 "bypass" 대신 `manual_start`·`skipped`를 쓴다.
 - **AGENTS.md 안전 규칙**("AI는 제안만 한다")에 이 예외를 한 문장 더했다.
 - **같이 고친 것**: 실행 확인의 확인 체크는 화면이 "시작할 수 없음"으로 바뀌면(뒤로 가기, 중단 스위치 등) 지운다 — 전에는 체크 칸은 비었는데 시작 버튼이 켜진 채 남을 수 있었다 (일반 시작도 같다).
+
+## 32. 문서 정리: 다른 프로젝트 언급 삭제 · 문서 합치기 (2026-10-12, 사용자 결정)
+
+사용자가 문서 파일을 정리하면서 이 서비스 밖의 다른 프로젝트를 가리키는 말은 **문서에서만** 지우고, 합칠 수 있는 문서는 **최대한 합쳐 문서 수를 줄이라**고 정했다.
+
+- **다른 프로젝트 언급**: 문서(`.md`)에서만 지웠다. 그 말에 붙어 있던 규칙은 이 서비스 기준으로 다시 써서 남겼다 —
+  Redis 키 접두사는 `paper:`만 쓴다, 토스 토큰은 client당 1개라 같은 `CLIENT_ID`를 쓰는 곳(로컬 `scripts/dev.sh`·운영 서버)끼리 서로 무효가 된다(`AGENTS.md` 안전 규칙, 3-1).
+  코드 주석·`.env.example`·`.gitignore` 설명은 고치지 않았다. 참고용 로컬 복사본 폴더는 지금처럼 git·이미지·ruff 검사에서 뺀다
+  (`.gitignore`·`.dockerignore`·`pyproject.toml`의 제외 줄은 그대로 — 커밋된 적이 없다). git 이력은 다시 쓰지 않는다.
+- **합치기**: `docs/` 아래 문서를 42개에서 17개로 줄였다. 남는 문서는 경로와 장 번호를 그대로 둔다 (코드 주석이 가장 많이 가리키는 쪽을 남겼다).
+  합쳐진 문서는 남는 문서 뒤에 "부록 A, B…"로 붙이고 장 번호 앞에 그 글자를 붙였다 (예: 옛 `TEAM_DEV_PLAN.md` 6-2 → 계획서 부록 A6-2). 새로 만든 `docs/records/기록.md`·`docs/research/조사.md`는 옛 문서 하나가 장 하나(A, B…)다.
+  부록·장 머리에 옛 경로를 한 줄씩 적었다. 본문은 줄이지 않고 옮겼다.
+- **참조**: 옛 경로를 가리키던 곳은 문서와 코드·설정 파일 52개의 주석(문서 경로만 — 동작 변경 없음. 화면 문구는 `WorkflowPreviewPage.tsx`의 "TEAM_DEV_PLAN" 한 줄)에서 새 자리로 바꿨다. 29장처럼 지난 기록 속 경로도 바꿨고,
+  커밋 당시의 경로를 설명하는 곳만 "(지금 …)"을 붙였다. 만든 적 없는 `docs/개선이력.md`를 가리키던 곳은 `docs/records/기록.md`로, 옛 `docs/설계서.md`는 `docs/deliverables/01_멀티에이전트_아키텍처_설계서.md`로 바꿨다.
+- **합치지 않은 것**: `API.md`·`DECISIONS.md`(코드 주석 약 250개 파일이 장 번호로 가리킨다), `교육용문서.md`(앱이 빌드에 넣는다), 산출물 3종, 평가 문서 2개,
+  `design/AI_AGENT_WORKFLOW.md`·`plans/컨셉변경계획.md`(각각 코드 18·31개 파일의 주석이 장 번호로 가리켜 남는 문서로 두었다).
+- **같이 고친 것**: 계획서 1장 "지금 상태"를 2026-10-12 기준으로, 운영 시세 설정(`ALLOW_TOSS_BROKER=on`, `DJANGO_DEBUG=off` — `docs/DEPLOY.md` 0장), 계획서의 `파일:줄` 참조를 파일·절 이름으로, 끝난 계획의 상태 줄.
+- **앞으로**: 새 문서를 만들기보다 있는 문서에 장으로 더한다. 규칙은 `AGENTS.md` "작업 방식", 문서 지도는 루트 `README.md` "문서" 절.
+
+| 옛 경로 | 새 자리 |
+|---|---|
+| `docs/결정필요사항.md` | `docs/plans/TEAM_PAPER_TRADING_PLAN.md` 4장 (옛 n장 → 4-n) |
+| `docs/plans/TEAM_DEV_PLAN.md` | `docs/plans/TEAM_PAPER_TRADING_PLAN.md` 부록 A |
+| `docs/plans/투자서비스확장계획.md` | `docs/plans/컨셉변경계획.md` 부록 A |
+| `docs/plans/OPS_ADMIN_PLAN.md` · `docs/plans/DEPLOY_SPLIT_PLAN.md` | `docs/DEPLOY.md` 부록 A · 부록 B |
+| `docs/KIWOOM.md` · `docs/design/화면배치.md` | `docs/design/DESIGN.md` 부록 A · 부록 B |
+| `docs/tasks/01-인프라.md` ~ `docs/tasks/06-추천·자동매매.md` | `docs/tasks/00-공통.md` 부록 A1~A6 |
+| `docs/records/개장시험_2026-10-06.md` | `docs/records/기록.md` A장 |
+| `docs/works/done/Hwanseok_완료보고서_추천워크플로우_2026-10-07.md` · `docs/works/done/Hwanseok_리뷰_추천워크플로우_2026-10-07.md` | 같은 문서 B장 · C장 |
+| `docs/works/done/yubeen_리뷰_T3-1레지스트리_2026-10-07.md` · `docs/works/todo/feat-2-worker_리뷰_Worker계약_2026-10-07.md` | 같은 문서 D장 · E장 |
+| `docs/records/운영E2E점검_UX리뷰_2026-10-08.md` | 같은 문서 F장 |
+| `docs/works/done/feat-4-chaos_리뷰_장애주입_2026-10-08.md` · `docs/works/todo/yubeen_리뷰_Orchestrator별도구현_2026-10-08.md` | 같은 문서 G장 · H장 |
+| `docs/research/약관_이용조건_조사.md` · `장기투자_뉴스·펀더멘털_조사.md` · `단타_실시간시세_조사.md` · `선물모의거래_조사.md` | `docs/research/조사.md` A·B·C·D장 |
+| `docs/guides/WSL2_SETUP.md` | `docs/guides/SETUP_PROMPT.md` 0장 |
+| `docs/README.md` (문서 지도) | 루트 `README.md` "문서" 절 (새 문서를 둘 곳은 `AGENTS.md` "작업 방식") |
+

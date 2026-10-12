@@ -1,4 +1,4 @@
-"""AI 리포트 Guard (docs/tasks/00-공통.md 8절, 03-orchestrator.md T3-5·T3-7·T3-8).
+"""AI 리포트 Guard (docs/tasks/00-공통.md 8절, 부록 A3 T3-5·T3-7·T3-8).
 
 - 입력 Guard `clean_text`: 뉴스·공시 같은 외부 글을 프롬프트에 넣기 전에 지시문·비밀 값 모양을 지우고 길이를 줄인다.
   Worker가 부르고, 지운 사유가 있으면 결과에 `_guarded: [사유, ...]`로 붙인다 (Orchestrator가 Trace `details.guarded`로 남긴다).

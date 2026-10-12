@@ -24,7 +24,7 @@ export function WorkflowPreviewPage() {
             프로젝트에 이미 정의된 예시 Trace를 재생합니다. 실제 API·LLM은 호출하지 않으며 화면에는 계속 <b>예시 데이터</b>라고 표시됩니다.
           </p>
           <p className="mt-2 text-[13px] leading-relaxed text-mute">
-            TEAM_DEV_PLAN의 DR-LLM-01~04, DR-CRT-01~02, DR-SEC-01 중 프론트 화면으로 확인할 수 있는 상황을 모았습니다.
+            계획서 부록 A8의 DR-LLM-01~04, DR-CRT-01~02, DR-SEC-01 중 프론트 화면으로 확인할 수 있는 상황을 모았습니다.
           </p>
           <Link
             to="/ui/errors"

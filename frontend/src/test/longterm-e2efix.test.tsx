@@ -1,4 +1,4 @@
-// 운영 E2E 점검 뒤 고친 것 — 장기투자 쉬운 말 (docs/records/운영E2E점검_UX리뷰_2026-10-08.md UX-4).
+// 운영 E2E 점검 뒤 고친 것 — 장기투자 쉬운 말 (docs/records/기록.md F장 UX-4).
 // 쉬운 보기: "정기공시" → "실적 보고서(정기공시)", "점검할 축" → "먼저 볼 것", "기준선 …" → "… 숫자와 비교해요". 전문가 보기는 그대로.
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";

@@ -1,4 +1,4 @@
-"""LLM 호출기 (docs/tasks/04-autohealing.md T4-3·T4-4·T4-5, docs/tasks/00-공통.md 7절):
+"""LLM 호출기 (docs/tasks/00-공통.md 부록 A4 T4-3·T4-4·T4-5, docs/tasks/00-공통.md 7절):
 실패 분류, 같은 모델 재시도 1번(주 모델 timeout은 바로 대체 모델 — 2026-10-08) → 대체 모델 하나(FALLBACK_POOL에서 고름), 전체 4번·deadline 안,
 Circuit Breaker, 복구 Trace(agent_failed final:false · agent_retry · agent_failover), 비용, 가짜 LLM(fake_llm)."""
 from types import SimpleNamespace

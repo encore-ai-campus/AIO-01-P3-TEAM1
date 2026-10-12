@@ -1,4 +1,4 @@
-"""시세·차트 Worker `market_agent` (docs/tasks/02-worker.md T2-4, 00-공통.md 10절, docs/API.md 공통 규칙 "리포트 시세").
+"""시세·차트 Worker `market_agent` (docs/tasks/00-공통.md 부록 A2 T2-4, 00-공통.md 10절, docs/API.md 공통 규칙 "리포트 시세").
 
 자료: 가격은 만들 때의 가격이다 — 기준일 뒤 정규장이 시작됐으면(`trading.market.traded_since_basis`, 장 중) 현재가(`live_prices`),
 아니면(또는 현재가를 받지 못하면) `closes`의 직전 정규장 종가. 지표는 `completed_candles`(완성 봉만)로 코드가 계산한다.

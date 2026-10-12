@@ -1,4 +1,4 @@
-"""AI 리포트 Orchestrator (docs/tasks/00-공통.md 8·9절, 03-orchestrator.md T3-3·T3-5~T3-9·T3-12, docs/design/AI_AGENT_WORKFLOW.md).
+"""AI 리포트 Orchestrator (docs/tasks/00-공통.md 8·9절, 부록 A3 T3-3·T3-5~T3-9·T3-12, docs/design/AI_AGENT_WORKFLOW.md).
 
 실행 계획(registry.execution_plan(report.team))대로 Worker를 단계마다 병렬·순차로 돌리고, Join Guard·부분 실패 정책·
 검토 반복(RETRY)·Handoff를 판단해 Shared State와 Trace를 남긴다. State·Trace는 `state.*`로만 바꾼다.

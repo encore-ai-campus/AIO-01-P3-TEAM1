@@ -408,7 +408,7 @@ export const EXPERT_FAILURE_FALLBACK = "재시도와 대체 모델로도 복구�
 
 // 쉬운 PDF(backend/reports/output/easy_text.py recovery_sentences)도 같은 규칙·문장을 쓴다 — 바꾸면 둘 다 고친다
 /**
- * 자동 복구를 쉬운 문장으로 (신뢰 패널 둘째 줄·진행 표시, docs/tasks/04-autohealing.md T4-11).
+ * 자동 복구를 쉬운 문장으로 (신뢰 패널 둘째 줄·진행 표시, docs/tasks/00-공통.md 부록 A4 T4-11).
  * 다른 모델로 바꿔 끝냈으면 "○○ AI가 늦어 다른 AI가 이어받았어요", 같은 모델로 다시 해서 끝냈으면 "한 번 더 시도해 끝냈어요",
  * 끝내 답하지 못했으면 "그 자료 없이 진행했어요". 주입한 실패도 같은 문장이다.
  */

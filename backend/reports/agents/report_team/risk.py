@@ -1,4 +1,4 @@
-"""리스크 점검 Worker `risk_agent` (docs/tasks/02-worker.md T2-7). 검토가 넘긴 Handoff로만 불린다.
+"""리스크 점검 Worker `risk_agent` (docs/tasks/00-공통.md 부록 A2 T2-7). 검토가 넘긴 Handoff로만 불린다.
 
 자료: 증권사 매수 유의 지정(`trading.market.warnings` — 투자경고 등 한국어 이름), Handoff 전달 데이터, 지금까지의 결과 전부.
 결정론적 바닥: 지정이 하나라도 있으면 level은 medium 이상, 투자경고·투자위험·거래정지·정리매매·관리종목이면 high.
