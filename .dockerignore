@@ -25,6 +25,7 @@ data
 runs
 reports
 .cache
+영상
 backtest
 **/*.sqlite3
 **/*.db
