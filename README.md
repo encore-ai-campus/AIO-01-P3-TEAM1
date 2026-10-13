@@ -12,6 +12,19 @@
 
 AI는 시장·재무·뉴스 데이터를 분석해 투자 근거와 위험 요소를 제안하고, 최종 투자 결정과 매매 계획 활성화는 사용자가 직접 수행합니다.
 
+---
+시연용 계정 idpw
+tm-bkbsy	ABNDgqe5yQse
+tm-2pzzz	HFPTyJCqgmx3
+tm-b9wqe	x76PmTjqqVLC
+tm-6hhgk	DG8HkQgS5D9U
+tm-n8byc	S7MzahLLsCRa
+tm-8rhnz	NzFYyV7bAveM
+tm-gkfk9	wdeCpwTADJ9N
+tm-xmy78	GX9kusMk2TG3
+tm-uvadj	NUwjh6dL7QVk
+tm-hzph8	FPS9vUMk36DR
+---
 ## 팀원과 역할
 
 다섯 명이 AI 리포트 워크플로우의 한 층씩을 맡아 설계·구현·테스트했습니다. 담당별 기여와 커밋·PR은 **[팀원별 업무 분장과 기여 내용](docs/evaluation/팀원별_업무분장_기여.md)**에 있습니다.
